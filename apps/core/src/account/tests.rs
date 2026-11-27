@@ -598,3 +598,51 @@ fn reglages_synchronises_appliques() {
     let low = SyncedValues { profile: Some(None), mbps: Some(1), ..Default::default() };
     assert_eq!(low.apply_to(&base, caps).mbps, 5);
 }
+
+/// WINAPP-55, LINAPP-40 : la mémoire des envois, une seule pour les apps.
+#[test]
+fn memoire_des_envois_synchronises() {
+    use settings::{AccountSync, SyncedSettings, changed};
+    let station = "abcdefghijklmnopqrstuvwxyz";
+    let full = || SyncedValues { profile: Some(Some("jeu".into())), codec: Some("hevc".into()), yuv444: Some(false), mbps: Some(60), hdr: Some(true), immersive: Some("fullscreen".into()) };
+    let mut m = AccountSync::default();
+    // Première fois : tout, le changement par-dessus.
+    let change = SyncedValues { hdr: Some(false), ..Default::default() };
+    let first = m.to_send(station, &change, full);
+    assert_eq!((first.profile.clone(), first.hdr), (Some(Some("jeu".into())), Some(false)));
+    // Pas parti : gardé, et cumulé.
+    m.unsent(station, &first);
+    m.unsent(station, &SyncedValues { mbps: Some(80), ..Default::default() });
+    assert_eq!(m.pending[station].mbps, Some(80));
+    // Une liste lue pendant l'attente : la Station garde son changement.
+    let remote = SyncedSettings { station: station.into(), updated_at: 10, values: serde_json::from_value(json!({ "profile": "max" })).unwrap() };
+    assert!(m.fetched(vec![remote.clone()]).is_empty());
+    // Envoyé : plus rien n'attend ; le même `updated_at` ne revient pas.
+    let next = m.to_send(station, &SyncedValues::default(), || unreachable!("déjà lu"));
+    assert_eq!(next.mbps, Some(80));
+    m.sent(SyncedSettings { updated_at: 11, ..remote.clone() });
+    assert!(m.pending.is_empty());
+    assert!(m.fetched(vec![SyncedSettings { updated_at: 11, ..remote.clone() }]).is_empty());
+    // Plus récent d'un autre appareil : à appliquer.
+    let got = m.fetched(vec![SyncedSettings { updated_at: 12, ..remote.clone() }]);
+    assert_eq!(got, vec![(station.to_string(), SyncedValues { profile: Some(Some("max".into())), ..Default::default() })]);
+    // Sorti du compte : oublié.
+    assert!(m.fetched(Vec::new()).is_empty() && m.applied.is_empty() && m.list.is_empty());
+    m.unsent(station, &change);
+    m.forget(station);
+    assert!(m.pending.is_empty());
+    // Clés envoyées retirées, clés en attente écartées de ce qui arrive.
+    let mut waiting = SyncedValues { mbps: Some(80), hdr: Some(false), ..Default::default() };
+    waiting.remove_sent(&SyncedValues { mbps: Some(80), hdr: Some(true), ..Default::default() });
+    assert_eq!(waiting, SyncedValues { hdr: Some(false), ..Default::default() });
+    assert_eq!(full().without(&waiting).hdr, None);
+    // Les clés changées d'après les choix et les réglages de la session.
+    let caps = crate::profile::Capabilities { hevc: true, hevc444: true, ..Default::default() };
+    let screen = crate::console::Mode { width: 3840, height: 2160, refresh: 60 };
+    let jeu = crate::plan::Choices { profile: Some(crate::profile::Profile::Jeu), ..Default::default() };
+    let retouche = crate::plan::Choices { mbps: Some(80), ..jeu.clone() };
+    let (a, _) = crate::plan::plan(&jeu, caps, screen);
+    let (b, _) = crate::plan::plan(&retouche, caps, screen);
+    assert_eq!(changed(&jeu, &retouche, &a, &b), SyncedValues { profile: Some(None), codec: Some("hevc".into()), yuv444: Some(false), mbps: Some(80), ..Default::default() });
+    assert_eq!(changed(&retouche, &jeu, &b, &a), SyncedValues { profile: Some(Some("jeu".into())), ..Default::default() });
+}

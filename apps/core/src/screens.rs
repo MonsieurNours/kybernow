@@ -139,6 +139,24 @@ impl Default for Screens {
 }
 
 impl Screens {
+    /// HDR (docs/hdr.md, WINAPP-62) : la session aura un écran HDR, et ses
+    /// valeurs. `devices` : les écrans de l'appareil que la session prendra
+    /// (plusieurs écrans : dès que l'un l'est, le premier HDR donne ses
+    /// valeurs) ; `None` (un écran) : « Cet écran » (`current`).
+    pub fn session_hdr(&self, devices: Option<&[usize]>) -> (bool, Option<HdrLuminance>) {
+        let pick = |i: usize| self.list.get(i).filter(|d| d.hdr).map(|d| d.luminance);
+        let found = match devices {
+            Some(d) => d.iter().find_map(|&i| pick(i)),
+            None => pick(self.current),
+        };
+        (found.is_some(), found.flatten())
+    }
+
+    /// L'écran principal de l'appareil ([`primary_index`]).
+    pub fn primary(&self) -> usize {
+        primary_index(&self.list)
+    }
+
     /// Le réglage « Écrans » pour ce profil et cet écran virtuel demandé :
     /// l'écran virtuel compte s'il est demandé **et** utilisable sur la
     /// Station (une seule règle pour le réglage, l'accueil et la session).
@@ -645,6 +663,31 @@ fn layout_limited(screens: &[LayoutScreen], primary: usize, max: usize) -> Vec<O
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WINAPP-62 : l'écran principal et le HDR de la session, dans le cœur.
+    #[test]
+    fn principal_et_hdr_de_la_session() {
+        let screen = |primary: bool, hdr: bool, max: f64| DeviceScreen {
+            x: 0.0,
+            y: 0.0,
+            width: 1920.0,
+            height: 1080.0,
+            pixel_width: 1920,
+            pixel_height: 1080,
+            refresh: 60,
+            primary,
+            hdr,
+            luminance: hdr.then_some(HdrLuminance { max, ..HdrLuminance::default() }),
+        };
+        let mut s = Screens { list: vec![screen(false, false, 0.0), screen(true, true, 600.0), screen(false, true, 1000.0)], current: 0, ..Screens::default() };
+        assert_eq!(s.primary(), 1);
+        assert_eq!(s.session_hdr(None), (false, None), "« Cet écran » : SDR");
+        s.current = 2;
+        assert_eq!(s.session_hdr(None).1.map(|l| l.max), Some(1000.0));
+        assert_eq!(s.session_hdr(Some(&[0, 1, 2])).1.map(|l| l.max), Some(600.0), "le premier HDR");
+        assert_eq!(s.session_hdr(Some(&[0])), (false, None));
+        assert_eq!(Screens { list: vec![screen(false, false, 0.0)], ..Screens::default() }.primary(), 0);
+    }
 
     #[allow(clippy::too_many_arguments)]
     fn screen(x: f64, y: f64, w: f64, h: f64, pw: u32, ph: u32, hz: u32, primary: bool) -> DeviceScreen {

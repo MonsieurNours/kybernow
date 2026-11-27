@@ -166,6 +166,27 @@ pub fn tone(output: Output, peak: f64, screen_max: f64, screen_min: f64, sdr_whi
     }
 }
 
+/// Les métadonnées HDR10 à donner à l'écran (chaîne de sortie HDR).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Hdr10 {
+    /// Le plus clair et le plus sombre de l'écran de mastering (nits).
+    pub max_mastering: f64,
+    pub min_mastering: f64,
+    /// MaxCLL et MaxFALL (nits).
+    pub max_cll: u32,
+    pub max_fall: u32,
+}
+
+/// Les métadonnées d'une image HDR montrée sur un écran HDR : son plus
+/// clair (`peak`), ou celui de l'écran (`screen_max`) quand elle y est
+/// ramenée ([`Tone::tone`]) ; `max_fall` du contenu s'il est connu, au plus
+/// le plus clair ; noir entre 0 et 1 nit.
+pub fn hdr10_for(peak: f64, min: f64, max_fall: Option<u32>, tone: &Tone, screen_max: f64) -> Hdr10 {
+    let top = if tone.tone { screen_max } else { peak };
+    let fall = max_fall.filter(|v| *v > 0).map_or(top, f64::from).min(top);
+    Hdr10 { max_mastering: top, min_mastering: min.clamp(0.0, 1.0), max_cll: top.round() as u32, max_fall: fall.round() as u32 }
+}
+
 /// La matrice YUV → RGB d'une image, en 3 lignes de 4 (la quatrième colonne
 /// est le décalage), pour des valeurs lues en `unit` par code (1/255 en
 /// 8 bits normalisés, 64/65535 en P010…) : `colorspace` celui de FFmpeg
@@ -257,6 +278,10 @@ mod tests {
         assert!(t.tone && t.out_mode == 1);
         assert!(!tone(Output::Pq, 610.0, 600.0, 0.05, 203.0).tone, "marge de 2 %");
         assert!(!tone(Output::PqToSdr, 4000.0, 600.0, 0.05, 203.0).tone);
+        // Métadonnées : celles de l'écran quand l'image y est ramenée.
+        assert_eq!(hdr10_for(4000.0, 0.005, Some(300), &t, 600.0), Hdr10 { max_mastering: 600.0, min_mastering: 0.005, max_cll: 600, max_fall: 300 });
+        let keep = tone(Output::Pq, 500.0, 600.0, 0.05, 203.0);
+        assert_eq!(hdr10_for(500.0, 2.0, Some(900), &keep, 600.0), Hdr10 { max_mastering: 500.0, min_mastering: 1.0, max_cll: 500, max_fall: 500 });
     }
 
     #[test]

@@ -368,6 +368,18 @@ impl HdrLuminance {
     pub fn of(value: Option<HdrLuminance>) -> Self {
         value.unwrap_or_default().clamped()
     }
+
+    /// Les valeurs que le système donne d'un écran (WINAPP-49 ; DXGI,
+    /// EDR…), en nits : une maximale illisible ou sous 100 prend celle par
+    /// défaut, tout l'écran au plus la maximale (sinon la maximale), un noir
+    /// hors de 0 à 1 celui par défaut, le blanc du bureau s'il est connu.
+    pub fn from_display(max: f64, full_frame: f64, min: f64, sdr_white: Option<f64>) -> Self {
+        let d = Self::default();
+        let max = if max.is_finite() && max >= 100.0 { max } else { d.max };
+        let full_frame = if full_frame.is_finite() && full_frame > 0.0 { full_frame.min(max) } else { max };
+        let min = if min.is_finite() && (0.0..=1.0).contains(&min) { min } else { d.min };
+        Self { max, full_frame, min, sdr_white: sdr_white.unwrap_or(d.sdr_white) }.clamped()
+    }
 }
 
 /// Pourquoi le HDR n'est pas possible (docs/hdr.md, « Quand le HDR n'est pas
@@ -580,6 +592,19 @@ pub fn hdr_refused_text(lang: crate::i18n::Lang) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WINAPP-49 : les valeurs d'un écran données par le système, et le
+    /// plus clair par défaut d'une image HDR, le même que celui des règles.
+    #[test]
+    fn valeurs_hdr_du_systeme() {
+        let l = HdrLuminance::from_display(600.0, 900.0, 0.05, Some(240.0));
+        assert_eq!((l.max, l.full_frame, l.min, l.sdr_white), (600.0, 600.0, 0.05, 240.0));
+        let d = HdrLuminance::default();
+        let l = HdrLuminance::from_display(f64::NAN, 0.0, 3.0, None);
+        assert_eq!((l.max, l.full_frame, l.min, l.sdr_white), (d.max, d.max, d.min, d.sdr_white));
+        assert_eq!(HdrLuminance::from_display(50.0, 40.0, 0.0, None).max, d.max);
+        assert_eq!(d.max, kybernow_rules::hdr::DEFAULT_PEAK_NITS);
+    }
 
     #[test]
     fn pyrowave_choisi_ou_auto_par_cable() {

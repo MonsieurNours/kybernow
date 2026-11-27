@@ -67,15 +67,7 @@ pub enum MicRefusal {
 impl MicRefusal {
     /// Le texte de link-ui.md (« Micro »), dans la langue de l'app.
     pub fn text(self) -> String {
-        t(
-            match self {
-                Self::NotAllowed => "micro.not_allowed",
-                Self::NoDevice => "micro.no_device",
-                Self::Unsupported => "micro.unsupported",
-                Self::OldStation => "micro.old_station",
-            },
-            &[],
-        )
+        t(refusal_key(self), &[])
     }
 }
 
@@ -107,6 +99,156 @@ impl MicState {
             map.insert("text".into(), r.text().into());
         }
         value.to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Ce que montre l'interface (WINAPP-56)
+
+/// Le micro d'une session tel que l'interface le montre (docs/link-ui.md,
+/// « Micro ») : le choix de l'utilisateur, la réponse de l'ordinateur, les
+/// textes. Une seule règle pour toutes les apps (avant : `MicSlot` de l'app
+/// Windows, `MicUi` de l'app Linux avec ses textes en dur).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MicUi {
+    /// Allumé par l'utilisateur.
+    pub on: bool,
+    /// La réponse de l'ordinateur (`Platform::on_microphone`).
+    pub state: MicState,
+    /// Allumé à la main depuis la dernière réponse : l'avis « Micro envoyé à
+    /// {name}. » est dû quand il est pris.
+    asked: bool,
+}
+
+/// Ce que fait un appui sur la puce ou la tuile « Micro ».
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MicTap {
+    /// L'ordinateur ne le prend pas : montrer la raison en avis.
+    Refused(MicRefusal),
+    /// L'allumer (`true`) ou le couper : [`MicUi::set`], puis la session.
+    Set(bool),
+}
+
+impl Default for MicUi {
+    fn default() -> Self {
+        Self::new(false)
+    }
+}
+
+impl MicUi {
+    /// `on` : le choix gardé par l'app pour cet ordinateur.
+    pub fn new(on: bool) -> Self {
+        Self { on, state: MicState::Off, asked: false }
+    }
+
+    /// La raison quand l'ordinateur ne le prend pas (puce estompée).
+    pub fn refused(&self) -> Option<MicRefusal> {
+        match self.state {
+            MicState::Refused(r) => Some(r),
+            _ => None,
+        }
+    }
+
+    /// La puce est allumée : allumé et pas refusé (pris, ou la réponse attendue).
+    pub fn lit(&self) -> bool {
+        self.on && self.refused().is_none()
+    }
+
+    /// Le son part vers l'ordinateur : l'icône près de l'indicateur de la session.
+    pub fn sent(&self) -> bool {
+        self.on && self.state == MicState::On
+    }
+
+    /// La puce est montrée : l'appareil a un micro, et ce n'est pas un
+    /// invité que l'hôte ne laisse pas parler.
+    pub fn shown(&self, guest: bool) -> bool {
+        self.shown_on(device_has_microphone(), guest)
+    }
+
+    fn shown_on(&self, has_microphone: bool, guest: bool) -> bool {
+        has_microphone && !(guest && self.state == MicState::Refused(MicRefusal::NotAllowed))
+    }
+
+    /// Un appui : la raison si l'ordinateur ne le prend pas, sinon l'inverse.
+    pub fn tap(&self) -> MicTap {
+        match self.refused() {
+            Some(r) => MicTap::Refused(r),
+            None => MicTap::Set(!self.on),
+        }
+    }
+
+    /// L'utilisateur l'allume ou le coupe (à donner aussi à la session).
+    pub fn set(&mut self, on: bool) {
+        self.on = on;
+        self.asked = on;
+    }
+
+    /// Le système refuse l'accès au micro : coupé (l'app garde ce choix et
+    /// dit sa raison, propre à la plateforme).
+    pub fn denied(&mut self) {
+        self.on = false;
+        self.asked = false;
+    }
+
+    /// Une réponse de l'ordinateur ; rend l'avis à montrer : « Micro envoyé
+    /// à {name}. », une fois, quand il est pris après avoir été allumé.
+    pub fn changed(&mut self, state: MicState, computer: &str) -> Option<String> {
+        self.state = state;
+        let tell = self.asked && state == MicState::On;
+        if tell || matches!(state, MicState::Refused(_)) {
+            self.asked = false;
+        }
+        tell.then(|| i18n::tr(i18n::current(), "micro.sent", &[("name", computer)]))
+    }
+
+    /// Le libellé de la puce : « Micro » allumé, « Micro coupé » sinon.
+    pub fn label(&self, lang: i18n::Lang) -> String {
+        i18n::tr(lang, if self.lit() { "micro.label_on" } else { "micro.label_off" }, &[])
+    }
+
+    /// L'infobulle : la raison quand l'ordinateur ne le prend pas, sinon
+    /// l'état et le raccourci (« Ctrl+Alt+Maj+V »…, propre à l'app).
+    pub fn tooltip(&self, lang: i18n::Lang, shortcut: &str) -> String {
+        if let Some(r) = self.refused() {
+            return i18n::tr(lang, refusal_key(r), &[]);
+        }
+        i18n::tr(lang, if self.lit() { "micro.tooltip_on" } else { "micro.tooltip_off" }, &[("shortcut", shortcut)])
+    }
+
+    /// Le sous-titre de la tuile « Micro » : « Envoyé » ou « Coupé ».
+    pub fn tile(&self, lang: i18n::Lang) -> String {
+        i18n::tr(lang, if self.lit() { "micro.tile_on" } else { "micro.tile_off" }, &[])
+    }
+
+    /// Pour les ponts : `{"on","state","lit","sent","reason","label",
+    /// "tooltip","tile"}` (`state` : `off`, `waiting`, `on`, `refused` ;
+    /// `reason` : le texte du refus ou `null`).
+    pub fn ui_json(&self, lang: i18n::Lang, shortcut: &str) -> serde_json::Value {
+        let state = match self.state {
+            MicState::Off => "off",
+            MicState::Waiting => "waiting",
+            MicState::On => "on",
+            MicState::Refused(_) => "refused",
+        };
+        serde_json::json!({
+            "on": self.on,
+            "state": state,
+            "lit": self.lit(),
+            "sent": self.sent(),
+            "reason": self.refused().map(|r| i18n::tr(lang, refusal_key(r), &[])),
+            "label": self.label(lang),
+            "tooltip": self.tooltip(lang, shortcut),
+            "tile": self.tile(lang),
+        })
+    }
+}
+
+fn refusal_key(r: MicRefusal) -> &'static str {
+    match r {
+        MicRefusal::NotAllowed => "micro.not_allowed",
+        MicRefusal::NoDevice => "micro.no_device",
+        MicRefusal::Unsupported => "micro.unsupported",
+        MicRefusal::OldStation => "micro.old_station",
     }
 }
 
@@ -504,6 +646,39 @@ fn parse_status(packet: &[u8]) -> Option<Link> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WINAPP-56 : la puce, la tuile et l'avis du micro, une règle et les
+    /// textes de link-ui.
+    #[test]
+    fn puce_et_tuile_communes() {
+        use crate::i18n::Lang;
+        let mut m = MicUi::new(false);
+        assert_eq!((m.label(Lang::Fr), m.tile(Lang::Fr)), ("Micro coupé".to_string(), "Coupé".to_string()));
+        assert_eq!(m.tooltip(Lang::En, "Ctrl+Alt+Shift+V"), "Microphone off (Ctrl+Alt+Shift+V)");
+        assert_eq!(m.tap(), MicTap::Set(true));
+        m.set(true);
+        assert!(m.lit() && !m.sent(), "allumé, réponse attendue");
+        assert_eq!(m.changed(MicState::Waiting, "PC"), None);
+        let notice = m.changed(MicState::On, "PC-SALON").unwrap();
+        assert!(notice.contains("PC-SALON"));
+        assert_eq!(m.changed(MicState::On, "PC-SALON"), None, "l'avis une fois");
+        assert!(m.sent());
+        assert_eq!((m.label(Lang::Fr), m.tile(Lang::En)), ("Micro".to_string(), "On".to_string()));
+        assert_eq!(m.tooltip(Lang::Fr, "Ctrl+Alt+Maj+V"), "Micro : envoyé à l'ordinateur (Ctrl+Alt+Maj+V)");
+        // Refusé : puce estompée, la raison en infobulle et à l'appui.
+        m.changed(MicState::Refused(MicRefusal::NoDevice), "PC");
+        assert!(!m.lit() && m.refused().is_some());
+        assert_eq!(m.tap(), MicTap::Refused(MicRefusal::NoDevice));
+        assert_eq!(m.tooltip(Lang::En, ""), "The computer has no virtual microphone: see Admin › Picture and sound.");
+        let v = m.ui_json(Lang::Fr, "x");
+        assert_eq!((v["state"].as_str(), v["lit"].as_bool()), (Some("refused"), Some(false)));
+        // Invité que l'hôte ne laisse pas parler : la puce n'est pas montrée.
+        m.changed(MicState::Refused(MicRefusal::NotAllowed), "PC");
+        assert!(!m.shown_on(true, true) && m.shown_on(true, false) && !m.shown_on(false, false));
+        // Accès refusé par le système : coupé.
+        m.denied();
+        assert!(!m.on);
+    }
 
     fn status(json: &str) -> Vec<u8> {
         let mut p = vec![STATUS];

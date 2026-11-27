@@ -263,7 +263,13 @@
     "unsupported": "This computer can't receive the microphone.",
     "old_station": "Update the Station to send your microphone.",
     "sent": "Microphone sent to {name}.",
-    "permission_windows": "KyberNow Link can't access the microphone. Allow it in Windows privacy settings."
+    "permission_windows": "KyberNow Link can't access the microphone. Allow it in Windows privacy settings.",
+    "label_on": "Microphone",
+    "label_off": "Microphone off",
+    "tooltip_on": "Microphone: sent to the computer ({shortcut})",
+    "tooltip_off": "Microphone off ({shortcut})",
+    "tile_on": "On",
+    "tile_off": "Off"
   },
   "camera": {
     "paused": "Paused",

@@ -1038,7 +1038,7 @@ impl StationAccess {
 #[path = "account/settings.rs"]
 pub mod settings;
 
-pub use settings::{SyncedSettings, SyncedValues, fetch_settings, put_settings};
+pub use settings::{AccountSync, SyncedSettings, SyncedValues, fetch_settings, put_settings};
 
 /// L'interrupteur des réglages de l'app, section « Comptes » (allumé par
 /// défaut, gardé sur l'appareil) : « Synchroniser les réglages des

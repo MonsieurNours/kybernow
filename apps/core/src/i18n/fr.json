@@ -263,7 +263,13 @@
     "unsupported": "Cet ordinateur ne reçoit pas le micro.",
     "old_station": "Mettez à jour la Station pour envoyer le micro.",
     "sent": "Micro envoyé à {name}.",
-    "permission_windows": "KyberNow Link n'a pas accès au micro. Autorisez-le dans les paramètres de confidentialité de Windows."
+    "permission_windows": "KyberNow Link n'a pas accès au micro. Autorisez-le dans les paramètres de confidentialité de Windows.",
+    "label_on": "Micro",
+    "label_off": "Micro coupé",
+    "tooltip_on": "Micro : envoyé à l'ordinateur ({shortcut})",
+    "tooltip_off": "Micro coupé ({shortcut})",
+    "tile_on": "Envoyé",
+    "tile_off": "Coupé"
   },
   "camera": {
     "paused": "En pause",
