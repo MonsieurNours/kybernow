@@ -17,6 +17,7 @@ use kybernow_core::relay::{RelayInfo, RelayRoute, RouteInfo, RouteTransport};
 use kybernow_core::session::{Notice, Platform, Recovery, Session, SessionParams, SessionRole, Status};
 use kybernow_core::share::{self, ShareEnd, ShareState};
 use kybernow_core::{Display, WindowHandle};
+use kybernow_rules::limits::{self, Device};
 
 use super::ndl;
 use super::media::{AudioSink, VideoSink};
@@ -44,6 +45,9 @@ pub struct Shared {
     /// des touches tapées.
     control_as_command: AtomicBool,
     codec: Mutex<String>,
+    /// Le format demandé à l'ordinateur (`Codec::fourcc` ; 0 : inconnu, invité ou console) : le fil de l'image l'ouvre
+    /// d'office si Kyber ne l'annonce pas (`FrameFlow::new`).
+    wanted: AtomicU32,
     /// La session demande le HDR (réglage, écran du téléviseur, décodeur) ;
     /// le cœur dit ensuite ce que l'ordinateur a obtenu (`Platform::on_hdr`).
     hdr_expected: AtomicBool,
@@ -114,6 +118,15 @@ impl Shared {
         self.codec.lock().unwrap().clone()
     }
 
+    pub fn wanted_fourcc(&self) -> u32 {
+        self.wanted.load(Ordering::Relaxed)
+    }
+
+    /// Les réglages changés en session (profil) : le format qu'ils demandent.
+    pub fn set_wanted(&self, settings: &StreamSettings) {
+        self.wanted.store(settings.codec.fourcc(), Ordering::Relaxed);
+    }
+
     /// Un flux HEVC Main 10 sans métadonnées HDR10 est pris pour du HDR
     /// seulement si la session l'attend (`crate::hdr::decide`).
     pub fn hdr_expected(&self) -> bool {
@@ -148,6 +161,7 @@ impl Shared {
             combo_enabled: AtomicBool::new(false),
             control_as_command: AtomicBool::new(false),
             codec: Mutex::new(String::new()),
+            wanted: AtomicU32::new(0),
             hdr_expected: AtomicBool::new(hdr),
             chain: Mutex::new(crate::journal::Chain::default()),
             local: Mutex::new(crate::journal::Local::default()),
@@ -472,9 +486,6 @@ fn guest_quality(g: &share::ShareGuest) -> Option<String> {
     g.image.as_ref().filter(|i| i.own()).and_then(|i| i.label())
 }
 
-// L'attente du lien du relais de l'interface est celle du cœur.
-const _: () = assert!(crate::app::RELAY_LINK_WAIT.as_secs() == share::RELAY_LINK_WAIT.as_secs());
-
 /// Le relais d'un partage ou d'un code de prêt (`relay.state` d'Admin) tel que l'interface le montre.
 pub fn relay_of(r: Option<share::ShareRelay>) -> Option<ShareRelay> {
     r.map(|r| match r.state {
@@ -655,15 +666,15 @@ pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32
         "fast" => s.reliable = false,
         _ => {}
     }
-    // Le débit du profil suit les pixels par seconde ; on ramène sa base pour
-    // ne pas dépasser le plafond (ou le débit choisi) au mode de la session.
+    // Le débit du profil suit les pixels par seconde (`profile::pixel_rate_scale`) ; on ramène sa base pour ne pas
+    // dépasser le plafond (ou le débit choisi, dans les bornes du téléviseur : `manual_mbps`) au mode de la session.
     let (w, h, fps) = mode;
-    let wanted = if host.settings.mbps > 0 { host.settings.mbps.min(cap_mbps) } else { cap_mbps };
+    let chosen = (host.settings.mbps > 0).then(|| limits::clamp_manual_mbps(host.settings.mbps, Device::LgTv, false));
+    let wanted = chosen.map_or(cap_mbps, |m| m.min(cap_mbps));
     let actual = s.bitrate(w, h, fps) / 1_000_000;
-    if host.settings.mbps > 0 || actual > wanted {
-        let ratio = (w as f64 * h as f64 * fps.max(1) as f64) / (3840.0 * 2160.0 * 60.0);
-        let scale = ratio.powf(0.75).clamp(0.4, 3.0);
-        s.mbps = ((wanted as f64 / scale).floor() as u32).max(5);
+    if chosen.is_some() || actual > wanted {
+        let scale = kybernow_core::profile::pixel_rate_scale(w as f64 * h as f64 * fps.max(1) as f64);
+        s.mbps = ((wanted as f64 / scale).floor() as u32).max(limits::MANUAL_MBPS_MIN);
     }
     // « Débit adaptatif » de cet ordinateur (allumé d'office), pour un profil comme pour un débit choisi.
     s.adaptive = host.settings.adaptive;
@@ -698,6 +709,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
     // Face à une Station Mac, « Ctrl agit comme ⌘ » (allumé tant qu'on ne l'a pas éteint). Un invité ou un emprunt
     // ne connaît pas le système de l'ordinateur : Ctrl reste Ctrl.
     let control_as_command = guest.is_none() && loan.is_none() && keymap::control_as_command(host.settings.ctrl_command, host.os.as_deref().unwrap_or(""));
+    let stream = settings(host, profile, codec, mode, cap_mbps, hdr);
     let shared = Arc::new(Shared {
         tx: Mutex::new(tx),
         session: OnceLock::new(),
@@ -713,6 +725,8 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         combo_enabled: AtomicBool::new(host.settings.combo),
         control_as_command: AtomicBool::new(control_as_command),
         codec: Mutex::new(String::new()),
+        // Un invité reçoit le format de l'hôte : rien à ouvrir d'office.
+        wanted: AtomicU32::new(if guest.is_some() { 0 } else { stream.codec.fourcc() }),
         hdr_expected: AtomicBool::new(hdr.on()),
         chain: Mutex::new(crate::journal::Chain::default()),
         local: Mutex::new(crate::journal::Local::default()),
@@ -726,7 +740,6 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         sh.send(Event::Pointer { position: state.position(), hidden: state.remote_hidden, shape });
     });
     let recovery = Recovery { watch_image: true, fallback_bitrate: Some((cap_mbps / 2).max(20) * 1_000_000), ..Recovery::default() };
-    let stream = settings(host, profile, codec, mode, cap_mbps, hdr);
     let account = if guest.is_none() && loan.is_none() { super::accounts::access(&host.id) } else { None };
     let params = match (guest, loan, account) {
         // Un invité : la Station qui partage, le jeton de son partage, l'écran de l'hôte (`SessionParams::guest`).

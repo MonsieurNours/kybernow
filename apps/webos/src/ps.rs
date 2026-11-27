@@ -421,9 +421,11 @@ impl PairError {
 /// Ce qu'un envoi reçu a ajouté (comptes, consoles).
 pub fn received_label(accounts: usize, consoles: usize) -> String {
     if english() {
-        format!("{accounts} account(s) and {consoles} console(s) received.")
+        let (a, c) = (if accounts == 1 { "account" } else { "accounts" }, if consoles == 1 { "console" } else { "consoles" });
+        format!("{accounts} {a} and {consoles} {c} received.")
     } else {
-        format!("{accounts} compte(s) et {consoles} console(s) reçus.")
+        let (a, c) = (if accounts >= 2 { "comptes" } else { "compte" }, if consoles >= 2 { "consoles" } else { "console" });
+        format!("{accounts} {a} et {consoles} {c} reçus.")
     }
 }
 

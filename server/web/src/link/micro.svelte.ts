@@ -1,17 +1,21 @@
 // Micro de l'appareil vers l'ordinateur (docs/micro.md, docs/link-ui.md
-// « Micro ») : capte le micro du navigateur (getUserMedia), l'encode en Opus
-// par WebCodecs (mono, 48 kHz, trames de 10 ms, 32 kbit/s, correction
-// d'erreurs intégrée pour 10 % de pertes) et donne chaque paquet au moteur.
-// Le choix allumé ou coupé est retenu pour chaque ordinateur (coupé à la
-// première session) ; le micro choisi et « Réduire l'écho et le bruit » sont
-// des réglages de l'app (prefs.ts).
+// « Micro ») : ce que ce navigateur sait faire, le choix allumé ou coupé
+// retenu pour chaque ordinateur (coupé à la première session), et « Micro »
+// pendant la session (`SessionMic`) : la capture (miccapture.ts, chargée à la
+// demande) suit le choix, l'état que dit l'ordinateur et ses avis. Le micro
+// choisi et « Réduire l'écho et le bruit » sont des réglages de l'app
+// (prefs.ts).
 //
-// Rien ne s'affiche sans les deux : un navigateur qui encode l'Opus
-// (AudioEncoder) et un moteur qui sait envoyer le micro
+// Rien ne s'affiche ni ne se charge sans les deux : un navigateur qui encode
+// l'Opus (AudioEncoder) et un moteur qui sait envoyer le micro
 // (`engineSendsMicrophone`, faux tant que le moteur web n'a pas le flux
-// montant).
+// montant) ; la sonde du navigateur n'est même pas faite sans le moteur.
 
-import { engineSendsMicrophone } from './engine'
+import { untrack } from 'svelte'
+import { engineSendsMicrophone, type EngineMicState } from './engine'
+import { t } from '../lib/i18n/index.svelte'
+import type { MicCapture } from './miccapture'
+import type { LiveSession } from './livesession.svelte'
 
 const CHOICES_KEY = 'kybernow.link.micro'
 
@@ -43,8 +47,10 @@ export const micro = $state({ browser: false, choices: loadChoices() })
 
 let probing: Promise<boolean> | null = null
 
-/** Ce navigateur sait-il capter le micro et l'encoder en Opus ? Une fois par page. */
+/** Ce navigateur sait-il capter le micro et l'encoder en Opus ? Une fois par page, et seulement
+ * quand le moteur sait l'envoyer (WEB-24 : sinon, une sonde pour une puce et des réglages cachés). */
 export function probeMicrophone(): Promise<boolean> {
+  if (!engineSendsMicrophone()) return Promise.resolve(false)
   if (!probing) {
     probing = (async () => {
       try {
@@ -95,133 +101,126 @@ export async function listMicrophones(): Promise<MicDevice[]> {
   }
 }
 
-/** `denied` : le navigateur n'a pas l'autorisation ; `none` : pas de micro ; `failed` : le reste. */
-/** `cancelled` : arrêtée par `stop` pendant la demande d'autorisation. */
-export type MicStart = 'ok' | 'denied' | 'none' | 'failed' | 'cancelled'
+/** Où en est « Micro » : coupé, allumé en attendant la réponse de l'ordinateur (« Envoi… »),
+ * envoyé, ou refusé par l'ordinateur (sa raison). */
+export type MicStatus = 'off' | 'connecting' | 'on' | 'refused'
+
+export function micStatus(wanted: boolean, engine: EngineMicState): MicStatus {
+  if (engine.state === 'refused') return 'refused'
+  if (!wanted) return 'off'
+  return engine.state === 'open' ? 'on' : 'connecting'
+}
 
 /**
- * Une capture du micro, de `start` à `stop`. `onPacket` reçoit chaque paquet
- * Opus et son heure de capture (µs) ; un paquet vide à l'arrêt dit à
- * l'ordinateur que le micro est coupé.
+ * « Micro » dans une session (docs/link-ui.md, « Micro ») : proposé quand ce navigateur encode l'Opus et
+ * que le moteur sait l'envoyer ; la capture suit le choix pendant l'image (allumé, et pas refusé par
+ * l'ordinateur) ; « Micro envoyé à {nom}. » quand l'ordinateur prend un micro allumé à la main.
+ * Créé pendant l'initialisation de la session (ses effets en dépendent).
  */
-export class MicCapture {
-  private stream: MediaStream | null = null
-  private ctx: AudioContext | null = null
-  private node: AudioWorkletNode | null = null
-  private encoder: AudioEncoder | null = null
-  private frames = 0
-  private origin = 0
-  private running = false
+export class SessionMic {
+  private s: LiveSession
+  /** Ce que l'ordinateur dit du micro (lu au moteur pendant la session). */
+  engine = $state<EngineMicState>({ state: 'idle' })
+  /** La capture tourne (autorisation donnée, encodeur prêt). */
+  private capturing = $state(false)
+  private starting = false
+  /** Numéro de la demande de capture : un arrêt pendant le chargement de la capture l'annule. */
+  private run = 0
+  /** Allumé à la main : l'avis « Micro envoyé à {nom}. » vient quand l'ordinateur le prend. */
+  private asked = false
+  private capture: MicCapture | null = null
 
-  constructor(private onPacket: (packet: Uint8Array, ptsUs: number) => void) {}
+  readonly wanted = $derived.by(() => micOn(this.s.hostname))
+  readonly refusal = $derived(this.engine.state === 'refused' ? this.engine.reason : null)
+  /** Un invité ne voit « Micro » que si l'hôte le laisse parler. */
+  readonly shown = $derived.by(() => micro.browser && engineSendsMicrophone() && !(this.s.g && this.refusal === 'not_allowed'))
+  readonly reason = $derived(this.refusal ? t(`micro.${this.refusal}`) : '')
+  /** Allumé dans la barre : choisi, et pas refusé par l'ordinateur (allumé aussi avant sa réponse). */
+  readonly lit = $derived(this.wanted && !this.refusal)
+  readonly tip = $derived.by(() => this.reason || t(this.lit ? 'micro.tooltip_on' : 'micro.tooltip_off', { shortcut: this.s.shortcut('V') }))
+  readonly status = $derived(micStatus(this.wanted, this.engine))
+  /** Sous-titre au toucher : « Envoi… » jusqu'à la réponse, puis « Envoyé », ou la raison du refus. */
+  readonly statusText = $derived(this.status === 'refused' ? this.reason : t(`micro.status_${this.status}`))
 
-  get active(): boolean {
-    return this.running
-  }
+  constructor(s: LiveSession) {
+    this.s = s
+    void probeMicrophone()
 
-  async start(deviceId: string, processing: boolean): Promise<MicStart> {
-    this.stop(false)
-    this.running = true
-    try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          // Un micro choisi absent : celui du système, sans perdre le choix (link-ui.md).
-          ...(deviceId ? { deviceId: { ideal: deviceId } } : {}),
-          echoCancellation: processing,
-          noiseSuppression: processing,
-          autoGainControl: processing,
-          channelCount: 1,
-        },
+    // La capture suit le choix : pendant l'image, allumé et pris (ou pas encore refusé) par l'ordinateur.
+    $effect(() => {
+      const want = this.s.phase === 'live' && this.shown && this.wanted && !this.refusal
+      untrack(() => {
+        if (want && !this.capturing && !this.starting) void this.start()
+        else if (!want && (this.capturing || this.starting)) this.stop()
       })
-    } catch (e) {
-      this.running = false
-      const name = (e as DOMException)?.name
-      return name === 'NotAllowedError' || name === 'SecurityError' ? 'denied' : name === 'NotFoundError' || name === 'OverconstrainedError' ? 'none' : 'failed'
-    }
-    if (!this.running) {
-      // Arrêtée pendant la demande d'autorisation (la session est partie) : rien n'a échoué (WEB-13).
-      this.release()
-      return 'cancelled'
-    }
-    try {
-      await this.pipeline()
-      return 'ok'
-    } catch (e) {
-      console.warn('KyberNow : micro non démarré', e)
-      this.stop(false)
-      return 'failed'
-    }
-  }
-
-  /** Le micro, à 48 kHz si le navigateur le permet (Firefox refuse un contexte à une autre
-   * fréquence que celle du micro : on prend alors la sienne, l'encodeur la ramène). */
-  private async pipeline() {
-    let ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' })
-    let source: MediaStreamAudioSourceNode
-    try {
-      source = ctx.createMediaStreamSource(this.stream!)
-    } catch {
-      await ctx.close().catch(() => {})
-      ctx = new AudioContext({ latencyHint: 'interactive' })
-      source = ctx.createMediaStreamSource(this.stream!)
-    }
-    this.ctx = ctx
-    const rate = ctx.sampleRate
-    const config = { ...OPUS_CONFIG, sampleRate: rate } as AudioEncoderConfig
-    if (!(await AudioEncoder.isConfigSupported(config)).supported) throw new Error(`Opus à ${rate} Hz refusé`)
-    this.encoder = new AudioEncoder({
-      output: (chunk) => {
-        const data = new Uint8Array(chunk.byteLength)
-        chunk.copyTo(data)
-        if (this.running) this.onPacket(data, chunk.timestamp)
-      },
-      error: (e) => console.warn('KyberNow : encodeur du micro', e),
     })
-    this.encoder.configure(config)
-    await ctx.audioWorklet.addModule(new URL('./mic-worklet.js', import.meta.url))
-    const node = new AudioWorkletNode(ctx, 'kybernow-mic', { numberOfInputs: 1, numberOfOutputs: 0, processorOptions: { rate } })
-    this.node = node
-    this.frames = 0
-    this.origin = Math.round((performance.timeOrigin + performance.now()) * 1000)
-    node.port.onmessage = (ev: MessageEvent<Float32Array<ArrayBuffer>>) => {
-      const enc = this.encoder
-      if (!this.running || !enc || enc.state !== 'configured') return
-      const samples = ev.data
-      const audio = new AudioData({
-        format: 'f32',
-        sampleRate: rate,
-        numberOfFrames: samples.length,
-        numberOfChannels: 1,
-        timestamp: this.origin + Math.round((this.frames * 1_000_000) / rate),
-        data: samples,
+
+    // Micro choisi ou traitement voix changés en cours d'envoi : la capture reprend avec eux.
+    $effect(() => {
+      void this.s.prefs.micDevice
+      void this.s.prefs.micProcessing
+      untrack(() => {
+        if (!this.capturing) return
+        this.capture?.stop(false)
+        this.capturing = false
+        void this.start()
       })
-      this.frames += samples.length
-      enc.encode(audio)
-      audio.close()
-    }
-    source.connect(node)
-    if (ctx.state === 'suspended') await ctx.resume().catch(() => {})
+    })
+
+    // L'état du micro dit par l'ordinateur, et l'avis bref quand il le prend après un allumage.
+    $effect(() => {
+      if (this.s.phase !== 'live' || !this.shown) return
+      const timer = setInterval(() => {
+        const next = this.s.engine?.microphoneState() ?? { state: 'idle' as const }
+        const was = this.engine
+        if (next.state !== was.state || (next.state === 'refused' && was.state === 'refused' && next.reason !== was.reason)) this.engine = next
+        if (this.asked && next.state === 'open') {
+          this.asked = false
+          this.s.showNotice(t('micro.sent', { name: this.s.hostname }))
+        }
+      }, 500)
+      return () => clearInterval(timer)
+    })
   }
 
-  private release() {
-    this.stream?.getTracks().forEach((t) => t.stop())
-    this.stream = null
+  /** « Micro » (puce, Ctrl + Alt + Maj + V) : refusé par l'ordinateur, la raison en avis au toucher
+   * (`touched`) ; à la souris, l'infobulle la dit déjà. */
+  toggle(touched: boolean) {
+    if (this.refusal) {
+      if (touched) this.s.showNotice(this.reason)
+      return
+    }
+    const on = !this.wanted
+    this.asked = on
+    setMicOn(this.s.hostname, on)
   }
 
-  /** Arrête la capture ; `silence` : dit tout de suite à l'ordinateur que le micro est coupé. */
-  stop(silence = true) {
-    const was = this.running
-    this.running = false
-    if (this.node) {
-      this.node.port.onmessage = null
-      this.node.disconnect()
-      this.node = null
+  private async start() {
+    this.starting = true
+    const run = ++this.run
+    const { MicCapture } = await import('./miccapture')
+    if (run !== this.run) return
+    this.capture ??= new MicCapture((packet, pts) => this.s.engine?.sendMicrophone(packet, pts))
+    const r = await this.capture.start(this.s.prefs.micDevice, this.s.prefs.micProcessing)
+    this.starting = false
+    if (r === 'ok') {
+      this.capturing = true
+      return
     }
-    if (this.encoder && this.encoder.state !== 'closed') this.encoder.close()
-    this.encoder = null
-    this.ctx?.close().catch(() => {})
-    this.ctx = null
-    this.release()
-    if (was && silence) this.onPacket(new Uint8Array(0), Math.round((performance.timeOrigin + performance.now()) * 1000))
+    // Arrêtée en route (session quittée pendant la demande) : le choix retenu pour cet ordinateur reste (WEB-13).
+    if (r === 'cancelled') return
+    // Refusé par le navigateur, ou pas de micro : « Micro » reste coupé.
+    this.asked = false
+    setMicOn(this.s.hostname, false)
+    if (r === 'denied') this.s.showNotice(t('micro.permission_web'), 8000)
+    else if (r === 'none') this.s.showNotice(t('micro.no_microphone'))
+  }
+
+  /** Arrête la capture (fin de l'image, micro coupé, session démontée). */
+  stop() {
+    this.run++
+    this.starting = false
+    this.capture?.stop()
+    this.capturing = false
   }
 }

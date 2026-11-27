@@ -74,6 +74,13 @@ for (const key of a.keys()) {
   if (key.startsWith('linux.') && !a.has(key.slice(6))) problems.push(`version Linux sans texte d'origine : ${key}`)
 }
 
+// Typographie (docs/i18n.md, TRANS-30, TRANS-32) : apostrophe droite partout ; en français, espace fine insécable
+// (U+202F) avant « : ; ! ? », jamais une espace simple ou insécable ordinaire.
+for (const [lang, m] of [['fr', a], ['en', b]]) {
+  for (const [k, v] of m) if (v.includes('\u2019')) problems.push(`apostrophe typographique ’ (${lang}) : ${k}`)
+}
+for (const [k, v] of a) if (/[ \u00a0][:;!?]/.test(v)) problems.push(`espace avant « : ; ! ? » à remplacer par l'espace fine insécable : ${k}`)
+
 if (problems.length) {
   console.error(`Catalogues de langue : ${problems.length} problème(s)\n  ${problems.join('\n  ')}`)
   process.exit(1)

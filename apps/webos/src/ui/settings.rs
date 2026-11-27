@@ -218,7 +218,7 @@ fn host_section(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host) {
         }
         Section::Statistics => statistics(cv, h, x, y, w),
         Section::Station => station(app, cv, f, h, x, y, w),
-        Section::Tv | Section::Gamepads | Section::Accounts => {}
+        Section::Tv | Section::Gamepads | Section::Accounts | Section::About => {}
     }
 }
 
@@ -305,13 +305,10 @@ fn statistics(cv: &mut Canvas, h: &Host, x: f32, mut y: f32, w: f32) {
 }
 
 /// Les quatre premiers groupes de l'empreinte, comme dans les autres apps et dans Admin (docs/link-ui.md,
-/// TRANS-34) : `sha256:9f:3a:c2:71:0b:…` → `9F3A C271 0B… …`, seize chiffres en quatre groupes de quatre.
+/// TRANS-34 ; `rules::fingerprint::short`) : `sha256:9f:3a:c2:71:0b:…` → `9F3A C271 0B…`. Sans chiffre : « — ».
 pub fn fingerprint_groups(fp: &str) -> String {
-    let hex: String = fp.trim().trim_start_matches("sha256:").chars().filter(char::is_ascii_hexdigit).take(16).collect::<String>().to_uppercase();
-    if hex.is_empty() {
-        return "—".into();
-    }
-    hex.as_bytes().chunks(4).map(|c| std::str::from_utf8(c).unwrap_or_default()).collect::<Vec<_>>().join(" ")
+    let short = kybernow_rules::fingerprint::short(fp);
+    if short.is_empty() { "—".into() } else { short }
 }
 
 /// Une latence : une décimale sous 100 ms, virgule en français.
@@ -365,19 +362,13 @@ pub fn moment(at: u64, now: u64) -> String {
     if days < 7 {
         return if english() { format!("{days} days ago") } else { format!("il y a {days} jours") };
     }
-    const FR: [&str; 12] = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-    const EN: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    let m = (month as usize).min(11);
-    if english() { format!("{mday} {}", EN[m]) } else { format!("le {mday} {}", FR[m]) }
+    let m = crate::i18n::month(month.max(0) as usize);
+    if english() { format!("{mday} {m}") } else { format!("le {mday} {m}") }
 }
 
 /// Jour du calendrier local (numéro de jour continu), mois (0 à 11) et jour du mois.
 fn local_day(t: u64) -> (i64, i32, i32) {
-    let secs = t as libc::time_t;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    if unsafe { libc::localtime_r(&secs, &mut tm) }.is_null() {
-        return ((t / 86_400) as i64, 0, 1);
-    }
+    let Some(tm) = crate::i18n::local_time(t) else { return ((t / 86_400) as i64, 0, 1) };
     // Jours depuis le 1er mars de l'an 0 (calendrier grégorien), pour la différence.
     let (y, m) = (tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1);
     let (y, m) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
@@ -627,6 +618,16 @@ fn global(app: &App, cv: &mut Canvas, f: &mut Frame) {
             y += widgets::row(cv, f, s(Setting::AccountAdd), x, y, w, tr("Ajouter un compte", "Add an account"), crate::accounts::accounts_help(), Value::Text("›".into())) + GAP;
             widgets::row(cv, f, s(Setting::WelcomeAgain), x, y, w, crate::welcome::welcome_again(), "", Value::Text("›".into()));
         }
+        // À propos (en dernier) : la version et ses mises à jour, les versions proposées, « Envoyer le journal ».
+        Section::About => {
+            y += widgets::row(cv, f, None, x, y, w, "Version", &update_help(app), Value::Text(format!("KyberNow Link {}", app.version))) + GAP;
+            if let Some(v) = update_line(app) {
+                y += widgets::row(cv, f, None, x, y, w, tr("Mise à jour", "Update"), "", Value::Text(v)) + GAP;
+            }
+            let chan: Vec<String> = vec![tr("Stables", "Stable").into(), tr("Aussi les bêtas", "Betas too").into()];
+            y += widgets::row(cv, f, s(Setting::UpdateChannel), x, y, w, tr("Versions proposées", "Versions offered"), tr("Les bêtas arrivent plus tôt, parfois avec des défauts.", "Betas arrive earlier, sometimes with rough edges."), Value::Choices(&chan, usize::from(app.store.app.beta))) + GAP;
+            widgets::row(cv, f, s(Setting::SendLog), x, y, w, crate::log_send::title(), crate::log_send::help(), Value::Text("›".into()));
+        }
         Section::Gamepads => {
             y += widgets::row(cv, f, s(Setting::Pads), x, y, w, tr("Tester les manettes", "Test controllers"), tr("Touches, sticks, gâchettes et vibrations de chaque manette", "Buttons, sticks, triggers and rumble of each controller"), Value::Text("›".into())) + GAP;
             if app.pads.is_empty() {
@@ -673,23 +674,18 @@ fn global(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 ),
                 NetKind::Unknown => (tr("inconnu", "unknown").into(), String::new()),
             };
-            y += widgets::row(cv, f, None, x, y, w, tr("Réseau", "Network"), &help, Value::Text(link)) + GAP;
-            y += widgets::row(cv, f, None, x, y, w, &format!("KyberNow Link {}", app.version), &update_help(app), Value::Text(update_value(app))) + GAP;
-            let chan: Vec<String> = vec![tr("Stables", "Stable").into(), tr("Aussi les bêtas", "Betas too").into()];
-            widgets::row(cv, f, s(Setting::UpdateChannel), x, y, w, tr("Versions proposées", "Versions offered"), tr("Les bêtas arrivent plus tôt, parfois avec des défauts.", "Betas arrive earlier, sometimes with rough edges."), Value::Choices(&chan, usize::from(app.store.app.beta)));
+            widgets::row(cv, f, None, x, y, w, tr("Réseau", "Network"), &help, Value::Text(link));
         }
     }
 }
 
-/// L'état de la recherche de mise à jour.
-fn update_value(app: &App) -> String {
+/// L'état de la recherche de mise à jour, sous la version ; rien tant qu'il n'y a rien à dire.
+fn update_line(app: &App) -> Option<String> {
     match &app.update {
-        UpdateState::Available { version, .. } => {
-            if english() { format!("Version {version} available") } else { format!("Version {version} disponible") }
-        }
-        UpdateState::Checking => tr("Recherche…", "Searching…").into(),
-        UpdateState::UpToDate => tr("À jour", "Up to date").into(),
-        UpdateState::Failed(_) | UpdateState::Unknown => String::new(),
+        UpdateState::Available { version, .. } => Some(if english() { format!("Version {version} available") } else { format!("Version {version} disponible") }),
+        UpdateState::Checking => Some(tr("Recherche…", "Searching…").into()),
+        UpdateState::UpToDate => Some(tr("À jour", "Up to date").into()),
+        UpdateState::Failed(_) | UpdateState::Unknown => None,
     }
 }
 

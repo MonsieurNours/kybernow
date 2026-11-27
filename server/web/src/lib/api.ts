@@ -539,6 +539,9 @@ export interface RelayStatus {
   }
   /** Cette page est ouverte à distance, par le relais. */
   via_relay?: boolean
+  /** Clés d'Admin à distance (Admin 0.11.8, STWIN-17 ; absent d'un Admin plus ancien) : `added`, `used` en secondes
+   * Unix ; `current` faux : une clé d'un ancien relais. */
+  remote_keys?: { id: string; name: string; added: number; used: number | null; current: boolean }[]
 }
 
 /**
@@ -922,6 +925,9 @@ export const api = {
   relay: () => request<RelayStatus>('GET', '/api/relay'),
   /** `server` vide : pas de relais ; adresse invalide : `400` avec le texte d'Admin. */
   setRelay: (changes: { server?: string; remote_access?: boolean; remote_admin?: boolean }) => request<RelayStatus>('PUT', '/api/relay', changes),
+  /** « Ajouter une clé » : le lien d'ajout (QR code), une fois, 10 minutes ; sur le réseau seulement. */
+  addRemoteKey: () => request<{ url: string; expires: number }>('POST', '/api/relay/keys'),
+  removeRemoteKey: (id: string) => request<RelayStatus>('DELETE', `/api/relay/keys/${encodeURIComponent(id)}`),
 
   // Compte KyberNow (docs/comptes.md) : session d'Admin, jamais par le relais.
   account: () => request<AccountView>('GET', '/api/account'),

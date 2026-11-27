@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Info, Mode, PairStatus, StationError, StationInfo};
+use kybernow_core::discovery;
 use kybernow_core::invite;
 use kybernow_core::lend;
 use kybernow_core::profile::Capabilities;
@@ -215,7 +216,7 @@ pub fn discover(tx: Sender<Event>) {
                 return;
             }
         };
-        let rx = match daemon.browse("_kybernow._tcp.local.") {
+        let rx = match daemon.browse(discovery::SERVICE) {
             Ok(rx) => rx,
             Err(e) => {
                 log::warn!("découverte : recherche impossible ({e})");
@@ -225,14 +226,12 @@ pub fn discover(tx: Sender<Event>) {
         let mut found: HashMap<String, Found> = HashMap::new();
         while let Ok(ev) = rx.recv() {
             match ev {
+                // L'annonce lue par le cœur (`discovery::found`) : adresse préférée, nom, empreinte mise en forme,
+                // annonce sans Kyber écartée ; comme les autres apps.
                 mdns_sd::ServiceEvent::ServiceResolved(info) => {
-                    let Some(addr) = info.get_addresses().iter().find(|a| a.is_ipv4()).or_else(|| info.get_addresses().iter().next()) else { continue };
-                    let name = info.get_property_val_str("name").map(str::to_string).unwrap_or_else(|| {
-                        info.get_fullname().split("._kybernow").next().unwrap_or("Station").to_string()
-                    });
-                    let fp = info.get_property_val_str("fp").map(|s| if s.starts_with("sha256:") { s.to_string() } else { format!("sha256:{s}") });
-                    let f = Found { name, address: addr.to_string(), port: info.get_port(), fingerprint: fp };
-                    found.insert(info.get_fullname().to_string(), f);
+                    let addresses: Vec<std::net::IpAddr> = info.get_addresses().iter().copied().collect();
+                    let Some(d) = discovery::found(info.get_fullname(), info.get_port(), &addresses, |k| info.get_property_val_str(k).map(str::to_string)) else { continue };
+                    found.insert(d.id, Found { name: d.name, address: d.host, port: d.port, fingerprint: d.fingerprint });
                     let _ = tx.send(Event::Found(found.values().cloned().collect()));
                 }
                 mdns_sd::ServiceEvent::ServiceRemoved(_, full) => {

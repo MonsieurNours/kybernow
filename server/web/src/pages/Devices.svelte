@@ -10,11 +10,12 @@
 <script lang="ts">
   import { api, canCloseLaunch, joinedGuests, type Device, type Invite, type InvitesView, type InviteShown, type Launch, type PairRequest, type Pairing, type RelayStatus } from '../lib/api'
   import { app, errorText, field, kyber, loadKyber, markRestartPending, notify, refreshStatus, setValues, value } from '../lib/store.svelte'
-  import { ago, capital, dateAt, deviceIcon, duration, mode, ms, when } from '../lib/format'
+  import { ago, capital, copyText, dateAt, deviceIcon, duration, mode, ms, when } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
   import InviteDialog from '../lib/InviteDialog.svelte'
   import LaunchPicker from '../lib/LaunchPicker.svelte'
   import Qr from '../lib/Qr.svelte'
+  import RemoteKeys from '../lib/RemoteKeys.svelte'
   import SharePanel from '../lib/SharePanel.svelte'
   import Switch from '../lib/Switch.svelte'
   import { untrack } from 'svelte'
@@ -211,12 +212,8 @@
 
   async function copy() {
     if (!pairing) return
-    try {
-      await navigator.clipboard.writeText(pairing.link)
-      notify('ok', t('devices.linkCopied'))
-    } catch {
-      notify('error', t('devices.copyFailed'))
-    }
+    if (await copyText(pairing.link)) notify('ok', t('devices.linkCopied'))
+    else notify('error', t('devices.copyFailed'))
   }
 
   function toggle(d: Device) {
@@ -539,7 +536,7 @@
           {/if}
         </div>
         <form class="relay-form" onsubmit={(e) => (e.preventDefault(), saveRelay({ server: (relayServer ?? '').trim() }))}>
-          <input id="relay-server" class="mono" type="text" placeholder="relais.exemple.org:9443" autocomplete="off" autocapitalize="off" spellcheck="false" bind:value={relayServer} />
+          <input id="relay-server" class="mono" type="text" placeholder={t('devices.away.relayExample')} autocomplete="off" autocapitalize="off" spellcheck="false" bind:value={relayServer} />
           <button type="submit" class="ghost small" disabled={relaySaving || !relayEdited}>{t('devices.away.save')}</button>
         </form>
       </div>
@@ -583,6 +580,10 @@
           onchange={(v) => saveRelay({ remote_admin: v })}
         />
       </div>
+      <!-- Clés d'Admin à distance (STWIN-17) : seulement avec un Admin qui les connaît (0.11.8). -->
+      {#if relay.remote_keys && (relay.remote_admin || relay.remote_keys.length)}
+        <RemoteKeys {relay} onchange={(r) => (relay = r)} reload={loadRelay} />
+      {/if}
     </section>
   {/if}
 </div>

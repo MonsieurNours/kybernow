@@ -13,6 +13,7 @@ mod home;
 pub mod icons;
 mod join;
 mod lend;
+mod log_send;
 mod offer;
 mod pads;
 mod pair;
@@ -102,6 +103,7 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets) -> Vec<(Target, Rect)> 
         Screen::Account => account::draw(app, cv, &mut f),
         Screen::AutoTest => autotest::draw(app, cv, &mut f),
         Screen::Welcome => welcome::draw(app, cv, assets, &mut f),
+        Screen::LogSend => log_send::draw(app, cv, &mut f),
     }
     // Une confirmation par-dessus l'accueil (retirer un ordinateur emprunté) ou la session (rendre l'ordinateur) :
     // seuls ses boutons se choisissent.

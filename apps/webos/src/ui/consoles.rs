@@ -691,7 +691,7 @@ pub fn keyboard(cv: &mut Canvas, f: &mut Frame, ps: &crate::ps::PsSessionUi) {
     let tw = cv.text_fit(r.x + 30.0, r.y + 62.0, Text::new(Font::Regular, 34.0, FROST), text, r.w - 60.0);
     cv.rect(r.x + 34.0 + tw, r.y + 22.0, 3.0, 52.0, SPECTRE);
     let by = y + 140.0;
-    let bw = widgets::primary(cv, f, t(PsTarget::KeyboardAccept), x, by, tr("Valider", "Accept"));
+    let bw = widgets::primary(cv, f, t(PsTarget::KeyboardAccept), x, by, tr("Valider", "Confirm"));
     widgets::secondary(cv, f, t(PsTarget::KeyboardCancel), x + bw + 28.0, by + 10.0, tr("Annuler", "Cancel"), 24.0);
     super::join::letter_pad(ps.keyboard_shift, cv, f);
     // Le bandeau, comme celui des aides de la souris.

@@ -2,9 +2,10 @@
 //!
 //! - Image : les paquets du correctif 0001 (Annex B) vont au décodeur du
 //!   téléviseur (NDL), depuis un fil à part (le fil réseau de Kyber ne bloque
-//!   jamais). Le jeu de paramètres (SPS/PPS, VPS, en-tête AV1) est placé devant
-//!   chaque image clé qui (re)démarre le décodeur ; après une perte, rien
-//!   avant l'image clé suivante, redemandée par le cœur.
+//!   jamais), au rythme du flux d'images du cœur (`frames::FrameFlow`) : le
+//!   jeu de paramètres (SPS/PPS, VPS, en-tête AV1) placé devant chaque image
+//!   clé ; après une perte, rien avant une image clé ou une image de reprise,
+//!   redemandée par le cœur ; un format jamais annoncé, ouvert d'office.
 //! - HDR : lu dans le jeu de paramètres et l'image clé qui chargent le
 //!   décodeur (`crate::hdr`) ; un flux HDR charge NDL avec ses métadonnées
 //!   HDR10, et le téléviseur passe en mode HDR ; un flux SDR, jamais.
@@ -14,14 +15,15 @@
 //!   ou encodé en E-AC-3 pour la chaîne Dolby (`esplayer.rs`).
 
 use std::ffi::{c_int, c_void};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use kybernow_core::audio::{opus, AudioEngine, MonotonicClock, OutputOrder, MAX_FRAMES};
+use kybernow_core::frames::{FrameFlow, Step};
 use kybernow_core::latency;
-use kybernow_core::media::{OpusHead, Packet, PacketHandler, ResumeGate, FOURCC_AV1, FOURCC_HEVC};
+use kybernow_core::media::{OpusHead, Packet, PacketHandler, FOURCC_AV1, FOURCC_HEVC};
 
 use super::eac3;
 use super::esplayer;
@@ -88,20 +90,18 @@ impl Drop for VideoSink {
     }
 }
 
+/// Le fil de l'image : le flux d'images du cœur (`frames::FrameFlow` : paramètres du flux devant l'image clé,
+/// attente d'une image clé ou d'une reprise après une perte, format jamais annoncé ouvert d'office, image clé
+/// redemandée au plus toutes les 300 ms), exécuté sur le décodeur du téléviseur (NDL).
 struct Feeder {
     shared: Arc<Shared>,
+    flow: FrameFlow,
     kind: i32,
-    config: Vec<u8>,
-    in_config: bool,
-    loaded_config: Option<Vec<u8>>,
-    waiting_key: bool,
-    /// Ce que le décodeur a reçu : reprise sans image clé possible.
-    gate: ResumeGate,
-    /// Chargement de NDL connu : s'il change (rechargement, repli du son), le
-    /// décodeur a besoin des paramètres et d'une image clé.
-    generation: u64,
-    lost_reported: bool,
-    last_request: Option<Instant>,
+    /// Chargement de NDL fait par ce fil : s'il change ailleurs (rechargement, repli du son), le décodeur a besoin des
+    /// paramètres et d'une image clé.
+    generation: Option<u64>,
+    /// Le décodeur a été pris par les mires du réglage du HDR : rouvert à la fin des mires.
+    reopen: bool,
     failed: bool,
     /// Le chargement en cours est en HDR ; la file de NDL au journal, toutes les 5 s.
     hdr_on: bool,
@@ -110,38 +110,38 @@ struct Feeder {
     owner: u64,
 }
 
+/// Le rythme de `FrameFlow::idle` : en attente d'une image clé sans rien d'avant la perte, elle est redemandée.
+const IDLE_EVERY: Duration = Duration::from_millis(100);
+
 impl Feeder {
     fn new(shared: Arc<Shared>) -> Self {
-        Self { shared, kind: ndl::VIDEO_H265, config: Vec::new(), in_config: false, loaded_config: None, waiting_key: true, gate: ResumeGate::default(), generation: 0, lost_reported: false, last_request: None, failed: false, hdr_on: false, queue: crate::journal::Queue::new(Instant::now()), owner: ndl::owner() }
+        let flow = FrameFlow::new(shared.wanted_fourcc());
+        Self { shared, flow, kind: ndl::VIDEO_H265, generation: None, reopen: false, failed: false, hdr_on: false, queue: crate::journal::Queue::new(Instant::now()), owner: ndl::owner() }
     }
 
     fn run(mut self, rx: Receiver<Msg>) {
-        while let Ok(m) = rx.recv() {
-            match m {
-                Msg::Codec(c) => {
-                    self.kind = match c {
-                        FOURCC_HEVC => ndl::VIDEO_H265,
-                        FOURCC_AV1 => ndl::VIDEO_AV1,
-                        _ => ndl::VIDEO_H264,
-                    };
-                    self.loaded_config = None;
-                    self.config.clear();
-                    self.waiting_key = true;
-                    self.shared.set_codec(ndl::name(self.kind));
+        loop {
+            match rx.recv_timeout(IDLE_EVERY) {
+                Ok(Msg::Codec(c)) => {
+                    let steps = self.flow.codec(c);
+                    self.set_kind(c);
+                    self.generation = None;
+                    self.run_steps(steps, &[], None);
                 }
-                Msg::Config(bytes) => {
-                    if !self.in_config {
-                        self.config.clear();
-                    }
-                    self.config.extend_from_slice(&bytes);
-                    self.in_config = true;
+                Ok(Msg::Config(bytes)) => {
+                    let steps = self.flow.config(&bytes);
+                    self.run_steps(steps, &[], None);
                 }
-                Msg::Frame { key, pts, data, received, resume } => {
-                    self.in_config = false;
-                    self.frame(key, pts, &data, received, resume);
+                Ok(Msg::Frame { key, pts, data, received, resume }) => self.frame(key, pts, &data, received, resume),
+                Ok(Msg::Hole) => {
+                    let steps = self.flow.lost();
+                    self.run_steps(steps, &[], None);
                 }
-                Msg::Hole => self.lost(),
-                Msg::Stop => break,
+                Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => break,
+                Err(RecvTimeoutError::Timeout) => {
+                    let steps = self.flow.idle(Instant::now());
+                    self.run_steps(steps, &[], None);
+                }
             }
         }
         // Le décodeur n'est rendu que s'il est encore à ce fil : un fil d'image plus récent (image relancée) l'a peut-être
@@ -153,14 +153,24 @@ impl Feeder {
         ndl::unload_if(self.owner);
     }
 
+    /// Le décodeur de NDL de ce format.
+    fn set_kind(&mut self, fourcc: u32) {
+        self.kind = match fourcc {
+            FOURCC_HEVC => ndl::VIDEO_H265,
+            FOURCC_AV1 => ndl::VIDEO_AV1,
+            _ => ndl::VIDEO_H264,
+        };
+        self.shared.set_codec(ndl::name(self.kind));
+    }
+
     /// Le HDR de ce flux, lu dans son jeu de paramètres et cette image clé
     /// (`None` : SDR) ; la session dit si elle l'a demandé (`Shared::hdr_expected`).
-    fn hdr(&self, key: &[u8]) -> Option<crate::hdr::HdrMeta> {
+    fn hdr(&self, head: &[u8], key: &[u8]) -> Option<crate::hdr::HdrMeta> {
         if self.kind == ndl::VIDEO_H264 {
             return None;
         }
         let scan = |b: &[u8]| if self.kind == ndl::VIDEO_AV1 { crate::hdr::scan_av1(b) } else { crate::hdr::scan_hevc(b) };
-        let mut seen = scan(&self.config);
+        let mut seen = scan(head);
         seen.merge(scan(key));
         let expected = self.shared.hdr_expected();
         let hdr = crate::hdr::decide(&seen, self.kind == ndl::VIDEO_H265, expected);
@@ -180,113 +190,120 @@ impl Feeder {
         }
     }
 
-    fn request_keyframe(&mut self) {
-        if self.last_request.is_some_and(|t| t.elapsed() < Duration::from_millis(300)) {
-            return;
-        }
-        self.last_request = Some(Instant::now());
-        if let Some(s) = self.shared.session() {
-            s.request_keyframe();
-        }
-        // Une partie sur une console : l'image clé est demandée à la console.
-        self.shared.console_keyframe(true);
-    }
-
-    fn lost(&mut self) {
-        self.waiting_key = true;
-        if !self.lost_reported {
-            self.lost_reported = true;
-            if let Some(s) = self.shared.session() {
-                s.keyframe_lost();
-            }
-            self.shared.console_keyframe(true);
-        }
+    /// Le décodeur est à rouvrir (rechargé ailleurs, déchargé par le téléviseur, rendu par les mires) : à l'image clé
+    /// suivante, demandée tout de suite.
+    fn reset(&mut self, now: Instant) {
+        self.generation = None;
+        let steps = self.flow.reset(now);
+        self.run_steps(steps, &[], None);
     }
 
     fn frame(&mut self, key: bool, pts: u64, data: &[u8], received: i64, resume: Option<u64>) {
         // Les mires du réglage du HDR tiennent le décodeur : les images de la session attendent, sans redemander
-        // d'image clé ; à leur fin, NDL se recharge à l'image clé suivante.
+        // d'image clé ; à leur fin, NDL se rouvre à l'image clé suivante.
         if ndl::mires_active() {
-            self.loaded_config = None;
-            self.gate.reset();
-            self.waiting_key = true;
+            self.reopen = true;
             return;
         }
-        // Nouveau jeu de paramètres sur une image clé : `ndl::ensure` recharge
-        // NDL si le format, la taille ou le plan de son ont changé, et les
-        // paramètres repartent devant cette image clé.
-        let stale = key && !self.config.is_empty() && self.loaded_config.as_ref().is_some_and(|c| *c != self.config);
-        if self.loaded_config.is_none() || stale {
-            if !key {
-                self.request_keyframe();
-                return;
-            }
-            let (w, h) = self.shared.video_size();
-            let hdr = self.hdr(data);
-            if let Err(e) = ndl::ensure(self.owner, self.kind, w, h, hdr) {
-                if e == ndl::BUSY {
-                    // Les mires du réglage du HDR tiennent le décodeur : l'image attend leur fin.
-                    return;
-                }
-                if !self.failed {
-                    log::error!("image : {e}");
-                    self.failed = true;
-                    self.shared.decoder_failed(&e);
-                }
-                return;
-            }
-            self.loaded_config = Some(self.config.clone());
-            self.gate.reset();
-            self.waiting_key = true;
-            self.generation = ndl::generation();
-            if self.hdr_on != hdr.is_some() {
-                // Un bilan est tout SDR ou tout HDR.
-                self.log_queue(Instant::now());
-                self.hdr_on = hdr.is_some();
-            }
+        let now = Instant::now();
+        if std::mem::take(&mut self.reopen) {
+            self.reset(now);
         }
-        if self.generation != ndl::generation() {
-            self.generation = ndl::generation();
-            self.gate.reset();
-            self.waiting_key = true;
+        if self.generation.is_some_and(|g| g != ndl::generation()) {
             log::info!("image : décodeur rechargé, image clé redemandée");
+            self.reset(now);
         }
-        // Après une perte : une image clé, ou une image de reprise qui ne
-        // dépend que d'images que NDL a déjà (il n'est pas rechargé).
-        // Décodeur intact : la session a déjà demandé la reprise, et
-        // redemande une image clé si rien ne vient.
-        if self.waiting_key && !key && !self.gate.resumes(resume) {
-            if !self.gate.intact() {
-                self.request_keyframe();
+        let steps = self.flow.frame(key, data, resume, now);
+        self.run_steps(steps, data, Some((pts, received)));
+    }
+
+    /// Ce que le flux d'images demande, dans l'ordre ; `data` et `frame` (`pts`, arrivée) : l'image en cours.
+    fn run_steps(&mut self, steps: Vec<Step>, data: &[u8], frame: Option<(u64, i64)>) {
+        // Le jeu de paramètres qui part devant l'image clé : celui que lit le HDR à l'ouverture.
+        let head = steps.iter().find_map(|s| if let Step::Decode { head, .. } = s { Some(head.clone()) } else { None }).unwrap_or_default();
+        for step in steps {
+            match step {
+                Step::Open(fourcc) => {
+                    if !self.open(fourcc, &head, data) {
+                        return;
+                    }
+                }
+                Step::Decode { head, first } => {
+                    if let Some((pts, received)) = frame {
+                        self.decode(&head, data, first, pts, received);
+                    }
+                }
+                Step::Skip => {}
+                Step::Lost => {
+                    if let Some(s) = self.shared.session() {
+                        s.keyframe_lost();
+                    }
+                    self.shared.console_keyframe(true);
+                }
+                Step::Keyframe => {
+                    if let Some(s) = self.shared.session() {
+                        s.request_keyframe();
+                    }
+                    // Une partie sur une console : l'image clé est demandée à la console.
+                    self.shared.console_keyframe(true);
+                }
+                Step::Recovered { .. } => {
+                    if let Some(s) = self.shared.session() {
+                        s.keyframe_recovered();
+                    }
+                    self.shared.console_keyframe(false);
+                }
+                // Pas de PyroWave sur les téléviseurs LG : jamais demandé à l'ordinateur.
+                Step::Configure(_) => {}
             }
-            return;
         }
-        let first = self.waiting_key;
+    }
+
+    /// Ouvre NDL pour ce format, cette taille et ce HDR (`ndl::ensure` le recharge s'ils ont changé) ; faux si
+    /// l'image attend ou ne peut pas être montrée.
+    fn open(&mut self, fourcc: u32, head: &[u8], key: &[u8]) -> bool {
+        self.set_kind(fourcc);
+        let (w, h) = self.shared.video_size();
+        let hdr = self.hdr(head, key);
+        if let Err(e) = ndl::ensure(self.owner, self.kind, w, h, hdr) {
+            // Les mires du réglage du HDR tiennent le décodeur, ou NDL refuse ce chargement : l'image attend, et le
+            // décodeur se rouvre à l'image clé suivante (un refus est dit une fois).
+            if e != ndl::BUSY && !self.failed {
+                log::error!("image : {e}");
+                self.failed = true;
+                self.shared.decoder_failed(&e);
+            }
+            self.reopen = true;
+            return false;
+        }
+        self.generation = Some(ndl::generation());
+        if self.hdr_on != hdr.is_some() {
+            // Un bilan est tout SDR ou tout HDR.
+            self.log_queue(Instant::now());
+            self.hdr_on = hdr.is_some();
+        }
+        true
+    }
+
+    /// Donne l'image à NDL, `head` devant.
+    fn decode(&mut self, head: &[u8], data: &[u8], first: bool, pts: u64, received: i64) {
         let buf;
-        let bytes: &[u8] = if key && first && !self.config.is_empty() {
-            buf = [self.config.as_slice(), data].concat();
-            &buf
-        } else {
+        let bytes: &[u8] = if head.is_empty() {
             data
+        } else {
+            buf = [head, data].concat();
+            &buf
         };
         let call = Instant::now();
         match ndl::play(bytes) {
             Ok(queued) => {
-                self.gate.fed(pts);
+                self.flow.fed(pts);
                 let now = Instant::now();
                 self.queue.add(queued, now - call);
                 if self.queue.due(now) {
                     self.log_queue(now);
                 }
                 if first {
-                    self.waiting_key = false;
-                    if self.lost_reported {
-                        self.lost_reported = false;
-                        if let Some(s) = self.shared.session() {
-                            s.keyframe_recovered();
-                        }
-                        self.shared.console_keyframe(false);
-                    }
                     // Une partie sur une console : la première image montrée finit la connexion.
                     self.shared.console_frame_shown();
                 }
@@ -301,29 +318,24 @@ impl Feeder {
                 }
             }
             Err(e) if e == ndl::NOT_READY => {
-                // Le décodeur attend sa confirmation : on attend l'image clé suivante.
-                self.gate.reset();
-                self.waiting_key = true;
-                self.request_keyframe();
+                // Le décodeur attend sa confirmation : une image clé, tout de suite.
+                let steps = self.flow.failed(Instant::now());
+                self.run_steps(steps, &[], None);
             }
             Err(e) if e == ndl::BUSY => {
-                // Les mires tiennent le décodeur : à leur fin, il est déchargé ; rechargé à l'image clé suivante,
-                // redemandée par la première image qui arrive alors.
-                self.loaded_config = None;
-                self.waiting_key = true;
+                // Les mires tiennent le décodeur : à leur fin, il est déchargé ; rouvert à l'image clé suivante.
+                self.reopen = true;
             }
             Err(e) if e == ndl::UNLOADED_BY_TV || e == ndl::NOT_LOADED => {
-                // Rechargé à l'image clé suivante, avec les paramètres.
+                // Rouvert à l'image clé suivante, avec les paramètres.
                 log::warn!("image : {e} ; rechargement à l'image clé suivante");
-                self.gate.reset();
-                self.loaded_config = None;
-                self.waiting_key = true;
-                self.request_keyframe();
+                self.reset(Instant::now());
             }
             Err(e) => {
+                // Rien d'avant ne suffit plus : une perte, comme un trou du flux.
                 log::warn!("image : {e}");
-                self.gate.reset();
-                self.lost();
+                let steps = self.flow.dropped();
+                self.run_steps(steps, &[], None);
             }
         }
     }
@@ -580,11 +592,15 @@ pub fn set_muted(on: bool) {
 }
 
 extern "C" fn fill(user: *mut c_void, stream: *mut u8, len: c_int) {
-    let engine = unsafe { &*(user as *const Arc<AudioEngine>) };
     let n = len.max(0) as usize / 4;
     let out = unsafe { std::slice::from_raw_parts_mut(stream as *mut f32, n) };
-    engine.fill(out, n / 2);
-    if MUTED.load(std::sync::atomic::Ordering::Relaxed) {
+    // Une panique du moteur, rattrapée à la frontière C : du silence plutôt que ce que le tampon de SDL contenait.
+    let filled = kybernow_core::ffi_guard!(false => {
+        let engine = unsafe { &*(user as *const Arc<AudioEngine>) };
+        engine.fill(out, n / 2);
+        true
+    });
+    if !filled || MUTED.load(std::sync::atomic::Ordering::Relaxed) {
         out.fill(0.0);
     }
 }

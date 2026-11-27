@@ -12,6 +12,7 @@ mod hdr;
 mod device;
 mod i18n;
 mod journal;
+mod log_send;
 mod mires;
 mod model;
 // Le générateur de captures (scripts/preview.sh) : sur l'ordinateur seulement, pas dans le binaire du téléviseur

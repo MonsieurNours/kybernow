@@ -39,6 +39,23 @@
     // Prêt de l'ordinateur : l'écran, et la flèche qui le confie.
     lend: 'M3.5 3.5h11A1.5 1.5 0 0 1 16 5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 2 12V5a1.5 1.5 0 0 1 1.5-1.5zM6 17.5h6M9 13.5v4M13.5 20h7.5M18 17l3 3-3 3',
     clock: 'M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zM12 7.5V12l3 2',
+    // Barre de session (docs/link-ui.md, « Barre de session »).
+    pointer: 'M5 3l14 7-6 2-2 6z',
+    crosshair: 'M12 4a8 8 0 1 1 0 16 8 8 0 0 1 0-16zM12 2v5M12 17v5M2 12h5M17 12h5',
+    keyboard: 'M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zM6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8',
+    speaker: 'M4 9h4l5-4v14l-5-4H4zM17 9a4 4 0 0 1 0 6M19.5 6.5a8 8 0 0 1 0 11',
+    speakerOff: 'M4 9h4l5-4v14l-5-4H4zM17 9l4 6M21 9l-4 6',
+    mic: 'M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3',
+    micOff: 'M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3M4 4l16 16',
+    fullscreen: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+    fullscreenExit: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
+    gamepad: 'M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4zM8 10.5v3M6.5 12h3',
+    eye: 'M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12zM12 9.4a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2z',
+    text: 'M5 6h14M5 10h14M5 14h14M5 18h9',
+    bolt: 'M13 2L4 14h7l-1 8 9-12h-7z',
+    sliders: 'M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4',
+    clipboard: 'M9 4h6v3H9zM9 5.5H7A1.5 1.5 0 0 0 5.5 7v12A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V7A1.5 1.5 0 0 0 17 5.5h-2',
+    more: 'M5 12h.01M12 12h.01M19 12h.01',
     // Enregistrement : le rond plein dans son cercle (navigation), la caméra (un fichier).
     record: 'M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zM12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6z',
     video: 'M4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5v-9A1.5 1.5 0 0 1 4.5 6zM15 10.5l6-3.5v10l-6-3.5',

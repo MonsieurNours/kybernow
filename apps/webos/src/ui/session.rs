@@ -254,7 +254,7 @@ fn ended(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, error: Option
     if let Some(e) = error {
         cv.paragraph(x + 60.0, y + 188.0, Text::new(Font::Regular, 21.0, FROST_2), e, w - 120.0, 30.0);
     }
-    widgets::secondary(cv, f, Target::Back, x + w - 260.0, y + h - 96.0, tr("Retour à l'accueil", "Back home"), 22.0);
+    widgets::secondary(cv, f, Target::Back, x + w - 260.0, y + h - 96.0, tr("Retour à l'accueil", "Back to home"), 22.0);
 }
 
 /// Santé du flux : latence, images par seconde, débit, mode, pertes.
@@ -516,7 +516,7 @@ fn keys(cv: &mut Canvas, f: &mut Frame, mac: bool) {
     cv.text(W / 2.0, 290.0, Text::new(Font::Title, 40.0, FROST).align(Align::Center), tr("Touches", "Keys"));
     let (x0, y0, cols, gap) = (300.0, 340.0, 2usize, 22.0);
     let w = (W - 2.0 * x0 - gap) / cols as f32;
-    for (i, (fr, en, _)) in shortcuts(mac).iter().enumerate() {
+    for (i, k) in shortcuts(mac).iter().enumerate() {
         let (c, r) = (i % cols, i / cols);
         let rect = Rect::new(x0 + c as f32 * (w + gap), y0 + r as f32 * 96.0, w, 80.0);
         let focused = f.hit(Target::Shortcut(i), rect);
@@ -527,7 +527,16 @@ fn keys(cv: &mut Canvas, f: &mut Frame, mac: bool) {
             cv.rrect(rect.x, rect.y, rect.w, rect.h, 16.0, Rgba(14, 19, 28, 235));
             cv.rrect_stroke(rect.x, rect.y, rect.w, rect.h, 16.0, 1.0, BORDER);
         }
-        let label = if english() { *en } else { *fr };
-        cv.text(rect.x + 30.0, rect.y + 50.0, Text::new(Font::Semibold, 24.0, if focused { INK } else { FROST }), label);
+        // Le nom, et son indication en petit dessous (« verrouiller, changer »).
+        let color = if focused { INK } else { FROST };
+        match k.hint() {
+            Some(hint) => {
+                cv.text(rect.x + 30.0, rect.y + 36.0, Text::new(Font::Semibold, 24.0, color), k.name());
+                cv.text(rect.x + 30.0, rect.y + 64.0, Text::new(Font::Regular, 18.0, if focused { INK } else { FROST_3 }), hint);
+            }
+            None => {
+                cv.text(rect.x + 30.0, rect.y + 50.0, Text::new(Font::Semibold, 24.0, color), k.name());
+            }
+        }
     }
 }

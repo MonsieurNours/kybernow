@@ -99,7 +99,7 @@ fn other_relay(app: &App, cv: &mut Canvas, f: &mut Frame) {
     cv.rrect(field.x, field.y, field.w, field.h, 18.0, PANEL_SOLID);
     cv.rrect_stroke(field.x, field.y, field.w, field.h, 18.0, 2.5, SPECTRE);
     let tw = if fl.field.is_empty() {
-        cv.text(field.x + 32.0, field.y + 58.0, Text::new(Font::Mono, 32.0, FROST_4), "relais.exemple.org:9443");
+        cv.text(field.x + 32.0, field.y + 58.0, Text::new(Font::Mono, 32.0, FROST_4), tr("relais.exemple.org:9443", "relay.example.org:9443"));
         0.0
     } else {
         cv.text_fit(field.x + 32.0, field.y + 58.0, Text::new(Font::Mono, 32.0, FROST), &fl.field, field.w - 80.0)

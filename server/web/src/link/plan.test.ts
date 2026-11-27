@@ -8,7 +8,7 @@ vi.mock('./device', () => ({ hasWebTransport: true, isFirefox: false, isTouch: f
 vi.mock('./inputs', () => ({ engineInputs: () => true }))
 
 import { choose } from './plan'
-import { applyFallbacks, NO_FALLBACK, nextFallback, take } from './fallback'
+import { applyFallbacks, NO_FALLBACK, nextFallback, pyrowaveFallback, take } from './fallback'
 import { startFailureDetail, startFailureNote, isStartFailure } from './engine'
 import { defaults } from './prefs'
 
@@ -59,12 +59,31 @@ describe('replis au démarrage', () => {
 
   it('une image qui ne se décode pas ne coupe jamais le son', () => {
     expect(nextFallback(hevc, NO_FALLBACK, both, 'decode_error', true)).toBe('h264')
-    expect(nextFallback({ codec: 'h264', audio: true }, { h264: true, noAudio: false }, both, 'decode_error', true)).toBeNull()
+    expect(nextFallback({ codec: 'h264', audio: true }, { ...NO_FALLBACK, h264: true }, both, 'decode_error', true)).toBeNull()
+  })
+
+  it('PyroWave qui ne s’ouvre pas repart dans le format d’Auto, une fois', () => {
+    const pyro = { codec: 'pyrowave' as const, audio: true }
+    expect(pyrowaveFallback(pyro, NO_FALLBACK)).toBe('no_pyrowave')
+    expect(pyrowaveFallback(hevc, NO_FALLBACK)).toBeNull()
+    expect(take(NO_FALLBACK, 'no_pyrowave')).toEqual({ ...NO_FALLBACK, noPyroWave: true })
+    // Déjà repassé dans le format d'Auto : la suite suit les replis ordinaires.
+    const done = take(NO_FALLBACK, 'no_pyrowave')
+    expect(pyrowaveFallback(pyro, done)).toBeNull()
+    expect(nextFallback(hevc, done, both, 'streaming_start_failed')).toBe('h264')
+  })
+
+  it('le format d’Auto est celui que PyroWave annonçait en repli', () => {
+    const pyroPrefs = { ...defaults, profile: 'max' as const, codec: 'pyrowave' as const }
+    const offer = { usable: true, stationMax: null }
+    const withPyro = choose(pyroPrefs, mode, both, 'kymux', offer)
+    expect(withPyro.codec).toBe('pyrowave')
+    expect(choose({ ...pyroPrefs, codec: 'auto' }, mode, both, 'kymux', offer).codec).toBe(withPyro.fallbackCodec)
   })
 
   it('applique les replis sans toucher au reste', () => {
     const plan = { codec: 'hevc' as const, yuv444: true, audio: true, bitrate: 1 }
-    expect(applyFallbacks(plan, { h264: true, noAudio: true }, both)).toEqual({ codec: 'h264', yuv444: false, audio: false, bitrate: 1 })
+    expect(applyFallbacks(plan, { ...NO_FALLBACK, h264: true, noAudio: true }, both)).toEqual({ codec: 'h264', yuv444: false, audio: false, bitrate: 1 })
     expect(applyFallbacks(plan, NO_FALLBACK, both)).toBe(plan)
   })
 })

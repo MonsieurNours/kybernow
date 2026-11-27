@@ -5,7 +5,7 @@
 // VideoFrame par `output` : il la dessine dans la toile de la session comme
 // une image de WebCodecs (même cadence, mêmes mesures).
 
-import { configFromSequenceHeader, parseConfig, sameConfig, type PyroWaveConfig } from './bitstream'
+import { configFromSequenceHeader, isConfig as isConfigPacket, parseConfig, sameConfig, type HdrMetadata, type PyroWaveConfig } from './bitstream'
 import { PyroWaveDecoder, type PyroWaveGPU } from './decoder'
 import { probePyroWave, pyrowaveGPU } from './probe'
 import { gpuLost, note, resetStats, sample } from './stats'
@@ -29,6 +29,8 @@ class LiveDecoder {
   ) {}
 
   private apply(config: PyroWaveConfig) {
+    // Les métadonnées HDR10 (en-tête version 2) ne changent pas le décodeur : la toile est SDR, l'image HDR y est
+    // ramenée par une courbe fixe (shaders.ts, celle de la Station), qui ne dépend pas de la crête du contenu.
     if (sameConfig(config, this.config) && this.decoder) return
     this.decoder?.destroy()
     this.decoder = null
@@ -45,7 +47,7 @@ class LiveDecoder {
       }
       this.ctx?.configure({ device: this.gpu.device, format: this.format, alphaMode: 'opaque' })
       console.info(
-        `KyberNow : décodeur PyroWave ${config.width}x${config.height} ${config.chroma444 ? '4:4:4' : '4:2:0'} ${config.hdr ? 'HDR10' : 'SDR'} ${config.fullRange ? 'pleine' : 'réduite'}${this.gpu.subgroups ? ', sous-groupes' : ''}`,
+        `KyberNow : décodeur PyroWave ${config.width}x${config.height} ${config.chroma444 ? '4:4:4' : '4:2:0'} ${config.hdr ? 'HDR10' : 'SDR'} ${config.fullRange ? 'pleine' : 'réduite'}${this.gpu.subgroups ? ', sous-groupes' : ''}${config.hdr && config.metadata ? `, ${describeHdr(config.metadata)}` : ''}`,
       )
     } catch (e) {
       console.warn('KyberNow : décodeur PyroWave refusé', e)
@@ -76,17 +78,14 @@ class LiveDecoder {
   /** Vrai si une image sortira par `output` (le moteur compte ses dates d'arrivée). */
   push(data: Uint8Array, pts: number, isConfig: boolean): boolean {
     if (this.closed) return false
-    if (isConfig) {
+    // Paquet de configuration, annoncé comme tel ou arrivé dans le flux des images (`KNPW`) : jamais décodé en image.
+    if (isConfig || isConfigPacket(data)) {
       const c = parseConfig(data)
       if (c) this.apply(c)
       else this.incident('paquet de configuration illisible')
       return false
     }
     // Sans paquet de configuration (perdu, Station plus ancienne) : l'en-tête du flux.
-    if (!this.decoder && parseConfig(data)) {
-      this.apply(parseConfig(data)!)
-      return false
-    }
     if (!this.decoder) {
       const fallback = configFromSequenceHeader(data)
       if (fallback) {
@@ -102,7 +101,7 @@ class LiveDecoder {
       note(gap + 1, 0)
       if (!this.lostReported) {
         this.lostReported = true
-        console.warn('KyberNow : PyroWave, carte graphique perdue ; relance de l’image')
+        console.warn("KyberNow : PyroWave, carte graphique perdue ; relance de l'image")
         gpuLost()
       }
       return false
@@ -151,6 +150,14 @@ class LiveDecoder {
     this.decoder = null
     this.ctx?.unconfigure()
   }
+}
+
+/** Pour le journal : « mastering 0,0050-1000 nits, MaxCLL 1000, MaxFALL 400 » (champs présents seulement). */
+function describeHdr(m: HdrMetadata): string {
+  const parts: string[] = []
+  if (m.mastering) parts.push(`mastering ${m.mastering.minNits}-${m.mastering.maxNits} nits`)
+  if (m.maxCll !== null) parts.push(`MaxCLL ${m.maxCll}, MaxFALL ${m.maxFall}`)
+  return parts.length ? parts.join(', ') : 'sans métadonnées HDR'
 }
 
 /** Sonde au chargement ; si elle passe, installe le décodeur que le moteur

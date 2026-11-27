@@ -10,7 +10,7 @@
 <script lang="ts">
   import { adminLend, type LendDuration, type LendOps, type LendSteam, type LendView } from './api'
   import { errorText, notify as storeNotify, refreshStatus, setLend } from './store.svelte'
-  import { sinceText } from './format'
+  import { copyText, sinceText } from './format'
   import { askingRequests, countdown, durationName, LEND_DURATIONS, lendAppName, lentLine, slotStarting, steamName, takingBack } from './lend'
   import Icon from './Icon.svelte'
   import Qr from './Qr.svelte'
@@ -108,12 +108,8 @@
 
   async function copy() {
     if (!view.code) return
-    try {
-      await navigator.clipboard.writeText(view.code.web)
-      notify('ok', t('share.copied'))
-    } catch {
-      notify('error', t('share.copyFailed'))
-    }
+    if (await copyText(view.code.web)) notify('ok', t('share.copied'))
+    else notify('error', t('share.copyFailed'))
   }
 </script>
 

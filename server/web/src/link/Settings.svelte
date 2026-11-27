@@ -10,7 +10,7 @@
   import Segmented from '../lib/Segmented.svelte'
   import Switch from '../lib/Switch.svelte'
   import LangChoice from '../lib/LangChoice.svelte'
-  import { t } from '../lib/i18n/index.svelte'
+  import { i18n, t } from '../lib/i18n/index.svelte'
   import { tName } from './names'
   import type { Info } from './backend'
   import { deviceKind, isAppleDevice, isFirefox, isStandalone, isTouch, type Mode } from './device'
@@ -23,6 +23,7 @@
   import { listMicrophones, micAvailable, micOn, probeMicrophone, setMicOn, type MicDevice } from './micro.svelte'
   import Stats from './Stats.svelte'
   import StationPanel from './StationPanel.svelte'
+  import { downloadJournal } from './journal'
 
   let {
     prefs = $bindable(),
@@ -344,6 +345,11 @@
           <Switch checked={prefs.micProcessing} label={t('micro.echo')} onchange={(v) => (prefs.micProcessing = v)} />
         </div>
       {/if}
+      <!-- « Télécharger le journal » (docs/link-ui.md, « Réglages de l'app › À propos ») : le navigateur l'enregistre. -->
+      <div class="stack">
+        <button type="button" class="ghost small journal" onclick={() => downloadJournal(info?.station?.version ?? '', i18n.lang === 'en')}>{t('web.settings.journal')}</button>
+        <p class="sub">{t('web.settings.journalHelp')}</p>
+      </div>
       {#if isTouch}
         {#if deviceKind() === 'phone'}
           <p class="tip"><Icon name="phone" size={18} /><span><b>{t('web.settings.rotateTitle')}</b> {t('web.settings.rotate')}</span></p>

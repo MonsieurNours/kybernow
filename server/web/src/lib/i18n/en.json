@@ -36,7 +36,7 @@
       "noImageStart": "Kyber on {host} did not start the picture. Try again in a moment.",
       "noImageArrive": "{host} is sending the picture, but it is not reaching this browser. Try the H.264 format in Settings › Picture, or use Chrome or Edge.",
       "pipeline": "The picture from {host} stopped on the computer (capture or encoding), despite {max} restarts. Reconnecting starts it again.",
-      "unauthorized": "Kyber on {host} rejects KyberNow Admin’s token. Reload the page; if it keeps happening, check Kyber in Admin.",
+      "unauthorized": "Kyber on {host} rejects KyberNow Admin's token. Reload the page; if it keeps happening, check Kyber in Admin.",
       "details": "Details:",
       "startFailed": "Kyber on {host} could not start the picture. Try again in a moment.",
       "decode": "This browser cannot decode the picture. Try the H.264 format in Settings › Picture.",
@@ -45,13 +45,14 @@
       "interrupted": "The connection to {host} was interrupted."
     },
     "notice": {
-      "displayChanged": "The computer’s display changed: the picture is coming back…",
-      "h264": "Picture in H.264: this browser couldn’t start HEVC.",
-      "noAudio": "Picture without sound: this browser couldn’t start the audio.",
-      "soundStopped": "The computer’s sound stopped.",
+      "displayChanged": "The computer's display changed: the picture is coming back…",
+      "h264": "Picture in H.264: this browser couldn't start HEVC.",
+      "noAudio": "Picture without sound: this browser couldn't start the audio.",
+      "soundStopped": "The computer's sound stopped.",
       "imageRestart": "The picture stopped on the computer: restarting ({n} of {max})…",
       "gpuLost": "The graphics card was reset: the picture is resuming…",
-      "reconnecting": "Connection lost, retrying ({attempt} of {max})…"
+      "reconnecting": "Connection lost, retrying ({attempt} of {max})…",
+      "pyrowave": "Picture in {format}: PyroWave couldn't start on this device."
     },
     "start": {
       "ended": "Session ended",
@@ -68,32 +69,37 @@
       "click": "Click for sound",
       "mute": "Mute",
       "unmute": "Unmute",
-      "on": "Sound",
-      "muted": "Muted"
+      "stereo": "Stereo",
+      "off": "Sound off"
     },
     "gamepads": {
-      "count": {
-        "one": "{n} gamepad",
-        "other": "{n} gamepads"
-      },
-      "aria": "{count}: {names}",
       "unavailable": "Controllers unavailable on this computer."
     },
     "mouse": {
-      "auto": "Auto mouse",
+      "auto": "Auto",
       "game": "Game mouse",
       "desktop": "Desktop mouse",
-      "hint": "Auto: captured only when a game is full screen on the computer"
+      "hint": "Mouse: Auto switches to the game mouse when a game is full screen on the computer ({shortcut} switches)",
+      "name": "Mouse"
     },
     "bar": {
       "show": "Show the session bar",
-      "metrics": "Statistics",
       "keys": "Keys",
       "fullscreen": "Full screen",
-      "exitFullscreen": "Exit full screen",
       "quit": "Disconnect",
       "relay": "Via the relay",
-      "showHint": "Session bar: Ctrl + Alt + Shift"
+      "showHint": "Session bar: Ctrl + Alt + Shift",
+      "toolbar": "Session bar",
+      "fps": "{fps} fps",
+      "statsHint": "Statistics ({shortcut})",
+      "profileHint": "Profile: Game, Desktop or Max",
+      "fullscreenHint": "Full screen ({shortcut})",
+      "quitHint": "Disconnect ({shortcut})",
+      "more": "More",
+      "moreHint": "More controls",
+      "clipboard": "Clipboard",
+      "clipboardOn": "Clipboard shared with the computer (text)",
+      "clipboardOff": "Clipboard not shared (Settings)"
     },
     "keys": {
       "title": "Keys",
@@ -105,6 +111,16 @@
       "altTabSub": "switch apps",
       "print": "Print Screen",
       "printSub": "screenshot",
+      "desktop": "⊞ + D",
+      "desktopSub": "desktop",
+      "lock": "⊞ + L",
+      "lockSub": "lock",
+      "close": "Alt + F4",
+      "closeSub": "close the window",
+      "taskManager": "Task Manager",
+      "taskManagerSub": "Ctrl + Shift + Esc",
+      "f11": "F11",
+      "f11Sub": "full screen",
       "macSwitch": "⌘ ⇥",
       "macSwitchSub": "switch app",
       "macSpotlight": "⌘ Space",
@@ -116,20 +132,48 @@
       "macForceQuit": "⌥ ⌘ Esc",
       "macForceQuitSub": "force quit"
     },
-    "metrics": {
+    "stats": {
       "title": "Statistics",
-      "median": "median over 3 s",
-      "computer": "Computer",
-      "computerSub": "Capture and encoding",
+      "fromCapture": "from capture\nto your screen",
+      "close": "Close statistics",
+      "waiting": "Statistics appear as soon as the picture arrives.",
+      "framePath": "Path of a frame",
+      "onComputer": "On the computer",
+      "onDevice": "On this device",
+      "capture": "Capture",
+      "captureHelp": "From capturing the frame to the start of its encoding",
+      "encode": "Encoding",
+      "encodeHelp": "Frame compression by the computer's graphics card",
+      "send": "Sending",
+      "sendHelp": "Packetising and sending over the network",
       "network": "Network",
-      "networkSub": "To this device",
-      "browser": "This browser",
-      "browserSub": "Decoding and display",
-      "waiting": "Measurements arrive with the first few seconds of picture.",
-      "fps": "{fps} fps",
-      "reliable": "Reliable",
-      "fast": "Fast",
-      "browserNote": "In a browser, display waits for the screen refresh: expect a little more than in the KyberNow Link app."
+      "networkHelp": "From leaving the computer to the full frame received here",
+      "decode": "Decoding",
+      "decodeHelp": "Frame decompression by this device",
+      "display": "Display",
+      "displayHelp": "Rendering and waiting for the display's next refresh",
+      "latency": "Latency",
+      "bitrate": "Bitrate",
+      "oneFrame": "1 frame",
+      "target": "Target bitrate",
+      "targetFixed": "{mbps} Mbit/s · fixed",
+      "targetHidden": "{mbps} Mbit/s · window hidden",
+      "losses": "Losses · 30 s",
+      "lostFrames": "Lost frames",
+      "lostPackets": "Lost packets",
+      "keyframes": "Keyframes",
+      "sessionLosses": "Session: {frames} frames, {packets} packets",
+      "path": "Path",
+      "direct": "Direct",
+      "roundTrip": "round trip {ms}",
+      "image": "Picture",
+      "imageLine": "{width} × {height} · {format} · {fps} fps",
+      "hardware": "hardware",
+      "software": "software",
+      "graphics": "graphics card",
+      "measures": "Measurements",
+      "measured": "{pct}% of frames",
+      "sound": "Sound"
     },
     "touch": {
       "modes": "Touch",
@@ -158,7 +202,8 @@
       "lowered": "Resolution lowered to {width} × {height} to fit in {mbps} Mbit/s.",
       "lost": "Lost frames",
       "decode": "PyroWave decoding"
-    }
+    },
+    "shortcut": "Ctrl + Alt + Shift + {key}"
   },
   "web": {
     "app": {
@@ -173,7 +218,7 @@
       "password": "Password",
       "wait": "One moment…",
       "continue": "Continue",
-      "hint": "There is nothing to install. The connection is encrypted with this computer’s certificate."
+      "hint": "There is nothing to install. The connection is encrypted with this computer's certificate."
     },
     "home": {
       "live": "In session on {name}: connecting will end it",
@@ -217,13 +262,13 @@
       "touch": "Touch",
       "trackpad": "Trackpad",
       "direct": "Direct touch",
-      "trackpadDesc": "Like a laptop’s: precise, for small text.",
+      "trackpadDesc": "Like a laptop's: precise, for small text.",
       "directDesc": "Your finger is the mouse: fast, for big buttons.",
       "language": "Language",
-      "languageHint": "Auto follows this browser’s language.",
+      "languageHint": "Auto follows this browser's language.",
       "path": "Picture path",
       "pathTouch": "WebSocket on this touch device: typed text and finger position go through this connection (a little more latency).",
-      "pathWebkit": "WebSocket in Safari: its WebTransport cannot verify the computer’s certificate (a little more latency).",
+      "pathWebkit": "WebSocket in Safari: its WebTransport cannot verify the computer's certificate (a little more latency).",
       "pathFirefox": "WebSocket in Firefox, with H.264 in Auto: the combination chosen for this browser (a little more latency).",
       "pathUnsupported": "WebSocket: this browser does not have WebTransport (a little more latency).",
       "pathRelay": "WebSocket through the relay: away from home, the picture goes through the KyberNow relay (a little more latency).",
@@ -239,7 +284,7 @@
       "network": "Network",
       "stats": "Statistics",
       "station": "Station",
-      "thisApp": "This app",
+      "thisApp": "This browser",
       "virtualDisplay": "Virtual display",
       "virtualHelp": "The computer creates a display sized for this device during the session; its own displays switch off, then come back at the end.",
       "virtualMissing": "This computer cannot create a virtual display: the session shows its own displays as they are.",
@@ -259,7 +304,9 @@
       "pyrowave444": "With PyroWave, almost free: only the bitrate goes up.",
       "pyrowaveStation": "{name} doesn't offer PyroWave.",
       "pyrowaveBrowser": "This browser can't decode PyroWave.",
-      "pyrowaveLowered": "Resolution lowered to {width} × {height} to fit in {mbps} Mbit/s."
+      "pyrowaveLowered": "Resolution lowered to {width} × {height} to fit in {mbps} Mbit/s.",
+      "journal": "Download the log",
+      "journalHelp": "If the app closes or a session cuts out, this text file tells what happened. Attach it to your message: you choose who to send it to."
     },
     "device": {
       "browser": "Browser",
@@ -439,7 +486,7 @@
     "create": "Create and open Admin",
     "forgot": "Forgot your password?",
     "forgotHelp": "On the computer, KyberNow Station tray icon menu › Reset the Admin password. Your devices and their accounts stay as they are.",
-    "foot": "Connection encrypted with this computer’s certificate.",
+    "foot": "Connection encrypted with this computer's certificate.",
     "kybernow": "Sign in with KyberNow",
     "kybernowHint": "With a KyberNow account that has the Administer right on this computer; on the network only.",
     "or": "or"
@@ -448,7 +495,7 @@
     "thisComputer": "This computer",
     "connectedDevice": "the connected device",
     "confirmCut": "Cut the current connection? The server restarts, for a few seconds.",
-    "confirmEnd": "End {who}’s session?",
+    "confirmEnd": "End {who}'s session?",
     "willDisconnect": "{who} will disconnect.",
     "cut": "Connection cut.",
     "noSession": "No session in progress.",
@@ -465,7 +512,7 @@
     },
     "display": {
       "off": "Off",
-      "offSub": "The computer’s displays are sent",
+      "offSub": "The computer's displays are sent",
       "active": "Active",
       "noDriver": "Driver missing",
       "seeImageSound": "See Picture and sound",
@@ -482,7 +529,7 @@
       "ready": "Ready",
       "readySub": "Up to 7.1, the computer stays silent"
     },
-    "heroLabel": "This computer’s screen",
+    "heroLabel": "This computer's screen",
     "live": "Live",
     "previewAgo": "Preview · {ago}",
     "previewUnavailable": "Preview unavailable",
@@ -546,7 +593,7 @@
       "text": "On your network, open KyberNow Link: this computer is already there. Elsewhere, or over a VPN, scan this code with the device, or paste the pairing link into the app.",
       "copy": "Copy link",
       "contents": "What the link contains",
-      "explain": "This computer’s address and its certificate fingerprint: the app knows it is talking to the right computer. No password.",
+      "explain": "This computer's address and its certificate fingerprint: the app knows it is talking to the right computer. No password.",
       "fingerprint": "Fingerprint:"
     },
     "list": {
@@ -559,7 +606,7 @@
       "oneAtATime": "one in session at a time",
       "together": "several at the same time",
       "asks": "{name} is asking for access",
-      "codeLabel": "Code on the device’s screen",
+      "codeLabel": "Code on the device's screen",
       "codeAria": "Code {digits}",
       "accept": "Accept",
       "refuse": "Decline",
@@ -615,12 +662,12 @@
     "launch": {
       "eyebrow": "At session start",
       "title": "When {name} connects",
-      "intro": "An app opens on the computer as soon as its display is ready: Steam Big Picture, Playnite, a spreadsheet… Apps and their icons come from the computer’s Start menu.",
+      "intro": "An app opens on the computer as soon as its display is ready: Steam Big Picture, Playnite, a spreadsheet… Apps and their icons come from the computer's Start menu.",
       "search": "Search for an app",
       "refresh": "Refresh",
       "refreshing": "Reading…",
       "other": "Other…",
-      "otherHint": "An executable or a shortcut in Program Files, on the Desktop or in the user’s apps",
+      "otherHint": "An executable or a shortcut in Program Files, on the Desktop or in the user's apps",
       "backToList": "Back to the apps",
       "up": "Parent folder",
       "emptyFolder": "No program here",
@@ -628,13 +675,13 @@
         "programs": "Program Files",
         "programs86": "Program Files (x86)",
         "desktop": "Desktop",
-        "userPrograms": "User’s apps"
+        "userPrograms": "User's apps"
       },
       "loading": "Reading the Start menu…",
       "readFailed": "The Start menu could not be read again: {error}. Sign in to Windows on the computer, then refresh.",
       "suggestions": "Suggestions",
       "all": "All apps",
-      "allOf": "{user}’s Start menu",
+      "allOf": "{user}'s Start menu",
       "noMatch": "No app matches.",
       "emptyCatalogue": "No app found. Sign in to Windows on the computer, then refresh.",
       "none": "No app",
@@ -642,8 +689,8 @@
       "clear": "Open nothing any more",
       "cancel": "Cancel",
       "save": "Save",
-      "saved": "{app} will open at the start of {name}’s sessions",
-      "cleared": "Nothing opens at the start of {name}’s sessions any more",
+      "saved": "{app} will open at the start of {name}'s sessions",
+      "cleared": "Nothing opens at the start of {name}'s sessions any more",
       "closeHint": "Can close by itself at the end of the session.",
       "noCloseHint": "Cannot be closed cleanly.",
       "optionsHint": "The other options are on the device's card."
@@ -707,7 +754,21 @@
       "remoteAdminNeedsAccount": "First attach this computer to a KyberNow account (KyberNow account), with “Accept KyberNow accounts”.",
       "remoteAdminNeedsAccess": "First turn on “Access away from home”.",
       "remoteAdminHere": "Can only be turned on here, on the network.",
-      "remoteAdminOpen": "Open remotely right now by {names}."
+      "remoteAdminOpen": "Open remotely right now by {names}.",
+      "keys": {
+        "title": "Remote Admin keys",
+        "help": "Away from home, Admin also asks for one of these keys (a passkey kept by your phone or keychain): the relay can't open Admin in your place.",
+        "added": "{device} · added on {date}",
+        "used": " · used on {date}",
+        "otherRelay": "(other relay)",
+        "remove": "Remove",
+        "none": "No key: Remote Admin won't open from afar. Add one.",
+        "add": "Add a key",
+        "scan": "Scan this QR code with the phone that will keep the key, or open the link on this device. It works once, for 10 minutes.",
+        "openHere": "Open on this device",
+        "done": "Done"
+      },
+      "relayExample": "relay.example.org:9443"
     }
   },
   "users": {
@@ -731,7 +792,6 @@
       "delete": "Delete",
       "originalPassword": "Original password",
       "usedBy": "Used by {devices}.",
-      "and": " and ",
       "unused": "No device uses it yet: enter it in KyberNow Link.",
       "devicePill": "Device access",
       "deviceText": "Created when {device} was accepted with a code. No password to remember: the device carries it.",
@@ -763,7 +823,7 @@
   },
   "system": {
     "title": "System",
-    "intro": "Updates, the server and graphics card, logs, and Kyber’s fine-tuning settings.",
+    "intro": "Updates, the server and graphics card, logs, and Kyber's fine-tuning settings.",
     "sections": "Sections",
     "tabs": {
       "updates": "Updates",
@@ -861,8 +921,8 @@
       "unknown": "Unknown",
       "none": "Unavailable",
       "allowedHelp": "Windows lets this card turn the computer on while it is asleep. Your devices can wake it from the KyberNow Link app. After a full shutdown, the BIOS must allow it too.",
-      "notAllowedHelp": "To let your devices turn this computer on, allow wake on magic packet in the network card’s properties, and in the BIOS.",
-      "unknownHelp": "Windows doesn’t say whether this card can turn the computer on. To let your devices do it, allow wake on magic packet in the network card’s properties, and in the BIOS.",
+      "notAllowedHelp": "To let your devices turn this computer on, allow wake on magic packet in the network card's properties, and in the BIOS.",
+      "unknownHelp": "Windows doesn't say whether this card can turn the computer on. To let your devices do it, allow wake on magic packet in the network card's properties, and in the BIOS.",
       "noneHelp": "Waking goes through an Ethernet or Wi-Fi card connected to the local network. This computer has none in use.",
       "wifiHelp": "Over Wi-Fi, waking only works with some cards, and only from sleep. An Ethernet cable is more reliable.",
       "card": "{kind} card · {name}",
@@ -894,7 +954,7 @@
     },
     "advanced": {
       "title": "Advanced",
-      "intro": "Kyber’s own settings. The defaults almost always work; a wrong setting can keep devices from connecting.",
+      "intro": "Kyber's own settings. The defaults almost always work; a wrong setting can keep devices from connecting.",
       "encoder": "Encoder",
       "backend": "Capture engine",
       "minBitrate": "Minimum bitrate",
@@ -913,7 +973,7 @@
     },
     "lang": {
       "title": "Admin language",
-      "help": "Auto follows this browser’s language. The choice applies to this browser, in Admin as in KyberNow Link web."
+      "help": "Auto follows this browser's language. The choice applies to this browser, in Admin as in KyberNow Link web."
     },
     "password": {
       "title": "Admin password",
@@ -972,7 +1032,7 @@
     },
     "channels": {
       "auto": "Auto",
-      "autoHint": "Auto follows what the device’s output accepts. A device with fewer channels downmixes on its own.",
+      "autoHint": "Auto follows what the device's output accepts. A device with fewer channels downmixes on its own.",
       "stereo": "Stereo",
       "stereoHint": "Always two channels, whatever the device.",
       "surround51Hint": "Six channels, even if the device asks for nothing: surround games and films place each sound.",
@@ -1003,7 +1063,7 @@
       "title": "Virtual display",
       "sub": "A display the exact size of the device that connects.",
       "step1": "1 · On connection",
-      "step1Text": "The virtual display takes the device’s resolution and refresh rate.",
+      "step1Text": "The virtual display takes the device's resolution and refresh rate.",
       "step2": "2 · During the session",
       "step2Text": "The connected displays turn off: nobody sees what you are doing.",
       "step3": "3 · At the end",
@@ -1019,7 +1079,7 @@
       "refresh": "Refresh rate (Hz)",
       "save": "Save",
       "modeChange": "If a game changes the resolution",
-      "modeChangeHelp": "Let it be: the picture follows the game. Put it back: the display returns to the device’s size. The apps choose according to their profile (Game: let it be, Desktop: put it back); this choice applies to the others. With the libavconv engine, a resolution change can cut the picture.",
+      "modeChangeHelp": "Let it be: the picture follows the game. Put it back: the display returns to the device's size. The apps choose according to their profile (Game: let it be, Desktop: put it back); this choice applies to the others. With the libavconv engine, a resolution change can cut the picture.",
       "modeNow": "Right now: {current} (requested: {requested}).",
       "hdr": "HDR",
       "hdrHelp": "Richer colours and brighter highlights, for devices with an HDR screen: the virtual display switches to HDR during their session, then goes back to how it was. Without a virtual display, the picture keeps the HDR of the computer's display.",
@@ -1045,9 +1105,9 @@
     "sound": {
       "title": "Sound",
       "sub": "The computer goes quiet and your device gets the sound, from stereo to 7.1.",
-      "installSteam": "Install Steam on this computer, then run the KyberNow Station installer again: it will add the virtual speakers. Without them, the sound also comes out of the computer’s speakers.",
+      "installSteam": "Install Steam on this computer, then run the KyberNow Station installer again: it will add the virtual speakers. Without them, the sound also comes out of the computer's speakers.",
       "trigger": "When to send the sound",
-      "triggerHelp": "Otherwise, the sound comes out of the computer’s speakers as usual.",
+      "triggerHelp": "Otherwise, the sound comes out of the computer's speakers as usual.",
       "channels": "Channels",
       "quality": "Quality",
       "qualityLabel": "Sound quality"
@@ -1151,7 +1211,7 @@
       "tooMany": "Too many code attempts: try again in a minute.",
       "unreadable": "This device cannot play this computer's picture ({format}).",
       "unavailable": "Sharing is not available right now: try again in a moment.",
-      "badRequest": "The code has six digits, and the name cannot be empty.",
+      "badRequest": "The code has six digits.",
       "waiting": "Waiting for the host to accept…",
       "refused": "The host declined.",
       "expired": "The host did not answer.",
@@ -1184,7 +1244,8 @@
       "noImage": "{host} is sending the picture, but it does not reach this browser. Try Chrome or Edge.",
       "decode": "This browser cannot decode {host}'s picture.",
       "lightened": "Picture lightened to keep up.",
-      "noMoreImage": "The computer can't make another picture: you get {quality}."
+      "noMoreImage": "The computer can't make another picture: you get {quality}.",
+      "leaveHint": "Leave ({shortcut})"
     }
   },
   "lend": {
@@ -1366,7 +1427,7 @@
           "since": "Since {time}",
           "connected": "Connected"
         },
-        "imageError": "Their picture didn’t start: {reason}",
+        "imageError": "Their picture didn't start: {reason}",
         "preparing": {
           "status": "Preparing",
           "title": "Getting the computer ready for {name}"
@@ -1576,9 +1637,9 @@
       "blockAccount": "Block the account",
       "blockAria": "Block {name}",
       "unblockAria": "Unblock {name}",
-      "blockAccountAria": "Block all of {name}’s devices",
+      "blockAccountAria": "Block all of {name}'s devices",
       "blocked": "{name} is blocked on this computer.",
-      "blockedAll": "All of {name}’s devices are blocked on this computer.",
+      "blockedAll": "All of {name}'s devices are blocked on this computer.",
       "unblocked": "{name} is unblocked.",
       "blockedOn": "Blocked on {date}",
       "accountBlockedOn": "Account blocked on {date}",
@@ -1754,6 +1815,8 @@
     "echo": "Reduce echo and noise",
     "echo_help": "The device's voice processing removes the computer's sound and the noise around you. Turn it off for a studio microphone.",
     "no_microphone": "No microphone on this device.",
-    "shortcut": "Ctrl + Alt + Shift + V"
+    "status_connecting": "Connecting…",
+    "status_on": "On",
+    "status_off": "Off"
   }
 }

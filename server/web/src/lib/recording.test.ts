@@ -34,8 +34,8 @@ describe("enregistrement de la session", () => {
     expect(recordingNotice(idle, on, 'host')).toBe("Enregistrement lancé sur l'ordinateur.")
     expect(recordingNotice(undefined, on, 'host')).toBeNull()
     expect(recordingNotice(on, on, 'host')).toBeNull()
-    expect(recordingNotice(on, saved, 'host')).toBe('Enregistrement terminé : retrouvez-le dans Admin › Enregistrements.')
-    expect(recordingNotice(on, full, 'host')).toBe("L'enregistrement s'est arrêté : le disque de l'ordinateur est plein.")
+    expect(recordingNotice(on, saved, 'host')).toBe('Enregistrement terminé : retrouvez-le dans Admin › Enregistrements.')
+    expect(recordingNotice(on, full, 'host')).toBe("L'enregistrement s'est arrêté : le disque de l'ordinateur est plein.")
     expect(recordingNotice(on, ended, 'host')).toBeNull()
   })
 

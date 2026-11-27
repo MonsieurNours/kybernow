@@ -348,6 +348,14 @@ fn main(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wg: vec
 /** Y, Cb, Cr (0 à 1) → RGB de la toile : BT.709 (SDR) ou BT.2020 PQ (HDR10,
  * ramené en SDR BT.709 : la toile du client web est SDR), plage pleine ou
  * réduite ; chroma 4:2:0 interpolée (échantillons centrés). */
+/** Genou et étendue de la courbe vers le SDR, comme `SDR_KNEE`, `SDR_RANGE` et `SDR_SLOPE` de
+ * apps/core/rules/src/hdr.rs (pente 1 au genou, `SDR_RANGE` ramené à 1 ; 3,6923077). Écrits avec un point décimal
+ * pour le WGSL. */
+export const SDR_KNEE = 0.75
+export const SDR_RANGE = 4.0
+export const SDR_SLOPE = ((SDR_RANGE - SDR_KNEE) / (1 - SDR_KNEE) - 1) / (SDR_RANGE - SDR_KNEE)
+const wgslFloat = (v: number) => (Number.isInteger(v) ? v.toFixed(1) : String(v))
+
 export const colorShader = /* wgsl */ `
 struct Color {
   chroma420: u32,
@@ -394,6 +402,13 @@ fn pq_eotf(e: vec3f) -> vec3f {
   return pow(max(p - c1, vec3f(0.0)) / (c2 - c3 * p), vec3f(1.0 / m1));
 }
 
+// Courbe vers le SDR sur la plus grande composante, en unités du blanc SDR : rien sous le genou, puis une
+// compression de pente 1 au genou qui ramène ${wgslFloat(SDR_RANGE)} fois le blanc à 1 (rules::hdr::sdr_curve du cœur).
+fn sdr_curve(m: f32) -> f32 {
+  let x = m - ${wgslFloat(SDR_KNEE)};
+  return min(${wgslFloat(SDR_KNEE)} + x / (1.0 + ${wgslFloat(SDR_SLOPE)} * x), 1.0);
+}
+
 fn srgb_oetf(l: vec3f) -> vec3f {
   let c = clamp(l, vec3f(0.0), vec3f(1.0));
   return select(1.055 * pow(c, vec3f(1.0 / 2.4)) - 0.055, 12.92 * c, c <= vec3f(0.0031308));
@@ -419,14 +434,17 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     }
     let rgb2020 = vec3f(y + 1.4746 * cr, y - 0.16455 * cb - 0.57135 * cr, y + 1.8814 * cb);
     // PQ → lumière (1,0 = 10 000 cd/m²), blanc SDR à 203 cd/m², puis BT.2020 → BT.709
-    // et compression douce des hautes lumières.
+    // et la courbe vers le SDR de toutes les apps et de la Station (rules::hdr::sdr_curve).
     var lin = pq_eotf(rgb2020) * (10000.0 / 203.0);
     lin = vec3f(
       1.6605 * lin.r - 0.5876 * lin.g - 0.0728 * lin.b,
       -0.1246 * lin.r + 1.1329 * lin.g - 0.0083 * lin.b,
       -0.0182 * lin.r - 0.1006 * lin.g + 1.1187 * lin.b);
     lin = max(lin, vec3f(0.0));
-    lin = lin / (1.0 + max(lin - vec3f(0.8), vec3f(0.0)));
+    let m = max(lin.r, max(lin.g, lin.b));
+    if (m > ${wgslFloat(SDR_KNEE)}) {
+      lin = lin * (sdr_curve(m) / m);
+    }
     return vec4f(srgb_oetf(lin), 1.0);
   }
   if (color.full_range != 0u) {

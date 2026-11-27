@@ -30,28 +30,29 @@
   "session": {
     "aria": "Session sur {host}",
     "error": {
-      "expired": "Votre connexion à KyberNow Admin a expiré (elle dure 12 h). Revenez à l’accueil et saisissez à nouveau le mot de passe.",
+      "expired": "Votre connexion à KyberNow Admin a expiré (elle dure 12 h). Revenez à l'accueil et saisissez à nouveau le mot de passe.",
       "taken": "La session a été reprise par un autre appareil, ou arrêtée depuis KyberNow Admin.",
       "noReply": "Le serveur Kyber de {host} ne répond pas. Vérifiez qu'il est en marche dans KyberNow Admin.",
       "noImageStart": "Kyber sur {host} n'a pas démarré l'image. Réessayez dans un instant.",
       "noImageArrive": "{host} envoie l'image, mais elle n'arrive pas dans ce navigateur. Essayez le format H.264 dans Réglages › Image, ou Chrome ou Edge.",
       "pipeline": "L'image de {host} s'est arrêtée sur l'ordinateur (capture ou encodage), malgré {max} relances. Se reconnecter la redémarre.",
       "unauthorized": "Kyber sur {host} refuse le jeton de KyberNow Admin. Rechargez la page ; si cela continue, vérifiez Kyber dans Admin.",
-      "details": "Détails :",
+      "details": "Détails :",
       "startFailed": "Kyber sur {host} n'a pas pu démarrer l'image. Réessayez dans un instant.",
       "decode": "Ce navigateur n'arrive pas à décoder l'image. Essayez le format H.264 dans Réglages › Image.",
       "closed": "Kyber sur {host} a fermé la connexion.",
-      "stopped": "La session s’est arrêtée.",
+      "stopped": "La session s'est arrêtée.",
       "interrupted": "La connexion à {host} s'est interrompue."
     },
     "notice": {
-      "displayChanged": "L’écran de l’ordinateur a changé : l’image reprend…",
-      "h264": "Image en H.264 : ce navigateur n'a pas pu démarrer le HEVC.",
-      "noAudio": "Image sans le son : ce navigateur n'a pas pu démarrer l'audio.",
-      "soundStopped": "Le son de l’ordinateur s’est interrompu.",
-      "imageRestart": "L’image s’est interrompue sur l’ordinateur : relance ({n} sur {max})…",
-      "gpuLost": "La carte graphique s’est réinitialisée : l’image reprend…",
-      "reconnecting": "Connexion perdue, nouvelle tentative ({attempt} sur {max})…"
+      "displayChanged": "L'écran de l'ordinateur a changé : l'image reprend…",
+      "h264": "Image en H.264 : ce navigateur n'a pas pu démarrer le HEVC.",
+      "noAudio": "Image sans le son : ce navigateur n'a pas pu démarrer l'audio.",
+      "soundStopped": "Le son de l'ordinateur s'est interrompu.",
+      "imageRestart": "L'image s'est interrompue sur l'ordinateur : relance ({n} sur {max})…",
+      "gpuLost": "La carte graphique s'est réinitialisée : l'image reprend…",
+      "reconnecting": "Connexion perdue, nouvelle tentative ({attempt} sur {max})…",
+      "pyrowave": "Image en {format} : PyroWave n'a pas pu démarrer sur cet appareil."
     },
     "start": {
       "ended": "Session terminée",
@@ -68,32 +69,37 @@
       "click": "Cliquer pour le son",
       "mute": "Couper le son",
       "unmute": "Rétablir le son",
-      "on": "Son",
-      "muted": "Muet"
+      "stereo": "Stéréo",
+      "off": "Son coupé"
     },
     "gamepads": {
-      "count": {
-        "one": "{n} manette",
-        "other": "{n} manettes"
-      },
-      "aria": "{count} : {names}",
       "unavailable": "Manettes indisponibles sur cet ordinateur."
     },
     "mouse": {
-      "auto": "Souris auto",
+      "auto": "Auto",
       "game": "Souris des jeux",
       "desktop": "Souris du bureau",
-      "hint": "Auto : capturée seulement quand un jeu est en plein écran sur l'ordinateur"
+      "hint": "Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur ({shortcut} bascule)",
+      "name": "Souris"
     },
     "bar": {
       "show": "Afficher la barre de session",
-      "metrics": "Statistiques",
       "keys": "Touches",
       "fullscreen": "Plein écran",
-      "exitFullscreen": "Quitter le plein écran",
       "quit": "Se déconnecter",
       "relay": "Par le relais",
-      "showHint": "Barre de session : Ctrl + Alt + Maj"
+      "showHint": "Barre de session : Ctrl + Alt + Maj",
+      "toolbar": "Barre de session",
+      "fps": "{fps} i/s",
+      "statsHint": "Statistiques ({shortcut})",
+      "profileHint": "Profil : Jeu, Bureau ou Max",
+      "fullscreenHint": "Plein écran ({shortcut})",
+      "quitHint": "Se déconnecter ({shortcut})",
+      "more": "Plus",
+      "moreHint": "Plus de commandes",
+      "clipboard": "Presse-papiers",
+      "clipboardOn": "Presse-papiers partagé avec l'ordinateur (texte)",
+      "clipboardOff": "Presse-papiers non partagé (Réglages)"
     },
     "keys": {
       "title": "Touches",
@@ -105,6 +111,16 @@
       "altTabSub": "changer d'app",
       "print": "Impr. écran",
       "printSub": "capture",
+      "desktop": "⊞ + D",
+      "desktopSub": "bureau",
+      "lock": "⊞ + L",
+      "lockSub": "verrouiller",
+      "close": "Alt + F4",
+      "closeSub": "fermer la fenêtre",
+      "taskManager": "Gestionnaire des tâches",
+      "taskManagerSub": "Ctrl + Maj + Échap",
+      "f11": "F11",
+      "f11Sub": "plein écran",
       "macSwitch": "⌘ ⇥",
       "macSwitchSub": "changer d'app",
       "macSpotlight": "⌘ Espace",
@@ -116,20 +132,48 @@
       "macForceQuit": "⌥ ⌘ Échap",
       "macForceQuitSub": "forcer à quitter"
     },
-    "metrics": {
+    "stats": {
       "title": "Statistiques",
-      "median": "médiane sur 3 s",
-      "computer": "Ordinateur",
-      "computerSub": "Capture et encodage",
+      "fromCapture": "de la capture\nà votre écran",
+      "close": "Fermer les statistiques",
+      "waiting": "Les statistiques s'affichent dès que l'image arrive.",
+      "framePath": "Trajet d'une image",
+      "onComputer": "Sur l'ordinateur",
+      "onDevice": "Sur cet appareil",
+      "capture": "Capture",
+      "captureHelp": "De la capture de l'image au début de son encodage",
+      "encode": "Encodage",
+      "encodeHelp": "Compression de l'image par la carte graphique de l'ordinateur",
+      "send": "Envoi",
+      "sendHelp": "Mise en paquets et départ sur le réseau",
       "network": "Réseau",
-      "networkSub": "Jusqu’à cet appareil",
-      "browser": "Ce navigateur",
-      "browserSub": "Décodage et affichage",
-      "waiting": "Les mesures arrivent avec les premières secondes d'image.",
-      "fps": "{fps} images/s",
-      "reliable": "Fiable",
-      "fast": "Rapide",
-      "browserNote": "Dans un navigateur, l'affichage attend le rafraîchissement de l'écran : comptez un peu plus que dans l'app KyberNow Link."
+      "networkHelp": "Du départ de l'ordinateur à l'image complète reçue ici",
+      "decode": "Décodage",
+      "decodeHelp": "Décompression de l'image par cet appareil",
+      "display": "Affichage",
+      "displayHelp": "Rendu et attente du prochain rafraîchissement de l'écran",
+      "latency": "Latence",
+      "bitrate": "Débit",
+      "oneFrame": "1 image",
+      "target": "Débit visé",
+      "targetFixed": "{mbps} Mbit/s · fixe",
+      "targetHidden": "{mbps} Mbit/s · fenêtre cachée",
+      "losses": "Pertes · 30 s",
+      "lostFrames": "Images perdues",
+      "lostPackets": "Paquets perdus",
+      "keyframes": "Images clés",
+      "sessionLosses": "Session : {frames} images, {packets} paquets",
+      "path": "Chemin",
+      "direct": "Direct",
+      "roundTrip": "aller-retour {ms}",
+      "image": "Image",
+      "imageLine": "{width} × {height} · {format} · {fps} i/s",
+      "hardware": "matériel",
+      "software": "logiciel",
+      "graphics": "carte graphique",
+      "measures": "Mesures",
+      "measured": "{pct} % des images",
+      "sound": "Son"
     },
     "touch": {
       "modes": "Toucher",
@@ -158,7 +202,8 @@
       "lowered": "Définition ramenée à {width} × {height} pour tenir dans {mbps} Mbit/s.",
       "lost": "Images perdues",
       "decode": "Décodage PyroWave"
-    }
+    },
+    "shortcut": "Ctrl + Alt + Maj + {key}"
   },
   "web": {
     "app": {
@@ -200,7 +245,7 @@
       "fullscreenSub": "L'image prend tout l'écran dès la connexion.",
       "bitrate": "Débit",
       "bitrateManual": "Réglé à la main",
-      "bitrateAuto": "Suivant le profil et la taille de l’écran",
+      "bitrateAuto": "Suivant le profil et la taille de l'écran",
       "auto": "Auto",
       "manual": "Manuel",
       "bitrateAria": "Débit en Mbit/s",
@@ -211,23 +256,23 @@
       "controlAsCommand": "Ctrl agit comme ⌘",
       "controlAsCommandHelp": "Copier, coller et les autres raccourcis du Mac avec Ctrl, comme sur un PC. La touche ⊞ devient ⌃.",
       "mouse": "Souris",
-      "mouseAuto": "Capturée seulement quand un jeu est en plein écran sur l’ordinateur. Ctrl + Alt + Maj la rend.",
+      "mouseAuto": "Capturée seulement quand un jeu est en plein écran sur l'ordinateur. Ctrl + Alt + Maj la rend.",
       "mouseGame": "Capturée : déplacements bruts, pour viser. Ctrl + Alt + Maj la rend.",
       "mouseDesktop": "Toujours libre : le pointeur se pose où vous le placez.",
       "touch": "Toucher",
       "trackpad": "Pavé tactile",
       "direct": "Toucher direct",
-      "trackpadDesc": "Comme celui d’un portable : précis, pour le petit texte.",
+      "trackpadDesc": "Comme celui d'un portable : précis, pour le petit texte.",
       "directDesc": "Le doigt est la souris : rapide, pour les gros boutons.",
       "language": "Langue",
       "languageHint": "Auto suit la langue de ce navigateur.",
       "path": "Chemin de l'image",
-      "pathTouch": "WebSocket sur cet appareil tactile : c’est par cette connexion que partent le texte tapé et la position du doigt (un peu plus de latence).",
-      "pathWebkit": "WebSocket dans Safari : son WebTransport ne sait pas vérifier le certificat de l’ordinateur (un peu plus de latence).",
+      "pathTouch": "WebSocket sur cet appareil tactile : c'est par cette connexion que partent le texte tapé et la position du doigt (un peu plus de latence).",
+      "pathWebkit": "WebSocket dans Safari : son WebTransport ne sait pas vérifier le certificat de l'ordinateur (un peu plus de latence).",
       "pathFirefox": "WebSocket dans Firefox, et le format H.264 en Auto : la combinaison retenue pour ce navigateur (un peu plus de latence).",
-      "pathUnsupported": "WebSocket : ce navigateur n’a pas WebTransport (un peu plus de latence).",
-      "pathRelay": "WebSocket par le relais : hors de chez vous, l’image passe par le relais de KyberNow (un peu plus de latence).",
-      "pathDirect": "WebTransport, en direct ; si l’image n’arrive pas dans les 12 s qui suivent son démarrage par l’ordinateur (25 s après la connexion s’il ne la démarre pas), la page passe par WebSocket.",
+      "pathUnsupported": "WebSocket : ce navigateur n'a pas WebTransport (un peu plus de latence).",
+      "pathRelay": "WebSocket par le relais : hors de chez vous, l'image passe par le relais de KyberNow (un peu plus de latence).",
+      "pathDirect": "WebTransport, en direct ; si l'image n'arrive pas dans les 12 s qui suivent son démarrage par l'ordinateur (25 s après la connexion s'il ne la démarre pas), la page passe par WebSocket.",
       "transport": "Transport de l'image",
       "reliable": "Fiable",
       "fast": "Rapide",
@@ -239,27 +284,29 @@
       "network": "Réseau",
       "stats": "Statistiques",
       "station": "Station",
-      "thisApp": "Cette app",
+      "thisApp": "Ce navigateur",
       "virtualDisplay": "Écran virtuel",
       "virtualHelp": "L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin.",
       "virtualMissing": "Cet ordinateur ne sait pas créer d'écran virtuel : la session montre ses écrans tels quels.",
       "mouseDesktopLabel": "Souris du bureau",
       "mouseGameLabel": "Souris des jeux",
       "barShortcut": "Ctrl + Alt + Maj affiche la barre de session et rend la souris. Les raccourcis système sont dans le menu Touches de la barre.",
-      "transportHelp": "Rapide convient au réseau local et au jeu. Fiable renvoie ce qui se perd, au prix d’un peu de délai.",
+      "transportHelp": "Rapide convient au réseau local et au jeu. Fiable renvoie ce qui se perd, au prix d'un peu de délai.",
       "transportAuto": "Auto : Fiable avec le profil Bureau, Rapide avec Jeu et Max.",
       "rotateTitle": "Tournez le téléphone avant de vous connecter.",
       "rotate": "L'ordinateur crée alors un écran à sa taille, en largeur.",
       "homeScreenTitle": "Ajoutez cette page à l'écran d'accueil.",
       "homeScreen": "Elle s'ouvre alors en plein écran, sans la barre du navigateur.",
       "pyrowaveHelp": "Presque aucun délai de compression, mais 5 à 10 fois plus de débit que HEVC. Fait pour un câble Ethernet.",
-      "pyrowaveAutoNote": "PyroWave se choisit à la main : un navigateur ne sait pas si cet appareil est relié par câble.",
-      "pyrowaveWarnNetwork": "Ce navigateur ne sait pas si vous êtes relié par câble. Sans câble Ethernet, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr.",
-      "pyrowaveWarnRelay": "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr.",
-      "pyrowave444": "Avec PyroWave, presque sans coût : seul le débit monte.",
+      "pyrowaveAutoNote": "PyroWave se choisit à la main : un navigateur ne sait pas si cet appareil est relié par câble.",
+      "pyrowaveWarnNetwork": "Ce navigateur ne sait pas si vous êtes relié par câble. Sans câble Ethernet, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr.",
+      "pyrowaveWarnRelay": "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr.",
+      "pyrowave444": "Avec PyroWave, presque sans coût : seul le débit monte.",
       "pyrowaveStation": "{name} ne propose pas PyroWave.",
       "pyrowaveBrowser": "Ce navigateur ne sait pas décoder PyroWave.",
-      "pyrowaveLowered": "Définition ramenée à {width} × {height} pour tenir dans {mbps} Mbit/s."
+      "pyrowaveLowered": "Définition ramenée à {width} × {height} pour tenir dans {mbps} Mbit/s.",
+      "journal": "Télécharger le journal",
+      "journalHelp": "Si l'app se ferme ou qu'une session se coupe, ce fichier texte raconte ce qui s'est passé. Joignez-le à votre message : vous choisissez à qui l'envoyer."
     },
     "device": {
       "browser": "Navigateur",
@@ -319,7 +366,7 @@
       "text444Missing": "Texte net (4:4:4) : pas dans ce navigateur",
       "display": "Cet écran : {width} × {height} à {refresh} Hz",
       "pyrowave": "PyroWave décodé par la carte graphique (WebGPU)",
-      "pyrowaveMissing": "PyroWave : pas dans ce navigateur"
+      "pyrowaveMissing": "PyroWave : pas dans ce navigateur"
     },
     "station": {
       "version": "KyberNow Station {version}",
@@ -399,11 +446,11 @@
     "admin": "Administrateur",
     "signOut": "Se déconnecter",
     "restartDone": "Le serveur a redémarré avec les nouveaux réglages.",
-    "accessRestartDone": "Le serveur a redémarré : les accès sont à jour.",
-    "pendingAccess": "Redémarrage du serveur en attente pour {reason} : il se fera tout seul dès la fin de la session en cours, sans couper personne. Pour ne pas attendre, redémarrez maintenant (l'appareil connecté sera déconnecté quelques secondes).",
+    "accessRestartDone": "Le serveur a redémarré : les accès sont à jour.",
+    "pendingAccess": "Redémarrage du serveur en attente pour {reason} : il se fera tout seul dès la fin de la session en cours, sans couper personne. Pour ne pas attendre, redémarrez maintenant (l'appareil connecté sera déconnecté quelques secondes).",
     "restarting": "Redémarrage…",
     "restartNow": "Redémarrer maintenant",
-    "settingsChanged": "Réglages modifiés : redémarrez le serveur pour les appliquer. Un appareil connecté sera déconnecté quelques secondes.",
+    "settingsChanged": "Réglages modifiés : redémarrez le serveur pour les appliquer. Un appareil connecté sera déconnecté quelques secondes.",
     "restartServer": "Redémarrer le serveur",
     "pairAsks": "{name} demande l'accès à cet ordinateur, avec le code",
     "pairOthers": {
@@ -418,7 +465,7 @@
     "grant": "donner l'accès à {names}",
     "revoke": "retirer l'accès de {names}",
     "applyAccounts": "appliquer les comptes",
-    "saved": "Enregistré. Redémarrez le serveur pour l’appliquer."
+    "saved": "Enregistré. Redémarrez le serveur pour l'appliquer."
   },
   "login": {
     "thisComputer": "Cet ordinateur",
@@ -428,7 +475,7 @@
     "chooseTitle": "Choisissez le mot de passe d'Admin.",
     "codeIntro": "Le code prouve que vous êtes bien devant cet ordinateur, ou que vous y avez accès.",
     "code": "Code d'initialisation",
-    "codeHint": "Sur l'ordinateur : menu de l'icône KyberNow Station, ou le fichier {file}",
+    "codeHint": "Sur l'ordinateur : menu de l'icône KyberNow Station, ou le fichier {file}",
     "password": "Mot de passe",
     "newPassword": "Nouveau mot de passe",
     "min10": "10 caractères au moins.",
@@ -437,18 +484,18 @@
     "wait": "Un instant…",
     "open": "Ouvrir Admin",
     "create": "Créer et ouvrir Admin",
-    "forgot": "Mot de passe oublié ?",
+    "forgot": "Mot de passe oublié ?",
     "forgotHelp": "Sur l'ordinateur, menu de l'icône KyberNow Station › Réinitialiser le mot de passe d'Admin. Vos appareils et leurs comptes ne changent pas.",
     "foot": "Connexion chiffrée par le certificat de cet ordinateur.",
     "kybernow": "Se connecter avec KyberNow",
-    "kybernowHint": "Avec un compte KyberNow qui a le droit Administrer sur cet ordinateur ; sur le réseau seulement.",
+    "kybernowHint": "Avec un compte KyberNow qui a le droit Administrer sur cet ordinateur ; sur le réseau seulement.",
     "or": "ou"
   },
   "overview": {
     "thisComputer": "Cet ordinateur",
-    "connectedDevice": "l’appareil connecté",
-    "confirmCut": "Couper la connexion en cours ? Le serveur redémarre, quelques secondes.",
-    "confirmEnd": "Mettre fin à la session de {who} ?",
+    "connectedDevice": "l'appareil connecté",
+    "confirmCut": "Couper la connexion en cours ? Le serveur redémarre, quelques secondes.",
+    "confirmEnd": "Mettre fin à la session de {who} ?",
     "willDisconnect": "{who} va se déconnecter.",
     "cut": "Connexion coupée.",
     "noSession": "Aucune session en cours.",
@@ -465,7 +512,7 @@
     },
     "display": {
       "off": "Désactivé",
-      "offSub": "Les écrans de l’ordinateur sont envoyés",
+      "offSub": "Les écrans de l'ordinateur sont envoyés",
       "active": "Actif",
       "noDriver": "Pilote absent",
       "seeImageSound": "Voir Image et son",
@@ -474,13 +521,13 @@
     },
     "audio": {
       "off": "Désactivé",
-      "offSub": "Le son reste sur l’ordinateur",
+      "offSub": "Le son reste sur l'ordinateur",
       "sent": "Envoyé",
       "stereo": "Stéréo",
       "noSpeakers": "Haut-parleurs absents",
       "seeImageSound": "Voir Image et son",
       "ready": "Prêt",
-      "readySub": "Jusqu’au 7.1, l’ordinateur se tait"
+      "readySub": "Jusqu'au 7.1, l'ordinateur se tait"
     },
     "heroLabel": "L'écran de cet ordinateur",
     "live": "En direct",
@@ -496,10 +543,10 @@
     "endSession": "Mettre fin à la session",
     "otherTitle": "Un appareil est connecté",
     "account": "Compte {user}",
-    "soundSent": "Son envoyé à l’appareil",
+    "soundSent": "Son envoyé à l'appareil",
     "cutConnection": "Couper la connexion",
     "waiting": "{hostname} est prêt",
-    "lastSession": "Personne n'est connecté. Dernière session : {name}, {when}, pendant {duration}.",
+    "lastSession": "Personne n'est connecté. Dernière session : {name}, {when}, pendant {duration}.",
     "nobody": "Personne n'est connecté pour l'instant.",
     "openInBrowser": "Ouvrir dans le navigateur",
     "addDevice": "Ajouter un appareil",
@@ -520,19 +567,19 @@
     "today": "Aujourd'hui",
     "lately": "Dernièrement",
     "logs": "Journaux",
-    "noEvents": "Rien pour l'instant : les connexions et les changements apparaîtront ici."
+    "noEvents": "Rien pour l'instant : les connexions et les changements apparaîtront ici."
   },
   "devices": {
     "timeLeft": "{m} min {s}",
     "remaining": "encore {time}",
     "accepted": "{name} a reçu son accès.",
     "acceptedRestarting": "{name} a reçu son accès. Le serveur redémarre quelques secondes pour en tenir compte.",
-    "acceptedWaiting": "{name} a reçu son accès. Une session est en cours : le serveur redémarrera tout seul dès qu'elle finira, et {name} pourra alors se connecter.",
+    "acceptedWaiting": "{name} a reçu son accès. Une session est en cours : le serveur redémarrera tout seul dès qu'elle finira, et {name} pourra alors se connecter.",
     "refused": "Accès refusé à {name}.",
     "linkCopied": "Lien copié.",
-    "copyFailed": "Copie impossible : sélectionnez le lien à la main.",
-    "confirmRevoke": "Retirer l'accès de {name} ? Son compte propre ({user}) est supprimé : pour revenir, il devra être appairé de nouveau.",
-    "confirmForget": "Oublier {name} ? Il reste capable de se connecter avec son compte ; il disparaît seulement de cette liste.",
+    "copyFailed": "Copie impossible : sélectionnez le lien à la main.",
+    "confirmRevoke": "Retirer l'accès de {name} ? Son compte propre ({user}) est supprimé : pour revenir, il devra être appairé de nouveau.",
+    "confirmForget": "Oublier {name} ? Il reste capable de se connecter avec son compte ; il disparaît seulement de cette liste.",
     "revokedLater": "Accès de {name} retiré. Le serveur redémarrera pour en tenir compte dès la fin de la session en cours.",
     "revoked": "Accès de {name} retiré.",
     "forgotten": "{name} oublié.",
@@ -543,11 +590,11 @@
     "add": {
       "qrLabel": "QR code d'appairage",
       "title": "Ajouter un appareil",
-      "text": "Sur votre réseau, ouvrez KyberNow Link : cet ordinateur y est déjà. Ailleurs, ou par VPN, scannez ce code avec l'appareil, ou collez le lien dans l'app.",
+      "text": "Sur votre réseau, ouvrez KyberNow Link : cet ordinateur y est déjà. Ailleurs, ou par VPN, scannez ce code avec l'appareil, ou collez le lien dans l'app.",
       "copy": "Copier le lien",
       "contents": "Ce que contient le lien",
-      "explain": "L'adresse de cet ordinateur et l'empreinte de son certificat : l'app sait qu'elle parle bien à lui. Aucun mot de passe.",
-      "fingerprint": "Empreinte :"
+      "explain": "L'adresse de cet ordinateur et l'empreinte de son certificat : l'app sait qu'elle parle bien à lui. Aucun mot de passe.",
+      "fingerprint": "Empreinte :"
     },
     "list": {
       "title": "Vos appareils",
@@ -595,14 +642,14 @@
       "skipDesktopHint": "Rien ne s'ouvre quand l'appareil se connecte pour le bureau",
       "optionSaved": "Réglage enregistré pour {name}.",
       "accessTitle": "Accès",
-      "ownAccessText": "Compte propre {user}, reçu par code {when}. Le retirer coupe l'accès de cet appareil seulement ; les comptes des personnes, dans Utilisateurs, ne changent pas.",
+      "ownAccessText": "Compte propre {user}, reçu par code {when}. Le retirer coupe l'accès de cet appareil seulement ; les comptes des personnes, dans Utilisateurs, ne changent pas.",
       "accountText": "Se connecte avec le compte {user}, saisi dans l'app. Son mot de passe se change dans Utilisateurs.",
       "sessionsTitle": "Sessions",
       "screen": "écran de {mode}",
       "profile": "profil {profile}",
       "latency": "latence médiane {latency}",
-      "live": "En cours : {details}.",
-      "last": "Dernière session {ago} : {details}.",
+      "live": "En cours : {details}.",
+      "last": "Dernière session {ago} : {details}.",
       "lastPlain": "Dernière session {ago}.",
       "history": {
         "one": "{n} session depuis {since}",
@@ -615,7 +662,7 @@
     "launch": {
       "eyebrow": "Au début de la session",
       "title": "Quand {name} se connecte",
-      "intro": "Une app s'ouvre sur l'ordinateur dès que son écran est prêt : Steam Big Picture, Playnite, un tableur… Les apps et leurs icônes viennent du menu Démarrer de l'ordinateur.",
+      "intro": "Une app s'ouvre sur l'ordinateur dès que son écran est prêt : Steam Big Picture, Playnite, un tableur… Les apps et leurs icônes viennent du menu Démarrer de l'ordinateur.",
       "search": "Rechercher une app",
       "refresh": "Actualiser",
       "refreshing": "Lecture…",
@@ -631,7 +678,7 @@
         "userPrograms": "Apps de l'utilisateur"
       },
       "loading": "Lecture du menu Démarrer…",
-      "readFailed": "Le menu Démarrer n'a pas pu être relu : {error}. Ouvrez une session Windows sur l'ordinateur, puis actualisez.",
+      "readFailed": "Le menu Démarrer n'a pas pu être relu : {error}. Ouvrez une session Windows sur l'ordinateur, puis actualisez.",
       "suggestions": "Suggestions",
       "all": "Toutes les apps",
       "allOf": "Menu Démarrer de {user}",
@@ -650,7 +697,7 @@
     },
     "invites": {
       "title": "Invitations",
-      "help": "Une invitation ajoute un appareil de loin, sans que vous ayez à l'accepter : un code et un mot de passe, valables quelques jours.",
+      "help": "Une invitation ajoute un appareil de loin, sans que vous ayez à l'accepter : un code et un mot de passe, valables quelques jours.",
       "none": "Aucune invitation.",
       "invite": "Inviter un appareil…",
       "dialogTitle": "Inviter un appareil",
@@ -670,17 +717,17 @@
       "password": "Mot de passe",
       "copy": "Copier",
       "copied": "Copié.",
-      "copyFailed": "Copie impossible : notez le mot de passe à la main.",
-      "writeDown": "Notez-le maintenant : il ne sera plus montré.",
+      "copyFailed": "Copie impossible : notez le mot de passe à la main.",
+      "writeDown": "Notez-le maintenant : il ne sera plus montré.",
       "validUntil": "Valable jusqu'au {date}",
       "qrLabel": "QR code de l'invitation",
-      "appHelp": "Dans KyberNow Link : « Rejoindre avec un code », puis ce mot de passe.",
-      "remoteOn": "Accès hors de chez vous est activé : l'appareil ajouté pourra se connecter de loin.",
+      "appHelp": "Dans KyberNow Link : « Rejoindre avec un code », puis ce mot de passe.",
+      "remoteOn": "Accès hors de chez vous est activé : l'appareil ajouté pourra se connecter de loin.",
       "noRelay": "Sans relais, l'invitation ne marche que sur votre réseau.",
       "line": "Code {code} · jusqu'au {date} · {n} / {max} appareils",
       "newPassword": "Nouveau mot de passe",
       "delete": "Supprimer",
-      "confirmDelete": "Supprimer l'invitation « {name} » ? Les appareils qu'elle a ajoutés perdent leur accès.",
+      "confirmDelete": "Supprimer l'invitation « {name} » ? Les appareils qu'elle a ajoutés perdent leur accès.",
       "deleted": "Invitation « {name} » supprimée.",
       "deviceOf": "Invitation « {name} »"
     },
@@ -698,22 +745,36 @@
       "locked": "Accès hors de chez vous bloqué 10 min après trop d'essais.",
       "remoteAdmin": "Admin à distance",
       "remoteAdminHelp": "Les administrateurs de cet ordinateur ouvrent Admin depuis KyberNow Share, de n'importe où, après une passkey.",
-      "remoteAdminE2e": "Chiffré de bout en bout, jusqu'à cet ordinateur : le relais ne voit pas ce qui passe.",
+      "remoteAdminE2e": "Chiffré de bout en bout, jusqu'à cet ordinateur : le relais ne voit pas ce qui passe.",
       "remoteAdminE2ePending": "Chiffrement de bout en bout en préparation…",
-      "remoteAdminE2eError": "Chiffrement de bout en bout pas encore prêt : nouvel essai bientôt. En attendant, le relais voit ce qui passe.",
-      "remoteAdminE2eUnsupported": "Ce relais ne permet pas le chiffrement de bout en bout : il voit ce qui passe, comme pour un invité dans le navigateur.",
-      "remoteAdminLost": "Le relais ne fait plus passer le chiffrement de bout en bout : Admin à distance est suspendu. Coupez-le puis rallumez-le ici pour l'accepter quand même.",
-      "remoteAdminForeign": "Un certificat que cet ordinateur n'a pas demandé existe pour son adresse à distance : Admin à distance est suspendu. Coupez-le puis rallumez-le ici pour le reprendre.",
+      "remoteAdminE2eError": "Chiffrement de bout en bout pas encore prêt : nouvel essai bientôt. En attendant, le relais voit ce qui passe.",
+      "remoteAdminE2eUnsupported": "Ce relais ne permet pas le chiffrement de bout en bout : il voit ce qui passe, comme pour un invité dans le navigateur.",
+      "remoteAdminLost": "Le relais ne fait plus passer le chiffrement de bout en bout : Admin à distance est suspendu. Coupez-le puis rallumez-le ici pour l'accepter quand même.",
+      "remoteAdminForeign": "Un certificat que cet ordinateur n'a pas demandé existe pour son adresse à distance : Admin à distance est suspendu. Coupez-le puis rallumez-le ici pour le reprendre.",
       "remoteAdminNeedsAccount": "Rattachez d'abord cet ordinateur à un compte KyberNow (Compte KyberNow), avec « Accepter les comptes KyberNow ».",
       "remoteAdminNeedsAccess": "Allumez d'abord « Accès hors de chez vous ».",
       "remoteAdminHere": "S'allume seulement ici, sur le réseau.",
-      "remoteAdminOpen": "Ouvert à distance en ce moment par {names}."
+      "remoteAdminOpen": "Ouvert à distance en ce moment par {names}.",
+      "keys": {
+        "title": "Clés d'Admin à distance",
+        "help": "Hors de chez vous, Admin demande en plus une de ces clés (une passkey gardée par votre téléphone ou votre trousseau) : le relais ne peut pas ouvrir Admin à votre place.",
+        "added": "{device} · ajoutée le {date}",
+        "used": " · utilisée le {date}",
+        "otherRelay": "(autre relais)",
+        "remove": "Retirer",
+        "none": "Aucune clé : Admin à distance ne s'ouvrira pas de loin. Ajoutez-en une.",
+        "add": "Ajouter une clé",
+        "scan": "Scannez ce QR code avec le téléphone qui gardera la clé, ou ouvrez le lien sur cet appareil. Il sert une fois, pendant 10 minutes.",
+        "openHere": "Ouvrir sur cet appareil",
+        "done": "Terminé"
+      },
+      "relayExample": "relais.exemple.org:9443"
     }
   },
   "users": {
     "eyebrow": "Qui peut ouvrir cet ordinateur",
     "title": "Utilisateurs",
-    "intro": "L'identifiant et le mot de passe qu'on saisit dans KyberNow Link. Un appareil accepté par code a son propre accès : il se gère depuis sa carte dans",
+    "intro": "L'identifiant et le mot de passe qu'on saisit dans KyberNow Link. Un appareil accepté par code a son propre accès : il se gère depuis sa carte dans",
     "introLink": "Appareils Link",
     "accounts": {
       "title": "Comptes",
@@ -731,10 +792,9 @@
       "delete": "Supprimer",
       "originalPassword": "Mot de passe d'origine",
       "usedBy": "Utilisé par {devices}.",
-      "and": " et ",
-      "unused": "Aucun appareil ne l'utilise encore : saisissez-le dans KyberNow Link.",
+      "unused": "Aucun appareil ne l'utilise encore : saisissez-le dans KyberNow Link.",
       "devicePill": "Accès d'appareil",
-      "deviceText": "Créé quand {device} a été accepté par code. Sans mot de passe à retenir : l'appareil le porte.",
+      "deviceText": "Créé quand {device} a été accepté par code. Sans mot de passe à retenir : l'appareil le porte.",
       "seeDevice": "Voir dans Appareils Link",
       "changePassword": "Changer le mot de passe",
       "deleteAria": "Supprimer le compte {user}",
@@ -753,12 +813,12 @@
       "submit": "Ajouter",
       "hash": "Kyber ne garde que l'empreinte des mots de passe (SHA-256). Un compte ajouté ou modifié s'applique au redémarrage du serveur, qu'Admin propose aussitôt."
     },
-    "accountExists": "« {user} » existe déjà : changez plutôt son mot de passe.",
+    "accountExists": "« {user} » existe déjà : changez plutôt son mot de passe.",
     "accountAdded": "Compte « {user} » ajouté.",
     "passwordChanged": "Mot de passe de « {user} » changé.",
     "removeDeviceConsequence": "{device} ne pourra plus se connecter.",
     "removeConsequence": "Les appareils qui l'utilisent ne pourront plus se connecter.",
-    "confirmRemove": "Supprimer le compte « {user} » ? {consequence}",
+    "confirmRemove": "Supprimer le compte « {user} » ? {consequence}",
     "accountRemoved": "Compte « {user} » supprimé."
   },
   "system": {
@@ -773,15 +833,15 @@
     },
     "update": {
       "title": "Mises à jour",
-      "githubError": "GitHub : {error}",
-      "githubDown": "GitHub ne répond pas : {error}",
+      "githubError": "GitHub : {error}",
+      "githubDown": "GitHub ne répond pas : {error}",
       "stable": "Stable",
       "beta": "Bêta",
-      "confirmForce": "{message}. Continuer ?",
-      "confirmRollback": "Revenir à KyberNow Station {version} ? La Station redémarre, environ une minute.",
+      "confirmForce": "{message}. Continuer ?",
+      "confirmRollback": "Revenir à KyberNow Station {version} ? La Station redémarre, environ une minute.",
       "installed": "KyberNow Station {version} est en place.",
-      "timeout": "La mise à jour n'a pas abouti en 5 minutes : voyez C:\\ProgramData\\KyberNow\\update\\<version>\\update.log.",
-      "publishedToday": "publiée aujourd’hui",
+      "timeout": "La mise à jour n'a pas abouti en 5 minutes : voyez C:\\ProgramData\\KyberNow\\update\\<version>\\update.log.",
+      "publishedToday": "publiée aujourd'hui",
       "publishedOn": "publiée le {date}",
       "installing": "Installation en cours",
       "installingLead": "La Station s'arrête, remplace ses fichiers et revient d'elle-même, dans environ une minute. Cette page se recharge seule.",
@@ -805,7 +865,7 @@
     },
     "server": {
       "title": "Serveur",
-      "confirmStop": "Arrêter le serveur ? Plus aucun appareil ne pourra se connecter jusqu’à son redémarrage.",
+      "confirmStop": "Arrêter le serveur ? Plus aucun appareil ne pourra se connecter jusqu'à son redémarrage.",
       "stopped": "Serveur arrêté.",
       "started": "Serveur démarré.",
       "running": "En marche",
@@ -813,7 +873,7 @@
       "starting": "Démarrage…",
       "stopping": "Arrêt…",
       "stoppedState": "Arrêté",
-      "missing": "Introuvable : réinstallez KyberNow Station",
+      "missing": "Introuvable : réinstallez KyberNow Station",
       "simulated": "(simulé hors Windows)",
       "start": "Démarrer",
       "stop": "Arrêter",
@@ -848,11 +908,11 @@
     "station": {
       "restart": "Redémarrer la Station",
       "restartHint": "Redémarre le moteur de streaming et Admin, en 30 secondes environ. Une session en cours sera coupée.",
-      "confirmForce": "{message}. Redémarrer quand même ?",
+      "confirmForce": "{message}. Redémarrer quand même ?",
       "restarting": "Redémarrage en cours",
       "restartingLead": "Le serveur et Admin s'arrêtent puis repartent, en une minute environ. Cette page revient d'elle-même, puis Admin vous demande de vous reconnecter.",
       "restarted": "La Station a redémarré.",
-      "timeout": "La Station n'a pas redémarré en 3 minutes : voyez C:\\ProgramData\\KyberNow\\station\\redemarrage.log."
+      "timeout": "La Station n'a pas redémarré en 3 minutes : voyez C:\\ProgramData\\KyberNow\\station\\redemarrage.log."
     },
     "wake": {
       "title": "Réveil par le réseau",
@@ -885,7 +945,7 @@
       "download": "Télécharger",
       "empty": "Aucun journal pour cette source.",
       "level": "Niveau de détail",
-      "levelHelp": "Normal suffit au quotidien. Détaillé le temps de comprendre un problème : les journaux grossissent vite.",
+      "levelHelp": "Normal suffit au quotidien. Détaillé le temps de comprendre un problème : les journaux grossissent vite.",
       "levels": {
         "error": "Erreurs",
         "info": "Normal",
@@ -894,14 +954,14 @@
     },
     "advanced": {
       "title": "Avancé",
-      "intro": "Les réglages de Kyber lui-même. Les valeurs par défaut conviennent presque toujours ; un mauvais réglage peut empêcher les appareils de se connecter.",
+      "intro": "Les réglages de Kyber lui-même. Les valeurs par défaut conviennent presque toujours ; un mauvais réglage peut empêcher les appareils de se connecter.",
       "encoder": "Encodeur",
       "backend": "Moteur de capture",
       "minBitrate": "Débit minimum",
       "save": "Enregistrer",
       "port": "Port du flux",
       "portHelp": "Tiré au hasard à l'installation. Le changer oblige à réajouter l'ordinateur sur vos appareils, et à ouvrir le nouveau port dans le pare-feu.",
-      "confirmPort": "Changer le port du flux ? Vos appareils devront réajouter cet ordinateur.",
+      "confirmPort": "Changer le port du flux ? Vos appareils devront réajouter cet ordinateur.",
       "config": "Fichier de configuration",
       "configHelp": "kyber_config.toml, en direct. La syntaxe est vérifiée avant l'enregistrement, pas le sens des valeurs.",
       "openEditor": "Ouvrir l'éditeur",
@@ -933,20 +993,20 @@
       "title": "Micro virtuel",
       "sub": "Le micro de vos appareils, pour vos appels et vos jeux",
       "ready": "Le micro de vos appareils arrive dans « {device} ».",
-      "readyWindows": "VB-CABLE est installé : le micro de vos appareils arrive dans « CABLE Output ».",
+      "readyWindows": "VB-CABLE est installé : le micro de vos appareils arrive dans « CABLE Output ».",
       "missingWindows": "VB-CABLE n'est pas installé.",
-      "missing": "Le micro virtuel n'est pas là : réinstallez ou mettez à jour la Station.",
-      "unsupported": "Cette Station ne reçoit pas le micro : mettez-la à jour.",
+      "missing": "Le micro virtuel n'est pas là : réinstallez ou mettez à jour la Station.",
+      "unsupported": "Cette Station ne reçoit pas le micro : mettez-la à jour.",
       "install": "Installer VB-CABLE",
       "installing": "Installation de VB-CABLE…",
       "installed": "VB-CABLE est installé.",
-      "installFailed": "VB-CABLE ne s'est pas installé : redémarrez l'ordinateur, puis réessayez.",
-      "donation": "VB-CABLE, de VB-Audio Software, est offert en donationware : vb-cable.com.",
-      "help": "Pendant qu'un appareil envoie son micro, le micro virtuel devient le micro par défaut de l'ordinateur ; le précédent revient à la fin. Une app qui ne suit pas le micro du système le trouve dans sa liste."
+      "installFailed": "VB-CABLE ne s'est pas installé : redémarrez l'ordinateur, puis réessayez.",
+      "donation": "VB-CABLE, de VB-Audio Software, est offert en donationware : vb-cable.com.",
+      "help": "Pendant qu'un appareil envoie son micro, le micro virtuel devient le micro par défaut de l'ordinateur ; le précédent revient à la fin. Une app qui ne suit pas le micro du système le trouve dans sa liste."
     },
     "kicker": "Pendant une session",
     "title": "Image et son",
-    "intro": "Ce que vos appareils reçoivent, et ce que devient cet ordinateur le temps d'une session. Les apps KyberNow Link règlent elles-mêmes la qualité de l'image : il n'y a rien à régler ici pour bien démarrer.",
+    "intro": "Ce que vos appareils reçoivent, et ce que devient cet ordinateur le temps d'une session. Les apps KyberNow Link règlent elles-mêmes la qualité de l'image : il n'y a rien à régler ici pour bien démarrer.",
     "sections": "Sections",
     "tabs": {
       "display": "Écran",
@@ -972,14 +1032,14 @@
     },
     "channels": {
       "auto": "Auto",
-      "autoHint": "Auto suit ce que la sortie de l’appareil accepte. Un appareil qui en a moins réduit lui-même.",
+      "autoHint": "Auto suit ce que la sortie de l'appareil accepte. Un appareil qui en a moins réduit lui-même.",
       "stereo": "Stéréo",
-      "stereoHint": "Toujours deux canaux, quel que soit l’appareil.",
-      "surround51Hint": "Six canaux, même si l’appareil ne demande rien : les jeux et les films en surround placent chaque son.",
-      "surround71Hint": "Huit canaux, même si l’appareil ne demande rien."
+      "stereoHint": "Toujours deux canaux, quel que soit l'appareil.",
+      "surround51Hint": "Six canaux, même si l'appareil ne demande rien : les jeux et les films en surround placent chaque son.",
+      "surround71Hint": "Huit canaux, même si l'appareil ne demande rien."
     },
     "inputNotes": {
-      "gamepad": "Les apps KyberNow Link choisissent elles-mêmes, par ordinateur (réglage « Manette vue par l’ordinateur », ou « Manettes vues comme des Xbox 360 » sur les téléviseurs LG) : ici, seulement le défaut pour les autres connexions."
+      "gamepad": "Les apps KyberNow Link choisissent elles-mêmes, par ordinateur (réglage « Manette vue par l'ordinateur », ou « Manettes vues comme des Xbox 360 » sur les téléviseurs LG) : ici, seulement le défaut pour les autres connexions."
     },
     "toast": {
       "defaultMode": "Mode par défaut enregistré.",
@@ -988,7 +1048,7 @@
       "saved": "Enregistré."
     },
     "pill": {
-      "simulated": "Simulé : Admin ne tourne pas sous Windows",
+      "simulated": "Simulé : Admin ne tourne pas sous Windows",
       "test": "Essai · {mode}",
       "active": "Actif · {mode}",
       "driverUnavailable": "Pilote indisponible",
@@ -1005,11 +1065,11 @@
       "step1": "1 · À la connexion",
       "step1Text": "L'écran virtuel prend la définition et la fréquence de l'appareil.",
       "step2": "2 · Pendant la session",
-      "step2Text": "Les écrans branchés s'éteignent : personne ne voit ce que vous faites.",
+      "step2Text": "Les écrans branchés s'éteignent : personne ne voit ce que vous faites.",
       "step3": "3 · À la fin",
       "step3Text": "Vos écrans reviennent, avec leur disposition habituelle.",
       "trigger": "Quand créer l'écran virtuel",
-      "triggerHelp": "Les apps KyberNow Link annoncent leur écran ; un navigateur ou un client en ligne de commande ne le fait pas, il reçoit alors le mode par défaut.",
+      "triggerHelp": "Les apps KyberNow Link annoncent leur écran ; un navigateur ou un client en ligne de commande ne le fait pas, il reçoit alors le mode par défaut.",
       "defaultMode": "Mode par défaut",
       "defaultModeHelp": "Pour les connexions qui n'annoncent pas leur écran.",
       "otherCurrent": "{mode} (autre)",
@@ -1019,16 +1079,16 @@
       "refresh": "Fréquence (Hz)",
       "save": "Enregistrer",
       "modeChange": "Si un jeu change la définition",
-      "modeChangeHelp": "Laisser faire : l'image suit le jeu. Remettre : l'écran revient à la taille de l'appareil. Les apps choisissent selon leur profil (Jeu : laisser faire, Bureau : remettre) ; ce choix vaut pour les autres. Avec le moteur libavconv, un changement de définition peut couper l'image.",
-      "modeNow": "En ce moment : {current} (demandé : {requested}).",
+      "modeChangeHelp": "Laisser faire : l'image suit le jeu. Remettre : l'écran revient à la taille de l'appareil. Les apps choisissent selon leur profil (Jeu : laisser faire, Bureau : remettre) ; ce choix vaut pour les autres. Avec le moteur libavconv, un changement de définition peut couper l'image.",
+      "modeNow": "En ce moment : {current} (demandé : {requested}).",
       "hdr": "HDR",
-      "hdrHelp": "Couleurs plus riches et lumières plus vives, pour les appareils à écran HDR : l'écran virtuel passe en HDR pendant leur session, puis revient comme avant. Sans écran virtuel, l'image garde le HDR de l'écran de l'ordinateur.",
+      "hdrHelp": "Couleurs plus riches et lumières plus vives, pour les appareils à écran HDR : l'écran virtuel passe en HDR pendant leur session, puis revient comme avant. Sans écran virtuel, l'image garde le HDR de l'écran de l'ordinateur.",
       "hdrWindows": "Le HDR demande Windows 11 24H2 sur l'ordinateur.",
       "hdrEncoder": "La carte graphique de l'ordinateur ne fait pas le HDR.",
       "hdrDisplay": "L'écran de l'ordinateur n'est pas en HDR.",
-      "hdrCheckOk": "HDR : les jeux voient {nits} nits.",
-      "hdrCheckProfile": "Windows n'a pas pris le profil : les jeux voient {seen} nits au lieu de {wanted}.",
-      "hdrCheckWhite": "HDR : les jeux voient {nits} nits, mais le blanc du bureau est à {seen} nits au lieu de {wanted}.",
+      "hdrCheckOk": "HDR : les jeux voient {nits} nits.",
+      "hdrCheckProfile": "Windows n'a pas pris le profil : les jeux voient {seen} nits au lieu de {wanted}.",
+      "hdrCheckWhite": "HDR : les jeux voient {nits} nits, mais le blanc du bureau est à {seen} nits au lieu de {wanted}.",
       "hdrCheckNotHdr": "L'écran virtuel n'est pas en HDR.",
       "hdrCheckUnread": "Windows ne donne pas les luminosités de l'écran virtuel.",
       "hdrCheckScreen": "Écran {n} · {text}",
@@ -1045,7 +1105,7 @@
     "sound": {
       "title": "Son",
       "sub": "L'ordinateur se tait, votre appareil reçoit le son, de la stéréo au 7.1.",
-      "installSteam": "Installez Steam sur cet ordinateur, puis relancez l'installateur de KyberNow Station : il ajoutera les haut-parleurs virtuels. Sans eux, le son sort aussi des haut-parleurs de l'ordinateur.",
+      "installSteam": "Installez Steam sur cet ordinateur, puis relancez l'installateur de KyberNow Station : il ajoutera les haut-parleurs virtuels. Sans eux, le son sort aussi des haut-parleurs de l'ordinateur.",
       "trigger": "Quand envoyer le son",
       "triggerHelp": "Sinon, le son sort des haut-parleurs de l'ordinateur, comme d'habitude.",
       "channels": "Canaux",
@@ -1070,7 +1130,7 @@
     "display": "{label} — {width} × {height}",
     "cancel": "Annuler",
     "off": "Le partage est coupé sur cet ordinateur (Admin › Appareils Link).",
-    "inSession": "{name} est en session : le partage se lance depuis cet appareil.",
+    "inSession": "{name} est en session : le partage se lance depuis cet appareil.",
     "titleLocal": "Partage de l'écran {n}",
     "titleHost": "Partager {name}",
     "openedBy": "Ouvert depuis la session de {name}.",
@@ -1148,10 +1208,10 @@
       "noShare": "Aucun partage avec ce code sur le réseau.",
       "invite": "Ce code sert à ajouter l'ordinateur dans l'app KyberNow Link.",
       "full": "Ce partage est complet (quatre invités au plus).",
-      "tooMany": "Trop d'essais de code : réessayez dans une minute.",
+      "tooMany": "Trop d'essais de code : réessayez dans une minute.",
       "unreadable": "Cet appareil ne lit pas l'image de cet ordinateur ({format}).",
-      "unavailable": "Le partage n'est pas disponible pour le moment : réessayez dans un instant.",
-      "badRequest": "Le code a six chiffres, et le prénom ne peut pas être vide.",
+      "unavailable": "Le partage n'est pas disponible pour le moment : réessayez dans un instant.",
+      "badRequest": "Le code a six chiffres.",
       "waiting": "En attente de l'accord de l'hôte…",
       "refused": "L'hôte a refusé.",
       "expired": "L'hôte n'a pas répondu.",
@@ -1166,7 +1226,7 @@
       "2160p60": "4K · 60 Hz",
       "1080p60": "1080p · 60 Hz",
       "720p30": "720p · 30 Hz",
-      "failed": "La qualité de l'image n'a pas pu changer : réessayez."
+      "failed": "La qualité de l'image n'a pas pu changer : réessayez."
     },
     "guest": {
       "on": "Invité sur {name}",
@@ -1184,13 +1244,14 @@
       "noImage": "{host} envoie l'image, mais elle n'arrive pas dans ce navigateur. Essayez Chrome ou Edge.",
       "decode": "Ce navigateur n'arrive pas à décoder l'image de {host}.",
       "lightened": "Image allégée pour suivre.",
-      "noMoreImage": "L'ordinateur ne peut pas faire une image de plus : vous recevez {quality}."
+      "noMoreImage": "L'ordinateur ne peut pas faire une image de plus : vous recevez {quality}.",
+      "leaveHint": "Quitter le partage ({shortcut})"
     }
   },
   "lend": {
     "open": "Prêter l'ordinateur…",
     "title": "Prêter {name}",
-    "startHelp": "Confiez l'ordinateur à un ami quand vous ne vous en servez pas : un code pour une séance, avec son lien et son QR code.",
+    "startHelp": "Confiez l'ordinateur à un ami quand vous ne vous en servez pas : un code pour une séance, avec son lien et son QR code.",
     "duration": {
       "label": "Durée",
       "h1": "1 heure",
@@ -1208,7 +1269,7 @@
     "help": "Votre ami entre ce code avec « Rejoindre avec un code » dans KyberNow Link, ou ouvre ce lien dans un navigateur.",
     "closesSession": "Votre session se fermera quand votre ami arrivera.",
     "cancelCode": "Annuler le code",
-    "warning": "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
+    "warning": "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
     "off": "Le prêt est coupé dans Admin (page « Prêt »).",
     "qrLabel": "QR code du prêt",
     "close": "Fermer",
@@ -1218,7 +1279,7 @@
       "accept": "Accepter",
       "refuse": "Refuser",
       "sessionCloses": "Votre session va se fermer.",
-      "slot": "Créneau de {name} : l'ordinateur lui est prêté dans 2 min."
+      "slot": "Créneau de {name} : l'ordinateur lui est prêté dans 2 min."
     },
     "host": {
       "lentTo": "Prêté à {name}",
@@ -1247,11 +1308,11 @@
     },
     "friends": {
       "title": "Comptes d'amis",
-      "sub": "Un compte par ami : il emprunte avec son identifiant et son mot de passe, sans code.",
+      "sub": "Un compte par ami : il emprunte avec son identifiant et son mot de passe, sans code.",
       "add": "Ajouter un ami",
       "name": "Prénom",
       "login": "Identifiant",
-      "loginHint": "3 à 32 caractères : lettres minuscules, chiffres, point, tiret, trait bas.",
+      "loginHint": "3 à 32 caractères : lettres minuscules, chiffres, point, tiret, trait bas.",
       "password": "Mot de passe",
       "passwordKeep": "Laisser vide pour le garder",
       "passwordHint": "6 caractères au moins.",
@@ -1265,13 +1326,13 @@
       "removeSlot": "Retirer le créneau",
       "slotInvalid": "Chaque créneau a au moins un jour, et finit après son début le même jour.",
       "slotLine": "{days}, {start} – {end}",
-      "noSlots": "Sans créneau : il demande quand l'ordinateur est utilisé",
+      "noSlots": "Sans créneau : il demande quand l'ordinateur est utilisé",
       "invite": "Lien d'invitation",
       "inviteHelp": "Votre ami scanne ce QR code avec KyberNow Link, ou ouvre ce lien dans un navigateur. Il emprunte avec l'identifiant {login} et son mot de passe.",
       "inviteQr": "QR code de l'invitation de {name}",
       "edit": "Modifier",
       "delete": "Supprimer",
-      "confirmDelete": "Supprimer le compte de {name} ? Il ne pourra plus emprunter l'ordinateur.",
+      "confirmDelete": "Supprimer le compte de {name} ? Il ne pourra plus emprunter l'ordinateur.",
       "save": "Enregistrer",
       "cancel": "Annuler",
       "saved": "Compte de {name} enregistré.",
@@ -1291,7 +1352,7 @@
         "offline": "Hors ligne"
       },
       "slotNow": "Votre créneau, jusqu'à {end}",
-      "slotNext": "Votre créneau : {day}, {start} – {end}",
+      "slotNext": "Votre créneau : {day}, {start} – {end}",
       "borrow": "Emprunter",
       "ask": "Demander à {host}",
       "comeBack": "Revenir",
@@ -1307,12 +1368,12 @@
       "left": "Encore {time}",
       "untilTaken": "Jusqu'à ce que {host} reprenne",
       "giveBack": "Rendre l'ordinateur",
-      "confirm": "Rendre l'ordinateur à {host} ?"
+      "confirm": "Rendre l'ordinateur à {host} ?"
     },
     "notice": {
-      "takenBack": "{host} reprend l'ordinateur dans 2 min : sauvegardez votre partie.",
-      "timeUp": "Fin du prêt dans 2 min : sauvegardez votre partie.",
-      "slotEnd": "Votre créneau se termine dans 2 min : sauvegardez votre partie."
+      "takenBack": "{host} reprend l'ordinateur dans 2 min : sauvegardez votre partie.",
+      "timeUp": "Fin du prêt dans 2 min : sauvegardez votre partie.",
+      "slotEnd": "Votre créneau se termine dans 2 min : sauvegardez votre partie."
     },
     "end": {
       "takenBack": "{host} a repris l'ordinateur.",
@@ -1329,7 +1390,7 @@
       "lent": "L'ordinateur est déjà prêté.",
       "locked": "L'ordinateur est verrouillé.",
       "off": "Le prêt est coupé sur cet ordinateur.",
-      "tooMany": "Trop d'essais : réessayez dans une minute."
+      "tooMany": "Trop d'essais : réessayez dans une minute."
     },
     "admin": {
       "intro": "Confiez l'ordinateur à un ami quand vous ne vous en servez pas.",
@@ -1344,7 +1405,7 @@
           "status": "Ordinateur libre",
           "title": "Personne n'emprunte l'ordinateur",
           "sub": "Prêtez-le avec un code pour une séance, ou laissez vos amis emprunter avec leur compte.",
-          "nextSlot": "Prochain créneau : {name}, {day} à {time}",
+          "nextSlot": "Prochain créneau : {name}, {day} à {time}",
           "slotNow": "Créneau de {name} en cours, jusqu'à {time}"
         },
         "code": {
@@ -1354,9 +1415,9 @@
         },
         "request": {
           "status": "Demande d'emprunt",
-          "inUse": "L'ordinateur est utilisé : la session en cours se fermera si vous acceptez.",
-          "others1": "et 1 autre demande : {names}",
-          "othersN": "et {n} autres demandes : {names}"
+          "inUse": "L'ordinateur est utilisé : la session en cours se fermera si vous acceptez.",
+          "others1": "et 1 autre demande : {names}",
+          "othersN": "et {n} autres demandes : {names}"
         },
         "slot": {
           "status": "Créneau"
@@ -1366,7 +1427,7 @@
           "since": "Depuis {time}",
           "connected": "Connecté"
         },
-        "imageError": "Son image n'a pas démarré : {reason}",
+        "imageError": "Son image n'a pas démarré : {reason}",
         "preparing": {
           "status": "Préparation",
           "title": "Préparation de l'ordinateur pour {name}"
@@ -1379,7 +1440,7 @@
           "status": "Reprise en cours",
           "endStatus": "Fin du prêt",
           "endTitle": "Fin du prêt dans {time}",
-          "warned": "{name} a été prévenu : il sauvegarde sa partie."
+          "warned": "{name} a été prévenu : il sauvegarde sa partie."
         }
       },
       "kind": {
@@ -1421,7 +1482,7 @@
         "steam": "Steam en Big Picture",
         "steamHelp": "Une tuile Steam dans le lanceur, avec le compte choisi à chaque prêt.",
         "session": "Votre session Windows",
-        "sessionHelp": "Elle doit rester ouverte : tant que le prêt est activé, la Station empêche la veille et le verrouillage automatique. Vous la retrouvez ouverte à la fin de chaque prêt.",
+        "sessionHelp": "Elle doit rester ouverte : tant que le prêt est activé, la Station empêche la veille et le verrouillage automatique. Vous la retrouvez ouverte à la fin de chaque prêt.",
         "off": "Couper le prêt",
         "offHelp": "Plus aucun code ni compte d'ami ne fonctionne. Vos réglages sont gardés."
       },
@@ -1432,13 +1493,13 @@
         "friends": "Des comptes pour vos amis",
         "friendsText": "Ils empruntent avec leur identifiant quand le PC est libre, sinon ils vous demandent.",
         "slots": "Des créneaux",
-        "slotsText": "Le mercredi après-midi pour Léa : elle emprunte sans vous demander.",
-        "warning": "Votre ami joue dans votre session Windows, en mode console : il ne voit que les apps que vous choisissez. Un jeu peut tout de même lire vos fichiers : prêtez à des amis de confiance.",
+        "slotsText": "Le mercredi après-midi pour Léa : elle emprunte sans vous demander.",
+        "warning": "Votre ami joue dans votre session Windows, en mode console : il ne voit que les apps que vous choisissez. Un jeu peut tout de même lire vos fichiers : prêtez à des amis de confiance.",
         "enable": "Activer le prêt"
       },
       "dialog": {
         "codeTitle": "Code pour une séance",
-        "steamFriendHelp": "Il se connecte avec le sien ; vos comptes sont mis de côté.",
+        "steamFriendHelp": "Il se connecte avec le sien ; vos comptes sont mis de côté.",
         "steamHostHelp": "Il joue avec vos jeux et vos sauvegardes.",
         "valid": "valable 24 h",
         "done": "Terminé"
@@ -1467,7 +1528,7 @@
         "launchText": "Une app s'ouvre sur le Mac dès que l'écran virtuel est prêt, dans votre session. Déjà ouverte, elle revient au premier plan."
       },
       "launch": {
-        "intro": "Une app s'ouvre sur le Mac dès que son écran est prêt : Steam Big Picture, un jeu, un tableur… Les apps et leurs icônes viennent du dossier Applications du Mac.",
+        "intro": "Une app s'ouvre sur le Mac dès que son écran est prêt : Steam Big Picture, un jeu, un tableur… Les apps et leurs icônes viennent du dossier Applications du Mac.",
         "otherHint": "Une app dans Applications, dans vos applications ou sur le Bureau",
         "roots": {
           "programs": "Applications",
@@ -1543,12 +1604,12 @@
       "title": "Pas rattaché",
       "text": "Rattachez cet ordinateur à votre compte KyberNow pour le retrouver sur tous vos appareils et l'ouvrir à d'autres personnes.",
       "signIn": "Se connecter",
-      "noRelay": "Réglez d'abord un relais dans « Hors de chez vous » : c'est lui qui tient les comptes KyberNow.",
-      "waiting": "Terminez dans le navigateur : connectez-vous à votre compte KyberNow, puis confirmez le rattachement. Cette page se met à jour d'elle-même.",
+      "noRelay": "Réglez d'abord un relais dans « Hors de chez vous » : c'est lui qui tient les comptes KyberNow.",
+      "waiting": "Terminez dans le navigateur : connectez-vous à votre compte KyberNow, puis confirmez le rattachement. Cette page se met à jour d'elle-même.",
       "reopen": "Rouvrir la page",
       "cancel": "Annuler",
       "done": "Ordinateur rattaché à {name}.",
-      "optional": "Facultatif : le réseau local, l'appairage par code et les invitations marchent sans compte."
+      "optional": "Facultatif : le réseau local, l'appairage par code et les invitations marchent sans compte."
     },
     "attached": {
       "to": "Rattaché à",
@@ -1556,10 +1617,10 @@
       "organization": "Organisation",
       "console": "Gérer dans la console",
       "detach": "Détacher",
-      "confirmDetach": "Détacher cet ordinateur du compte KyberNow ? Les personnes entrées par un compte ne pourront plus l'ouvrir, et la liste des accès sera effacée. On le rattache de nouveau avec « Se connecter ».",
+      "confirmDetach": "Détacher cet ordinateur du compte KyberNow ? Les personnes entrées par un compte ne pourront plus l'ouvrir, et la liste des accès sera effacée. On le rattache de nouveau avec « Se connecter ».",
       "detached": "Ordinateur détaché.",
       "key": "Clé du relais",
-      "test": "Mode d'essai : clé locale, aucun relais (KYBERNOW_ACCOUNT_TEST)."
+      "test": "Mode d'essai : clé locale, aucun relais (KYBERNOW_ACCOUNT_TEST)."
     },
     "accept": {
       "title": "Accepter les comptes KyberNow",
@@ -1611,9 +1672,9 @@
         "launchText": "Une app s'ouvre sur l'ordinateur dès que l'écran virtuel est prêt, dans votre session. Si elle est déjà ouverte, elle reste comme elle est."
       },
       "launch": {
-        "intro": "Une app s'ouvre sur l'ordinateur dès que son écran est prêt : Steam Big Picture, un jeu, un tableur… Les apps et leurs icônes viennent des applications installées de votre session.",
+        "intro": "Une app s'ouvre sur l'ordinateur dès que son écran est prêt : Steam Big Picture, un jeu, un tableur… Les apps et leurs icônes viennent des applications installées de votre session.",
         "loading": "Lecture des applications…",
-        "readFailed": "Les applications n'ont pas pu être relues : {error}. Ouvrez votre session sur l'ordinateur, puis actualisez.",
+        "readFailed": "Les applications n'ont pas pu être relues : {error}. Ouvrez votre session sur l'ordinateur, puis actualisez.",
         "allOf": "Applications de l'ordinateur",
         "emptyCatalogue": "Aucune app trouvée. Ouvrez votre session sur l'ordinateur, puis actualisez.",
         "otherHint": "Un fichier .desktop, une AppImage ou un script dans vos applications, sur le Bureau ou dans /opt",
@@ -1626,7 +1687,7 @@
     },
     "system": {
       "update": {
-        "timeout": "La mise à jour n'a pas abouti en 5 minutes : voyez /var/lib/kybernow-station/update/<version>/update.log.",
+        "timeout": "La mise à jour n'a pas abouti en 5 minutes : voyez /var/lib/kybernow-station/update/<version>/update.log.",
         "needsSetup": "Cette version s'installe avec son paquet (.deb ou .rpm), à télécharger."
       },
       "server": {
@@ -1634,7 +1695,7 @@
         "trayTitle": "Icône de Kyber dans la barre du bureau"
       },
       "station": {
-        "timeout": "La Station n'a pas redémarré en 3 minutes : voyez le journal (journalctl --user -u kybernow-admin)."
+        "timeout": "La Station n'a pas redémarré en 3 minutes : voyez le journal (journalctl --user -u kybernow-admin)."
       },
       "wake": {
         "allowedHelp": "Cette carte peut allumer l'ordinateur quand il est en veille. Vos appareils peuvent le réveiller depuis l'app KyberNow Link. Après un arrêt complet, cela dépend du BIOS.",
@@ -1647,7 +1708,7 @@
         "srgb": "sRGB"
       },
       "pill": {
-        "simulated": "Simulé : pas de Station installée sur cet ordinateur",
+        "simulated": "Simulé : pas de Station installée sur cet ordinateur",
         "driverUnavailable": "Écran virtuel indisponible",
         "ready": "Prêt · écran virtuel du bureau",
         "readyVersion": "Prêt · écran virtuel du bureau",
@@ -1655,18 +1716,18 @@
       },
       "display": {
         "hdrWindows": "Pas encore de HDR depuis une Station Linux.",
-        "hdrCheckProfile": "Le bureau n'a pas pris le profil : les jeux voient {seen} nits au lieu de {wanted}.",
+        "hdrCheckProfile": "Le bureau n'a pas pris le profil : les jeux voient {seen} nits au lieu de {wanted}.",
         "hdrCheckUnread": "Le bureau ne donne pas les luminosités de l'écran virtuel.",
-        "hdrGammaHelp": "Réglage des Stations Windows : rien à choisir sur cet ordinateur.",
+        "hdrGammaHelp": "Réglage des Stations Windows : rien à choisir sur cet ordinateur.",
         "failsafeHelp": "L'écran virtuel disparaît tout seul si la Station s'arrête, et le bureau rallume vos écrans dans leur disposition. Vous pouvez aussi le faire tout de suite.",
         "failsafeHelpSeconds": "L'écran virtuel disparaît tout seul si la Station s'arrête, et le bureau rallume vos écrans dans leur disposition. Vous pouvez aussi le faire tout de suite."
       },
       "sound": {
-        "installSteam": "La sortie son KyberNow n'a pas pu être créée : vérifiez que PipeWire (ou PulseAudio) tourne dans votre session. Sans elle, le son sort aussi des haut-parleurs de l'ordinateur."
+        "installSteam": "La sortie son KyberNow n'a pas pu être créée : vérifiez que PipeWire (ou PulseAudio) tourne dans votre session. Sans elle, le son sort aussi des haut-parleurs de l'ordinateur."
       }
     },
     "lend": {
-      "warning": "Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
+      "warning": "Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
       "apps": {
         "pickIntro": "Votre ami pourra l'ouvrir depuis le lanceur. Les apps et leurs icônes viennent des applications installées de votre session."
       },
@@ -1677,7 +1738,7 @@
         "off": {
           "title": "Prêtez votre ordinateur à un ami, en toute simplicité",
           "friendsText": "Ils empruntent avec leur identifiant quand l'ordinateur est libre, sinon ils vous demandent.",
-          "warning": "Votre ami joue dans votre session, en mode console : il ne voit que les apps que vous choisissez. Un jeu peut tout de même lire vos fichiers : prêtez à des amis de confiance."
+          "warning": "Votre ami joue dans votre session, en mode console : il ne voit que les apps que vous choisissez. Un jeu peut tout de même lire vos fichiers : prêtez à des amis de confiance."
         }
       }
     }
@@ -1689,13 +1750,13 @@
     "stop_tooltip": "Arrêter l'enregistrement ({shortcut})",
     "stop": "Arrêter l'enregistrement",
     "started": "Enregistrement lancé sur l'ordinateur.",
-    "saved": "Enregistrement terminé : retrouvez-le dans Admin › Enregistrements.",
+    "saved": "Enregistrement terminé : retrouvez-le dans Admin › Enregistrements.",
     "guest_pill": "Enregistrement",
     "guest_notice": "{name} enregistre la session.",
     "guest_stopped": "L'enregistrement est arrêté.",
     "disabled": "L'enregistrement est coupé sur cet ordinateur (Admin › Enregistrements).",
-    "stopped_disk": "L'enregistrement s'est arrêté : le disque de l'ordinateur est plein.",
-    "stopped_codec": "L'enregistrement s'est arrêté : PyroWave et AV1 ne s'enregistrent pas."
+    "stopped_disk": "L'enregistrement s'est arrêté : le disque de l'ordinateur est plein.",
+    "stopped_codec": "L'enregistrement s'est arrêté : PyroWave et AV1 ne s'enregistrent pas."
   },
   "recordings": {
     "eyebrow": "Ce qui se passe dans les sessions",
@@ -1726,7 +1787,7 @@
     "close": "Fermer",
     "download": "Télécharger",
     "delete": "Supprimer",
-    "confirmDelete": "Supprimer cet enregistrement ? Il ne pourra pas être récupéré.",
+    "confirmDelete": "Supprimer cet enregistrement ? Il ne pourra pas être récupéré.",
     "size": {
       "gb": "{n} Go",
       "mb": "{n} Mo"
@@ -1740,12 +1801,12 @@
   "micro": {
     "label": "Micro",
     "label_off": "Micro coupé",
-    "tooltip_on": "Micro : envoyé à l'ordinateur ({shortcut})",
+    "tooltip_on": "Micro : envoyé à l'ordinateur ({shortcut})",
     "tooltip_off": "Micro coupé ({shortcut})",
     "sent": "Micro envoyé à {name}.",
     "permission_web": "KyberNow Link n'a pas accès au micro. Autorisez-le dans le navigateur.",
     "not_allowed": "L'hôte ne laisse pas les invités parler.",
-    "no_device": "L'ordinateur n'a pas de micro virtuel : voyez Admin › Image et son.",
+    "no_device": "L'ordinateur n'a pas de micro virtuel : voyez Admin › Image et son.",
     "unsupported": "Cet ordinateur ne reçoit pas le micro.",
     "old_station": "Mettez à jour la Station pour envoyer le micro.",
     "setting_help": "Envoie le micro de cet appareil à l'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio.",
@@ -1754,6 +1815,8 @@
     "echo": "Réduire l'écho et le bruit",
     "echo_help": "Le traitement voix de l'appareil retire le son de l'ordinateur et le bruit autour de vous. Coupez-le pour un micro de studio.",
     "no_microphone": "Aucun micro sur cet appareil.",
-    "shortcut": "Ctrl + Alt + Maj + V"
+    "status_connecting": "Envoi…",
+    "status_on": "Envoyé",
+    "status_off": "Coupé"
   }
 }

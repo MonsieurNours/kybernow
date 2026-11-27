@@ -8,7 +8,9 @@
 
 mod accounts;
 mod autotest;
+mod dl;
 mod jobs;
+mod log_send;
 mod link;
 mod log_file;
 mod luna;
@@ -32,6 +34,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use kybernow_core::console::{DeviceInfo, Mode};
+use kybernow_rules::limits::Device;
 use kybernow_core::input::GamepadRumble;
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::lend;
@@ -56,6 +59,10 @@ pub enum Event {
     Found(Vec<Found>),
     /// Comptes KyberNow : un code, une connexion, les ordinateurs d'un compte (`accounts.rs`).
     Account(accounts::AccountEvent),
+    /// « Envoyer le journal » (`log_send.rs`) : il part au relais ; déposé ou refusé ; l'état du dépôt.
+    LogUploading { attempt: u32 },
+    LogSent { attempt: u32, result: Result<crate::log_send::LogDeposit, crate::log_send::LogFail> },
+    LogState { attempt: u32, remote: crate::log_send::LogRemote },
     Probed { address: String, port: u16, fingerprint: Result<String, String> },
     PairAsked { name: String },
     PairAccepted(crate::model::Host),
@@ -442,6 +449,7 @@ pub fn run(args: &[String]) {
                 esplayer::suspend();
                 ndl::unload();
                 if let Some(s) = l.handle.shared.session() {
+                    s.set_background(false, Device::LgTv);
                     s.request_keyframe();
                 }
             }
@@ -534,6 +542,14 @@ pub fn run(args: &[String]) {
         }
 
         if animating {
+            dirty = true;
+        }
+        // « Envoyer le journal » : le dépôt relu toutes les 2 s, son expiration vue sans le relais.
+        let log_before = app.log.as_ref().map(|l| l.step.clone());
+        for a in app.log_tick(Instant::now()) {
+            perform(a, &mut app, &mut pads, &mut live, &tx, &mut pairing, &mut quit);
+        }
+        if app.log.as_ref().map(|l| l.step.clone()) != log_before {
             dirty = true;
         }
         // L'enregistrement en cours, menu ouvert : la tuile se redessine à chaque seconde de son temps.
@@ -649,9 +665,15 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
     let input = live.as_ref().and_then(|l| l.handle.shared.current_input());
     match ev.kind() {
         sdl::SDL_QUIT => *quit = true,
+        // L'app passe en arrière-plan (autre app, veille du téléviseur) : touches relâchées, image figée et débit
+        // demandé à l'ordinateur ramené à 2 Mbit/s (`set_background`, docs/link-ui.md, « Image qui n'est plus
+        // regardée ») jusqu'au retour au premier plan.
         sdl::SDL_APP_WILLENTERBACKGROUND => {
             if let Some(p) = &input {
                 p.release_all();
+            }
+            if let Some(s) = live.as_ref().and_then(|l| l.handle.shared.session()) {
+                s.set_background(true, Device::LgTv);
             }
         }
         // Retour au premier plan (sortie de veille du téléviseur, retour depuis une autre app) : traité par la boucle
@@ -918,6 +940,9 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 app.images.insert(id, img);
             }
         }
+        Event::LogUploading { attempt } => app.log_uploading(attempt),
+        Event::LogSent { attempt, result } => actions.extend(app.log_sent(attempt, result)),
+        Event::LogState { attempt, remote } => app.log_state(attempt, remote),
         Event::Account(e) => {
             if accounts::handle(e, app, actions) {
                 accounts::sync(app);
@@ -1255,6 +1280,9 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
         }
         Action::AccountCode { attempt, relay } => accounts::sign_in_by_code(attempt, relay, app.device_name(), tx.clone()),
         Action::AccountCancel => accounts::cancel(),
+        Action::LogSend { attempt, relay, header } => log_send::send(attempt, relay, header, tx.clone()),
+        Action::LogCheck { attempt, relay, id, owner } => log_send::check(attempt, relay, id, owner, tx.clone()),
+        Action::LogDiscard { relay, id, owner } => log_send::discard(relay, id, owner),
         Action::AutoTest { host, attempt } => autotest::start(app, &host, attempt, tx.clone()),
         Action::AutoCancel => autotest::cancel(),
         Action::AccountSignOut(a) => accounts::sign_out(a),
@@ -1322,7 +1350,9 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 let mode = app.session_mode(h);
                 let codec = app.codec_for(h);
                 let hdr = session::HdrAsk::of(app, Some(h));
-                l.handle.session.set_settings(session::settings(h, p, codec, mode, app.net.cap_mbps(), hdr));
+                let settings = session::settings(h, p, codec, mode, app.net.cap_mbps(), hdr);
+                l.handle.shared.set_wanted(&settings);
+                l.handle.session.set_settings(settings);
             }
         }
         Action::Mire(m) => mires::show(m),

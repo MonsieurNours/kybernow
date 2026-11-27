@@ -15,7 +15,39 @@ function align(v: number, a: number): number {
   return (v + a - 1) & ~(a - 1)
 }
 
-/** Paquet de configuration de KyberNow (16 octets). */
+/** Taille du paquet de configuration en version 1, et de la tête commune aux deux versions. */
+export const CONFIG_V1_SIZE = 16
+/** Taille du paquet de configuration en version 2 (métadonnées HDR10). */
+export const CONFIG_V2_SIZE = 48
+/** Côté le plus grand qu'accepte le décodeur. */
+const MAX_SIDE = 16384
+
+/** Coordonnées CIE 1931 (x, y). */
+export type Chromaticity = [number, number]
+
+/** Mastering display (SMPTE ST 2086) de l'en-tête version 2. */
+export interface MasteringDisplay {
+  /** Primaires rouge, vert, bleu (dans cet ordre, comme dans l'en-tête). */
+  red: Chromaticity
+  green: Chromaticity
+  blue: Chromaticity
+  white: Chromaticity
+  /** Luminances la plus haute et la plus basse, en nits (cd/m²). */
+  maxNits: number
+  minNits: number
+}
+
+/** Métadonnées HDR10 de l'en-tête version 2 : un champ sans son bit dans les drapeaux est `null`. */
+export interface HdrMetadata {
+  /** Octet des drapeaux tel quel (bit 0 : mastering display, bit 1 : niveau de lumière). */
+  flags: number
+  mastering: MasteringDisplay | null
+  /** MaxCLL et MaxFALL, en nits. */
+  maxCll: number | null
+  maxFall: number | null
+}
+
+/** Paquet de configuration de KyberNow (`KNPW`, docs/kyber-changes.md, « En-tête KNPW version 2 »). */
 export interface PyroWaveConfig {
   chroma444: boolean
   /** HDR10 : BT.2020, PQ. Sinon SDR BT.709. */
@@ -23,35 +55,90 @@ export interface PyroWaveConfig {
   fullRange: boolean
   width: number
   height: number
+  /** Version 2 seulement : les métadonnées HDR10 de la capture (drapeaux à 0 en SDR). Absent en version 1. */
+  metadata?: HdrMetadata
 }
 
+/** Même image (définition, chroma, couleur, plage) : les métadonnées HDR n'y comptent pas, le décodeur ne s'en sert pas. */
 export function sameConfig(a: PyroWaveConfig | null, b: PyroWaveConfig | null): boolean {
   return !!a && !!b && a.chroma444 === b.chroma444 && a.hdr === b.hdr && a.fullRange === b.fullRange && a.width === b.width && a.height === b.height
 }
 
-/** `KNPW` | version 1 | chroma | couleur | plage | largeur u32 | hauteur u32. */
-export function parseConfig(data: Uint8Array): PyroWaveConfig | null {
-  if (data.length < 16) return null
-  if (data[0] !== 0x4b || data[1] !== 0x4e || data[2] !== 0x50 || data[3] !== 0x57 || data[4] !== 1) return null
-  const v = new DataView(data.buffer, data.byteOffset, data.byteLength)
-  const width = v.getUint32(8, true)
-  const height = v.getUint32(12, true)
-  if (width < 1 || height < 1 || width > 16384 || height > 16384) return null
-  return { chroma444: data[5] === 1, hdr: data[6] === 1, fullRange: data[7] === 0, width, height }
+/** Une image possible : côtés de 1 à 16 384, pairs en 4:2:0 (comme `Config::valid` du cœur). */
+function valid(c: PyroWaveConfig): boolean {
+  const side = (v: number) => v >= 1 && v <= MAX_SIDE
+  return side(c.width) && side(c.height) && (c.chroma444 || (c.width % 2 === 0 && c.height % 2 === 0))
 }
 
+/** Un paquet de configuration, pas une image : il commence par `KNPW` (une image commence par son en-tête de
+ * séquence, au bit de poids fort levé) et a au moins 16 octets (`Config::is_config` du cœur). */
+export function isConfig(data: Uint8Array): boolean {
+  return data.length >= CONFIG_V1_SIZE && data[0] === 0x4b && data[1] === 0x4e && data[2] === 0x50 && data[3] === 0x57
+}
+
+/**
+ * `KNPW` | version | chroma | couleur | plage | largeur u32 | hauteur u32, puis en version 2 : drapeaux | 3 octets à 0
+ * | primaires rouge, vert, bleu (x, y u16, unités de 0,00002) | blanc (x, y) | luminance max, min (u32, unités de
+ * 0,0001 nit) | MaxCLL, MaxFALL (u16, nits) ; petit-boutiste. Version 1 : 16 octets au moins (ceux d'une Station
+ * 0.11.7), version 2 : métadonnées lues avec 48 octets au moins ; les octets au-delà sont ignorés. Comme
+ * `Config::parse` du cœur, une version plus récente que 2 garde ces 16 octets en tête et se lit (ses métadonnées
+ * comme celles de la version 2). `null` pour la version 0, un octet de chroma, de couleur ou de plage inconnu, ou une
+ * image impossible (côté nul ou trop grand, 4:2:0 de taille impaire).
+ */
+export function parseConfig(data: Uint8Array): PyroWaveConfig | null {
+  if (!isConfig(data)) return null
+  const version = data[4]
+  if (version === 0) return null
+  if (data[5] > 1 || data[6] > 1 || data[7] > 1) return null
+  const v = new DataView(data.buffer, data.byteOffset, data.byteLength)
+  const c: PyroWaveConfig = { chroma444: data[5] === 1, hdr: data[6] === 1, fullRange: data[7] === 0, width: v.getUint32(8, true), height: v.getUint32(12, true) }
+  if (!valid(c)) return null
+  if (version >= 2 && data.length >= CONFIG_V2_SIZE) c.metadata = readMetadata(v)
+  return c
+}
+
+/** Les octets 16 à 47 d'un en-tête version 2. */
+function readMetadata(v: DataView): HdrMetadata {
+  const flags = v.getUint8(16)
+  const xy = (o: number): Chromaticity => [v.getUint16(o, true) * 0.00002, v.getUint16(o + 2, true) * 0.00002]
+  const mastering =
+    flags & 1
+      ? { red: xy(20), green: xy(24), blue: xy(28), white: xy(32), maxNits: v.getUint32(36, true) / 10000, minNits: v.getUint32(40, true) / 10000 }
+      : null
+  const light = (flags & 2) !== 0
+  return { flags, mastering, maxCll: light ? v.getUint16(44, true) : null, maxFall: light ? v.getUint16(46, true) : null }
+}
+
+/** Le paquet, pour les essais : version 1 (16 octets), ou version 2 (48 octets) si `c.metadata` est là ; les
+ * valeurs sont écrites dans les unités de l'en-tête (arrondies). */
 export function encodeConfig(c: PyroWaveConfig): Uint8Array {
-  const out = new Uint8Array(16)
-  out.set([0x4b, 0x4e, 0x50, 0x57, 1, c.chroma444 ? 1 : 0, c.hdr ? 1 : 0, c.fullRange ? 0 : 1])
+  const m = c.metadata
+  const out = new Uint8Array(m ? CONFIG_V2_SIZE : CONFIG_V1_SIZE)
+  out.set([0x4b, 0x4e, 0x50, 0x57, m ? 2 : 1, c.chroma444 ? 1 : 0, c.hdr ? 1 : 0, c.fullRange ? 0 : 1])
   const v = new DataView(out.buffer)
   v.setUint32(8, c.width, true)
   v.setUint32(12, c.height, true)
+  if (m) {
+    v.setUint8(16, m.flags)
+    if (m.mastering) {
+      const d = m.mastering
+      ;[d.red, d.green, d.blue, d.white].forEach(([x, y], i) => {
+        v.setUint16(20 + i * 4, Math.round(x / 0.00002), true)
+        v.setUint16(22 + i * 4, Math.round(y / 0.00002), true)
+      })
+      v.setUint32(36, Math.round(d.maxNits * 10000), true)
+      v.setUint32(40, Math.round(d.minNits * 10000), true)
+    }
+    if (m.maxCll !== null) v.setUint16(44, m.maxCll, true)
+    if (m.maxFall !== null) v.setUint16(46, m.maxFall, true)
+  }
   return out
 }
 
 /** Sans paquet de configuration : définition et chroma lues dans l'en-tête de
  * séquence du flux, en SDR plage pleine (l'encodeur n'y écrit pas la couleur
- * de façon fiable), comme le client Mac. */
+ * de façon fiable), comme le client Mac ; `null` pour une image impossible
+ * (4:2:0 de taille impaire), comme `Config::from_sequence_header` du cœur. */
 export function configFromSequenceHeader(data: Uint8Array): PyroWaveConfig | null {
   let off = 0
   const v = new DataView(data.buffer, data.byteOffset, data.byteLength)
@@ -63,7 +150,8 @@ export function configFromSequenceHeader(data: Uint8Array): PyroWaveConfig | nul
       const height = ((w0 >>> 14) & 0x3fff) + 1
       const code = (w1 >>> 24) & 3
       if (code !== 0) return null
-      return { chroma444: ((w1 >>> 26) & 1) === 1, hdr: false, fullRange: true, width, height }
+      const c = { chroma444: ((w1 >>> 26) & 1) === 1, hdr: false, fullRange: true, width, height }
+      return valid(c) ? c : null
     }
     const words = (w0 >>> 16) & 0xfff
     if (words < 2) return null

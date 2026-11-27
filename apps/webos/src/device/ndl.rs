@@ -38,6 +38,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use super::dl::{self, sym};
 use crate::hdr::HdrMeta;
 
 pub const VIDEO_H264: i32 = 1;
@@ -239,12 +240,6 @@ struct State {
 
 static NDL: Mutex<Option<State>> = Mutex::new(None);
 
-unsafe fn sym<T>(lib: *mut c_void, name: &str) -> Option<T> {
-    let n = CString::new(name).ok()?;
-    let p = unsafe { libc::dlsym(lib, n.as_ptr()) };
-    if p.is_null() { None } else { Some(unsafe { std::mem::transmute_copy::<*mut c_void, T>(&p) }) }
-}
-
 /// Ouvre la bibliothèque du téléviseur ; faux si elle manque (pas un
 /// téléviseur LG, ou webOS trop ancien : il faut l'API 2, webOS 5 et après).
 pub fn available() -> bool {
@@ -253,12 +248,10 @@ pub fn available() -> bool {
         return true;
     }
     unsafe {
-        let name = CString::new("libNDL_directmedia.so.1").unwrap();
-        let lib = libc::dlopen(name.as_ptr(), libc::RTLD_NOW | libc::RTLD_GLOBAL);
-        if lib.is_null() {
+        let Some(lib) = dl::open("libNDL_directmedia.so.1") else {
             log::warn!("image : libNDL_directmedia.so.1 introuvable");
             return false;
-        }
+        };
         let api = (|| {
             Some(Api {
                 init: sym(lib, "NDL_DirectMediaInit")?,
@@ -304,23 +297,25 @@ fn last_error(api: &Api) -> String {
 }
 
 extern "C" fn on_load(kind: c_int, value: i64, s: *const c_char) {
-    let s = if s.is_null() { String::new() } else { unsafe { CStr::from_ptr(s).to_string_lossy().into_owned() } };
-    match kind {
-        0x16 => {
-            LOAD_COMPLETED.store(true, Ordering::Release);
-            log::info!("image : NDL chargé (confirmé) {s}");
-        }
-        0x17 => {
-            if LOAD_COMPLETED.swap(false, Ordering::AcqRel) {
-                TV_UNLOADED.store(true, Ordering::Release);
-                log::warn!("image : NDL déchargé par le téléviseur {s}");
-            } else {
-                log::info!("image : NDL déchargé {s}");
+    kybernow_core::ffi_guard!({
+        let s = if s.is_null() { String::new() } else { unsafe { CStr::from_ptr(s).to_string_lossy().into_owned() } };
+        match kind {
+            0x16 => {
+                LOAD_COMPLETED.store(true, Ordering::Release);
+                log::info!("image : NDL chargé (confirmé) {s}");
             }
+            0x17 => {
+                if LOAD_COMPLETED.swap(false, Ordering::AcqRel) {
+                    TV_UNLOADED.store(true, Ordering::Release);
+                    log::warn!("image : NDL déchargé par le téléviseur {s}");
+                } else {
+                    log::info!("image : NDL déchargé {s}");
+                }
+            }
+            0x1a => log::info!("image : NDL lecture {s}"),
+            _ => log::info!("image : NDL état 0x{kind:02x} ({value:#x}) {s}"),
         }
-        0x1a => log::info!("image : NDL lecture {s}"),
-        _ => log::info!("image : NDL état 0x{kind:02x} ({value:#x}) {s}"),
-    }
+    })
 }
 
 /// Le décodeur sait passer la dalle en HDR (`NDL_DirectVideoSetHDRInfo`).

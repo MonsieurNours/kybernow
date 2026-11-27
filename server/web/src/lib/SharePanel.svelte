@@ -9,7 +9,7 @@
 <script lang="ts">
   import { joinedGuests, localShare, shareRequests, type ShareGuest, type ShareOps, type ShareRole, type ShareView } from './api'
   import { errorText, notify as storeNotify, refreshStatus, setShare } from './store.svelte'
-  import { deviceIcon, imageQuality, screenLine, sinceText } from './format'
+  import { copyText, deviceIcon, imageQuality, screenLine, sinceText } from './format'
   import Icon from './Icon.svelte'
   import Qr from './Qr.svelte'
   import { t, tn } from './i18n/index.svelte'
@@ -136,12 +136,8 @@
   }
 
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(share.web)
-      notify('ok', t('share.copied'))
-    } catch {
-      notify('error', t('share.copyFailed'))
-    }
+    if (await copyText(share.web)) notify('ok', t('share.copied'))
+    else notify('error', t('share.copyFailed'))
   }
 </script>
 
