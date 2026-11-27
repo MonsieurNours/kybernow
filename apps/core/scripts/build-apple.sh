@@ -10,7 +10,7 @@
 #   apps/core/scripts/build-apple.sh                      toutes les cibles
 #   apps/core/scripts/build-apple.sh --target <cible>     une seule
 #   apps/core/scripts/build-apple.sh --check              cargo check seul
-#   apps/core/scripts/build-apple.sh --kyber-pyrowave     Kyber demande PyroWave
+#   apps/core/scripts/build-apple.sh --sans-pyrowave      sans PyroWave (allumé par défaut)
 #
 #   aarch64-apple-darwin      Rust stable (référence : le Mac qui compile)
 #   aarch64-apple-ios         Rust stable, rang 2 (rustup target add)
@@ -27,8 +27,8 @@
 #
 # Le correctif kyclient de PyroWave (0025, `VideoCodec::PyroWave`,
 # `fallback_codec`) et la fonctionnalité `pyrowave` du cœur vont ensemble
-# (apps/core/README.md, « PyroWave ») : seulement avec --kyber-pyrowave, tant
-# qu'ils ne sont pas allumés pour toutes les apps (third_party/ est partagé).
+# (apps/core/README.md, « PyroWave ») : allumés par défaut depuis la 0.11.1
+# (KYBER_PYROWAVE=1) ; --sans-pyrowave les écarte ensemble.
 #
 # S'arrête à la première erreur (correctif inapplicable, compilation ratée).
 # Versions vérifiées : scripts/kyber-toolchain.sh (une autre est signalée).

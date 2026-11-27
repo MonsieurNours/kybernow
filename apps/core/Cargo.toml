@@ -46,10 +46,12 @@ spake2 = "0.4"
 # l'exécutable final la lie lui-même.
 sdl = []
 # PyroWave (docs/pyrowave.md) : le format de Kyber `VideoCodec::PyroWave`
-# vient du correctif kyclient de la Station. Sans cette fonctionnalité (tant
-# que le correctif n'est pas dans kyber-desktop), le cœur connaît PyroWave
-# (format, capacités, annonce de la Station, règle d'« Auto ») mais ne le
-# demande jamais à Kyber : `profile::PYROWAVE_KYBER`.
+# vient du correctif kyclient de la Station (0025, posé par
+# scripts/kyber-client-patches.sh). Allumée par les scripts de construction
+# depuis la 0.11.1 (`KYBER_PYROWAVE=1`, `--sans-pyrowave` pour s'en passer ;
+# webOS sans). Sans elle, le cœur connaît PyroWave (format, capacités,
+# annonce de la Station, règle d'« Auto ») mais ne le demande jamais à
+# Kyber : `profile::PYROWAVE_KYBER`.
 pyrowave = []
 
 # Essais du relais sur la boucle locale (faux relais, faux Admin).
