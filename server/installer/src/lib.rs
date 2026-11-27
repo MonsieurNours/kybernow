@@ -2,6 +2,8 @@
 //! installation et désinstallation. Partagé par le lanceur et l'interface.
 
 pub mod account;
+/// Droits du dossier de données, partagés avec Admin.
+#[path = "../../admin/src/update/acl.rs"]
 pub mod acl;
 pub mod checks;
 /// Listes partagées avec l'applicateur des mises à jour d'Admin.

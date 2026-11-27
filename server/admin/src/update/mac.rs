@@ -221,7 +221,7 @@ fn swap_and_check(layout: &Layout, incoming: &Path, version: &str, log: &mut Jou
     start_all(log);
     let address = super::apply::console_address(layout);
     log.line(format!("==> Contrôle : Admin en version {version} sur {address}"));
-    match super::apply::admin_answers(&address, version, HEALTH_TIMEOUT) {
+    match super::apply::admin_answers(&address, version, HEALTH_TIMEOUT, &|| Ok(())) {
         Ok(()) => Ok(()),
         Err(e) => {
             log.line(format!("ERREUR : {e:#}"));

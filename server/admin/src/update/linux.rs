@@ -653,7 +653,7 @@ mod system {
         }
 
         fn health(&mut self, address: &str, version: &str, timeout: Duration) -> Result<()> {
-            super::super::apply::admin_answers(address, version, timeout)
+            super::super::apply::admin_answers(address, version, timeout, &|| Ok(()))
         }
     }
 }

@@ -17,9 +17,9 @@
 //! sauvegarde, de restauration et de prise de possession : un fichier déposé
 //! par un autre compte avec ses propres droits n'arrête pas la pose.
 //!
-//! Même fichier dans `server/installer/src/acl.rs` (installation) et
-//! `server/admin/src/update/acl.rs` (chaque démarrage de la console) : gardez
-//! les deux identiques.
+//! Un seul fichier pour l'installateur (`server/installer`, qui l'inclut par
+//! `#[path]`, à l'installation) et Admin (à chaque démarrage) : il ne dépend
+//! que d'`anyhow` et de `windows-sys`.
 
 use std::path::Path;
 
