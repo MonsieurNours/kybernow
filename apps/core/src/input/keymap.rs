@@ -121,12 +121,17 @@ pub fn scancode_of_usage(usage: u16) -> Option<u16> {
 }
 
 /// Hors des systèmes d'Apple, kynput n'exporte pas sa table HID
-/// (`kynput_keycode_usb_to_kyber` n'existe que pour macOS, iOS, tvOS) : le
-/// lien de l'app Windows échouait dès que le module d'entrées y était
-/// utilisé. Windows envoie ses propres scancodes, sans passer par ici.
+/// (`kynput_keycode_usb_to_kyber` n'existe que pour macOS, iOS, tvOS) : la
+/// table de la caisse `keycode` (usages 4 à 231 du clavier). Linux et LG y
+/// passent (scancode SDL = usage HID) ; Windows envoie ses propres
+/// scancodes, sans passer par ici.
 #[cfg(not(target_vendor = "apple"))]
-pub fn scancode_of_usage(_usage: u16) -> Option<u16> {
-    None
+pub fn scancode_of_usage(usage: u16) -> Option<u16> {
+    use keycode::{KeyMap, KeyMapping};
+    if !(4..=231).contains(&usage) {
+        return None;
+    }
+    KeyMap::from_key_mapping(KeyMapping::Usb(usage)).ok().map(|k| k.win).filter(|w| *w != 0)
 }
 
 /// Les deux en un : scancode à envoyer pour une touche donnée en usage HID.

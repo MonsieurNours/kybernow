@@ -17,6 +17,9 @@ kyvlcplayer = { path = "../../third_party/kyber-desktop/kysdk/kyctl/kyvlcplayer"
 kynput-rs = "0.1.0"
 kynput-sys = "0.1.0"
 base64 = "0.22"
+# Usages HID → scancodes de Windows hors des systèmes d'Apple (keymap.rs : Linux
+# et LG, dont le clavier arrive de SDL en usages HID).
+keycode = "1.0"
 log = "0.4"
 rustls = { version = "0.23.31", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }

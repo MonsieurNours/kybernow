@@ -231,7 +231,7 @@ fn phrase(h: &Host) -> &'static str {
 
 /// Une heure locale « 19:42 ».
 fn clock() -> String {
-    crate::app_time::local_hhmm()
+    kybernow_ui::time::local_hhmm()
 }
 
 // MARK: - Bureau

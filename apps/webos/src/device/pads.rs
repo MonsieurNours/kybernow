@@ -8,7 +8,6 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use keycode::{KeyMap, KeyMapping};
 use kybernow_core::input::{InputPipeline, PadAxis, PadButton};
 use kybernow_core::kynput_rs::MouseButtonType;
 
@@ -56,14 +55,6 @@ pub fn button(which: u8) -> PadButton {
 /// Axes dans l'ordre de SDL, le même que `PadAxis::ALL`.
 pub fn core_axis(which: u8) -> Option<PadAxis> {
     PadAxis::ALL.get(which as usize).copied()
-}
-
-/// Scancode de Windows d'une touche de clavier (scancode SDL = code USB HID).
-pub fn win_scancode(sc: i32) -> Option<u16> {
-    if !(4..=231).contains(&sc) {
-        return None;
-    }
-    KeyMap::from_key_mapping(KeyMapping::Usb(sc as u16)).ok().map(|k| k.win).filter(|w| *w != 0)
 }
 
 impl Pads {

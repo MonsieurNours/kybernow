@@ -3018,7 +3018,7 @@ mod tests {
         assert_eq!(crate::app::time_left_label(80 * 60), "Encore 1 h 20");
         assert_eq!(crate::app::time_left_label(20), "Encore moins d'une minute");
         let slot = LendRequestUi { id: "r1".into(), name: "Hugo".into(), app: "ios".into(), slot: true, ..Default::default() };
-        assert_eq!(slot.line(), "Créneau d'Hugo : l'ordinateur lui est prêté dans 2 min.");
+        assert_eq!(slot.line(), "Créneau d'Hugo\u{202F}: l'ordinateur lui est prêté dans 2 min.");
         crate::i18n::force_english(true);
         assert_eq!(crate::app::remove_borrowed_question("Hugo"), "Remove Hugo's computer from this device?");
         assert_eq!(crate::app::time_left_label(20), "Less than a minute left");

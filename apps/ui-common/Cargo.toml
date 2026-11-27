@@ -1,0 +1,20 @@
+[package]
+name = "kybernow-ui"
+description = "Interface commune des apps KyberNow Link sur Linux et sur les téléviseurs LG (sans le cœur ni SDL) : langue, textes du catalogue du cœur, dates, test Auto, mise à jour des Stations, partage et prêt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# Sans le cœur : les interfaces Linux et LG se compilent aussi pour leurs
+# captures et leurs essais sur le Mac. Le catalogue du cœur est lu tel quel
+# (`include_str!`), sans le lier.
+[dependencies]
+kybernow-rules = { path = "../core/rules" }
+serde_json = "1"
+libc = "0.2"
+kybernow-core = { path = "../core", optional = true }
+
+[features]
+# La couche appareil de Linux et de LG : les conversions depuis les types du cœur.
+core = ["dep:kybernow-core"]

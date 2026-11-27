@@ -5,7 +5,6 @@
 
 mod accounts;
 mod app;
-mod app_time;
 mod autotest;
 mod country;
 #[cfg(feature = "device")]

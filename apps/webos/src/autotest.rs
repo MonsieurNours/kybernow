@@ -6,38 +6,16 @@
 use std::time::Instant;
 
 use crate::app::{Action, App, Phase, Screen, Target};
-use crate::i18n::{english, tr};
+use crate::i18n::tr;
 use crate::model::Profile;
 
-/// Le bandeau « Autre réseau que celui du test » : 8 s, ou la croix.
-pub const BANNER_SECONDS: f32 = 8.0;
+/// Le bandeau « Autre réseau que celui du test » : 8 s, ou la croix (`kybernow_ui::autotest::BANNER_SECONDS`).
+pub const BANNER_SECONDS: f32 = kybernow_ui::autotest::BANNER_SECONDS as f32;
 
-/// Où en est une étape du test (`StepState` du cœur).
-#[derive(Clone, Debug, PartialEq)]
-pub enum StepState {
-    Waiting,
-    Running,
-    /// Cochée, avec sa mesure (« 2,1 ms · gigue 0,4 ms »).
-    Done(String),
-    /// Passée, avec sa raison.
-    Skipped(String),
-}
-
-/// Une étape du test : « Liaison », « Latence au repos », « Débit vers cet appareil », « Décodage de cet appareil »,
-/// « Encodeur de l'ordinateur ».
-#[derive(Clone, Debug, PartialEq)]
-pub struct Step {
-    pub title: String,
-    pub state: StepState,
-}
-
-/// Une ligne du résumé (`Choice` du cœur) : le réglage, sa valeur, sa raison.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Choice {
-    pub title: String,
-    pub value: String,
-    pub reason: String,
-}
+pub use kybernow_ui::autotest::{
+    adaptive, adaptive_help, again, apply, cancel, chosen_by, other_network, other_network_text, phrase, retry, subtitle, summary, title, waiting_steps,
+    Choice, Step, StepState,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum AutoPhase {
@@ -61,20 +39,6 @@ pub struct AutoTestUi {
     pub from_focus: Target,
 }
 
-/// Les cinq étapes en attente, avant le premier avancement du cœur (mêmes titres que son catalogue).
-pub fn waiting_steps() -> Vec<Step> {
-    [
-        tr("Liaison", "Connection"),
-        tr("Latence au repos", "Latency at rest"),
-        tr("Débit vers cet appareil", "Bitrate to this device"),
-        tr("Décodage de cet appareil", "Decoding on this device"),
-        tr("Encodeur de l'ordinateur", "The computer's encoder"),
-    ]
-    .iter()
-    .map(|t| Step { title: (*t).into(), state: StepState::Waiting })
-    .collect()
-}
-
 /// Ce que l'app rend au cœur pour un extrait décodé par NDL (`SampleDecoder`) : NDL n'a pas de décodage sans
 /// affichage ; une mesure qui atteint au moins la fréquence de la dalle est bornée par l'affichage, pas par le
 /// décodeur : `None` (le cœur suppose alors que le format matériel tient). Sous la fréquence de la dalle, la mesure.
@@ -83,82 +47,6 @@ pub fn decode_rate(measured: Option<f64>, panel_refresh: u32) -> Option<f64> {
     // 5 % de tolérance : une mesure qui oscille juste sous la fréquence de la
     // dalle (118 i/s à 120 Hz) est aussi bornée par l'affichage.
     if panel_refresh > 0 && fps >= f64::from(panel_refresh) * 0.95 { None } else { Some(fps) }
-}
-
-/// « Profil Auto ».
-pub fn title() -> &'static str {
-    tr("Profil Auto", "Auto profile")
-}
-
-pub fn subtitle() -> &'static str {
-    tr("KyberNow mesure votre réseau et cet appareil, puis propose les meilleurs réglages.", "KyberNow measures your network and this device, then suggests the best settings.")
-}
-
-/// La phrase du profil Auto, sous les pastilles.
-pub fn phrase() -> &'static str {
-    tr("Les meilleurs réglages pour ce réseau et cet appareil.", "The best settings for this network and this device.")
-}
-
-pub fn summary_title() -> &'static str {
-    tr("Réglages proposés", "Suggested settings")
-}
-
-pub fn apply_word() -> &'static str {
-    tr("Appliquer", "Apply")
-}
-
-pub fn cancel_word() -> &'static str {
-    tr("Annuler", "Cancel")
-}
-
-pub fn again_word() -> &'static str {
-    tr("Refaire le test", "Run the test again")
-}
-
-pub fn retry_word() -> &'static str {
-    tr("Réessayer", "Try again")
-}
-
-pub fn adaptive_title() -> &'static str {
-    tr("Débit adaptatif", "Adaptive bitrate")
-}
-
-pub fn adaptive_help() -> &'static str {
-    tr(
-        "Baisse le débit quand le réseau sature, puis le remonte. Coupé, le débit ne bouge jamais.",
-        "Lowers the bitrate when the network is saturated, then raises it again. Off, the bitrate never moves.",
-    )
-}
-
-pub fn banner_title() -> &'static str {
-    tr("Autre réseau que celui du test", "Different network from the test")
-}
-
-pub fn banner_text() -> &'static str {
-    tr("Le débit adaptatif s'en charge.", "Adaptive bitrate will handle it.")
-}
-
-/// « 26 novembre 2026 », “November 26, 2026”, à l'heure du téléviseur.
-pub fn date_label(at: u64) -> String {
-    let Some(tm) = crate::i18n::local_time(at) else { return String::new() };
-    let (d, m, y) = (tm.tm_mday, crate::i18n::month(tm.tm_mon.max(0) as usize), tm.tm_year + 1900);
-    if english() { format!("{m} {d}, {y}") } else { format!("{d} {m} {y}") }
-}
-
-/// Le réseau du test, tel que la phrase le dit : son nom, « par le relais » pour le relais.
-fn network_label(network: &str) -> String {
-    if network == "relay" { tr("par le relais", "through the relay").into() } else { network.into() }
-}
-
-/// « Choisi par le test du {date} ({réseau}). » (sans réseau connu : sans la parenthèse).
-pub fn chosen_by(at: u64, network: Option<&str>) -> String {
-    let date = date_label(at);
-    match (english(), network) {
-        (false, Some(n)) => format!("Choisi par le test du {date} ({}).", network_label(n)),
-        (false, None) => format!("Choisi par le test du {date}."),
-        (true, Some(n)) => format!("Chosen by the test of {date} ({}).", network_label(n)),
-        (true, None) => format!("Chosen by the test of {date}."),
-    }
 }
 
 impl App {
@@ -609,18 +497,5 @@ mod tests {
         assert_eq!(decode_rate(Some(113.0), 120), Some(113.0));
         assert_eq!(decode_rate(Some(60.0), 120), Some(60.0), "AV1 montré à 60 sur une dalle à 120 Hz");
         assert_eq!(decode_rate(None, 120), None, "format refusé");
-    }
-
-    #[test]
-    fn choisi_par_le_test() {
-        crate::i18n::force_english(false);
-        let at = 1_795_000_000;
-        let fr = chosen_by(at, Some("Ethernet"));
-        assert!(fr.starts_with("Choisi par le test du ") && fr.ends_with(" 2026 (Ethernet)."), "{fr}");
-        assert!(chosen_by(at, Some("relay")).ends_with("(par le relais)."));
-        assert!(chosen_by(at, None).ends_with(" 2026."));
-        crate::i18n::force_english(true);
-        let en = chosen_by(at, Some("Maison"));
-        assert!(en.starts_with("Chosen by the test of ") && en.ends_with(", 2026 (Maison)."), "{en}");
     }
 }

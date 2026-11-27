@@ -2552,6 +2552,7 @@ dependencies = [
  "getrandom 0.2.17",
  "hmac",
  "k256",
+ "keycode",
  "kybernow-rules",
  "kybernow-tunnel",
  "kyclient",
@@ -2583,9 +2584,9 @@ dependencies = [
  "cc",
  "fontdue",
  "getrandom 0.2.17",
- "keycode",
  "kybernow-core",
  "kybernow-rules",
+ "kybernow-ui",
  "libc",
  "log",
  "mdns-sd 0.13.11",
@@ -2628,15 +2629,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "kybernow-ui"
+version = "0.11.7"
+dependencies = [
+ "kybernow-core",
+ "kybernow-rules",
+ "libc",
+ "serde_json",
+]
+
+[[package]]
 name = "kybernow-webos"
 version = "0.11.7"
 dependencies = [
  "cc",
  "fontdue",
  "getrandom 0.2.17",
- "keycode",
  "kybernow-core",
  "kybernow-rules",
+ "kybernow-ui",
  "libc",
  "log",
  "mdns-sd 0.13.11",

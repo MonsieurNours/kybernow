@@ -1,5 +1,5 @@
 #!/bin/bash
-# Assemble dans DEST les seules sources dont l'app Linux a besoin : apps/core,
+# Assemble dans DEST les seules sources dont l'app Linux a besoin : apps/core, apps/ui-common,
 # apps/linux, les correctifs de Kyber, et le SDK de Kyber sans ses compilations
 # (target, builddir, sous-projets de kymedia hors vlc-rs). Sert à flatpak.sh
 # (source du Flatpak) et à compiler dans une machine virtuelle.
@@ -41,7 +41,7 @@ if [ "$DEPS" = 1 ]; then
     cp "$HERE/scripts/build.sh" "$DEST/apps/linux/scripts/"
     cp "$HERE/pyrowave/"* "$DEST/apps/linux/pyrowave/"
 else
-    "${R[@]}" "$ROOT/apps/core" "$ROOT/apps/linux" "$DEST/apps/"
+    "${R[@]}" "$ROOT/apps/core" "$ROOT/apps/linux" "$ROOT/apps/ui-common" "$DEST/apps/"
     # Le cœur dépend du tunnel du relais (KyberNow Share), par chemin.
     mkdir -p "$DEST/server/relay"
     "${R[@]}" "$ROOT/server/relay/tunnel" "$DEST/server/relay/"
@@ -62,8 +62,8 @@ for p in "$ROOT"/server/kyber-patches/*.patch; do
     esac
 done
 cp "$ROOT/apps/Cargo.lock" "$DEST/apps/"
-# Espace de travail réduit au cœur et à l'app Linux.
-sed -E 's/^members = .*/members = ["core", "linux"]/' "$ROOT/apps/Cargo.toml" > "$DEST/apps/Cargo.toml"
+# Espace de travail réduit au cœur, à l'app Linux et à l'interface qu'elle partage avec LG.
+sed -E 's/^members = .*/members = ["core", "linux", "ui-common"]/' "$ROOT/apps/Cargo.toml" > "$DEST/apps/Cargo.toml"
 if [ "${KYBERNOW_KYBER_HEAD:-0}" = 1 ]; then
     # Le SDK de Kyber tel qu'il est dans ses dépôts git (HEAD de kysdk et de ses
     # sous-modules), sans les correctifs posés dans third_party/ : ceux de cette

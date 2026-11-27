@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use kybernow_core::i18n::Lang;
-use kybernow_core::relay::{self, RelayAddr, RelayError, RelayInfo, RelayMode, RelayRoute, RouteInfo, RouteTransport};
+use kybernow_core::relay::{self, RelayError, RelayInfo, RelayMode, RelayRoute, RouteInfo, RouteTransport};
 use serde::Serialize;
 
 /// La route d'un ordinateur par son relais (`info.relay` gardé avec lui, et
@@ -19,23 +19,6 @@ use serde::Serialize;
 /// ou sans empreinte (jamais de premier contact par le relais).
 pub fn route_of(relay: Option<&RelayInfo>, fingerprint: Option<&str>) -> Option<RelayRoute> {
     relay?.route(fingerprint?)
-}
-
-/// Les relais où chercher le code d'un partage en plus du relais public : ceux
-/// des ordinateurs que l'app connaît (`info.relay.server`), sans doublon ; une
-/// adresse illisible est écartée. Le cœur (`share::join_anywhere`) interroge
-/// toujours le relais public lui-même : le code d'un ami y part même quand
-/// l'ordinateur de l'utilisateur en utilise un autre.
-pub fn join_relays<'a>(servers: impl IntoIterator<Item = &'a str>) -> Vec<RelayAddr> {
-    let mut out = Vec::new();
-    for server in servers {
-        if let Ok(addr) = server.trim().parse::<RelayAddr>()
-            && !out.contains(&addr)
-        {
-            out.push(addr);
-        }
-    }
-    out
 }
 
 /// `KYBERNOW_RELAY=off` : le relais ne sert à rien (ni l'accueil, ni « Rejoindre »).
@@ -169,19 +152,6 @@ mod tests {
         assert_eq!(route_of(Some(&info), Some("  ")), None);
         // Un identifiant illisible n'en fait pas une route.
         assert_eq!(route_of(Some(&RelayInfo { id: "court".into(), ..info }), Some("sha256:aa")), None);
-    }
-
-    #[test]
-    fn relais_d_un_code() {
-        // Aucun ordinateur : rien à ajouter, le cœur interroge seul le relais public.
-        assert_eq!(join_relays([]), Vec::<RelayAddr>::new());
-        // Ceux des ordinateurs, sans doublon (« share.kybernow.app » et « …:443 » sont le même relais, un autre
-        // port reste écrit), les adresses illisibles écartées.
-        let relays = join_relays(["share.kybernow.app", "relais.exemple.org:9443", "relais.exemple.org:9443", "share.kybernow.app:443", "a b", ""]);
-        assert_eq!(relays.len(), 2);
-        assert_eq!(relays[0], RelayAddr::public());
-        assert_eq!((relays[1].host.as_str(), relays[1].port), ("relais.exemple.org", 9443));
-        assert_eq!(relays.iter().map(ToString::to_string).collect::<Vec<_>>(), ["share.kybernow.app", "relais.exemple.org:9443"]);
     }
 
     #[test]

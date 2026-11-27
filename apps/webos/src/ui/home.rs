@@ -236,7 +236,7 @@ pub fn pads_label(n: usize, unavailable: bool) -> String {
 
 /// « Réglages de {nom} ».
 pub fn settings_for(name: &str) -> String {
-    if english() { format!("Settings for {name}") } else { format!("Réglages {}{name}", crate::i18n::de(name)) }
+    crate::i18n::settings_for(name)
 }
 
 /// La phrase de chaque profil, sous les pastilles.

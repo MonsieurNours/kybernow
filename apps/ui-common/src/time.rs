@@ -1,9 +1,10 @@
-//! Heure locale pour l'interface (en-tête des interfaces console, dernière
-//! session) : `localtime_r` de la bibliothèque C, qui suit le fuseau du système.
+//! L'heure locale de l'interface (en-tête des interfaces console, dernière
+//! session, créneaux du prêt, test du profil Auto) : `localtime_r` de la
+//! bibliothèque C, qui suit le fuseau du système ou du téléviseur ; noms des
+//! jours et des mois dans la langue de l'app (une copie au lieu de trois).
 
-use crate::i18n::tr;
-
-fn local(secs: i64) -> Option<libc::tm> {
+/// L'heure locale (`localtime_r`, le fuseau du système) d'un moment en secondes depuis 1970.
+pub fn local(secs: i64) -> Option<libc::tm> {
     let t = secs as libc::time_t;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     let r = unsafe { libc::localtime_r(&t, &mut tm) };
@@ -36,28 +37,36 @@ pub fn hour_label(at: u64) -> String {
     }
 }
 
+/// Le nom d'un mois (0 à 11) : « novembre », “November”.
+pub fn month(m: usize) -> &'static str {
+    const FR: [&str; 12] = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+    const EN: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    if crate::i18n::english() { EN[m.min(11)] } else { FR[m.min(11)] }
+}
+
+/// Le nom d'un jour de la semaine (0 : dimanche) : « mercredi », “Wednesday”.
+pub fn weekday(d: usize) -> &'static str {
+    const FR: [&str; 7] = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+    const EN: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    if crate::i18n::english() { EN[d.min(6)] } else { FR[d.min(6)] }
+}
+
 /// Le jour de la semaine d'un créneau : « mercredi », “Wednesday”.
 pub fn weekday_label(at: u64) -> String {
     let Some(tm) = local(at as i64) else { return String::new() };
-    let i = tm.tm_wday.clamp(0, 6) as usize;
-    if crate::i18n::english() {
-        ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][i].into()
-    } else {
-        ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"][i].into()
-    }
+    weekday(tm.tm_wday.clamp(0, 6) as usize).into()
 }
 
-/// Un jour : « 26 novembre », “November 26” (le test du profil Auto).
+/// Un jour : « 26 novembre », « 1er décembre », “November 26” (le test du
+/// profil Auto).
 pub fn date_label(at: u64) -> String {
     let Some(tm) = local(at as i64) else { return String::new() };
-    let m = tm.tm_mon.clamp(0, 11) as usize;
+    let m = month(tm.tm_mon.clamp(0, 11) as usize);
     if crate::i18n::english() {
-        let months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-        format!("{} {}", months[m], tm.tm_mday)
+        format!("{m} {}", tm.tm_mday)
     } else {
-        let months = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
         let day = if tm.tm_mday == 1 { "1er".to_string() } else { tm.tm_mday.to_string() };
-        format!("{day} {}", months[m])
+        format!("{day} {m}")
     }
 }
 
@@ -68,13 +77,13 @@ pub fn relative_day(at: u64) -> String {
 
 /// [`relative_day`] à l'instant `now` : la date locale de `at` comparée à celle d'aujourd'hui et d'hier (un jour
 /// plus tôt), jamais par un numéro de jour dans l'année (« hier » le 1er janvier : LINAPP-26).
-fn relative_day_at(at: u64, now: i64) -> String {
+pub fn relative_day_at(at: u64, now: i64) -> String {
     let (Some(t), Some(n), Some(y)) = (local(at as i64), local(now), local(now - 86_400)) else { return String::new() };
     let same = |a: &libc::tm, b: &libc::tm| a.tm_year == b.tm_year && a.tm_mon == b.tm_mon && a.tm_mday == b.tm_mday;
     if same(&t, &n) {
-        tr("aujourd'hui", "today").into()
+        crate::i18n::tr("aujourd'hui", "today").into()
     } else if same(&t, &y) {
-        tr("hier", "yesterday").into()
+        crate::i18n::tr("hier", "yesterday").into()
     } else {
         format!("{:02}/{:02}", t.tm_mday, t.tm_mon + 1)
     }

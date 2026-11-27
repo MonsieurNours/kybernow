@@ -15,7 +15,9 @@ kybernow-core = { path = "../core", optional = true }
 # Règles communes des apps (adresses, empreintes, codes, relais, bornes) : sans le cœur, pour que l'interface se
 # compile aussi pour les captures.
 kybernow-rules = { path = "../core/rules", features = ["serde"] }
-keycode = { version = "1.0", optional = true }
+# L'interface commune avec l'autre app sans le cœur (Linux et LG : langue, dates, test Auto, partage, prêt, mise à
+# jour des Stations).
+kybernow-ui = { path = "../ui-common" }
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -32,7 +34,7 @@ qrcodegen = "1.8"
 # L'app pour le téléviseur : cœur, décodeur NDL, SDL. Sans elle (--no-default-features),
 # seule l'interface se compile : captures des écrans sur l'ordinateur (scripts/preview.sh).
 default = ["device"]
-device = ["dep:kybernow-core", "dep:keycode"]
+device = ["dep:kybernow-core", "kybernow-ui/core"]
 
 [build-dependencies]
 cc = "1"

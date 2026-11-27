@@ -29,7 +29,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     cv.rect(520.0, 0.0, 1.0, H, LINE);
     let mut y = match host {
         Some(h) => {
-            widgets::label(cv, 96.0, 104.0, if crate::i18n::english() { "Settings for" } else if crate::i18n::de(&h.name) == "d'" { "Réglages d'" } else { "Réglages de" });
+            widgets::label(cv, 96.0, 104.0, if crate::i18n::english() { "Settings for" } else if crate::i18n::de(&h.name).starts_with("d'") { "Réglages d'" } else { "Réglages de" });
             cv.text_fit(92.0, 172.0, Text::new(Font::Title, 56.0, FROST).tracking(-1.5), &h.name, 410.0);
             widgets::label(cv, 96.0, 240.0, tr("Profil", "Profile"));
             let custom = h.settings.is_custom();
@@ -42,7 +42,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             let auto = !custom && h.settings.profile == Profile::Auto;
             let aw = super::home::profile_chip(cv, f, Profile::Auto, 96.0, 330.0, auto);
             if auto && h.settings.auto_brief().is_some() {
-                widgets::icon_chip(cv, f, Target::AutoRetest, 96.0 + aw + 10.0, 330.0, Icon::Refresh, crate::autotest::again_word());
+                widgets::icon_chip(cv, f, Target::AutoRetest, 96.0 + aw + 10.0, 330.0, Icon::Refresh, crate::autotest::again());
             }
             let phrase = if custom { tr("Personnalisé : vos propres réglages.", "Custom: your own settings.") } else { super::home::profile_phrase(h.settings.profile) };
             cv.paragraph(98.0, 424.0, Text::new(Font::Regular, 19.0, FROST_3), phrase, 384.0, 26.0);
@@ -129,7 +129,7 @@ fn host_section(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host) {
             let bitrate_help = chosen.as_deref().unwrap_or(tr("Proportionné au profil, plafonné par le réseau du téléviseur", "Scaled to the profile, capped by the TV's network"));
             y += widgets::row(cv, f, s(Setting::Bitrate), x, y, w, tr("Débit", "Bitrate"), bitrate_help, Value::Text(mbps)) + GAP;
             // « Débit adaptatif », dans la carte du débit (pas de PyroWave sur un téléviseur LG : son aide seule).
-            y += widgets::row(cv, f, s(Setting::Adaptive), x, y, w, crate::autotest::adaptive_title(), crate::autotest::adaptive_help(), Value::Toggle(st.adaptive)) + GAP;
+            y += widgets::row(cv, f, s(Setting::Adaptive), x, y, w, crate::autotest::adaptive(), &crate::autotest::adaptive_help(false), Value::Toggle(st.adaptive)) + GAP;
             y += widgets::row(cv, f, s(Setting::GameHint), x, y, w, tr("Rappeler le mode jeu de la télé", "Remind about the TV's game mode"), tr("L'app ne peut pas passer la télé en Optimiseur de jeu : le menu le rappelle", "The app cannot switch the TV to Game Optimizer: the menu reminds you"), Value::Toggle(st.game_mode_hint)) + GAP;
             widgets::row(cv, f, None, x, y, w, tr("Fréquence variable (VRR)", "Variable refresh rate (VRR)"), tr("LG la réserve aux entrées HDMI ; l'ordinateur envoie ses images au rythme de l'écran", "LG keeps it for HDMI inputs; the computer sends frames at the screen's pace"), Value::Unavailable(tr("indisponible", "unavailable")));
         }
@@ -368,7 +368,7 @@ pub fn moment(at: u64, now: u64) -> String {
 
 /// Jour du calendrier local (numéro de jour continu), mois (0 à 11) et jour du mois.
 fn local_day(t: u64) -> (i64, i32, i32) {
-    let Some(tm) = crate::i18n::local_time(t) else { return ((t / 86_400) as i64, 0, 1) };
+    let Some(tm) = kybernow_ui::time::local(t as i64) else { return ((t / 86_400) as i64, 0, 1) };
     // Jours depuis le 1er mars de l'an 0 (calendrier grégorien), pour la différence.
     let (y, m) = (tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1);
     let (y, m) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };

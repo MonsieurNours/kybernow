@@ -15,6 +15,8 @@ use tiny_skia::Pixmap;
 
 use crate::i18n::{english, tr};
 use crate::model::{Host, Profile, Store, WakeTarget};
+pub use kybernow_ui::lend::{LendAvail, LendState, LendSlotUi, LendLive, BorrowSource, BorrowUi, waiting_for, ask_host, time_left_label, LendSteam, lend_duration_label, LendHostState, LendNoticeKind, LendRequestUi, LendHostView, LendOp, InviteUi, invitation_added_notice, BorrowSessionUi, LendCodeUi};
+pub use kybernow_ui::share::{relay_wait, RELAY_LINK_WAIT, ShareRelay, ShareRole, ShareAvail, ShareGuest, app_label, duration_label, guests_label, guest_title, ShareMove, watch_stop_word, watch_title, ShareQuality, requests_label, watch_word, watch_screen_word};
 
 /// Un rectangle à l'écran (1920 × 1080).
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
@@ -556,252 +558,6 @@ pub fn pads_unavailable_notice() -> &'static str {
 
 // MARK: - KyberNow Share (docs/kybernow-share.md, textes : docs/link-ui.md, « Partage »)
 
-/// Le rôle d'un invité, que la Station impose : miroir de `kybernow_core::share::ShareRole` (l'interface seule,
-/// celle des captures et des tests sur Mac, n'a pas le cœur). Deux droits indépendants, les manettes et le clavier
-/// et la souris, que l'hôte donne ou reprend chacun sans toucher à l'autre.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum ShareRole {
-    /// Aucun droit : voit et entend, n'envoie rien (le rôle d'arrivée).
-    #[default]
-    Spectator,
-    /// Les manettes : elles deviennent la manette suivante de Windows.
-    Player,
-    /// Le clavier et la souris, sans les manettes.
-    Kbm,
-    /// Les manettes, et le clavier et la souris.
-    PlayerKbm,
-}
-
-impl ShareRole {
-    /// Le rôle de ces deux droits.
-    pub fn of(pads: bool, kbm: bool) -> Self {
-        match (pads, kbm) {
-            (false, false) => ShareRole::Spectator,
-            (true, false) => ShareRole::Player,
-            (false, true) => ShareRole::Kbm,
-            (true, true) => ShareRole::PlayerKbm,
-        }
-    }
-
-    /// Les manettes de l'invité partent vers l'ordinateur.
-    pub fn pads(self) -> bool {
-        matches!(self, ShareRole::Player | ShareRole::PlayerKbm)
-    }
-
-    /// Le clavier et la souris de l'invité partent vers l'ordinateur.
-    pub fn kbm(self) -> bool {
-        matches!(self, ShareRole::Kbm | ShareRole::PlayerKbm)
-    }
-
-    /// Un droit au moins : l'invité a une chaîne d'entrées, et la barre le dit « Joueur ».
-    pub fn plays(self) -> bool {
-        self.pads() || self.kbm()
-    }
-
-    /// Le rôle quand l'hôte donne (`true`) ou reprend (`false`) les manettes, le clavier et la souris tels quels.
-    pub fn with_pads(self, on: bool) -> Self {
-        Self::of(on, self.kbm())
-    }
-
-    /// Le rôle quand l'hôte donne ou reprend le clavier et la souris, les manettes telles quelles.
-    pub fn with_kbm(self, on: bool) -> Self {
-        Self::of(self.pads(), on)
-    }
-
-    /// « Spectateur », « Joueur » : la barre réduite de l'invité.
-    pub fn label(self) -> &'static str {
-        if self.plays() { tr("Joueur", "Player") } else { tr("Spectateur", "Spectator") }
-    }
-
-    /// « Spectateur », « Joueur », « Clavier et souris », « Joueur, clavier et souris » : la liste de l'hôte.
-    pub fn long_label(self) -> &'static str {
-        match self {
-            ShareRole::Spectator => tr("Spectateur", "Spectator"),
-            ShareRole::Player => tr("Joueur", "Player"),
-            ShareRole::Kbm => tr("Clavier et souris", "Keyboard and mouse"),
-            ShareRole::PlayerKbm => tr("Joueur, clavier et souris", "Player, keyboard and mouse"),
-        }
-    }
-
-    /// L'avis bref d'un rôle changé par l'hôte (docs/link-ui.md). Les deux droits changés d'un coup : un seul
-    /// avis, le droit donné avant le droit repris, les manettes avant le clavier et la souris. Plus aucun droit :
-    /// « Vous regardez de nouveau. » à la place de l'avis de reprise. Rien au départ (`previous` nul) ni sans
-    /// changement.
-    pub fn notice(self, previous: Option<ShareRole>) -> Option<&'static str> {
-        let before = previous?;
-        if self.pads() && !before.pads() {
-            Some(tr("Vous pouvez jouer à la manette.", "You can play with a controller."))
-        } else if self.kbm() && !before.kbm() {
-            Some(tr("Vous avez le clavier et la souris.", "You have the keyboard and mouse."))
-        } else if !self.plays() && before.plays() {
-            Some(tr("Vous regardez de nouveau.", "You are watching again."))
-        } else if !self.pads() && before.pads() {
-            Some(tr("Les manettes sont reprises.", "The controllers were taken back."))
-        } else if !self.kbm() && before.kbm() {
-            Some(tr("Le clavier et la souris sont repris.", "The keyboard and mouse were taken back."))
-        } else {
-            None
-        }
-    }
-}
-
-/// La « Qualité de l'image » qu'un invité demande : miroir de `kybernow_core::share::ShareQuality` (l'interface
-/// seule, celle des captures et des tests sur l'ordinateur, n'a pas le cœur). L'image reçue n'est jamais au-dessus
-/// de celle de l'hôte ; la Station décide et le dit (`ShareGuest::quality`, `GuestUi::image`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum ShareQuality {
-    /// D'après la sortie du téléviseur et ce que son décodeur suit : proposé.
-    #[default]
-    Auto,
-    /// « Comme l'hôte ».
-    Host,
-    /// « 4K · 60 Hz ».
-    P2160_60,
-    /// « 1080p · 60 Hz ».
-    P1080_60,
-    /// « 720p · 30 Hz ».
-    P720_30,
-}
-
-impl ShareQuality {
-    /// Dans l'ordre du choix.
-    pub const ALL: [ShareQuality; 5] = [Self::Auto, Self::Host, Self::P2160_60, Self::P1080_60, Self::P720_30];
-
-    /// Le nom retenu dans `kybernow.json` : celui de l'échange avec Admin (`auto`, `host`, `2160p60`, `1080p60`, `720p30`).
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Host => "host",
-            Self::P2160_60 => "2160p60",
-            Self::P1080_60 => "1080p60",
-            Self::P720_30 => "720p30",
-        }
-    }
-
-    /// Un nom inconnu (fichier plus récent ou écrit à la main) se lit « Auto ».
-    pub fn parse(s: &str) -> Self {
-        Self::ALL.into_iter().find(|q| q.as_str() == s.trim()).unwrap_or_default()
-    }
-
-    /// « Auto », « Comme l'hôte », « 4K · 60 Hz », « 1080p · 60 Hz », « 720p · 30 Hz » (docs/link-ui.md, « Qualité de l'image »).
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Auto => tr("Auto", "Auto"),
-            Self::Host => tr("Comme l'hôte", "Same as host"),
-            Self::P2160_60 => "4K · 60 Hz",
-            Self::P1080_60 => "1080p · 60 Hz",
-            Self::P720_30 => "720p · 30 Hz",
-        }
-    }
-}
-
-/// Ce que « Partager » peut faire avec un ordinateur (`Info::share`) : miroir de
-/// `kybernow_core::share::ShareAvailability`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ShareAvail {
-    /// Une Station antérieure à la 0.8.0.
-    Unsupported,
-    /// Le partage est coupé sur l'ordinateur (`multi_client` de Kyber).
-    Disabled,
-    Available,
-}
-
-impl ShareAvail {
-    /// Le texte de « Partager » inactif ; rien quand le partage est disponible.
-    pub fn text(self) -> Option<&'static str> {
-        match self {
-            ShareAvail::Unsupported => Some(tr("Le partage demande KyberNow Station 0.8.0 ou plus récente.", "Sharing needs KyberNow Station 0.8.0 or later.")),
-            ShareAvail::Disabled => Some(tr("Le partage est coupé sur cet ordinateur (Admin › Appareils Link).", "Sharing is turned off on this computer (Admin › Link devices).")),
-            ShareAvail::Available => None,
-        }
-    }
-}
-
-/// Un invité du partage de l'hôte (`ShareGuest` du cœur).
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub struct ShareGuest {
-    pub id: String,
-    pub name: String,
-    pub role: ShareRole,
-    /// `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos`, `web`.
-    pub app: String,
-    /// Son arrivée (secondes depuis 1970), telle que la Station la donne.
-    pub since: Option<i64>,
-    /// La qualité de l'image qu'il reçoit (« 720p · 30 Hz »), seulement quand c'est une image à part, pas celle
-    /// de l'hôte, et que Kyber en sait la taille : sinon `None` (une image encore inconnue compte comme celle de
-    /// l'hôte). L'hôte la voit sans la changer.
-    pub quality: Option<String>,
-    /// Venu par le relais, une demande pas encore acceptée (« Demandes ») : hors des quatre places.
-    pub pending: bool,
-    /// Venu par le relais (`via` `relay`) : « hors de chez vous » après son app.
-    pub via_relay: bool,
-}
-
-impl ShareGuest {
-    /// « {prénom} demande à rejoindre », dessous « {app} · hors de chez vous » : la ligne d'une demande.
-    pub fn request_line(&self) -> String {
-        format!("{} {}", self.name, tr("demande à rejoindre", "wants to join"))
-    }
-
-    /// « {prénom} demande à rejoindre. » : l'avis bref d'une demande qui arrive pendant la session.
-    pub fn request_notice(&self) -> String {
-        format!("{}.", self.request_line())
-    }
-
-    /// « Android · hors de chez vous » : sous la ligne d'une demande.
-    pub fn request_meta(&self) -> String {
-        format!("{} · {}", app_label(&self.app), tr("hors de chez vous", "away from home"))
-    }
-
-    /// « Léa · Spectateur », « Léa · Joueur », « Léa · Joueur, clavier et souris ».
-    pub fn line(&self) -> String {
-        format!("{} · {}", self.name, self.role.long_label())
-    }
-
-    /// « iPhone ou iPad · 720p · 30 Hz · depuis 4 min » : son app, sa qualité d'image si elle n'est pas celle de
-    /// l'hôte, et depuis quand il est là (`now` : secondes depuis 1970). `since` est en secondes Unix, d'après
-    /// l'horloge de la Station : la durée n'est jamais négative (horloges décalées). Sans arrivée lisible, sans
-    /// la durée.
-    pub fn meta(&self, now: i64) -> String {
-        let mut parts = vec![app_label(&self.app)];
-        if self.via_relay {
-            parts.push(tr("hors de chez vous", "away from home").into());
-        }
-        parts.extend(self.quality.clone());
-        if let Some(t) = self.since.filter(|t| *t > 0) {
-            parts.push(format!("{} {}", tr("depuis", "for"), duration_label(now.saturating_sub(t).max(0) as u64)));
-        }
-        parts.join(" · ")
-    }
-}
-
-/// L'app d'un invité (champ `app`) : Mac, Windows, Linux, « iPhone ou iPad », Apple TV, Android,
-/// « Téléviseur LG », « Navigateur » ; une app inconnue (Station plus récente) se dit telle quelle.
-pub fn app_label(app: &str) -> String {
-    match app {
-        "mac" => "Mac".into(),
-        "windows" => "Windows".into(),
-        "linux" => "Linux".into(),
-        "ios" => tr("iPhone ou iPad", "iPhone or iPad").into(),
-        "tvos" => "Apple TV".into(),
-        "android" => "Android".into(),
-        "webos" => tr("Téléviseur LG", "LG TV").into(),
-        "web" => tr("Navigateur", "Browser").into(),
-        other => other.into(),
-    }
-}
-
-/// « moins d'une minute », « 3 min », « 1 h 12 » (docs/link-ui.md) : la durée d'un invité.
-pub fn duration_label(seconds: u64) -> String {
-    let m = seconds / 60;
-    if m < 1 {
-        tr("moins d'une minute", "under a minute").into()
-    } else if m < 60 {
-        format!("{m} min")
-    } else {
-        format!("{} h {:02}", m / 60, m % 60)
-    }
-}
 
 /// Le partage ouvert d'une session d'hôte (`ShareState` du cœur) : le code à six chiffres, le lien des
 /// apps (`kybernow://join?…`, celui du QR code), l'adresse du client web (« Copier le lien ») et les
@@ -823,22 +579,7 @@ pub struct ShareView {
     pub guests: Vec<ShareGuest>,
 }
 
-/// Ce que l'app attend au plus le lien du relais d'un partage en préparation, à partir du moment où elle le voit
-/// (`rules::limits::RELAY_LINK_WAIT_SECS`, la valeur du cœur) : ensuite, elle fait comme si le relais était
-/// injoignable (le lien du réseau, « Pas encore joignable hors de chez vous. »).
-pub const RELAY_LINK_WAIT: Duration = Duration::from_secs(kybernow_rules::limits::RELAY_LINK_WAIT_SECS);
 
-/// L'état du relais d'un partage ouvert (`relay.state` d'Admin).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ShareRelay {
-    /// Le code est réservé chez le relais.
-    Joined,
-    /// Connexion au relais, ou code pas encore réservé : « Préparation du lien hors de chez vous… », `link` et `web`
-    /// sont encore ceux du réseau (le QR code et l'adresse attendent, `RELAY_LINK_WAIT` au plus).
-    Connecting,
-    /// Le relais ne répond pas : « Pas encore joignable hors de chez vous. »
-    Unreachable,
-}
 
 impl ShareView {
     /// Les demandes en attente (indice dans `guests`, invité), dans l'ordre d'arrivée.
@@ -906,65 +647,8 @@ impl ShareView {
     }
 }
 
-/// L'attente du lien du relais, commune au partage (`ShareView`) et au code de prêt (`LendCodeUi`) : « Préparation du
-/// lien hors de chez vous… », le QR code et l'adresse retenus `RELAY_LINK_WAIT` au plus, puis le lien du réseau et
-/// « Pas encore joignable hors de chez vous. » (docs/link-ui.md, « Hors de chez vous » et « Prêt »).
-pub mod relay_wait {
-    use super::{tr, ShareRelay, RELAY_LINK_WAIT};
-    use std::time::{Duration, Instant};
-
-    /// Le lien du relais se prépare et l'app l'attend encore (`since` : quand elle l'a vu en préparation).
-    pub fn preparing(relay: Option<ShareRelay>, since: Option<Instant>) -> bool {
-        relay == Some(ShareRelay::Connecting) && since.is_none_or(|t| t.elapsed() < RELAY_LINK_WAIT)
-    }
-
-    /// L'attente court encore, ou vient de finir : l'écran se redessine jusqu'à un peu après `RELAY_LINK_WAIT`.
-    pub fn redraw(relay: Option<ShareRelay>, since: Option<Instant>) -> bool {
-        relay == Some(ShareRelay::Connecting) && since.is_none_or(|t| t.elapsed() < RELAY_LINK_WAIT + Duration::from_millis(250))
-    }
-
-    /// « Préparation du lien hors de chez vous… », pendant l'attente.
-    pub fn wait_text(relay: Option<ShareRelay>, since: Option<Instant>) -> Option<&'static str> {
-        preparing(relay, since).then(|| tr("Préparation du lien hors de chez vous…", "Getting the away-from-home link ready…"))
-    }
-
-    /// « Pas encore joignable hors de chez vous. » : le relais est réglé mais injoignable, ou son lien s'est fait
-    /// attendre plus de `RELAY_LINK_WAIT`.
-    pub fn down_text(relay: Option<ShareRelay>, since: Option<Instant>) -> Option<&'static str> {
-        let down = match relay {
-            Some(ShareRelay::Unreachable) => true,
-            Some(ShareRelay::Connecting) => !preparing(relay, since),
-            Some(ShareRelay::Joined) | None => false,
-        };
-        down.then(|| tr("Pas encore joignable hors de chez vous.", "Not reachable away from home yet."))
-    }
-
-    /// Le moment où l'app a vu ce code en préparation pour la première fois : celui de la vue d'avant (`kept`, même
-    /// code), sinon le sien, sinon maintenant s'il se prépare.
-    pub fn keep_since(relay: Option<ShareRelay>, since: Option<Instant>, kept: Option<Instant>) -> Option<Instant> {
-        kept.or(since).or_else(|| (relay == Some(ShareRelay::Connecting)).then(Instant::now))
-    }
-}
 
 pub use kybernow_rules::limits::MAX_GUESTS;
-
-/// « 2 invités », « 1 invité », « 0 invité » ; “2 guests”, “1 guest” : la pastille de la barre.
-pub fn guests_label(n: usize) -> String {
-    if crate::i18n::english() {
-        format!("{n} {}", if n == 1 { "guest" } else { "guests" })
-    } else {
-        format!("{n} {}", if n >= 2 { "invités" } else { "invité" })
-    }
-}
-
-/// « 1 demande », « 2 demandes » ; “1 request”, “2 requests” : les demandes qui attendent l'accord de l'hôte.
-pub fn requests_label(n: usize) -> String {
-    if crate::i18n::english() {
-        format!("{n} {}", if n == 1 { "request" } else { "requests" })
-    } else {
-        format!("{n} {}", if n >= 2 { "demandes" } else { "demande" })
-    }
-}
 
 /// Le sous-titre de la tuile « Partager » du menu, et si la tuile est allumée (le partage est ouvert) : « 2 invités »
 /// dès qu'il y a un invité accepté (« 1 demande · 2 invités » quand des demandes attendent l'hôte, une demande
@@ -984,60 +668,6 @@ pub fn share_tile(share: Option<&ShareView>) -> (String, bool) {
 
 /// « 123 456 » : le code d'un partage ou d'un prêt ; « 02:14 », « 1:02:14 » : le temps d'un enregistrement.
 pub use kybernow_rules::format::{format_code, recording_clock};
-
-/// « Invité sur Atelier », “Guest on Atelier” : le titre d'une session d'invité.
-pub fn guest_title(computer: &str) -> String {
-    format!("{} {computer}", tr("Invité sur", "Guest on"))
-}
-
-/// Un des deux boutons de la ligne d'un invité (hors « Retirer ») : un droit, donné ou repris sans toucher à
-/// l'autre.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ShareMove {
-    /// « Donner » ou « Reprendre les manettes » : `SharePads(i)`.
-    Pads,
-    /// « Donner » ou « Reprendre le clavier et la souris » : `ShareKbm(i)`.
-    Kbm,
-}
-
-impl ShareMove {
-    /// Les deux boutons, dans l'ordre de la ligne : les manettes, puis le clavier et la souris.
-    pub const ALL: [ShareMove; 2] = [ShareMove::Pads, ShareMove::Kbm];
-
-    /// Ce que dit le bouton pour un invité de ce rôle : donner le droit qu'il n'a pas, reprendre celui qu'il a.
-    pub fn label(self, role: ShareRole) -> &'static str {
-        match (self, self.held(role)) {
-            (ShareMove::Pads, false) => tr("Donner les manettes", "Give controllers"),
-            (ShareMove::Pads, true) => tr("Reprendre les manettes", "Take back controllers"),
-            (ShareMove::Kbm, false) => tr("Donner le clavier et la souris", "Give keyboard and mouse"),
-            (ShareMove::Kbm, true) => tr("Reprendre le clavier et la souris", "Take back keyboard and mouse"),
-        }
-    }
-
-    /// L'invité a ce droit.
-    pub fn held(self, role: ShareRole) -> bool {
-        match self {
-            ShareMove::Pads => role.pads(),
-            ShareMove::Kbm => role.kbm(),
-        }
-    }
-
-    /// Le rôle que demande le bouton : ce droit basculé, l'autre tel quel.
-    pub fn toggled(self, role: ShareRole) -> ShareRole {
-        match self {
-            ShareMove::Pads => role.with_pads(!role.pads()),
-            ShareMove::Kbm => role.with_kbm(!role.kbm()),
-        }
-    }
-
-    /// La cible du bouton pour l'invité `i`.
-    pub fn target(self, i: usize) -> Target {
-        match self {
-            ShareMove::Pads => Target::SharePads(i),
-            ShareMove::Kbm => Target::ShareKbm(i),
-        }
-    }
-}
 
 /// Ce que fait l'hôte dans le panneau de son partage.
 #[derive(Clone, Debug, PartialEq)]
@@ -1060,309 +690,13 @@ pub enum ShareOp {
 
 // MARK: - Prêt de l'ordinateur (docs/pret.md ; textes : docs/link-ui.md, « Prêt de l'ordinateur »)
 
-/// Ce que « Prêter l'ordinateur… » peut faire avec un ordinateur (`Info::lend` du cœur).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LendAvail {
-    /// Une Station antérieure à la 0.9.0 (`info.lend` absent).
-    Unsupported,
-    /// Le prêt est coupé dans Admin (page « Prêt ») : `info.lend.enabled` faux.
-    Off,
-    /// La Station ne sait pas prêter cet ordinateur : `info.lend.available` faux.
-    Impossible,
-    Available,
-}
-
-impl LendAvail {
-    /// Pourquoi « Prêter l'ordinateur… » ne peut rien ; rien quand le prêt est possible.
-    pub fn text(self) -> Option<&'static str> {
-        match self {
-            LendAvail::Unsupported => Some(tr("Le prêt demande KyberNow Station 0.9.0 ou plus récente.", "Lending needs KyberNow Station 0.9.0 or later.")),
-            LendAvail::Off => Some(tr("Le prêt est coupé dans Admin (page « Prêt »).", "Lending is off in Admin (“Lending” page).")),
-            LendAvail::Impossible => Some(tr("Le prêt n'est pas possible sur cet ordinateur.", "Lending isn't possible on this computer.")),
-            LendAvail::Available => None,
-        }
-    }
-}
-
-/// L'état de l'ordinateur d'un ami (`LendAvailability` du cœur), ou « Hors ligne » quand sa Station ne répond pas.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LendState {
-    Free,
-    Busy,
-    Lent,
-    Locked,
-    Off,
-    Offline,
-    /// Le prêt en cours est le sien (`LendStatus::mine`) : fenêtre fermée ou réseau perdu, il peut revenir.
-    Mine,
-}
-
-impl LendState {
-    /// L'état de la carte « Ordinateur de {hôte} ».
-    pub fn label(self) -> &'static str {
-        match self {
-            LendState::Free => tr("Disponible", "Available"),
-            LendState::Busy => tr("Occupé", "In use"),
-            LendState::Lent => tr("Prêté à quelqu'un d'autre", "Lent to someone else"),
-            LendState::Locked => tr("Verrouillé", "Locked"),
-            LendState::Off => tr("Prêt coupé", "Lending off"),
-            LendState::Offline => tr("Hors ligne", "Offline"),
-            LendState::Mine => tr("Vous pouvez revenir pendant 15 min.", "You can come back for 15 min."),
-        }
-    }
-
-    /// « Emprunter » (libre), « Demander à {hôte} » (occupé) ou « Revenir » (son prêt) se peut ; ailleurs, le bouton est
-    /// inactif.
-    pub fn borrowable(self) -> bool {
-        matches!(self, LendState::Free | LendState::Busy | LendState::Mine)
-    }
-}
-
-/// Le créneau d'un compte d'ami (`LendSlot` du cœur) : en cours (jusqu'à `end`), ou le prochain.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LendSlotUi {
-    pub now: bool,
-    pub start: u64,
-    pub end: u64,
-}
-
-impl LendSlotUi {
-    /// « Votre créneau, jusqu'à 18 h » (en cours) ; « Votre créneau : mercredi, 14 h – 18 h » (le prochain).
-    pub fn text(&self) -> String {
-        let end = hour_label(self.end);
-        if self.now {
-            format!("{} {end}", tr("Votre créneau, jusqu'à", "Your time slot, until"))
-        } else {
-            format!("{} {}, {} – {end}", tr("Votre créneau :", "Your time slot:"), weekday_label(self.start), hour_label(self.start))
-        }
-    }
-}
-
-/// Ce que l'app sait de l'ordinateur d'un ami, d'après `lend::status` (sondé avec l'accueil).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct LendLive {
-    /// `None` : pas encore su (ou pas de mot de passe à présenter).
-    pub state: Option<LendState>,
-    pub slot: Option<LendSlotUi>,
-}
-
-/// D'où vient un emprunt : « Rejoindre avec un code » (un code de prêt, la recherche `attempt` de l'écran), ou la carte
-/// d'un ordinateur emprunté (`Store::borrowed`, l'essai `attempt` de l'accueil). « Revenir » refait le même.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BorrowSource {
-    Code { attempt: u32 },
-    Account { id: String, attempt: u32 },
-}
-
-/// L'emprunt lancé depuis l'accueil (la carte « Ordinateur de {hôte} ») : l'ordinateur, l'appel à la Station
-/// (« Préparation de l'ordinateur… », 30 s au plus, le temps du mode console), l'attente de l'accord de l'hôte
-/// (« En attente de {hôte}… », « Annuler »), ou ce que la Station a répondu.
-#[derive(Clone, Debug)]
-pub struct BorrowUi {
-    pub id: String,
-    pub busy: bool,
-    pub waiting: bool,
-    pub message: Option<String>,
-    pub attempt: u32,
-    pub started: Instant,
-}
-
-impl Default for BorrowUi {
-    fn default() -> Self {
-        Self { id: String::new(), busy: false, waiting: false, message: None, attempt: 0, started: Instant::now() }
-    }
-}
-
-/// « En attente de {hôte}… », “Waiting for {host}…”.
-pub fn waiting_for(host: &str) -> String {
-    format!("{} {host}…", tr("En attente de", "Waiting for"))
-}
-
-/// « Demander à {hôte} », “Ask {host}”.
-pub fn ask_host(host: &str) -> String {
-    format!("{} {host}", tr("Demander à", "Ask"))
-}
-
-/// Le temps qui reste d'un prêt, comme la Station (docs/link-ui.md, « Textes de la Station ») : « Encore 1 h 20 »,
-/// « Encore 2 h », « Encore 42 min », « Encore moins d'une minute » ; les minutes sont arrondies au-dessus.
-pub fn time_left_label(seconds: u64) -> String {
-    let en = crate::i18n::english();
-    if seconds < 60 {
-        return if en { "Less than a minute left" } else { "Encore moins d'une minute" }.into();
-    }
-    let m = seconds.div_ceil(60);
-    let (h, mm) = (m / 60, m % 60);
-    match (en, h, mm) {
-        (true, 0, _) => format!("{m} min left"),
-        (true, _, 0) => format!("{h} h left"),
-        (true, _, _) => format!("{h} h {mm:02} left"),
-        (false, 0, _) => format!("Encore {m} min"),
-        (false, _, 0) => format!("Encore {h} h"),
-        (false, _, _) => format!("Encore {h} h {mm:02}"),
-    }
-}
-
-/// Une session d'emprunt : l'ordinateur d'un ami (« Prêté par {hôte} »), la fin prévue, le préavis en cours, et ce qui
-/// l'a finie. Ni profil ni réglages de la Station, ni presse-papiers.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BorrowSessionUi {
-    /// Le prénom de l'hôte et le nom de son ordinateur.
-    pub host: String,
-    pub computer: String,
-    /// La fin prévue (secondes Unix) ; `None` : « Jusqu'à ce que {hôte} reprenne ».
-    pub until: Option<u64>,
-    /// Le préavis de 2 minutes : l'heure de la fin.
-    pub notice: Option<u64>,
-    /// Le prêt a fini la session (`Platform::on_lend_end`) : sans cela, une fin sur erreur laisse revenir 15 min.
-    pub ended_by_lend: bool,
-    /// Le texte de la fin dite par le prêt ; « Vous avez rendu l'ordinateur. » (fin voulue, sans carte) se dit en avis
-    /// sur l'accueil qui revient.
-    pub end_text: Option<String>,
-    /// L'emprunt d'où vient la session, que « Revenir » refait.
-    pub source: BorrowSource,
-}
-
-impl BorrowSessionUi {
-    /// Un emprunt qui commence : rien de fini, pas de préavis.
-    pub fn new(host: &str, computer: &str, until: Option<u64>, source: BorrowSource) -> Self {
-        Self { host: host.into(), computer: computer.into(), until, notice: None, ended_by_lend: false, end_text: None, source }
-    }
-}
-
-impl BorrowSessionUi {
-    /// « Prêté par {hôte} », “Lent by {host}”.
-    pub fn lent_by(&self) -> String {
-        format!("{} {}", tr("Prêté par", "Lent by"), self.host)
-    }
-
-    /// « Encore 1 h 20 » (la fin prévue, ou celle du préavis), sinon « Jusqu'à ce que {hôte} reprenne ».
-    pub fn time_left(&self, now: u64) -> String {
-        match self.notice.or(self.until) {
-            Some(end) => time_left_label(end.saturating_sub(now)),
-            None => format!("{} {} {}", tr("Jusqu'à ce que", "Until"), self.host, tr("reprenne", "takes it back")),
-        }
-    }
-}
-
-/// « Son compte Steam », « Votre compte Steam » : le compte Steam du prêt (`LendSteam` du cœur).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum LendSteam {
-    /// Proposé.
-    #[default]
-    Friend,
-    Host,
-}
-
-impl LendSteam {
-    pub const ALL: [LendSteam; 2] = [LendSteam::Friend, LendSteam::Host];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            LendSteam::Friend => tr("Son compte Steam", "Their Steam account"),
-            LendSteam::Host => tr("Votre compte Steam", "Your Steam account"),
-        }
-    }
-}
 
 /// Les durées d'un code de prêt, dans l'ordre du choix : 1 h, 2 h (proposée), 4 h, « Jusqu'à ce que je reprenne ».
 pub const LEND_DURATIONS: [Option<u64>; 4] = [Some(3600), Some(7200), Some(14400), None];
 /// La durée proposée : 2 heures.
 pub const LEND_DURATION_DEFAULT: usize = 1;
 
-/// « 1 heure », « 2 heures », « 4 heures », « Jusqu'à ce que je reprenne ».
-pub fn lend_duration_label(d: Option<u64>) -> String {
-    match d {
-        None => tr("Jusqu'à ce que je reprenne", "Until I take it back").into(),
-        Some(s) if s <= 3600 => tr("1 heure", "1 hour").into(),
-        Some(s) => format!("{} {}", s / 3600, tr("heures", "hours")),
-    }
-}
 
-/// L'état du prêt chez l'hôte (`LendHostState` du cœur).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum LendHostState {
-    #[default]
-    Free,
-    Preparing,
-    Lent,
-    Ending,
-}
-
-/// Pourquoi le préavis de 2 minutes (`LendNoticeReason` du cœur).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LendNoticeKind {
-    TakenBack,
-    TimeUp,
-    SlotEnd,
-    SlotStart,
-}
-
-/// Une demande d'emprunt, ordinateur utilisé (`LendRequest` du cœur).
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub struct LendRequestUi {
-    pub id: String,
-    pub name: String,
-    pub app: String,
-    pub via_relay: bool,
-    /// Le compte Steam proposé (celui du compte d'ami, ou du code) : « Accepter » le garde.
-    pub steam: LendSteam,
-    /// La demande vient d'un créneau de l'ami (l'ordinateur lui est prêté dans 2 min sans réponse).
-    pub slot: bool,
-}
-
-impl LendRequestUi {
-    /// « Léa veut emprunter l'ordinateur. »
-    /// La demande d'un créneau (`slot`) dit le créneau, sans « Refuser » (docs/link-ui.md, « Textes des apps ») :
-    /// « Créneau de Léa : l'ordinateur lui est prêté dans 2 min. »
-    pub fn line(&self) -> String {
-        if self.slot {
-            return if crate::i18n::english() { format!("{}'s time slot: the computer is lent to them in 2 min.", self.name) } else { format!("Créneau {}{} : l'ordinateur lui est prêté dans 2 min.", crate::i18n::de(&self.name), self.name) };
-        }
-        format!("{} {}", self.name, tr("veut emprunter l'ordinateur.", "wants to borrow the computer."))
-    }
-
-    /// Sous la demande : « Android · hors de chez vous » par le relais, sinon son app.
-    pub fn meta(&self) -> String {
-        if self.via_relay { format!("{} · {}", app_label(&self.app), tr("hors de chez vous", "away from home")) } else { app_label(&self.app) }
-    }
-}
-
-/// Le code de séance en cours (`LendCodeView` du cœur).
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub struct LendCodeUi {
-    pub code: String,
-    /// Le lien des apps (le QR code) et l'adresse du client web : ceux du relais quand il tient le code
-    /// (`ShareRelay::Joined`), sinon ceux du réseau.
-    pub link: String,
-    pub web: String,
-    pub duration: Option<u64>,
-    pub steam: LendSteam,
-    /// Le relais du code, comme celui du partage (`None` : pas de relais réglé, ou une Station qui ne le dit pas).
-    pub relay: Option<ShareRelay>,
-    /// Quand l'app a vu ce code « en préparation » chez le relais pour la première fois (`LendHostView::keep_relay_since`).
-    pub relay_since: Option<Instant>,
-}
-
-impl LendCodeUi {
-    /// Le lien du relais se prépare : le QR code et l'adresse attendent (`RELAY_LINK_WAIT` au plus).
-    pub fn relay_preparing(&self) -> bool {
-        relay_wait::preparing(self.relay, self.relay_since)
-    }
-
-    pub fn relay_wait_redraw(&self) -> bool {
-        relay_wait::redraw(self.relay, self.relay_since)
-    }
-
-    /// « Préparation du lien hors de chez vous… », sous l'aide.
-    pub fn relay_wait_text(&self) -> Option<&'static str> {
-        relay_wait::wait_text(self.relay, self.relay_since)
-    }
-
-    /// « Pas encore joignable hors de chez vous. », sous l'aide.
-    pub fn relay_down_text(&self) -> Option<&'static str> {
-        relay_wait::down_text(self.relay, self.relay_since)
-    }
-}
 
 // MARK: - Enregistrement de la session (docs/enregistrement.md ; textes : docs/link-ui.md, « Enregistrement de la session »)
 
@@ -1422,78 +756,6 @@ impl RecordingUi {
     }
 }
 
-/// La vue du prêt chez l'hôte (`LendView` du cœur) : ce qui est prêté, à qui, le préavis, les demandes, le code.
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub struct LendHostView {
-    pub enabled: bool,
-    pub state: LendHostState,
-    /// Le prénom de l'ami qui a l'ordinateur, et la fin prévue.
-    pub borrower: Option<(String, Option<u64>)>,
-    pub notice: Option<(LendNoticeKind, u64)>,
-    pub requests: Vec<LendRequestUi>,
-    pub code: Option<LendCodeUi>,
-}
-
-impl LendHostView {
-    /// Garde le moment où l'app a vu le code en préparation chez le relais (`before` : la vue d'avant, même code).
-    pub fn keep_relay_since(&mut self, before: Option<&LendHostView>) {
-        let Some(c) = self.code.as_mut() else { return };
-        let kept = before.and_then(|b| b.code.as_ref()).filter(|b| b.code == c.code).and_then(|b| b.relay_since);
-        c.relay_since = relay_wait::keep_since(c.relay, c.relay_since, kept);
-    }
-
-    /// L'attente du lien du relais du code court encore : l'écran se redessine.
-    pub fn relay_wait_redraw(&self) -> bool {
-        self.code.as_ref().is_some_and(LendCodeUi::relay_wait_redraw)
-    }
-
-    /// L'ordinateur est prêté (ou le prêt se prépare, ou finit) : l'accueil dit « Prêté à {prénom} ».
-    pub fn lent(&self) -> bool {
-        self.state != LendHostState::Free && self.borrower.is_some()
-    }
-
-    /// « Prêté à Léa », « Prêté à Léa jusqu'à 18 h ».
-    pub fn lent_line(&self) -> Option<String> {
-        let (name, until) = self.borrower.as_ref().filter(|_| self.lent())?;
-        let base = format!("{} {name}", tr("Prêté à", "Lent to"));
-        Some(match until {
-            Some(t) => format!("{base} {} {}", tr("jusqu'à", "until"), hour_label(*t)),
-            None => base,
-        })
-    }
-
-    /// Pendant la reprise (préavis de l'hôte) : « Reprise dans 1:42 ».
-    pub fn taking_back(&self, now: u64) -> Option<String> {
-        let (kind, at) = self.notice.filter(|_| self.lent())?;
-        (kind == LendNoticeKind::TakenBack).then(|| {
-            let left = at.saturating_sub(now);
-            format!("{} {}:{:02}", tr("Reprise dans", "Taking back in"), left / 60, left % 60)
-        })
-    }
-
-    /// L'avis d'un créneau qui commence : « Créneau de Léa : l'ordinateur lui est prêté dans 2 min. »
-    pub fn slot_notice(&self) -> Option<String> {
-        let (kind, _) = self.notice?;
-        (kind == LendNoticeKind::SlotStart).then(|| {
-            let slot = self.requests.iter().find(|r| r.slot).or(self.requests.first());
-            let name = slot.map(|r| r.name.as_str()).or(self.borrower.as_ref().map(|(n, _)| n.as_str())).unwrap_or_default();
-            if crate::i18n::english() { format!("{name}'s time slot: the computer is lent to them in 2 min.") } else { format!("Créneau {}{name} : l'ordinateur lui est prêté dans 2 min.", crate::i18n::de(name)) }
-        })
-    }
-}
-
-/// Ce que fait l'hôte avec le prêt (une demande à Admin, avec le compte de l'appareil).
-#[derive(Clone, Debug, PartialEq)]
-pub enum LendOp {
-    /// « Créer un code » : durée (`None` : jusqu'à ce que je reprenne) et compte Steam.
-    Code(Option<u64>, LendSteam),
-    /// « Annuler le code ».
-    CancelCode,
-    /// « Accepter » (avec le compte Steam choisi) ou « Refuser » une demande.
-    Answer(String, bool, LendSteam),
-    /// « Reprendre l'ordinateur » (préavis de 2 min), ou « Reprendre tout de suite ».
-    TakeBack(bool),
-}
 
 /// Le formulaire « Ajouter un ordinateur » › « Avec un compte d'ami » : la Station du réseau, l'identifiant, le mot de
 /// passe, « Retenir le mot de passe ». `editing` : un ordinateur emprunté dont le mot de passe n'est pas retenu (il est
@@ -1518,32 +780,6 @@ pub struct FriendForm {
 impl Default for FriendForm {
     fn default() -> Self {
         Self { station: 0, login: String::new(), password: String::new(), remember: true, field: FriendField::Login, shift: false, busy: false, message: None, editing: None, invite: None }
-    }
-}
-
-/// Un lien d'invitation (`kybernow://borrow?…`, `lend::Invite` du cœur) : la Station de l'ami (adresse, port,
-/// empreinte), son relais (`relay`, `sid`) pour emprunter aussi hors de chez soi, le compte d'ami (« Identifiant ») et
-/// le prénom de l'hôte quand le lien le dit (`name`).
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
-pub struct InviteUi {
-    pub address: String,
-    pub port: u16,
-    pub fingerprint: Option<String>,
-    pub login: String,
-    pub relay: Option<String>,
-    pub sid: Option<String>,
-    pub name: Option<String>,
-}
-
-impl InviteUi {
-    /// Le titre de l'ajout : « Matthieu vous prête son ordinateur. » ; sans prénom (lien d'avant la 0.9.0), « Avec un
-    /// compte d'ami » (docs/link-ui.md, « Textes des apps »).
-    pub fn title(&self) -> String {
-        match self.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
-            Some(n) if crate::i18n::english() => format!("{n} is lending you their computer."),
-            Some(n) => format!("{n} vous prête son ordinateur."),
-            None => tr("Avec un compte d'ami", "With a friend account").into(),
-        }
     }
 }
 
@@ -1587,7 +823,7 @@ impl InvitationForm {
         match self.computer.trim() {
             "" => tr("Ajout de l'ordinateur…", "Adding the computer…").into(),
             n if crate::i18n::english() => format!("Adding {n}…"),
-            n => format!("Ajout {}{n}…", crate::i18n::de(n)),
+            n => format!("Ajout {}…", crate::i18n::de(n)),
         }
     }
 
@@ -1595,11 +831,6 @@ impl InvitationForm {
     pub fn ready(&self) -> bool {
         !self.busy && self.password.chars().any(|c| !c.is_whitespace() && c != '-')
     }
-}
-
-/// L'avis de la réussite : « {ordinateur} est ajouté. » (docs/link-ui.md, « Invitations »).
-pub fn invitation_added_notice(computer: &str) -> String {
-    if crate::i18n::english() { format!("{computer} has been added.") } else { format!("{computer} est ajouté.") }
 }
 
 /// Le lien d'un partage (`kybernow://join?…`, `share::JoinLink` du cœur) : « Rejoindre un partage », code rempli, vers
@@ -1628,7 +859,7 @@ pub enum LinkUi {
 /// « Retirer l'ordinateur de {hôte} de cet appareil ? » (élidé : « d'Hugo »), “Remove {host}'s computer from this
 /// device?” : la confirmation de « Retirer cet ordinateur ».
 pub fn remove_borrowed_question(host: &str) -> String {
-    if crate::i18n::english() { format!("Remove {host}'s computer from this device?") } else { format!("Retirer l'ordinateur {}{host} de cet appareil ?", crate::i18n::de(host)) }
+    if crate::i18n::english() { format!("Remove {host}'s computer from this device?") } else { format!("Retirer l'ordinateur {} de cet appareil ?", crate::i18n::de(host)) }
 }
 
 /// Le champ que la saisie du compte d'ami remplit.
@@ -1638,25 +869,7 @@ pub enum FriendField {
     Password,
 }
 
-/// Une heure locale du prêt (`localtime_r`, le fuseau du téléviseur) : « 18 h », « 18 h 30 » ; “6 PM”, “6:30 PM”.
-pub fn hour_label(at: u64) -> String {
-    let Some(tm) = crate::i18n::local_time(at) else { return String::new() };
-    let (h, m) = (tm.tm_hour, tm.tm_min);
-    if crate::i18n::english() {
-        let (h12, ampm) = (if h % 12 == 0 { 12 } else { h % 12 }, if h < 12 { "AM" } else { "PM" });
-        if m == 0 { format!("{h12} {ampm}") } else { format!("{h12}:{m:02} {ampm}") }
-    } else if m == 0 {
-        format!("{h} h")
-    } else {
-        format!("{h} h {m:02}")
-    }
-}
 
-/// Le jour de la semaine d'un créneau : « mercredi », “Wednesday”.
-pub fn weekday_label(at: u64) -> String {
-    let Some(tm) = crate::i18n::local_time(at) else { return String::new() };
-    crate::i18n::weekday(tm.tm_wday.max(0) as usize).into()
-}
 
 /// Ce que l'invité tient de sa session (une session d'invité n'a pas d'ordinateur dans la liste de l'appareil).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1703,30 +916,9 @@ impl WatchUi {
     }
 }
 
-/// « Regarder » / “Watch” : le bouton de la carte (droit « Regarder » seul) et la pastille à côté de « Réglages ».
-/// Miroir de `share::watch_word(lang, "action")` du cœur (l'interface seule ne l'a pas).
-pub fn watch_word() -> &'static str {
-    tr("Regarder", "Watch")
-}
-
 /// « Regarder… » / “Watch…” : le temps d'entrer dans le partage.
 pub fn watch_waiting_word() -> &'static str {
     tr("Regarder…", "Watch…")
-}
-
-/// « Arrêter de regarder » / “Stop watching”, à la place de « Quitter le partage » (`watch_word(lang, "stop")`).
-pub fn watch_stop_word() -> &'static str {
-    tr("Arrêter de regarder", "Stop watching")
-}
-
-/// « Écran » / “Screen” : la tuile et le panneau des écrans (`watch_word(lang, "screen")`).
-pub fn watch_screen_word() -> &'static str {
-    tr("Écran", "Screen")
-}
-
-/// « Regarder {nom} » / “Watching {name}”, à la place de « Invité sur {nom} » (`share::watch_title`).
-pub fn watch_title(computer: &str) -> String {
-    if english() { format!("Watching {computer}") } else { format!("Regarder {computer}") }
 }
 
 /// Le champ que la saisie de « Rejoindre un partage » remplit.
@@ -2581,7 +1773,6 @@ impl App {
     pub fn typing_invitation(&self) -> bool {
         self.screen == Screen::Add && self.add.step == AddStep::Invitation
     }
-
 
     /// Les Stations trouvées qui ne sont pas déjà ajoutées.
     pub fn new_found(&self) -> Vec<&Found> {
@@ -4421,7 +3612,6 @@ impl App {
         }
     }
 
-
     fn start_add(&mut self) {
         self.add = AddState {
             step: AddStep::Code,
@@ -5526,5 +4716,13 @@ mod tests {
         assert_eq!(app.codec_for(&h), "av1");
         h.settings.fps = 120;
         assert_eq!(app.codec_for(&h), "hevc");
+    }
+}
+
+/// La cible du bouton « Donner » / « Reprendre » d'un droit (`ShareMove`) pour l'invité `i`.
+pub fn share_move_target(m: ShareMove, i: usize) -> Target {
+    match m {
+        ShareMove::Pads => Target::SharePads(i),
+        ShareMove::Kbm => Target::ShareKbm(i),
     }
 }

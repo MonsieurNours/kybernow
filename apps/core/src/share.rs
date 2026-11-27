@@ -1512,6 +1512,26 @@ pub enum Joining {
 }
 
 
+/// Les relais où chercher un code en plus du relais public : ceux des
+/// ordinateurs de l'app (`info.relay.server`), sans doublon, une adresse
+/// illisible écartée ; [`join_anywhere`] interroge toujours le relais public
+/// lui-même (le code d'un ami y part même quand l'ordinateur de l'utilisateur
+/// en a un autre). `KYBERNOW_RELAY=off` : aucun.
+pub fn join_relays<'a>(servers: impl IntoIterator<Item = &'a str>) -> Vec<RelayAddr> {
+    if crate::relay::RelayMode::current() == crate::relay::RelayMode::Off {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for server in servers {
+        if let Ok(addr) = server.trim().parse::<RelayAddr>()
+            && !out.contains(&addr)
+        {
+            out.push(addr);
+        }
+    }
+    out
+}
+
 /// « Rejoindre » sur le réseau et hors de chez soi : le code part aux
 /// Stations du réseau ([`join`]) **et en même temps** aux relais (`GET
 /// /v1/codes/{code}`, le relais par défaut et ceux des ordinateurs que l'app
@@ -1830,6 +1850,18 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relais_d_un_code() {
+        // Aucun ordinateur : rien à ajouter, le cœur interroge seul le relais public.
+        assert_eq!(join_relays([]), Vec::<RelayAddr>::new());
+        // Ceux des ordinateurs, sans doublon (« share.kybernow.app » et « …:443 » sont le même relais, un autre
+        // port reste écrit), les adresses illisibles écartées.
+        let relays = join_relays(["share.kybernow.app", "relais.exemple.org:9443", "relais.exemple.org:9443", "share.kybernow.app:443", "a b", ""]);
+        assert_eq!(relays.len(), 2);
+        assert_eq!(relays[0], RelayAddr::public());
+        assert_eq!((relays[1].host.as_str(), relays[1].port), ("relais.exemple.org", 9443));
+    }
 
     #[test]
     fn roles() {

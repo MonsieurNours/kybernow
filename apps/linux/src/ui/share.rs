@@ -279,7 +279,7 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
         // Ses deux droits, chacun donné ou repris sans toucher à l'autre, puis « Retirer ».
         let mut bx = x;
         for m in ShareMove::ALL {
-            bx += widgets::ghost(cv, f, m.target(i), bx, y + 24.0 * u, 26.0 * u, 12.0 * u, None, m.label(g.role), MUTED) + 8.0 * u;
+            bx += widgets::ghost(cv, f, crate::app::share_move_target(m, i), bx, y + 24.0 * u, 26.0 * u, 12.0 * u, None, m.label(g.role), MUTED) + 8.0 * u;
         }
         widgets::ghost(cv, f, Target::ShareKick(i), bx, y + 24.0 * u, 26.0 * u, 12.0 * u, None, tr("Retirer", "Remove"), BAD_TEXT);
         y += ROW * u;

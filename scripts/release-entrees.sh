@@ -25,7 +25,7 @@ RELEASE_COEUR=(apps/core apps/Cargo.toml apps/Cargo.lock apps/macos/kyber-patche
 # La pose des correctifs de Kyber et la chaîne d'outils, que lit toute construction de Kyber.
 RELEASE_KYBER=(scripts/kyber-patches-lib.sh scripts/kyber-toolchain.sh scripts/verrou.sh)
 # Les apps Linux (Flatpak, .deb du Pi) : leurs licences sont copiées dans les paquets.
-RELEASE_LINUX=(apps/linux apps/webos/kyber-patches LICENSE LICENSE.md)
+RELEASE_LINUX=(apps/linux apps/ui-common apps/webos/kyber-patches LICENSE LICENSE.md)
 # Le décodeur et l'encodeur PyroWave (port Metal) : commit et sources vendues.
 RELEASE_PYROWAVE=(apps/macos/PyroWave)
 
@@ -37,7 +37,7 @@ release_chemins() {
         station) release_server_sauf macos linux; printf '%s\n' "${RELEASE_KYBER[@]}" brand LICENSE LICENSE.md ;;
         windows) printf '%s\n' "${RELEASE_COEUR[@]}" apps/windows "${RELEASE_PYROWAVE[@]}" scripts/release-verifie.py ;;
         android) printf '%s\n' "${RELEASE_COEUR[@]}" apps/android ;;
-        webos) printf '%s\n' "${RELEASE_COEUR[@]}" apps/webos ;;
+        webos) printf '%s\n' "${RELEASE_COEUR[@]}" apps/webos apps/ui-common ;;
         app_mac) printf '%s\n' "${RELEASE_COEUR[@]}" apps/macos apps/apple scripts/identite.sh ;;
         notarisation) ;;
         # L'app Apple TV compile des sources de l'app Mac, et l'app iPhone/iPad

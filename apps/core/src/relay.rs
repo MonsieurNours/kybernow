@@ -206,6 +206,18 @@ pub enum RelayError {
     AccessOff,
 }
 
+/// Le texte de fin d'une session (ou d'un appel) par le relais, avec le nom de
+/// l'ordinateur (docs/link-ui.md, « Hors de chez vous ») : quand le cœur a
+/// donné une erreur du relais (`relay`, `Platform::on_relay_error`), c'est
+/// elle qui choisit le texte, jamais celui d'Admin ; sans elle, la raison de
+/// la fin (`reason`) telle quelle ; une fin sans raison n'en a pas.
+pub fn session_end_text(relay: Option<&RelayError>, reason: Option<String>, name: &str) -> Option<String> {
+    match (relay, reason) {
+        (Some(e), Some(_)) => Some(e.text(crate::i18n::current(), Some(name))),
+        (_, reason) => reason,
+    }
+}
+
 impl RelayError {
     /// Le texte à montrer (docs/link-ui.md, « Hors de chez vous ») ; `name` :
     /// le nom de l'ordinateur quand on le connaît.
@@ -654,6 +666,17 @@ mod tests {
 
     /// La forme d'un relais de kybernow-rules (interfaces sans le cœur,
     /// welcome.rs) est celle du tunnel, et son libellé celui des comptes.
+    #[test]
+    fn texte_de_fin_par_le_relais() {
+        crate::i18n::set_current(Lang::Fr);
+        let text = |e: RelayError| session_end_text(Some(&e), Some("raison du cœur".into()), "Atelier");
+        assert_eq!(text(RelayError::StationOffline).as_deref(), Some("Atelier n'est pas joignable\u{202F}: l'ordinateur est éteint ou en veille."));
+        assert_eq!(text(RelayError::AccessOff).as_deref(), Some("Atelier n'est pas joignable hors de chez vous (accès coupé dans Admin)."));
+        // Sans erreur du relais : la raison telle quelle ; sans raison : rien.
+        assert_eq!(session_end_text(None, Some("Mot de passe refusé".into()), "Atelier").as_deref(), Some("Mot de passe refusé"));
+        assert_eq!(session_end_text(Some(&RelayError::AccessOff), None, "Atelier"), None);
+    }
+
     #[test]
     fn forme_du_relais_comme_le_tunnel() {
         let fp = format!("sha256:{}", ["ab"; 32].join(":"));

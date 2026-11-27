@@ -451,7 +451,7 @@ impl Borrowed {
 
 /// « Ordinateur de {hôte} » (élidé : « Ordinateur d'Hugo »), “{host}'s computer”.
 pub fn borrowed_title(host: &str) -> String {
-    if crate::i18n::english() { format!("{host}'s computer") } else { format!("Ordinateur {}{host}", crate::i18n::de(host)) }
+    if crate::i18n::english() { format!("{host}'s computer") } else { format!("Ordinateur {}", crate::i18n::de(host)) }
 }
 
 // MARK: - Comptes KyberNow (docs/comptes.md ; textes : docs/link-ui.md, « Comptes KyberNow »)

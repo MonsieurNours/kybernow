@@ -46,12 +46,12 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
 
     match &a.phase {
         AutoPhase::Running => {
-            widgets::secondary(cv, f, Target::AutoCancel, x0, y + 30.0, autotest::cancel_word(), 26.0);
+            widgets::secondary(cv, f, Target::AutoCancel, x0, y + 30.0, autotest::cancel(), 26.0);
         }
         AutoPhase::Failed(text) => {
             cv.paragraph(x0, y + 40.0, Text::new(Font::Regular, 26.0, DANGER), text, sw, 36.0);
-            let bx = x0 + widgets::primary(cv, f, Target::AutoRetry, x0, y + 90.0, autotest::retry_word()) + 24.0;
-            widgets::secondary(cv, f, Target::AutoCancel, bx, y + 102.0, autotest::cancel_word(), 24.0);
+            let bx = x0 + widgets::primary(cv, f, Target::AutoRetry, x0, y + 90.0, autotest::retry()) + 24.0;
+            widgets::secondary(cv, f, Target::AutoCancel, bx, y + 102.0, autotest::cancel(), 24.0);
         }
         AutoPhase::Done { choices, .. } => {
             // « Réglages proposés », à droite : une ligne par réglage, la valeur puis la raison.
@@ -61,7 +61,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             let ch = 76.0 + row * choices.len() as f32 + 20.0;
             cv.rrect(cx, top, cw, ch, 22.0, PANEL_SOLID);
             cv.rrect_stroke(cx, top, cw, ch, 22.0, 1.0, LINE);
-            widgets::label(cv, cx + 40.0, top + 54.0, autotest::summary_title());
+            widgets::label(cv, cx + 40.0, top + 54.0, autotest::summary());
             let mut yy = top + 76.0;
             for c in choices {
                 cv.line(cx + 40.0, yy, cx + cw - 40.0, yy, 1.0, LINE);
@@ -73,9 +73,9 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             // Les boutons, sous le résumé.
             let by = (top + ch + 36.0).min(H - 190.0);
             let mut bx = cx;
-            bx += widgets::primary(cv, f, Target::AutoApply, bx, by, autotest::apply_word()) + 24.0;
-            bx += widgets::secondary(cv, f, Target::AutoCancel, bx, by + 12.0, autotest::cancel_word(), 24.0) + 24.0;
-            widgets::secondary(cv, f, Target::AutoAgain, bx, by + 12.0, autotest::again_word(), 24.0);
+            bx += widgets::primary(cv, f, Target::AutoApply, bx, by, autotest::apply()) + 24.0;
+            bx += widgets::secondary(cv, f, Target::AutoCancel, bx, by + 12.0, autotest::cancel(), 24.0) + 24.0;
+            widgets::secondary(cv, f, Target::AutoAgain, bx, by + 12.0, autotest::again(), 24.0);
         }
     }
 
@@ -83,7 +83,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let y = H - 48.0;
     let mut x = 96.0;
     x += widgets::hint(cv, x, y, Key::Ok, crate::i18n::tr("Choisir", "Select")) + 40.0;
-    widgets::hint(cv, x, y, Key::Back, autotest::cancel_word());
+    widgets::hint(cv, x, y, Key::Back, autotest::cancel());
 }
 
 /// Une étape : son état à gauche (cercle vide, roue, coche, flèche passée), son titre, sa mesure ou sa raison dessous.

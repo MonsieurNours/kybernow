@@ -811,7 +811,7 @@ fn device_info(app: &App) -> DeviceInfo {
 }
 
 fn set_language(app: &App) {
-    i18n::set_english(i18n::resolve(&app.store.app.language, &sdl::locale()));
+    i18n::set_english(kybernow_ui::i18n::resolve(&app.store.app.language, &sdl::locale()));
     kybernow_core::i18n::set_current(if i18n::english() { kybernow_core::i18n::Lang::En } else { kybernow_core::i18n::Lang::Fr });
 }
 
@@ -2497,7 +2497,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 }
                 // Face à un Mac, Ctrl et ⊞ échangés avec « Ctrl agit comme ⌘ » (le cœur décide, et relâche chaque
                 // touche telle qu'elle est partie).
-                if !repeat && let Some(w) = pads::win_scancode(sc) {
+                if !repeat && let Some(w) = u16::try_from(sc).ok().and_then(kybernow_core::input::keymap::scancode_of_usage) {
                     p.key(p.outgoing_scancode(w, down), down);
                 }
                 return;

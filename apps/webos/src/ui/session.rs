@@ -78,10 +78,10 @@ fn auto_banner(cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let a = if t > crate::autotest::BANNER_SECONDS - 0.4 { ((crate::autotest::BANNER_SECONDS - t) / 0.4).clamp(0.0, 1.0) } else { 1.0 };
     let title = Text::new(Font::Semibold, 24.0, FROST.alpha(a));
     let text = Text::new(Font::Regular, 21.0, FROST_2.alpha(a));
-    let again = crate::autotest::again_word();
+    let again = crate::autotest::again();
     let button = Text::new(Font::Semibold, 21.0, FROST.alpha(a));
     let bw = cv.text_width(button, again) + 42.0 + 40.0;
-    let tw = cv.text_width(title, crate::autotest::banner_title()).max(cv.text_width(text, crate::autotest::banner_text()));
+    let tw = cv.text_width(title, crate::autotest::other_network()).max(cv.text_width(text, crate::autotest::other_network_text()));
     let (h, pad) = (104.0, 32.0);
     let w = pad + 40.0 + 18.0 + tw + 36.0 + bw + 18.0 + 52.0 + pad;
     let (x, y) = ((W - w) / 2.0, 40.0);
@@ -89,8 +89,8 @@ fn auto_banner(cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     cv.rrect_stroke(x, y, w, h, 24.0, 1.5, SPECTRE.alpha(0.5 * a));
     cv.icon(&Icon::Wifi, x + pad, y + 32.0, 40.0, 1.7, SPECTRE.alpha(a));
     let tx = x + pad + 40.0 + 18.0;
-    cv.text(tx, y + 44.0, title, crate::autotest::banner_title());
-    cv.text(tx, y + 78.0, text, crate::autotest::banner_text());
+    cv.text(tx, y + 44.0, title, crate::autotest::other_network());
+    cv.text(tx, y + 78.0, text, crate::autotest::other_network_text());
     // « Refaire le test », avec la touche verte de la télécommande devant.
     let (bx, by, bh) = (tx + tw + 36.0, y + 24.0, 56.0);
     let focused = f.hit(Target::AutoBannerAgain, Rect::new(bx, by, bw, bh));
