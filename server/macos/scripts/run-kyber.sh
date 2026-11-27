@@ -27,7 +27,10 @@ APP="$KYBER_DIR/KyberNow-Station-Kyber.app"
 RUN="${KYBER_RUN_DIR:-$HOME/Library/Application Support/KyberNow/essai-kyber}"
 LABEL="fr.leslignesclaires.kybernow.station.kyber"
 BUNDLE_ID="fr.leslignesclaires.kybernow.station.kyber"
-IDENTITY="${KYBER_SIGN_IDENTITY:-Developer ID Application: Mathieu Requenna (P6DB682S4K)}"
+# Équipe et certificat : scripts/identite.sh.
+# shellcheck source=../../../scripts/identite.sh
+. "$ROOT/scripts/identite.sh"
+IDENTITY="$KYBER_SIGN_IDENTITY"
 PASSWORD="${KYBER_TEST_PASSWORD:-essai-kybernow}"
 DOMAIN="gui/$(id -u)"
 

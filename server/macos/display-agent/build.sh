@@ -3,7 +3,10 @@
 # dans build/, signé Developer ID si l'identité est là (KYBER_SIGN_IDENTITY).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-IDENTITY="${KYBER_SIGN_IDENTITY:-Developer ID Application: Mathieu Requenna (P6DB682S4K)}"
+# Équipe et certificat : scripts/identite.sh.
+# shellcheck source=../../../scripts/identite.sh
+. "$HERE/../../../scripts/identite.sh"
+IDENTITY="$KYBER_SIGN_IDENTITY"
 mkdir -p "$HERE/build"
 swiftc -O -target arm64-apple-macos15.0 -import-objc-header "$HERE/CGVirtualDisplayPrivate.h" \
     "$HERE/main.swift" "$HERE/audio.swift" "$HERE/apps.swift" -o "$HERE/build/kybernow-display"

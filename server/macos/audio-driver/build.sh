@@ -8,7 +8,10 @@
 #   sudo killall coreaudiod
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-IDENTITY="${KYBER_SIGN_IDENTITY:-Developer ID Application: Mathieu Requenna (P6DB682S4K)}"
+# Équipe et certificat : scripts/identite.sh.
+# shellcheck source=../../../scripts/identite.sh
+. "$HERE/../../../scripts/identite.sh"
+IDENTITY="$KYBER_SIGN_IDENTITY"
 OUT="$HERE/build/KyberNow.driver"
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS"

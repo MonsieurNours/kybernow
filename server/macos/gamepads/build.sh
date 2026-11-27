@@ -21,8 +21,11 @@
 # Dernière ligne : chemin de l'app.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-IDENTITY="${KYBER_SIGN_IDENTITY:-Developer ID Application: Mathieu Requenna (P6DB682S4K)}"
-TEAM="P6DB682S4K"
+# Équipe et certificat : scripts/identite.sh.
+# shellcheck source=../../../scripts/identite.sh
+. "$HERE/../../../scripts/identite.sh"
+IDENTITY="$KYBER_SIGN_IDENTITY"
+TEAM="$KYBER_TEAM_ID"
 BUNDLE_ID="fr.leslignesclaires.kybernow.station.gamepads"
 VERSION="${1:-0.0.0}"
 APP="$HERE/build/KyberNow Manettes.app"
