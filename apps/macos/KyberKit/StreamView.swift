@@ -107,6 +107,8 @@ public final class StreamView: NSView {
         return layer
     }()
     private var windowObservers: [NSObjectProtocol] = []
+    /// Veille, écrans éteints, changement d'utilisateur (centre de NSWorkspace).
+    private var workspaceObservers: [NSObjectProtocol] = []
 
     private var input: InputPipeline?
     private var layout: OpaquePointer?
@@ -137,6 +139,7 @@ public final class StreamView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     deinit {
+        workspaceObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
         if let layout { kynput_video_layout_unref(layout) }
     }
 
@@ -308,6 +311,14 @@ public final class StreamView: NSView {
         windowObservers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             self?.keyboardLost()
         })
+        // Veille, écrans éteints, verrouillage ou autre utilisateur : l'app
+        // peut garder le focus jusque-là, rien ne doit rester tenu (MAC-10).
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspaceObservers.forEach(workspace.removeObserver)
+        workspaceObservers = [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification,
+                              NSWorkspace.sessionDidResignActiveNotification].map { name in
+            workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.keyboardLost() }
+        }
     }
 
     // MARK: - Tout relâcher
@@ -535,6 +546,9 @@ public final class StreamView: NSView {
     }
 
     public override func rightMouseDown(with event: NSEvent) {
+        // La bande réservée à la barre ne clique jamais sur l'ordinateur
+        // (MAC-09) ; les relâchements passent toujours.
+        if !relative.active, inReservedBand(event) { return }
         if handledAsPen(event) { return }
         sendPosition(event); mouseButton(.right, pressed: true)
     }
@@ -554,6 +568,7 @@ public final class StreamView: NSView {
     }
 
     public override func otherMouseDown(with event: NSEvent) {
+        if !relative.active, inReservedBand(event) { return }
         if let b = otherButton(event) { mouseButton(b, pressed: true) }
     }
 
@@ -562,6 +577,7 @@ public final class StreamView: NSView {
     }
 
     public override func scrollWheel(with event: NSEvent) {
+        if !relative.active, inReservedBand(event) { return }
         // Une encoche de molette = 1.0 ; un trackpad donne des pixels (même
         // réglage que le client Kyber : 16 pixels par encoche).
         let dy = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 16 : event.scrollingDeltaY

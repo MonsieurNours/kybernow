@@ -277,8 +277,16 @@ final class PyroWaveDecoder {
                           Unmanaged.passUnretained(chroma.0).toOpaque(),
                           Unmanaged.passUnretained(chroma.1).toOpaque())
         let decoded = pyrowave_decoder_decode_gpu_buffer(decoder, Unmanaged.passUnretained(commands).toOpaque(), &outputs)
-        guard decoded == PYROWAVE_SUCCESS, let pass = commands.makeComputeCommandEncoder() else {
+        guard decoded == PYROWAVE_SUCCESS else {
             note(\.failures, "décodage refusé (\(String(cString: pyrowave_result_to_string(decoded))))")
+            return
+        }
+        // Décodage accepté : l'emplacement d'envoi attend désormais ce tampon
+        // (`slot->consumer`). Il est validé quoi qu'il arrive, sinon le
+        // quatrième envoi suivant attendrait pour toujours (MAC-02).
+        guard let pass = commands.makeComputeCommandEncoder() else {
+            commands.commit()
+            note(\.failures, "passe d'entrelacement refusée, image sautée")
             return
         }
         pass.setComputePipelineState(gpu.interleave)

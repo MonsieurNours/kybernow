@@ -101,7 +101,16 @@ final class SessionController: NSObject, ObservableObject {
     @Published private(set) var stationRestarting = false
     /// Rappel affiché quelques secondes, sur un événement de la session (jamais à
     /// l'arrivée de l'image, sauf les manettes indisponibles).
-    enum Hint: Equatable { case mouse, fallback(String), notice(String), request(String), lendRequest(String), gamepads(String) }
+    enum Hint: Equatable {
+        case mouse, fallback(String), notice(String), request(String), lendRequest(String), gamepads(String)
+        /// Les avis d'une demande se choisissent (panneau du partage, du prêt).
+        var takesClick: Bool {
+            switch self {
+            case .request, .lendRequest: return true
+            default: return false
+            }
+        }
+    }
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre
     /// 3840 × 2160 » dans la barre (le cœur le propose et le retire).
     @Published private(set) var modeRestoreOffer: String?
@@ -771,7 +780,10 @@ final class SessionController: NSObject, ObservableObject {
     /// ouvert (son animation dure 1,1 s). Hors flux, tout revient.
     private func updateCompositing() {
         let streaming = phase == .streaming
+        // Le bandeau PyroWave et le voyant de la caméra (indicateur de
+        // confidentialité, docs/link-ui.md) sont dans cette couche (MAC-05).
         let needed = !streaming || barVisible || padMode || hint != nil || statsPanel || screenOfferShown
+            || pyrowaveBanner || cameraState == .sending
         if chrome?.isHidden == needed { chrome?.isHidden = !needed }
         // Trait de repère de la barre, tracé dans l'image : là où le geste qui
         // ouvre la barre est possible (app au premier plan, session active,
