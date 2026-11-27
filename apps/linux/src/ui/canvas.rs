@@ -68,8 +68,15 @@ struct Glyph {
 /// dixièmes de pixel).
 pub struct Fonts {
     fonts: HashMap<Font, fontdue::Font>,
+    /// Glyphes rendus, en deux générations : les récents, et ceux d'avant. Une génération pleine passe en
+    /// « d'avant » ; un glyphe d'avant réutilisé revient dans les récents. Le cache n'est plus vidé d'un coup
+    /// (tous les textes à refaire à l'image suivante, LINAPP-35).
     cache: HashMap<(Font, char, u32), Glyph>,
+    old: HashMap<(Font, char, u32), Glyph>,
 }
+
+/// Glyphes gardés par génération.
+const GLYPH_GENERATION: usize = 3000;
 
 impl Fonts {
     pub fn load() -> Self {
@@ -78,18 +85,20 @@ impl Fonts {
             let font = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()).expect("police de la charte illisible");
             fonts.insert(f, font);
         }
-        Self { fonts, cache: HashMap::new() }
+        Self { fonts, cache: HashMap::new(), old: HashMap::new() }
     }
 
     fn glyph(&mut self, font: Font, c: char, size: f32) -> &Glyph {
         let key = (font, c, (size * 10.0).round() as u32);
         if !self.cache.contains_key(&key) {
-            let f = &self.fonts[&font];
-            let (metrics, coverage) = f.rasterize(c, size);
-            if self.cache.len() > 6000 {
-                self.cache.clear();
+            let g = self.old.remove(&key).unwrap_or_else(|| {
+                let (metrics, coverage) = self.fonts[&font].rasterize(c, size);
+                Glyph { metrics, coverage }
+            });
+            if self.cache.len() >= GLYPH_GENERATION {
+                self.old = std::mem::take(&mut self.cache);
             }
-            self.cache.insert(key, Glyph { metrics, coverage });
+            self.cache.insert(key, g);
         }
         &self.cache[&key]
     }
@@ -413,13 +422,12 @@ impl Canvas {
             if let Some(p) = prev {
                 pen += self.fonts.fonts[&font].horizontal_kern(p, c, size).unwrap_or(0.0);
             }
-            let (metrics, coverage) = {
-                let g = self.fonts.glyph(font, c, size);
-                (g.metrics, g.coverage.clone())
-            };
+            // Le glyphe est emprunté au cache, pas recopié (`fonts` et `pix` sont deux champs à part).
+            let g = self.fonts.glyph(font, c, size);
+            let metrics = g.metrics;
             let gx = (pen + metrics.xmin as f32).round() as i32;
             let gy = (base - metrics.height as f32 - metrics.ymin as f32).round() as i32;
-            blit_coverage(&mut self.pix, gx, gy, metrics.width, metrics.height, &coverage, style.color);
+            blit_coverage(&mut self.pix, gx, gy, metrics.width, metrics.height, &g.coverage, style.color);
             pen += metrics.advance_width + style.tracking * k;
             prev = Some(c);
         }
@@ -431,15 +439,32 @@ impl Canvas {
         if self.text_width(style, s) <= max {
             return self.text(x, y, style, s);
         }
-        let mut cut: String = s.to_string();
-        while !cut.is_empty() {
-            cut.pop();
-            let t = format!("{}…", cut.trim_end());
-            if self.text_width(style, &t) <= max {
-                return self.text(x, y, style, &t);
+        // Le plus long début qui tient avec « … », par dichotomie sur le nombre de caractères (la largeur croît
+        // avec lui) : quelques mesures au lieu d'une par caractère retiré (LINAPP-35).
+        let chars: Vec<char> = s.chars().collect();
+        let fits = |cv: &mut Self, n: usize| {
+            let t = format!("{}…", chars[..n].iter().collect::<String>().trim_end());
+            (cv.text_width(style, &t) <= max).then_some(t)
+        };
+        let (mut lo, mut hi) = (0usize, chars.len());
+        let mut best: Option<String> = None;
+        while lo < hi {
+            let mid = (lo + hi).div_ceil(2);
+            match fits(self, mid) {
+                Some(t) => {
+                    best = Some(t);
+                    lo = mid;
+                }
+                None => hi = mid - 1,
             }
         }
-        0.0
+        if best.is_none() {
+            best = fits(self, 0);
+        }
+        match best {
+            Some(t) => self.text(x, y, style, &t),
+            None => 0.0,
+        }
     }
 
     /// Un texte rétréci jusqu'à tenir dans `max` (le nom de l'ordinateur).

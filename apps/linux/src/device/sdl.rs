@@ -373,6 +373,7 @@ unsafe extern "C" {
     pub fn SDL_GameControllerHasRumble(c: *mut SDL_GameController) -> c_int;
     pub fn SDL_GameControllerHasRumbleTriggers(c: *mut SDL_GameController) -> c_int;
     pub fn SDL_JoystickInstanceID(j: *mut SDL_Joystick) -> i32;
+    pub fn SDL_JoystickGetDeviceInstanceID(device_index: c_int) -> i32;
     pub fn SDL_GameControllerSendEffect(c: *mut SDL_GameController, data: *const c_void, size: c_int) -> c_int;
     pub fn SDL_GameControllerHasSensor(c: *mut SDL_GameController, kind: c_int) -> c_int;
     pub fn SDL_GameControllerSetSensorEnabled(c: *mut SDL_GameController, kind: c_int, enabled: c_int) -> c_int;

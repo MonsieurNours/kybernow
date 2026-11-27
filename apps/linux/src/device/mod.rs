@@ -690,7 +690,6 @@ struct Live {
     local: Vec<(f64, f64)>,
     /// Dernière image de la session, réduite (accueil).
     snapshot: Option<tiny_skia::Pixmap>,
-    snapshot_at: Option<Instant>,
     /// Multi-écrans : la session a été ouverte avec les écrans de l'appareil
     /// (interface de bureau) ; le cœur décide du nombre d'écrans.
     multi: bool,
@@ -1073,20 +1072,17 @@ pub fn run(args: &[String]) {
             // Profil Auto : la roue du test qui tourne ; les bandeaux du début de session, jusqu'à leur départ (8 s).
             || app.autotest.as_ref().is_some_and(|p| matches!(p.state, crate::autotest::State::Running(_)))
             || app.sessions.iter().any(|s| s.auto_banner.is_some_and(|t| t.elapsed().as_secs_f32() < 8.2) || s.pw_banner.is_some_and(|t| t.elapsed().as_secs_f32() < 8.2))
-            || app.screen == Screen::Gamepads
-            || app.screen == Screen::Add
-            || app.screen == Screen::Join
-            // Comptes KyberNow : l'attente du code ou de la page du relais (indicateur, « Le code change dans {n} min. »).
-            || app.screen == Screen::Account
-            // Accueil en trois écrans, au salon : l'attente du code de l'écran 2 ; l'écran 3 suit les ordinateurs du réseau.
-            || app.screen == Screen::Welcome
             || app.sessions.iter().any(|s| s.share_busy || s.share_copied.is_some_and(|(t, _)| t.elapsed().as_secs_f32() < 4.2))
             // Le lien du relais en préparation : le cercle d'attente tourne, et la fenêtre se redessine à la fin de l'attente.
             || app.sessions.iter().any(|s| s.share.as_ref().is_some_and(crate::app::ShareView::relay_wait_redraw) || s.lend.as_ref().is_some_and(crate::app::LendHostView::relay_wait_redraw))
             // L'enregistrement en cours, barre ou menu ouverts : le temps et le rond qui bat.
             || app.recording_redraw()
             || pads.mouse_active();
-        let timeout = if animating { 16 } else if streaming { 100 } else { 50 };
+        // Écrans qui suivent quelque chose sans vraie animation (manettes testées, recherche des ordinateurs, attente
+        // d'un code, accueil en trois écrans) : 30 i/s suffisent, plus 60 (LINAPP-35, surtout sensible sur le Pi).
+        let watching = matches!(app.screen, Screen::Gamepads | Screen::Add | Screen::Join | Screen::Account | Screen::Welcome);
+        let timeout = if animating { 16 } else if watching { 33 } else if streaming { 100 } else { 50 };
+        let animating = animating || watching;
         let mut ev = sdl::SDL_Event::default();
         let mut actions: Vec<Action> = Vec::new();
         if unsafe { sdl::SDL_WaitEventTimeout(&mut ev, timeout) } != 0 {
@@ -1131,7 +1127,7 @@ pub fn run(args: &[String]) {
             handle_event(e, &mut app, &mut pads, &mut lives, &mut wins, &mut actions, &mut pairing, &tx);
         }
         for a in actions.drain(..) {
-            if let Some(a) = route_ps(a, &mut ps, &mut app, &mut pads, &lives, &mut wins) {
+            if let Some(a) = route_ps(a, &mut ps, &mut app, &mut pads, &mut wins) {
                 perform(a, &mut app, &mut pads, &mut lives, &mut wins, &tx, &mut pairing, &mut quit);
             }
             dirty = true;
@@ -1174,7 +1170,7 @@ pub fn run(args: &[String]) {
         actions.extend(acts);
         dirty |= changed;
         for a in actions.drain(..) {
-            if let Some(a) = route_ps(a, &mut ps, &mut app, &mut pads, &lives, &mut wins) {
+            if let Some(a) = route_ps(a, &mut ps, &mut app, &mut pads, &mut wins) {
                 perform(a, &mut app, &mut pads, &mut lives, &mut wins, &tx, &mut pairing, &mut quit);
             }
             dirty = true;
@@ -1350,10 +1346,9 @@ pub fn run(args: &[String]) {
                 let Some(f) = latest.take() else { continue };
                 // La latence, l'image réduite de l'accueil et la taille décodée : l'écran principal seulement.
                 let is_primary = w.screen == primary;
-                if is_primary && l.snapshot_at.is_none_or(|t| t.elapsed() > Duration::from_secs(2)) {
-                    // Une image toutes les 2 s, réduite, pour l'accueil (dernière image de la session).
-                    l.snapshot_at = Some(Instant::now());
-                    l.snapshot = video::snapshot(&f, 640);
+                // L'image réduite de l'accueil (dernière image de la session), faite par le fil du décodeur.
+                if is_primary && let Some(img) = latest.take_snapshot() {
+                    l.snapshot = Some(img);
                 }
                 let first = !w.has_frame();
                 if show_frame(w, &f, &mut dirty) {
@@ -1393,6 +1388,7 @@ pub fn run(args: &[String]) {
             .collect();
         let hits_win = hits_window(&app, &lives, &wins);
         let hover = wins.hover;
+        let mut pads_read = false;
         for (wi, (view, show_ui, hint_only)) in views.iter().copied().enumerate() {
             if wins.list[wi].hidden {
                 continue;
@@ -1409,7 +1405,11 @@ pub fn run(args: &[String]) {
             if show_ui {
                 let key = (win.cv.pix.width(), win.cv.pix.height(), win.cv.k.to_bits());
                 if !(hint_only && win.hint_key == Some(key) && win.ui_size == (key.0, key.1)) {
-                    app.pads = pads.infos();
+                    // Les manettes, lues une fois par tour (pas une fois par fenêtre, LINAPP-36).
+                    if !pads_read {
+                        app.pads = pads.infos();
+                        pads_read = true;
+                    }
                     // Le pointeur n'est que dans une fenêtre : les autres n'en montrent pas le survol.
                     let pointer = app.pointer;
                     if hover != Some(win.id) {
@@ -1418,7 +1418,7 @@ pub fn run(args: &[String]) {
                     let hits = ui::draw_view(&app, &mut win.cv, view);
                     app.pointer = pointer;
                     if wi == hits_win {
-                        app.hits = hits.clone();
+                        app.hits.clone_from(&hits);
                     }
                     win.hits = hits;
                     upload_ui(win);
@@ -1485,7 +1485,7 @@ pub fn run(args: &[String]) {
 
 /// Les actions qui visent une partie sur une console PlayStation (ou la recherche d'une console « Par adresse ») :
 /// prises ici ; les autres continuent (`perform`).
-fn route_ps(a: Action, ps: &mut ps::Runtime, app: &mut App, pads: &mut pads::Pads, lives: &Lives, wins: &mut Wins) -> Option<Action> {
+fn route_ps(a: Action, ps: &mut ps::Runtime, app: &mut App, pads: &mut pads::Pads, wins: &mut Wins) -> Option<Action> {
     match a {
         Action::Ps(pa) => ps.perform(pa, app, wins, pads),
         Action::Disconnect(id) | Action::CancelConnect(id) if ps.owns(id) => ps.stop(app, id),
@@ -4261,7 +4261,6 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         shown: None,
         local: Vec::new(),
         snapshot: None,
-        snapshot_at: None,
         multi: !visitor && base.is_some(),
         devices,
         screens_base: if visitor { None } else { base },

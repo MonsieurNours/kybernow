@@ -43,7 +43,7 @@ pub use quality::screen_items as watch_screen_items;
 use crate::app::{App, Layout, Phase, Rect, Screen, SessionId, SessionUi, Target};
 
 /// Ce que dit le bouton principal de l'accueil pour cet ordinateur (« Se connecter », « Regarder »…), pour les essais.
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn home_main_label(app: &App, h: &crate::model::Host) -> &'static str {
     home::main_action(app, h).1
 }
@@ -162,6 +162,7 @@ pub fn draw_view(app: &App, cv: &mut Canvas, view: View) -> Vec<(Target, Rect)> 
 
 /// L'interface se voit-elle pendant la session (connexion, menu, barre,
 /// statistiques, capsule, trait de la barre) ; sinon l'image seule.
+#[cfg(any(test, not(feature = "device")))]
 pub fn session_overlay_visible(app: &App) -> bool {
     overlay_visible(app, View::SINGLE)
 }
@@ -174,6 +175,7 @@ pub fn overlay_visible(app: &App, view: View) -> bool {
 /// Seul le trait de la barre se voit : il ne bouge pas, l'interface n'est
 /// redessinée ni renvoyée à chaque seconde, et seul son bandeau (`HINT_STRIP`
 /// points en haut) se pose sur l'image.
+#[cfg(any(test, not(feature = "device")))]
 pub fn session_hint_only(app: &App) -> bool {
     hint_only(app, View::SINGLE)
 }

@@ -489,8 +489,11 @@ static void *x_thread(void *arg) {
             } else {
                 XIDeviceEvent *de = cookie->data;
                 kn_x_device *dev = NULL;
-                for (int i = 0; i < s_nxdev; i++)
-                    if (s_xdev[i].id == de->sourceid) dev = &s_xdev[i];
+                // XIAllDevices livre chaque événement deux fois : par l'appareil maître (pointeur virtuel) et par
+                // l'esclave (la tablette). Seul celui de l'esclave compte (deviceid == sourceid).
+                if (de->deviceid == de->sourceid)
+                    for (int i = 0; i < s_nxdev; i++)
+                        if (s_xdev[i].id == de->sourceid) dev = &s_xdev[i];
                 uint32_t win = dev ? window_of_x(p, de->event) : 0;
                 if (dev && win) {
                     if (cur_dev >= 0 && cur_dev != de->sourceid && cur.in_range) {

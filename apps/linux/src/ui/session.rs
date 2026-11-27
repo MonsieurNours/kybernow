@@ -655,7 +655,22 @@ fn dropdown_place(cv_w: f32, cv_h: f32, x: f32, y: f32, w: f32, head: f32, rows:
 
 /// `w` : la largeur de la fenêtre, en points (chaque écran a la sienne).
 fn bar_rect(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32) -> Rect {
-    let total = if s.console.is_some() { super::ps::bar_width(cv, s) } else { BarLayout::measure(cv, app, s, w).total };
+    // Appelé à chaque mouvement de la souris (bord haut, survol de la barre) : la largeur mesurée est gardée
+    // 100 ms par session et largeur de fenêtre (une vingtaine de mesures de texte de moins par mouvement,
+    // LINAPP-35) ; le dessin, lui, mesure toujours.
+    thread_local! {
+        static BAR_TOTAL: std::cell::Cell<Option<(crate::app::SessionId, u32, std::time::Instant, f32)>> = const { std::cell::Cell::new(None) };
+    }
+    let key = (s.id, w.to_bits());
+    let cached = BAR_TOTAL.with(|c| c.get()).filter(|(id, wb, at, _)| (*id, *wb) == key && at.elapsed() < std::time::Duration::from_millis(100)).map(|c| c.3);
+    let total = match cached {
+        Some(t) => t,
+        None => {
+            let t = if s.console.is_some() { super::ps::bar_width(cv, s) } else { BarLayout::measure(cv, app, s, w).total };
+            BAR_TOTAL.with(|c| c.set(Some((key.0, key.1, std::time::Instant::now(), t))));
+            t
+        }
+    };
     bar_frame(w, total)
 }
 
@@ -889,7 +904,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     // La pastille « 2 invités » : le partage est ouvert ; elle rouvre le panneau.
     if let Some((label, pw)) = pill {
         let pr = Rect::new(x + 2.0, cy - 12.0, pw, 24.0);
-        let (focused, hover) = f.state(Target::BarShare, pr);
+        let (focused, hover) = f.state(Target::BarSharePill, pr);
         cv.rrect(pr.x, pr.y, pr.w, pr.h, 12.0, FLAT.alpha(if hover || s.bar_menu == Some(BarMenu::Share) { 0.34 } else { 0.22 }));
         if focused {
             widgets::ring(cv, pr, 12.0);
@@ -900,7 +915,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     // « 1 demande » : un invité attend l'accord de l'hôte ; plus appuyée que les invités, elle rouvre aussi le panneau.
     if let Some((label, pw)) = requests {
         let pr = Rect::new(x + 2.0, cy - 12.0, pw, 24.0);
-        let (focused, hover) = f.state(Target::BarShare, pr);
+        let (focused, hover) = f.state(Target::BarShareRequests, pr);
         cv.rrect(pr.x, pr.y, pr.w, pr.h, 12.0, FLAT.alpha(if hover || s.bar_menu == Some(BarMenu::Share) { 0.7 } else { 0.55 }));
         if focused {
             widgets::ring(cv, pr, 12.0);

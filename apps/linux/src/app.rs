@@ -2947,6 +2947,10 @@ pub enum Target {
     /// KyberNow Share, hôte : « Partager » dans la barre ; le panneau (copier le lien, les deux droits d'un
     /// invité : manettes, clavier et souris, retirer ; nouveau code, arrêter, fermer).
     BarShare,
+    /// Les pastilles « n invités » et « n demandes » à côté de « Partager » : chacune son arrêt au clavier (un
+    /// seul anneau à la fois), la même action que « Partager ».
+    BarSharePill,
+    BarShareRequests,
     ShareCopy,
     SharePads(usize),
     ShareKbm(usize),
@@ -3450,6 +3454,7 @@ impl App {
     }
 
     /// Les captures d'écran et les essais : cette session seule, et active (ou aucune).
+    #[cfg(any(test, not(feature = "device")))]
     pub fn set_session(&mut self, ui: Option<SessionUi>) {
         self.sessions.clear();
         self.history.clear();
@@ -3605,7 +3610,9 @@ impl App {
             self.pending_link = None;
             return vec![Action::AccountCallback(url)];
         }
-        let ready = self.sessions.is_empty() && !self.setup.active && self.confirm.is_none() && matches!(self.screen, Screen::Home | Screen::Add | Screen::Join | Screen::Settings | Screen::Gamepads | Screen::Account | Screen::Welcome);
+        // Le test Auto, « Hors de chez vous ? » et l'avis de mise à jour des Stations prennent la navigation : le lien
+        // attend qu'ils soient fermés (sinon il s'ouvre sous eux et la saisie part dans le vide, LINAPP-22).
+        let ready = self.sessions.is_empty() && !self.setup.active && self.confirm.is_none() && self.autotest.is_none() && self.welcome.away.is_none() && self.station_notice.is_none() && matches!(self.screen, Screen::Home | Screen::Add | Screen::Join | Screen::Settings | Screen::Gamepads | Screen::Account | Screen::Welcome);
         if !ready {
             return Vec::new();
         }
@@ -3729,6 +3736,7 @@ impl App {
     }
 
     /// Ouvre une rubrique des réglages de l'ordinateur choisi.
+    #[cfg(any(test, not(feature = "device")))]
     pub fn open_host_section(&mut self, section: Section, from: Screen) {
         self.open_settings(false, from);
         if let Some(i) = HOST_SECTIONS.iter().position(|s| *s == section) {
@@ -3851,8 +3859,18 @@ impl App {
         if s == Setting::OsAutoUpdate {
             return true;
         }
-        let secs: &[Section] = if self.screen == Screen::Device { &OS_SECTIONS } else { self.sections() };
-        secs.iter().flat_map(|sec| self.rows(*sec)).any(|r| r.setting == s && matches!(r.kind, RowKind::Choice { .. } | RowKind::Toggle(_)))
+        self.sections_open_first().into_iter().flat_map(|sec| self.rows(sec)).any(|r| r.setting == s && matches!(r.kind, RowKind::Choice { .. } | RowKind::Toggle(_)))
+    }
+
+    /// Les rubriques où chercher un réglage, celle qui est ouverte d'abord : un ‹ › n'y reconstruit d'habitude que
+    /// ses lignes (la recherche s'arrête au premier trouvé), plus celles de toutes les rubriques (LINAPP-36).
+    fn sections_open_first(&self) -> Vec<Section> {
+        let (secs, open): (&[Section], Section) = if self.screen == Screen::Device {
+            (&OS_SECTIONS, OS_SECTIONS[self.device_section.min(OS_SECTIONS.len() - 1)])
+        } else {
+            (self.sections(), self.current_section())
+        };
+        std::iter::once(open).chain(secs.iter().copied().filter(|s| *s != open)).collect()
     }
 
     /// Choisit un profil pour un ordinateur : ce qui s'en écartait (format,
@@ -4929,7 +4947,7 @@ impl App {
                 }
                 Vec::new()
             }
-            Target::BarShare => self.share_button(false),
+            Target::BarShare | Target::BarSharePill | Target::BarShareRequests => self.share_button(false),
             // « Copier le lien » copie l'adresse du client web (`web`) ; le QR code porte le lien des apps.
             // Le lien du relais se prépare : rien à copier encore (le bouton est inactif).
             Target::ShareCopy => match self.session().and_then(|s| s.share.as_ref().filter(|v| !v.relay_preparing()).map(|v| (s.id, v.web.clone()))) {
@@ -7130,8 +7148,7 @@ impl App {
 
     /// Change un réglage (gauche / droite, ou OK pour la valeur suivante).
     fn adjust(&mut self, s: Setting, dir: i32) -> Vec<Action> {
-        let secs: &[Section] = if self.screen == Screen::Device { &OS_SECTIONS } else { self.sections() };
-        let row = secs.iter().flat_map(|sec| self.rows(*sec)).find(|r| r.setting == s && !matches!(r.kind, RowKind::Info(_)));
+        let row = self.sections_open_first().into_iter().flat_map(|sec| self.rows(sec)).find(|r| r.setting == s && !matches!(r.kind, RowKind::Info(_)));
         if let Some(row) = row
             && let RowKind::Choice { options, current, disabled, .. } = &row.kind
         {
@@ -10179,12 +10196,19 @@ mod tests {
         let mut s = SessionUi::borrower(id, "lend:m", BorrowSessionUi::new("Matthieu", "PC-SALON", None, BorrowSource::Code { attempt: 1 }));
         s.phase = Phase::Streaming;
         app.open_session(s);
-        assert!(app.open_link(LinkUi::Invite(inv)).is_empty());
+        assert!(app.open_link(LinkUi::Invite(inv.clone())).is_empty());
         assert!(app.pending_link.is_some() && app.screen == Screen::Session);
         app.close_session(id);
         app.go(Screen::Home);
         assert_eq!(app.poll_link(), vec![Action::TextInput]);
         assert!(app.pending_link.is_none() && app.friend.invite.is_some());
+        // « Hors de chez vous ? » ouvert : le lien attend sa fermeture (LINAPP-22).
+        app.go(Screen::Home);
+        app.welcome.away = Some(crate::welcome::AwayHint { host: "a".into(), name: "A".into(), then: Target::Connect });
+        assert!(app.open_link(LinkUi::Invite(inv.clone())).is_empty());
+        assert!(app.poll_link().is_empty() && app.pending_link.is_some());
+        app.welcome.away = None;
+        assert_eq!(app.poll_link(), vec![Action::TextInput]);
         // Illisible.
         app.go(Screen::Home);
         app.open_link(LinkUi::BadInvite);

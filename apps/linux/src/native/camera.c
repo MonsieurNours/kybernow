@@ -70,6 +70,9 @@ typedef struct kn_cam {
     int force_key;
     uint8_t *out;           // l'image rendue (paramètres devant une image clé)
     size_t out_cap;
+    int stride;             // octets par ligne de la webcam (bytesperline : un pilote peut aligner ses lignes)
+    uint8_t *jpeg;          // copie d'une image MJPEG avec la marge que FFmpeg exige
+    size_t jpeg_cap;
 } kn_cam;
 
 static int64_t now_us(void)
@@ -210,6 +213,7 @@ void kn_cam_close(kn_cam *c)
     av_frame_free(&c->decoded);
     av_packet_free(&c->pkt);
     free(c->out);
+    free(c->jpeg);
     free(c);
 }
 
@@ -219,6 +223,10 @@ kn_cam *kn_cam_open(const char *path, int w, int h, int bitrate, int *out_w, int
 {
     *error = 0;
     kn_cam *c = calloc(1, sizeof *c);
+    if (!c) {
+        *error = 2;
+        return NULL;
+    }
     c->fd = open(path, O_RDWR | O_NONBLOCK);
     if (c->fd < 0) {
         *error = errno == EBUSY ? 1 : 2;
@@ -243,6 +251,11 @@ kn_cam *kn_cam_open(const char *path, int w, int h, int bitrate, int *out_w, int
     }
     c->fourcc = fmt.fmt.pix.pixelformat;
     c->width = fmt.fmt.pix.width & ~1;
+    // Le pas des lignes que donne le pilote (caméra CSI du Pi, ISP : lignes alignées), sinon la largeur.
+    {
+        int min = (int)fmt.fmt.pix.width * (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV ? 2 : 1);
+        c->stride = (int)fmt.fmt.pix.bytesperline >= min ? (int)fmt.fmt.pix.bytesperline : min;
+    }
     c->height = fmt.fmt.pix.height & ~1;
     struct v4l2_streamparm parm;
     memset(&parm, 0, sizeof parm);
@@ -303,11 +316,20 @@ kn_cam *kn_cam_open(const char *path, int w, int h, int bitrate, int *out_w, int
         c->decoded = av_frame_alloc();
     }
     c->sw = av_frame_alloc();
+    c->pkt = av_packet_alloc();
+    if (!c->sw || !c->pkt) {
+        *error = 3;
+        kn_cam_close(c);
+        return NULL;
+    }
     c->sw->format = AV_PIX_FMT_NV12;
     c->sw->width = c->width;
     c->sw->height = c->height;
-    av_frame_get_buffer(c->sw, 32);
-    c->pkt = av_packet_alloc();
+    if (av_frame_get_buffer(c->sw, 32) < 0) {
+        *error = 3;
+        kn_cam_close(c);
+        return NULL;
+    }
     c->start_us = now_us();
     c->force_key = 1;
     *out_w = c->width;
@@ -364,7 +386,9 @@ void kn_cam_force_key(kn_cam *c)
 
 void kn_cam_set_bitrate(kn_cam *c, int bitrate)
 {
-    // Pris par l'encodeur à la prochaine image quand il sait changer en route.
+    // h264_vaapi et h264_v4l2m2m ne relisent pas bit_rate après l'ouverture : le débit fixé à l'ouverture
+    // reste (docs/webcam.md, « le débit ne change pas en route »). Gardé pour un encodeur qui le relirait ;
+    // la caméra suivante (ou la même rallumée) prend le nouveau débit.
     if (bitrate > 0 && c->enc) {
         c->enc->bit_rate = bitrate;
         c->enc->rc_max_rate = bitrate;
@@ -394,15 +418,33 @@ int kn_cam_next(kn_cam *c, const uint8_t **data, int *size, int64_t *pts_us, int
         av_frame_make_writable(c->sw);
         const uint8_t *src = c->bufs[b.index].data;
         if (c->fourcc == V4L2_PIX_FMT_YUYV) {
-            yuyv_to_nv12(src, c->width * 2, c->sw);
+            yuyv_to_nv12(src, c->stride, c->sw);
         } else if (c->fourcc == V4L2_PIX_FMT_NV12) {
             for (int y = 0; y < c->height; y++)
-                memcpy(c->sw->data[0] + (size_t)y * c->sw->linesize[0], src + (size_t)y * c->width, c->width);
+                memcpy(c->sw->data[0] + (size_t)y * c->sw->linesize[0], src + (size_t)y * c->stride, c->width);
             for (int y = 0; y < c->height / 2; y++)
-                memcpy(c->sw->data[1] + (size_t)y * c->sw->linesize[1], src + (size_t)c->width * c->height + (size_t)y * c->width, c->width);
+                memcpy(c->sw->data[1] + (size_t)y * c->sw->linesize[1], src + (size_t)c->stride * c->height + (size_t)y * c->stride, c->width);
         } else {
+            // Le décodeur MJPEG lit au-delà de la fin du paquet : une copie, complétée de
+            // AV_INPUT_BUFFER_PADDING_SIZE octets nuls (le tampon de la webcam n'en a pas).
+            size_t need = (size_t)b.bytesused + AV_INPUT_BUFFER_PADDING_SIZE;
+            if (need > c->jpeg_cap) {
+                uint8_t *n = realloc(c->jpeg, need);
+                if (!n) {
+                    xioctl(c->fd, VIDIOC_QBUF, &b);
+                    return 0;
+                }
+                c->jpeg = n;
+                c->jpeg_cap = need;
+            }
+            memcpy(c->jpeg, src, b.bytesused);
+            memset(c->jpeg + b.bytesused, 0, AV_INPUT_BUFFER_PADDING_SIZE);
             AVPacket *jp = av_packet_alloc();
-            jp->data = (uint8_t *)src;
+            if (!jp) {
+                xioctl(c->fd, VIDIOC_QBUF, &b);
+                return 0;
+            }
+            jp->data = c->jpeg;
             jp->size = b.bytesused;
             ok = avcodec_send_packet(c->mjpeg, jp) >= 0 && avcodec_receive_frame(c->mjpeg, c->decoded) >= 0
                  && c->decoded->width >= c->width && c->decoded->height >= c->height;
@@ -444,6 +486,11 @@ int kn_cam_next(kn_cam *c, const uint8_t **data, int *size, int64_t *pts_us, int
         free(c->out);
         c->out_cap = need * 2;
         c->out = malloc(c->out_cap);
+        if (!c->out) {
+            c->out_cap = 0;
+            av_packet_unref(c->pkt);
+            return 0;
+        }
     }
     if (extra)
         memcpy(c->out, c->enc->extradata, extra);

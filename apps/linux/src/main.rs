@@ -14,9 +14,12 @@ mod hdr;
 mod i18n;
 mod micro;
 mod model;
+// Les captures (`--preview`) et leurs essais : pas dans l'app livrée (LINAPP-39).
+#[cfg(any(test, not(feature = "device")))]
 mod preview;
 mod ps;
 mod pyrowave;
+mod splash;
 mod station_offer;
 mod synced;
 mod ui;
@@ -30,17 +33,26 @@ mod welcome_rules;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if let Some(i) = args.iter().position(|a| a == "--preview") {
-        let dir = args.get(i + 1).cloned().unwrap_or_else(|| "preview".into());
-        let lang = args.get(i + 2).cloned().unwrap_or_else(|| "fr".into());
-        preview::run(std::path::Path::new(&dir), &lang);
-        return;
+        #[cfg(not(feature = "device"))]
+        {
+            let dir = args.get(i + 1).cloned().unwrap_or_else(|| "preview".into());
+            let lang = args.get(i + 2).cloned().unwrap_or_else(|| "fr".into());
+            preview::run(std::path::Path::new(&dir), &lang);
+            return;
+        }
+        #[cfg(feature = "device")]
+        {
+            let _ = i;
+            eprintln!("--preview : les captures se font avec l'interface seule (cargo run --no-default-features -- --preview)");
+            std::process::exit(2);
+        }
     }
     if let Some(i) = args.iter().position(|a| a == "--splash") {
         // L'image fixe du démarrage de KyberNow Link OS (Plymouth) : la première image de l'allumage.
         let out = args.get(i + 1).cloned().unwrap_or_else(|| "splash.png".into());
         let w: u32 = args.get(i + 2).and_then(|v| v.parse().ok()).unwrap_or(1920);
         let h: u32 = args.get(i + 3).and_then(|v| v.parse().ok()).unwrap_or(1080);
-        preview::splash(std::path::Path::new(&out), w, h);
+        splash::splash(std::path::Path::new(&out), w, h);
         return;
     }
     if args.iter().any(|a| a == "--version" || a == "-V") {

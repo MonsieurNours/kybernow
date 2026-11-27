@@ -57,6 +57,7 @@ unsafe extern "C" {
     fn kn_decoder_is_hw(d: *mut c_void) -> c_int;
     fn kn_decoder_frames(d: *mut c_void) -> i64;
     fn kn_decoder_send(d: *mut c_void, data: *const u8, len: c_int, pts: i64) -> c_int;
+    fn kn_decoder_send_parts(d: *mut c_void, head: *const u8, head_len: c_int, data: *const u8, len: c_int, pts: i64) -> c_int;
     fn kn_decoder_receive(d: *mut c_void, out: *mut KnFrame) -> c_int;
     fn kn_decoder_close(d: *mut c_void);
     fn kn_pw_open(width: c_int, height: c_int, c444: c_int, hdr: c_int, err: *mut c_char, errlen: c_int) -> *mut c_void;
@@ -109,6 +110,7 @@ impl PwConfig {
         }
     }
 
+    #[cfg(test)]
     pub fn bytes(&self) -> [u8; 16] {
         let mut b = [0u8; 16];
         b[0..4].copy_from_slice(b"KNPW");
@@ -196,6 +198,9 @@ pub struct Latest {
     spare: Mutex<Vec<Frame>>,
     /// Images remplacées avant d'être montrées (écartées).
     pub dropped: AtomicU32,
+    /// L'image réduite de l'accueil (dernière image de la session), refaite toutes les 2 s sur le fil du
+    /// décodeur, pas sur celui de l'interface (LINAPP-33) ; quand elle a été faite.
+    snapshot: Mutex<(Option<Instant>, Option<tiny_skia::Pixmap>)>,
 }
 
 impl Latest {
@@ -210,7 +215,17 @@ impl Latest {
         }
     }
 
+    /// L'image réduite la plus récente, si elle a changé depuis la dernière prise.
+    pub fn take_snapshot(&self) -> Option<tiny_skia::Pixmap> {
+        self.snapshot.lock().unwrap().1.take()
+    }
+
     fn put(&self, f: Frame) {
+        let due = self.snapshot.lock().unwrap().0.is_none_or(|t| t.elapsed() > Duration::from_secs(2));
+        if due {
+            let img = snapshot(&f, 640);
+            *self.snapshot.lock().unwrap() = (Some(Instant::now()), img);
+        }
         if let Some(old) = self.slot.lock().unwrap().replace(f) {
             self.dropped.fetch_add(1, Ordering::Relaxed);
             self.give_back(old);
@@ -309,6 +324,8 @@ struct Decoder {
     latest: Arc<Latest>,
     /// Les paquets en attente (décomptés ici, à chaque image prise).
     backlog: Arc<Backlog>,
+    /// Le nom du décodeur relu après la première image (statistiques).
+    named: bool,
     /// 0 H.264, 1 HEVC, 2 AV1.
     codec: c_int,
     config: Vec<u8>,
@@ -342,6 +359,7 @@ impl Decoder {
             shared,
             latest,
             backlog,
+            named: false,
             codec: 1,
             config: Vec::new(),
             in_config: false,
@@ -535,8 +553,9 @@ impl Decoder {
             return Err(e);
         }
         self.dec = d;
-        // Ouvert : un échec suivant se signale à nouveau.
+        // Ouvert : un échec suivant se signale à nouveau ; le nom sera relu après la première image.
         self.failed = false;
+        self.named = false;
         let name = unsafe { CStr::from_ptr(kn_decoder_name(d)) }.to_string_lossy().into_owned();
         log::info!("image : décodeur {name}");
         self.shared.set_codec(&name);
@@ -594,14 +613,11 @@ impl Decoder {
             return;
         }
         let first = self.waiting_key;
-        let buf;
-        let bytes: &[u8] = if key && !self.config.is_empty() {
-            buf = [self.config.as_slice(), data].concat();
-            &buf
-        } else {
-            data
-        };
-        let mut r = unsafe { kn_decoder_send(self.dec, bytes.as_ptr(), bytes.len() as c_int, pts as i64) };
+        // Les paramètres devant une image clé : copiés avec elle dans le paquet de FFmpeg, sans concaténation.
+        // (Quelques dizaines d'octets : copiés à part, l'image ne l'est plus.)
+        let head: Vec<u8> = if key { self.config.clone() } else { Vec::new() };
+        let send = |dec| unsafe { kn_decoder_send_parts(dec, head.as_ptr(), head.len() as c_int, data.as_ptr(), data.len() as c_int, pts as i64) };
+        let mut r = send(self.dec);
         if r == SEND_AGAIN {
             // Tampons d'entrée pleins : les images prêtes sortent d'abord (la plus récente est montrée), puis
             // le même paquet repart.
@@ -609,7 +625,7 @@ impl Decoder {
             if self.dec.is_null() {
                 return;
             }
-            r = unsafe { kn_decoder_send(self.dec, bytes.as_ptr(), bytes.len() as c_int, pts as i64) };
+            r = send(self.dec);
         }
         if r == SEND_AGAIN {
             // Toujours refusé : le paquet est perdu. Il ne compte pas comme décodé (`ResumeGate`), et la suite
@@ -650,6 +666,12 @@ impl Decoder {
         if got < 0 {
             self.decode_error(got);
             return;
+        }
+        if first && got > 0 && !self.named {
+            // Le nom vu après la première image (le repli de FFmpeg sur le processeur ne se sait qu'alors).
+            self.named = true;
+            let name = unsafe { CStr::from_ptr(kn_decoder_name(self.dec)) }.to_string_lossy().into_owned();
+            self.shared.set_codec(&name);
         }
         if first {
             self.waiting_key = false;
@@ -1058,26 +1080,34 @@ fn eight_bit(f: &Frame) -> Frame {
         max_cll: 0.0,
         max_fall: 0.0,
     };
-    for y in 0..h {
-        for x in 0..w {
-            out.planes[0].push((code10(f, 0, y * f.pitch[0] + x * 2) >> 2) as u8);
+    // Par ligne, sans contrôle de bornes par pixel (LINAPP-33) ; une ligne absente (image tronquée) reste noire.
+    let p010 = f.format == Format::P010;
+    let row = |src: &[u8], pitch: usize, y: usize, n: usize, dst: &mut Vec<u8>| {
+        let start = y * pitch;
+        match src.get(start..start + n * 2) {
+            Some(r) => dst.extend(r.chunks_exact(2).map(|b| {
+                let w = u16::from_le_bytes([b[0], b[1]]);
+                ((if p010 { w >> 6 } else { w & 0x3ff }) >> 2) as u8
+            })),
+            None => dst.resize(dst.len() + n, 0),
         }
+    };
+    for y in 0..h {
+        row(&f.planes[0], f.pitch[0], y, w, &mut out.planes[0]);
     }
-    if f.format == Format::P010 {
+    if p010 {
         out.pitch[1] = cw * 2;
+        out.planes[1].reserve(cw * 2 * ch);
         for y in 0..ch {
-            for x in 0..cw * 2 {
-                out.planes[1].push((code10(f, 1, y * f.pitch[1] + x * 2) >> 2) as u8);
-            }
+            row(&f.planes[1], f.pitch[1], y, cw * 2, &mut out.planes[1]);
         }
     } else {
         out.pitch[1] = cw;
         out.pitch[2] = cw;
         for p in 1..3 {
+            out.planes[p].reserve(cw * ch);
             for y in 0..ch {
-                for x in 0..cw {
-                    out.planes[p].push((code10(f, p, y * f.pitch[p] + x * 2) >> 2) as u8);
-                }
+                row(&f.planes[p], f.pitch[p], y, cw, &mut out.planes[p]);
             }
         }
     }

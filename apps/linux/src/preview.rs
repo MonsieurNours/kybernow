@@ -355,6 +355,19 @@ fn computers_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, p
     }
     app.pointer = Some((700.0, 20.0));
     shot_view(app, cv, Some(video), dir, &name("17f-fenetre-suivante-barre"), ui::View { session: Some(2), ..ui::View::SINGLE });
+    // La plus petite fenêtre d'un autre ordinateur (480 × 270) : la barre et le menu Profil restent dedans (LINAPP-19).
+    let (ow, oh) = (cv.pix.width(), cv.pix.height());
+    cv.resize(480, 270, 1.0);
+    app.pointer = Some((300.0, 20.0));
+    shot_view(app, cv, Some(video), dir, &name("17g-fenetre-etroite-barre"), ui::View { session: Some(2), ..ui::View::SINGLE });
+    if let Some(s) = app.session_mut() {
+        s.bar_menu = Some(BarMenu::Profile);
+    }
+    shot_view(app, cv, Some(video), dir, &name("17h-fenetre-etroite-profil"), ui::View { session: Some(2), ..ui::View::SINGLE });
+    if let Some(s) = app.session_mut() {
+        s.bar_menu = None;
+    }
+    cv.resize(ow, oh, 1.0);
     app.pointer = None;
     app.set_session(None);
     app.screen = Screen::Home;
@@ -1617,30 +1630,6 @@ fn watch_shots(en: bool, layout: Layout, cv: &mut Canvas, video: &Pixmap, dir: &
     app.set_session(None);
 }
 
-/// L'image fixe du démarrage de KyberNow Link OS (Plymouth) : la première
-/// image de l'allumage (l'encre, le symbole éteint), aux pixels de l'app.
-pub fn splash(out: &Path, w: u32, h: u32) {
-    let mut app = App::new(Store::default(), Layout::Tv);
-    app.screen = Screen::Launch;
-    app.launched = Instant::now();
-    let mut cv = Canvas::new();
-    cv.resize(w.max(320), h.max(200), 1.0);
-    ui::draw(&app, &mut cv);
-    match ui::canvas::encode_png(&cv.pix) {
-        Some(bytes) => {
-            if let Err(e) = std::fs::write(out, bytes) {
-                eprintln!("{} : {e}", out.display());
-                std::process::exit(1);
-            }
-            println!("{}", out.display());
-        }
-        None => {
-            eprintln!("PNG non produit");
-            std::process::exit(1);
-        }
-    }
-}
-
 /// Les écrans de KyberNow Link OS (maquettes « KyberNow Link OS ») : le
 /// lancement avec son chargement, le premier démarrage, l'accueil salon, les
 /// réglages de l'appareil.
@@ -2576,7 +2565,33 @@ mod tests {
             computers_shots(&mut app, &mut cv, &demo_image(3), &dir, "bureau");
         }
         assert!(dir.join("bureau-17-barre-ordinateurs.png").exists() && dir.join("bureau-17d-fenetre-suivante.png").exists());
+        assert!(dir.join("bureau-17h-fenetre-etroite-profil.png").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// LINAPP-19 : dans la fenêtre la plus petite d'un autre ordinateur (480 × 270), « Se déconnecter » et le menu
+    /// Profil ouvert restent dans la fenêtre, en français et en anglais.
+    #[test]
+    fn narrow_extra_window_keeps_bar_and_menu_inside() {
+        for en in [false, true] {
+            crate::i18n::force_english(en);
+            let mut app = demo(en, Layout::Desktop);
+            let mut s = session(&app);
+            s.menu = false;
+            s.bar = true;
+            s.bar_menu = Some(BarMenu::Profile);
+            app.set_session(Some(s));
+            app.screen = Screen::Session;
+            let mut cv = Canvas::new();
+            cv.resize(480, 270, 1.0);
+            let hits = ui::draw(&app, &mut cv);
+            let quit = hits.iter().find(|(t, _)| *t == Target::BarQuit).expect("« Se déconnecter »").1;
+            assert!(quit.x >= 0.0 && quit.x + quit.w <= 480.0, "{en} : {quit:?}");
+            for (t, r) in hits.iter().filter(|(t, _)| matches!(t, Target::BarPick(_))) {
+                assert!(r.x >= 0.0 && r.x + r.w <= 480.0 && r.y + r.h <= 270.0, "{en} {t:?} : {r:?}");
+            }
+        }
+        crate::i18n::force_english(false);
     }
 
     /// Les captures de plusieurs écrans se produisent, dans les deux langues.
@@ -2858,10 +2873,14 @@ mod tests {
         for t in [Target::BarProfile, Target::BarKeys, Target::BarMouse, Target::BarShare, Target::BarQuit] {
             assert!(hits.iter().any(|(h, _)| *h == t), "{t:?} manque à la barre de l'hôte");
         }
-        // Le partage ouvert : la pastille « 4 invités » rouvre le panneau (deux endroits pour la même cible).
+        // Le partage ouvert : la pastille « 4 invités » rouvre le panneau ; elle a sa cible (un arrêt de plus au clavier).
         app.session_mut().unwrap().share = Some(shared_view());
         let hits = ui::draw(&app, &mut cv);
-        assert_eq!(hits.iter().filter(|(h, _)| *h == Target::BarShare).count(), 2);
+        assert_eq!(hits.iter().filter(|(h, _)| *h == Target::BarShare).count(), 1);
+        assert_eq!(hits.iter().filter(|(h, _)| *h == Target::BarSharePill).count(), 1);
+        // Au clavier, un seul anneau : chaque élément a sa cible.
+        let targets: Vec<_> = hits.iter().map(|(t, _)| *t).filter(|t| matches!(t, Target::BarShare | Target::BarSharePill | Target::BarShareRequests)).collect();
+        assert!(targets.windows(2).all(|w| w[0] != w[1]), "{targets:?}");
         // Un invité, avec chacun des quatre rôles : touches et souris seulement avec le clavier et la souris.
         for role in [ShareRole::Spectator, ShareRole::Player, ShareRole::Kbm, ShareRole::PlayerKbm] {
             let keys = role.kbm();
@@ -3066,7 +3085,7 @@ mod tests {
         app.session_mut().unwrap().bar = true;
         app.session_mut().unwrap().bar_menu = None;
         let hits = ui::draw(&app, &mut cv);
-        let shares: Vec<_> = hits.iter().filter(|(t, _)| *t == Target::BarShare).map(|(_, r)| *r).collect();
+        let shares: Vec<_> = hits.iter().filter(|(t, _)| matches!(t, Target::BarShare | Target::BarSharePill)).map(|(_, r)| *r).collect();
         assert_eq!(shares.len(), 2, "le bouton et la pastille");
         for (t, r) in &hits {
             assert!(r.x >= 0.0 && r.x + r.w <= 960.0, "{t:?} sort de la fenêtre étroite : {r:?}");

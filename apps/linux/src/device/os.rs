@@ -236,6 +236,15 @@ impl BtListener {
                 // Les lignes utiles : [NEW] Device XX:… Nom, [CHG] Device XX:… Connected: yes / Paired: yes / Name: / Icon:.
                 let clean: String = line.chars().filter(|c| !c.is_control()).collect();
                 let clean = strip_ansi(&clean);
+                // Une confirmation de l'agent (réassociation d'une manette connue, JustWorksRepairing = confirm,
+                // ou service à autoriser) : acceptée tant que l'écran Manette est ouvert (cette écoute) ; hors de
+                // lui, aucun agent ne répond et BlueZ refuse.
+                if agent_question(&clean) {
+                    let mut stdin = stdin2.lock().unwrap();
+                    let _ = writeln!(stdin, "yes");
+                    let _ = stdin.flush();
+                    continue;
+                }
                 let Some(rest) = clean.find("Device ").map(|i| &clean[i + 7..]) else { continue };
                 let mut it = rest.splitn(2, ' ');
                 let mac = it.next().unwrap_or("").to_string();
@@ -342,6 +351,11 @@ fn gamepad_info(info: &str) -> bool {
     })
 }
 
+/// Une question de l'agent de `bluetoothctl` (« Confirm passkey 123456 (yes/no): », « Authorize service … (yes/no): »).
+fn agent_question(line: &str) -> bool {
+    line.contains("[agent]") && line.trim_end().ends_with("(yes/no):")
+}
+
 fn strip_ansi(s: &str) -> String {
     let mut out = String::new();
     let mut chars = s.chars().peekable();
@@ -423,6 +437,13 @@ pub fn readiness(tx: Sender<Event>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn questions_de_l_agent() {
+        assert!(agent_question("[agent] Confirm passkey 123456 (yes/no):"));
+        assert!(agent_question("[agent] Authorize service 00001124-0000-1000-8000-00805f9b34fb (yes/no): "));
+        assert!(!agent_question("[CHG] Device AC:8E:BD:12:34:56 Paired: yes"));
+    }
 
     #[test]
     fn etat_ab() {

@@ -128,6 +128,7 @@ pub fn unavailable(name: &str, offered: bool, decodes: bool, who: Decoder) -> Op
 }
 
 /// « Définition ramenée à 1920 × 1080 pour tenir dans 300 Mbit/s. » (bandeau et statistiques).
+#[cfg(any(test, not(feature = "device")))]
 pub fn lowered(width: u32, height: u32, mbps: u32) -> String {
     if crate::i18n::english() {
         format!("Resolution lowered to {width} × {height} to fit in {mbps} Mbit/s.")
