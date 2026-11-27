@@ -98,8 +98,14 @@
   const isWaiting = (action: string, replacing: PsInput | null) =>
     !!waitingFor && waitingFor.action === action && (waitingFor.replacing && replacing ? psSameInput(waitingFor.replacing, replacing) : waitingFor.replacing === replacing)
 
+  /** Le retrait différé des écouteurs du clic droit (`stopCatch`) : annulé par une nouvelle saisie. */
+  let unswallow: ReturnType<typeof setTimeout> | undefined
+
   function listenFor(action: string, replacing: PsInput | null) {
     stopCatch()
+    // Sans cela, le retrait programmé par `stopCatch` enlèverait dans 300 ms
+    // les écouteurs remis ci-dessous, et le menu de WebView2 s'ouvrirait.
+    clearTimeout(unswallow)
     waitingFor = { action, replacing }
     // Après ce clic : le suivant est la touche cherchée.
     setTimeout(() => {
@@ -116,7 +122,8 @@
     window.removeEventListener('keydown', onKey, true)
     window.removeEventListener('mousedown', onMouse, true)
     // Le clic droit ou du milieu qui finit la saisie ne doit pas ouvrir de menu.
-    setTimeout(() => {
+    clearTimeout(unswallow)
+    unswallow = setTimeout(() => {
       window.removeEventListener('contextmenu', swallow, true)
       window.removeEventListener('auxclick', swallow, true)
     }, 300)

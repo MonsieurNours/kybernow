@@ -291,6 +291,7 @@ kybernow <address>[:port] [--user <account>] [--profile jeu|bureau|max] [options
 | `apps/windows/ui/src/JoinSheet.svelte` | “Join with a code”: code, name, the core's refusals |
 | `apps/windows/src/plan.rs` | A session's settings (profile, adjustments, display, battery) |
 | `apps/windows/src/cli.rs` | Command line |
+| `apps/windows/ui/src/lib/nomenu.ts` | No WebView2 context menu (“Refresh” reloaded the bar and lost its state), except in text fields; imported by the four windows. At home-screen start, the reads (`snapshot`, accounts, consoles, welcome, app info) go out together and one failing no longer blocks the `kybernow://` link received at launch nor the Stations notice; an add sheet closed during `ps_handoff_receive` or `pair_start` stops the wait on the app side |
 | `apps/windows/ui/` | Svelte interface: home, add, computer settings (`Settings.svelte`, sections `Statistics.svelte` and `Station.svelte`, ruler `lib/FrameRuler.svelte`), path of a frame in session (`lib/FramePath.svelte`), app settings, passage, bar; `src/lib/mock.ts` imitates the app in a browser (`npm run dev`, development only) |
 | `apps/windows/src/window.rs` | The sessions' Win32 windows (one per display, plus an invisible control window per session, all in a registry): keyboard and mouse capture into the active session's input module, single keyboard hook, pointer drawing, shortcuts, full screen |
 | `apps/windows/src/displays.rs` | This PC's displays (`EnumDisplayMonitors`) and what the core gets of them (`Screens`), display under a point (tested on the Mac) |

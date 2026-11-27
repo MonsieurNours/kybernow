@@ -98,6 +98,7 @@
   }
 
   onDestroy(() => {
+    destroyed = true
     stopPolling()
     invoke('pair_cancel').catch(() => {})
   })
@@ -242,13 +243,21 @@
   let receiveExpired = $state(false)
   let received = $state<string | null>(null)
   let receiving = false
+  /** La feuille est fermée : une réponse qui arrive ensuite est annulée côté app. */
+  let destroyed = false
 
   async function startReceive() {
     error = null
     receiveExpired = false
     received = null
     try {
-      receiveCode = await invoke<string | null>('ps_handoff_receive', { on: true })
+      const code = await invoke<string | null>('ps_handoff_receive', { on: true })
+      if (destroyed) {
+        // Fermée pendant la demande : l'attente (fil, port) s'arrête aussitôt.
+        if (code !== null) invoke('ps_handoff_receive', { on: false }).catch(() => {})
+        return
+      }
+      receiveCode = code
       receiving = receiveCode !== null
     } catch (e) {
       error = String(e)
@@ -284,6 +293,11 @@
     pairState = 'pending'
     code = null
     const c = await run(() => invoke<string>('pair_start', { candidate }))
+    if (destroyed) {
+      // Fermée pendant la demande : le code envoyé ne sert plus.
+      if (c) invoke('pair_cancel').catch(() => {})
+      return
+    }
     if (!c || mine !== round) return
     code = c
     const poll = async () => {
