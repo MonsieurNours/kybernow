@@ -74,15 +74,7 @@ final class Agent {
         switch req["cmd"] as? String {
         case "create": return try create(req)
         case "remove":
-            let slot = try int(req, "slot")
-            // Le dernier écran virtuel : les écrans du Mac reviennent d'abord.
-            // Sans aucun écran, même un instant, macOS allume l'écran intégré
-            // et ne rallume plus les autres (fin de session du 03/11/2026 :
-            // Admin retire les écrans virtuels avant `restore`).
-            if switchedOff != nil, virtuals.keys.allSatisfy({ $0 == slot }) {
-                _ = restore()
-            }
-            virtuals[slot] = nil
+            remove(try int(req, "slot"))
             writePanels()
             return [:]
         case "isolate": return try isolate(req)
@@ -101,13 +93,29 @@ final class Agent {
 
     var empty: Bool { virtuals.isEmpty }
 
+    /// Retire l'écran du rang `slot`. Le dernier écran virtuel : les écrans
+    /// du Mac reviennent d'abord. Sans aucun écran, même un instant, macOS
+    /// allume l'écran intégré et ne rallume plus les autres (fin de session
+    /// du 03/11/2026 : Admin retire les écrans virtuels avant `restore`).
+    /// Sert aussi à `create` sur un rang occupé (STMAC-11).
+    private func remove(_ slot: Int) {
+        guard let old = virtuals[slot] else { return }
+        if switchedOff != nil, virtuals.keys.allSatisfy({ $0 == slot }) {
+            _ = restore()
+        }
+        retina[old.displayID] = nil
+        modes[old.displayID] = nil
+        scaled.remove(old.displayID)
+        virtuals[slot] = nil
+    }
+
     // MARK: création
 
     private func create(_ req: [String: Any]) throws -> [String: Any] {
         let slot = try int(req, "slot")
         let (w, h, hz) = (try int(req, "width"), try int(req, "height"), try int(req, "refresh"))
         let hidpi = req["hidpi"] as? Bool ?? false
-        virtuals[slot] = nil
+        remove(slot)
         let desc = CGVirtualDisplayDescriptor()
         desc.queue = displayQueue
         desc.name = slot == 0 ? "KyberNow" : "KyberNow \(slot + 1)"
@@ -166,8 +174,15 @@ final class Agent {
         // prendre son mode) : leurs échelles en dépendent.
         waitUntil(seconds: 4) { ids.allSatisfy { CGDisplayBounds($0).width > 0 } }
         // Mode Retina d'abord : les positions sont en points.
+        // Tous les champs lus avant d'ouvrir la configuration ; et, quoi qu'il
+        // arrive, une configuration ouverte est annulée (STMAC-10).
+        for screen in list {
+            for key in ["id", "width", "height", "x", "y"] { _ = try int(screen, key) }
+        }
         var config: CGDisplayConfigRef?
         CGBeginDisplayConfiguration(&config)
+        var completed = false
+        defer { if !completed { CGCancelDisplayConfiguration(config) } }
         var scales: [Double] = []
         for screen in list {
             let id = CGDirectDisplayID(try int(screen, "id"))
@@ -210,6 +225,7 @@ final class Agent {
             }
         }
         let err = CGCompleteDisplayConfiguration(config, keepOthers ? .forAppOnly : .forSession)
+        completed = true
         guard err == .success else { throw Failure(message: "configuration des écrans refusée (\(err.rawValue))") }
         if !keepOthers {
             waitUntil(seconds: 4) { CGDisplayIsMain(ids[0]) != 0 }
@@ -550,7 +566,9 @@ struct OffState {
             "origins": Dictionary(uniqueKeysWithValues: origins.map { ("\($0.key)", [Int($0.value.x), Int($0.value.y)]) }),
         ]
         try? FileManager.default.createDirectory(at: Self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? JSONSerialization.data(withJSONObject: body).write(to: Self.file)
+        // Écrit puis renommé : une coupure ne laisse pas un fichier illisible,
+        // qui empêcherait de rallumer les écrans (STMAC-12).
+        try? JSONSerialization.data(withJSONObject: body).write(to: Self.file, options: .atomic)
     }
 
     static func load() -> OffState? {
@@ -603,18 +621,50 @@ func int(_ dict: [String: Any], _ key: String) throws -> Int {
 }
 
 func reply(_ body: [String: Any]) {
-    let data = (try? JSONSerialization.data(withJSONObject: body)) ?? Data("{\"ok\":false}".utf8)
-    FileHandle.standardOutput.write(data)
-    FileHandle.standardOutput.write(Data("\n".utf8))
+    var data = (try? JSONSerialization.data(withJSONObject: body)) ?? Data("{\"ok\":false}".utf8)
+    data.append(0x0A)
+    // stdio plutôt que FileHandle : un tube fermé (Admin parti) rend une
+    // erreur (SIGPIPE ignoré) au lieu d'une exception qui tue l'agent avant
+    // qu'il rallume les écrans du Mac (STMAC-02).
+    _ = data.withUnsafeBytes { fwrite($0.baseAddress, 1, $0.count, stdout) }
+    fflush(stdout)
 }
 
-// Commandes ponctuelles du son (audio.swift) et des apps (apps.swift) : une
-// réponse, puis la fin.
-if CommandLine.arguments.count > 1, ["audio", "apps", "launch", "close", "locked"].contains(CommandLine.arguments[1]) {
+// Un tube fermé ne tue pas l'agent (STMAC-02) : l'écriture échoue, c'est tout.
+signal(SIGPIPE, SIG_IGN)
+
+/// Commande ponctuelle : `nil` si `command` n'en est pas une. Toute commande
+/// donnée en argument passe par ici : une commande inconnue est une erreur,
+/// jamais le mode agent, qui rallumait les écrans et sortait en « réussite »
+/// (`lock` manquait à la liste : STMAC-01).
+func oneShot(_ command: String, _ rest: [String]) throws -> [String: Any]? {
+    switch command {
+    case "audio": return try audioCommand(rest)
+    case "self-test": return try selfTest()
+    default: return try appsCommand(command, rest)
+    }
+}
+
+/// `kybernow-display self-test` (build.sh) : les commandes ponctuelles
+/// qu'Admin lance sont bien reconnues, et le choix de la sortie à rendre.
+func selfTest() throws -> [String: Any] {
+    // Commandes lancées par Admin (`lend_sys.rs`, `audio/mod.rs`, `launch.rs`) :
+    // chacune doit être reconnue (une erreur de ses arguments est une réponse).
+    for command in ["apps", "launch", "close", "locked", "lock"] where !isAppsCommand(command) {
+        throw Failure(message: "commande « \(command) » inconnue de l'agent")
+    }
+    try audioSelfTest()
+    return ["checked": true]
+}
+
+if CommandLine.arguments.count > 1, CommandLine.arguments[1] != "recover" {
     let command = CommandLine.arguments[1]
     let rest = Array(CommandLine.arguments.dropFirst(2))
     do {
-        var body = try command == "audio" ? audioCommand(rest) : (appsCommand(command, rest) ?? [:])
+        guard var body = try oneShot(command, rest) else {
+            reply(["ok": false, "error": "commande inconnue : \(command)"])
+            exit(2)
+        }
         body["ok"] = true
         reply(body)
         exit(0)
@@ -636,12 +686,35 @@ if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "recover" {
     exit(0)
 }
 
+// Mode agent (lancé par Admin, sans argument). Son propre groupe de
+// processus : launchd, qui arrête Admin avec tout son groupe (Redémarrer,
+// mise à jour, désinstallation), ne tue pas l'agent ; il voit alors la fin
+// de son entrée et rallume les écrans du Mac (STMAC-02).
+setpgid(0, 0)
+
 let agent = Agent()
+/// Une requête ou l'arrêt, jamais les deux à la fois.
+let agentLock = NSLock()
+var signalSources: [DispatchSourceSignal] = []
+for sig in [SIGTERM, SIGINT, SIGHUP] {
+    signal(sig, SIG_IGN)
+    let source = DispatchSource.makeSignalSource(signal: sig, queue: .global())
+    source.setEventHandler {
+        agentLock.lock()
+        agent.shutdown()
+        exit(0)
+    }
+    source.resume()
+    signalSources.append(source)
+}
+
 while let line = readLine() {
     guard let data = line.data(using: .utf8), let req = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
         reply(["ok": false, "error": "requête illisible"])
         continue
     }
+    agentLock.lock()
+    defer { agentLock.unlock() }
     do {
         var body = try agent.handle(req)
         let exitAfter = body.removeValue(forKey: "exit") as? Bool ?? false
@@ -655,5 +728,6 @@ while let line = readLine() {
     }
 }
 // Admin s'est arrêté : les écrans du Mac reviennent, macOS retire les écrans virtuels.
+agentLock.lock()
 agent.shutdown()
 exit(0)

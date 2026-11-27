@@ -89,6 +89,67 @@ private func setChannels(_ stream: AudioStreamID, _ count: UInt32) throws {
     }
 }
 
+/// Nos appareils (sortie KyberNow, sortie cachée et « Micro KyberNow »).
+func isKyberNowDevice(_ uid: String) -> Bool { uid.hasPrefix("fr.leslignesclaires.kybernow.") }
+
+/// La sortie d'avant à retenir : vide si c'est déjà l'une des nôtres.
+func keptPrevious(_ uid: String?) -> String {
+    guard let uid, !isKyberNowDevice(uid) else { return "" }
+    return uid
+}
+
+/// Sortie à rendre par défaut, ou `nil` pour laisser celle du moment.
+/// `outputs` : les sorties présentes (uid, intégrée ou non), dans l'ordre de Core Audio.
+func outputToRestore(previous: String?, current: String?, outputs: [(uid: String, builtIn: Bool)]) -> String? {
+    if let previous, !previous.isEmpty, !isKyberNowDevice(previous), outputs.contains(where: { $0.uid == previous }) {
+        return previous
+    }
+    // La sortie d'avant n'est plus là : celle que macOS a choisie, sauf si c'est la nôtre.
+    guard let current, isKyberNowDevice(current) else { return nil }
+    let real = outputs.filter { !isKyberNowDevice($0.uid) }
+    return (real.first(where: \.builtIn) ?? real.first)?.uid
+}
+
+/// Les sorties son présentes : uid et « intégrée ».
+private func outputDevices() -> [(uid: String, builtIn: Bool)] {
+    var a = address(kAudioHardwarePropertyDevices)
+    var size: UInt32 = 0
+    guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &a, 0, nil, &size) == noErr else { return [] }
+    var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+    guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &a, 0, nil, &size, &ids) == noErr else { return [] }
+    return ids.compactMap { id in
+        guard outputStream(id) != nil, let uid = stringProperty(id, kAudioDevicePropertyDeviceUID) else { return nil }
+        var t = address(kAudioDevicePropertyTransportType)
+        var transport: UInt32 = 0
+        var tsize = UInt32(MemoryLayout<UInt32>.size)
+        let builtIn = AudioObjectGetPropertyData(id, &t, 0, nil, &tsize, &transport) == noErr && transport == kAudioDeviceTransportTypeBuiltIn
+        return (uid, builtIn)
+    }
+}
+
+/// Essai du choix de la sortie rendue (`self-test`).
+func audioSelfTest() throws {
+    let ours = kyberNowUID
+    let outputs: [(uid: String, builtIn: Bool)] = [(ours, false), ("hdmi", false), ("builtin", true)]
+    let cases: [(String?, String?, String?, String)] = [
+        ("casque", "casque", nil, "sortie d'avant absente, macOS en a choisi une autre"),
+        ("hdmi", ours, "hdmi", "sortie d'avant présente"),
+        (ours, ours, "builtin", "sortie d'avant = KyberNow"),
+        ("", ours, "builtin", "sortie d'avant inconnue, encore sur KyberNow"),
+        ("casque", ours, "builtin", "casque débranché, encore sur KyberNow"),
+        (nil, "hdmi", nil, "rien à rendre"),
+    ]
+    for (previous, current, want, what) in cases where outputToRestore(previous: previous, current: current, outputs: outputs) != want {
+        throw Failure(message: "son rendu : \(what)")
+    }
+    if outputToRestore(previous: nil, current: ours, outputs: [(ours, false), ("hdmi", false)]) != "hdmi" {
+        throw Failure(message: "son rendu : sans sortie intégrée")
+    }
+    if keptPrevious(ours) != "" || keptPrevious("fr.leslignesclaires.kybernow.audio.hidden") != "" || keptPrevious("casque") != "casque" {
+        throw Failure(message: "sortie d'avant retenue")
+    }
+}
+
 private func option(_ args: [String], _ name: String) -> String? {
     guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
     return args[i + 1]
@@ -115,19 +176,24 @@ func audioCommand(_ args: [String]) throws -> [String: Any] {
             throw Failure(message: "sortie KyberNow absente (pilote non installé)")
         }
         let wanted = UInt32(option(args, "--channels") ?? "2") ?? 2
-        let previous = defaultDevice(kAudioHardwarePropertyDefaultOutputDevice).flatMap { stringProperty($0, kAudioDevicePropertyDeviceUID) } ?? ""
-        let previousSystem = defaultDevice(kAudioHardwarePropertyDefaultSystemOutputDevice).flatMap { stringProperty($0, kAudioDevicePropertyDeviceUID) } ?? ""
+        // Déjà sur KyberNow (second `route`, session d'avant mal finie) : ce
+        // n'est pas « la sortie d'avant » (STMAC-09), `restore` en choisira une.
+        let previous = keptPrevious(defaultDevice(kAudioHardwarePropertyDefaultOutputDevice).flatMap { stringProperty($0, kAudioDevicePropertyDeviceUID) })
+        let previousSystem = keptPrevious(defaultDevice(kAudioHardwarePropertyDefaultSystemOutputDevice).flatMap { stringProperty($0, kAudioDevicePropertyDeviceUID) })
         try setChannels(stream, [2, 6, 8].contains(wanted) ? wanted : 2)
         try setDefault(kAudioHardwarePropertyDefaultOutputDevice, device)
         try setDefault(kAudioHardwarePropertyDefaultSystemOutputDevice, device)
         return ["previous": previous, "previous_system": previousSystem, "speakers": kyberNowUID, "channels": channels(of: stream)]
     case "restore":
-        // Sortie d'origine disparue (casque débranché) : macOS en a choisi une autre, on la laisse.
-        if let uid = option(args, "--previous"), let d = deviceFor(uid: uid) {
-            try setDefault(kAudioHardwarePropertyDefaultOutputDevice, d)
-        }
-        if let uid = option(args, "--previous-system"), let d = deviceFor(uid: uid) {
-            try setDefault(kAudioHardwarePropertyDefaultSystemOutputDevice, d)
+        // Sortie d'origine disparue (casque débranché) : macOS en a choisi une
+        // autre, on la laisse ; si c'est encore KyberNow, la sortie intégrée
+        // (ou une autre vraie sortie) la remplace : jamais un Mac muet (STMAC-09).
+        let outputs = outputDevices()
+        for (selector, flag) in [(kAudioHardwarePropertyDefaultOutputDevice, "--previous"), (kAudioHardwarePropertyDefaultSystemOutputDevice, "--previous-system")] {
+            let current = defaultDevice(selector).flatMap { stringProperty($0, kAudioDevicePropertyDeviceUID) }
+            if let uid = outputToRestore(previous: option(args, flag), current: current, outputs: outputs), let d = deviceFor(uid: uid) {
+                try setDefault(selector, d)
+            }
         }
         if let s = deviceFor(uid: kyberNowUID), let stream = outputStream(s) {
             try? setChannels(stream, 2)
