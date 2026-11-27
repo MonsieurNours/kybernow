@@ -25,6 +25,8 @@ class PointerView(context: Context, private val factor: Float) : View(context) {
     /** Pixels de la vue par pixel de l'ordinateur (l'image telle qu'elle est affichée). */
     private var videoScale = 0f
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+    /** Le cadre du pointeur, réutilisé à chaque dessin. */
+    private val dst = RectF()
     private val arrow = Path().apply {
         moveTo(0f, 0f); lineTo(0f, 17f); lineTo(4.5f, 13f); lineTo(7.5f, 19.5f); lineTo(10f, 18.5f); lineTo(7f, 12f); lineTo(12.5f, 12f); close()
     }
@@ -62,7 +64,8 @@ class PointerView(context: Context, private val factor: Float) : View(context) {
         if (s != null) {
             val w = s.width * k
             val h = s.height * k
-            canvas.drawBitmap(s, null, RectF(x - hotX * k, y - hotY * k, x - hotX * k + w, y - hotY * k + h), paint)
+            dst.set(x - hotX * k, y - hotY * k, x - hotX * k + w, y - hotY * k + h)
+            canvas.drawBitmap(s, null, dst, paint)
         } else {
             canvas.save()
             canvas.translate(x, y)

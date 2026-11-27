@@ -355,23 +355,11 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_wake(mut en
 
 // MARK: - Session
 
-/// Les sessions ouvertes, par numéro (AND-10). Kotlin garde un numéro, plus
-/// un pointeur : un appel qui arrive après `sessionFree` (fil de la caméra ou
-/// du micro, rappel du réseau, capture de la dernière image) ne trouve plus
-/// rien, au lieu de lire une mémoire libérée. Un appel en cours garde la
-/// session vivante jusqu'à son retour.
-fn sessions() -> &'static std::sync::Mutex<std::collections::HashMap<jlong, std::sync::Arc<Handle>>> {
-    static S: OnceLock<std::sync::Mutex<std::collections::HashMap<jlong, std::sync::Arc<Handle>>>> = OnceLock::new();
-    S.get_or_init(Default::default)
-}
-
-static NEXT_SESSION: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+/// Les sessions ouvertes, par numéro (`registry`, AND-10).
+static SESSIONS: crate::registry::Registry<Handle> = crate::registry::Registry::new();
 
 pub(crate) fn handle(h: jlong) -> Option<std::sync::Arc<Handle>> {
-    if h == 0 {
-        return None;
-    }
-    sessions().lock().unwrap_or_else(|e| e.into_inner()).get(&h).cloned()
+    SESSIONS.get(h)
 }
 
 /// Démarre une session (JSON des paramètres : voir `session::start`) ; 0 si
@@ -391,11 +379,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionStar
     let w = window(&mut env, &surface);
     let Ok(listener) = Listener::new(&mut env, &listener) else { return 0 };
     match session::start(&params, listener, w, refresh.max(0) as u32) {
-        Ok(h) => {
-            let id = NEXT_SESSION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            sessions().lock().unwrap_or_else(|e| e.into_inner()).insert(id, std::sync::Arc::new(h));
-            id
-        }
+        Ok(h) => SESSIONS.insert(h),
         Err(e) => {
             log::error!("session : paramètres illisibles ({e})");
             0
@@ -422,7 +406,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionGive
 /// fil principal de préférence).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionFree(_: Env, _: JClass, h: jlong) {
-    let Some(h) = sessions().lock().unwrap_or_else(|e| e.into_inner()).remove(&h) else { return };
+    let Some(h) = SESSIONS.remove(h) else { return };
     h.session.stop();
     h.session.wait();
     h.shared.set_window(None);

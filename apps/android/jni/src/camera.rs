@@ -9,7 +9,7 @@ use jni::sys::{jboolean, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
 use kybernow_core::camera::{self, CameraCodec, CameraEvent, CameraResolution, CameraSettings, DeviceNotice, FrameOutcome};
 use kybernow_core::i18n;
 
-use crate::exports::{handle, string, Env};
+use crate::exports::{give, handle, string, Env};
 
 /// Ce qu'est devenue une image (`cameraFrame`) : partie, lâchée (la suivante
 /// doit être une image clé), caméra éteinte ou plus de flux.
@@ -17,9 +17,6 @@ const SENT: jint = 0;
 const WANT_KEYFRAME: jint = 1;
 const OFF: jint = 2;
 
-fn new_string(env: &mut Env, s: &str) -> jstring {
-    env.new_string(s).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
-}
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_cameraOffered(_: Env, _: JClass, h: jlong) -> jboolean {
@@ -127,7 +124,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_cameraPoll(
             serde_json::json!({ "event": event, "offered": offered, "notice": camera::event_notice(e, &name, lang) })
         })
         .collect();
-    new_string(&mut env, &serde_json::Value::Array(list).to_string())
+    give(&mut env, &serde_json::Value::Array(list).to_string())
 }
 
 /// La ligne « Caméra » des statistiques ; nulle caméra éteinte.
@@ -135,7 +132,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_cameraPoll(
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_cameraStatsLine(mut env: Env, _: JClass, h: jlong) -> jstring {
     let stats = handle(h).map(|h| h.session.camera().stats()).unwrap_or_default();
     match camera::stats_line(&stats, i18n::current()) {
-        Some(line) => new_string(&mut env, &line),
+        Some(line) => give(&mut env, &line),
         None => std::ptr::null_mut(),
     }
 }
@@ -151,5 +148,5 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_cameraDevic
         _ => DeviceNotice::NoEncoder,
     };
     let name = string(&mut env, &camera_name);
-    new_string(&mut env, &camera::device_notice(which, &name, i18n::current()))
+    give(&mut env, &camera::device_notice(which, &name, i18n::current()))
 }

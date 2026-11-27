@@ -112,12 +112,31 @@ class PadRouter(private val handle: () -> Long, private val gamepads: Gamepads) 
     private var startSlot = -1
     val mouse = PadMouse(handle)
 
-    private fun slot(deviceId: Int): Int = gamepads.byDevice(deviceId)?.slot ?: run { gamepads.refresh(); gamepads.byDevice(deviceId)?.slot ?: -1 }
+    /**
+     * La place de la manette. Un appareil sans place (souris qui se dit joystick, télécommande) n'est relu qu'une fois
+     * par changement d'appareils, pas à chaque mouvement (AND-25 : une énumération des périphériques sur le fil
+     * principal à chaque événement).
+     */
+    private val refused = HashSet<Int>()
+    private var refusedAt = -1
+
+    private fun slot(deviceId: Int): Int {
+        gamepads.byDevice(deviceId)?.let { return it.slot }
+        if (refusedAt != gamepads.generation) {
+            refused.clear()
+            refusedAt = gamepads.generation
+        }
+        if (deviceId in refused) return -1
+        gamepads.refresh()
+        gamepads.byDevice(deviceId)?.let { return it.slot }
+        refusedAt = gamepads.generation
+        refused += deviceId
+        return -1
+    }
 
     /** Une touche de manette ; `true` si elle est prise (rien d'autre à faire). */
     fun key(e: KeyEvent): Boolean {
         if (e.repeatCount > 0) return true
-        gamepads.noteUsed(e.deviceId)
         val h = handle()
         val down = e.action == KeyEvent.ACTION_DOWN
         if (captured) return false
@@ -155,10 +174,10 @@ class PadRouter(private val handle: () -> Long, private val gamepads: Gamepads) 
 
     /** Sticks, gâchettes et croix en chapeau. */
     fun motion(e: MotionEvent): Boolean {
-        gamepads.noteUsed(e.deviceId)
         if (captured) return false
         val s = slot(e.deviceId)
-        if (s < 0) return true
+        // Un appareil qui n'est pas une manette : son mouvement n'est plus avalé (AND-25).
+        if (s < 0) return gamepads.byDevice(e.deviceId) != null
         val now = PadAxes.read(e)
         val before = last[e.deviceId] ?: PadAxes.REST
         last[e.deviceId] = now
@@ -270,6 +289,9 @@ class PadMouse(private val handle: () -> Long) {
                     wheelAcc -= wheelAcc.toInt()
                 }
             }
+            // Sticks au repos, molette vide : la boucle s'arrête (125 réveils par seconde du fil principal sinon,
+            // AND-27) ; `axes` la relance au prochain mouvement.
+            if (x == 0.0 && y == 0.0 && wy == 0.0) running = false
             if (running) main.postDelayed(this, 8)
         }
     }
@@ -561,6 +583,17 @@ class StylusInput(
         deliver(x, y, s.copy(inRange = false, contact = false, pressure = 0f))
     }
 
+    /** L'inclinaison que l'appareil sait lire, par appareil, lue une fois (pas à chaque échantillon, AND-26). */
+    private var tiltDevice = Int.MIN_VALUE
+    private var tiltKnown = false
+    private fun hasTilt(e: MotionEvent): Boolean {
+        if (e.deviceId != tiltDevice) {
+            tiltDevice = e.deviceId
+            tiltKnown = e.device?.getMotionRange(MotionEvent.AXIS_TILT) != null
+        }
+        return tiltKnown
+    }
+
     /** Un état du stylet (`h` : position de l'historique, −1 : l'actuelle) vers l'ordinateur, en stylet ou en souris. */
     private fun send(e: MotionEvent, i: Int, h: Int, contact: Boolean, inRange: Boolean) {
         val x = if (h < 0) e.getX(i) else e.getHistoricalX(i, h)
@@ -572,7 +605,7 @@ class StylusInput(
             inRange = inRange,
             contact = contact,
             pressure = pressure,
-            hasTilt = e.device?.getMotionRange(MotionEvent.AXIS_TILT) != null,
+            hasTilt = hasTilt(e),
             tilt = axis(MotionEvent.AXIS_TILT),
             orientation = axis(MotionEvent.AXIS_ORIENTATION),
             eraser = e.getToolType(i) == MotionEvent.TOOL_TYPE_ERASER,
@@ -814,4 +847,29 @@ class RelativeMotion {
         x = 0f
         y = 0f
     }
+}
+
+/**
+ * Les dernières formes du pointeur, par contenu (taille, point chaud, pixels) : en bureau Windows, la forme change à
+ * chaque survol d'un lien ou d'un texte, et chaque changement refaisait une image (AND-26).
+ */
+class ShapeCache<T>(private val size: Int) {
+    private class Key(val w: Int, val h: Int, val hx: Int, val hy: Int, val pixels: IntArray, val hash: Int) {
+        override fun hashCode() = hash
+        override fun equals(other: Any?) = other is Key && other.hash == hash && other.w == w && other.h == h &&
+            other.hx == hx && other.hy == hy && other.pixels.contentEquals(pixels)
+    }
+
+    private val map = object : LinkedHashMap<Key, T>(size, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, T>?) = this.size > this@ShapeCache.size
+    }
+
+    @Synchronized
+    fun get(w: Int, h: Int, hotX: Int, hotY: Int, pixels: IntArray, make: () -> T): T {
+        val key = Key(w, h, hotX, hotY, pixels, (((w * 31 + h) * 31 + hotX) * 31 + hotY) * 31 + pixels.contentHashCode())
+        return map.getOrPut(key, make)
+    }
+
+    @Synchronized
+    fun count() = map.size
 }

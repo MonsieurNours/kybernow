@@ -19,7 +19,7 @@
 //! plusieurs attendent, seule la plus récente est décodée.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -49,8 +49,14 @@ pub enum Msg {
 }
 
 /// Un flux d'image (un par démarrage de l'image).
+/// Images en file au plus : au-delà (décodeur qui cale), les suivantes sont
+/// jetées et comptées comme un trou, au lieu de remplir la mémoire (AND-26).
+const MAX_QUEUED: usize = 120;
+
 pub struct VideoSink {
     tx: Mutex<Sender<Msg>>,
+    queued: Arc<AtomicUsize>,
+    overflowing: AtomicBool,
     thread: Mutex<Option<JoinHandle<()>>>,
     host: Arc<dyn MediaHost>,
 }
@@ -60,11 +66,13 @@ impl VideoSink {
         let (tx, rx) = channel();
         host.set_video_tx(tx.clone());
         let h = host.clone();
+        let queued = Arc::new(AtomicUsize::new(0));
+        let q = queued.clone();
         let thread = std::thread::Builder::new()
             .name("kybernow-image".into())
-            .spawn(move || DecodeLoop::new(h).run(rx))
+            .spawn(move || DecodeLoop::new(h, q).run(rx))
             .ok();
-        Arc::new(Self { tx: Mutex::new(tx), thread: Mutex::new(thread), host })
+        Arc::new(Self { tx: Mutex::new(tx), queued, overflowing: AtomicBool::new(false), thread: Mutex::new(thread), host })
     }
 
     fn send(&self, m: Msg) {
@@ -79,6 +87,16 @@ impl PacketHandler for VideoSink {
             Packet::Media { is_config: true, data, .. } => self.send(Msg::Config(data.to_vec())),
             Packet::Media { is_key, pts, data, resume, .. } => {
                 self.host.received_bytes(data.len());
+                if self.queued.load(Ordering::Acquire) >= MAX_QUEUED {
+                    if !self.overflowing.swap(true, Ordering::AcqRel) {
+                        log::warn!("image : {MAX_QUEUED} images en attente, les suivantes sont jetées");
+                    }
+                    self.host.hole();
+                    self.send(Msg::Hole);
+                    return;
+                }
+                self.overflowing.store(false, Ordering::Release);
+                self.queued.fetch_add(1, Ordering::AcqRel);
                 self.send(Msg::Frame { key: is_key, pts, data: data.to_vec(), received: latency::now_micros(), resume });
             }
             Packet::Hole { .. } => {
@@ -147,10 +165,12 @@ struct DecodeLoop {
     pw_announced: Option<PwConfig>,
     /// Le dernier changement de surface pris en compte (`SurfaceGate`).
     surface_gen: u64,
+    /// Images en file (`VideoSink::queued`).
+    queued: Arc<AtomicUsize>,
 }
 
 impl DecodeLoop {
-    fn new(host: Arc<dyn MediaHost>) -> Self {
+    fn new(host: Arc<dyn MediaHost>, queued: Arc<AtomicUsize>) -> Self {
         Self {
             host,
             fourcc: 0,
@@ -167,6 +187,7 @@ impl DecodeLoop {
             pw_failed: false,
             pw_announced: None,
             surface_gen: 0,
+            queued,
         }
     }
 
@@ -181,7 +202,7 @@ impl DecodeLoop {
             let m = match pending.pop_front() {
                 Some(m) => m,
                 None => match rx.recv() {
-                    Ok(m) => m,
+                    Ok(m) => self.took(m),
                     Err(_) => break,
                 },
             };
@@ -199,7 +220,7 @@ impl DecodeLoop {
             let m = match m {
                 Msg::Frame { .. } if self.pyrowave() => {
                     let mut latest = m;
-                    while let Ok(next) = rx.try_recv() {
+                    while let Ok(next) = rx.try_recv().map(|n| self.took(n)) {
                         if matches!(next, Msg::Frame { .. }) {
                             latest = next;
                         } else {
@@ -249,6 +270,14 @@ impl DecodeLoop {
         self.decoder = None;
         self.pw = None;
         self.host.surface_gate().released(self.host.surface_gate().generation());
+    }
+
+    /// Un message sorti de la file : une image de moins en attente.
+    fn took(&self, m: Msg) -> Msg {
+        if matches!(m, Msg::Frame { .. }) {
+            self.queued.fetch_sub(1, Ordering::AcqRel);
+        }
+        m
     }
 
     /// Surface refaite ou retirée : décodeur (ou swapchain) lâché ; une image

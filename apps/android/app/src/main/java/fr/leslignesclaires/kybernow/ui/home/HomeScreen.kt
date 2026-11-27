@@ -51,7 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.ColorFilter
@@ -169,7 +169,11 @@ class HomeActions(
     val showPairedBanner: (Host) -> Unit = {},
 )
 
-/** Tout ce que l'accueil montre. */
+/**
+ * Tout ce que l'accueil montre. Immuable (copies des états de l'app, jamais modifiées) : Compose compare par contenu et
+ * ne refait pas l'accueil quand un sondage rend les mêmes valeurs (AND-29).
+ */
+@androidx.compose.runtime.Immutable
 data class HomeState(
     val hosts: List<Host>,
     val selectedId: String?,
@@ -356,18 +360,25 @@ fun HomeContent(state: HomeState, actions: HomeActions) {
 /** L'image de l'ordinateur en plein cadre : zoom très lent, désaturée hors ligne. */
 @Composable
 private fun Backdrop(image: ImageBitmap?, offline: Boolean, wide: Boolean) {
+    // Le zoom lent est lu au dessin (`graphicsLayer`), pas à la composition : l'accueil n'est plus recomposé à chaque
+    // image, et le filtre gris n'est plus refait à chaque fois (AND-29).
     val zoom = if (LocalMotion.current) {
         val t = rememberInfiniteTransition(label = "fond")
-        t.animateFloat(1.0f, 1.06f, infiniteRepeatable(tween(40000, easing = LinearEasing), RepeatMode.Reverse), label = "zoom").value
-    } else 1f
+        t.animateFloat(1.0f, 1.06f, infiniteRepeatable(tween(40000, easing = LinearEasing), RepeatMode.Reverse), label = "zoom")
+    } else null
+    val grey = remember(offline) { if (offline) ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }) else null }
     Box(Modifier.fillMaxSize()) {
         if (image != null) {
             Image(
                 image,
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize().scale(zoom),
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    val z = zoom?.value ?: 1f
+                    scaleX = z
+                    scaleY = z
+                },
                 contentScale = ContentScale.Crop,
-                colorFilter = if (offline) ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }) else null,
+                colorFilter = grey,
                 alpha = 0.55f,
             )
         }

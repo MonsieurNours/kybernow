@@ -45,6 +45,7 @@ use kybernow_core::playstation::settings::PlaySettings;
 
 use crate::audio::AudioSink;
 use crate::exports::{console, envelope, give, jbool, string, window, Env};
+use crate::registry::Registry;
 use crate::jvm::Listener;
 use crate::media::MediaHost;
 use crate::video::{Msg, VideoSink};
@@ -212,7 +213,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_remoteOpe
     let host_id = string(&mut env, &host_id);
     let Some(c) = console(h) else { return give(&mut env, "{\"code\":1,\"error\":\"\"}") };
     let s = match Remote::open(c, &host_id) {
-        Ok(remote) => json!({ "code": 0, "handle": Box::into_raw(Box::new(remote)) as jlong }).to_string(),
+        Ok(remote) => json!({ "code": 0, "handle": REMOTES.insert(remote) }).to_string(),
         Err(RemoteError::NotSeen) => json!({ "code": NOT_SEEN, "error": RemoteError::NotSeen.to_string() }).to_string(),
         Err(RemoteError::NotRelayed) => json!({ "code": 1, "error": RemoteError::NotRelayed.to_string() }).to_string(),
         Err(RemoteError::Console(e)) => envelope::<()>(Err(e)),
@@ -220,8 +221,13 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_remoteOpe
     give(&mut env, &s)
 }
 
-fn remote<'a>(h: jlong) -> Option<&'a Remote> {
-    (h != 0).then(|| unsafe { &*(h as *const Remote) })
+/// Consoles jointes, parties et attentes d'un envoi : par numéro (`registry`).
+static REMOTES: Registry<Remote> = Registry::new();
+static PLAYS: Registry<Handle> = Registry::new();
+static RECEIVERS: Registry<handoff::Receiver> = Registry::new();
+
+fn remote(h: jlong) -> Option<Arc<Remote>> {
+    REMOTES.get(h)
 }
 
 /// L'adresse de la console par le relais, à passer aux autres fonctions.
@@ -254,9 +260,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_remoteRou
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_remoteFree(_: Env, _: JClass, h: jlong) {
-    if h != 0 {
-        drop(unsafe { Box::from_raw(h as *mut Remote) });
-    }
+    drop(REMOTES.remove(h));
 }
 
 // MARK: - Réglages
@@ -394,8 +398,8 @@ pub struct Handle {
     play: Arc<Mutex<Option<Play>>>,
 }
 
-fn handle<'a>(h: jlong) -> Option<&'a Handle> {
-    (h != 0).then(|| unsafe { &*(h as *const Handle) })
+fn handle(h: jlong) -> Option<Arc<Handle>> {
+    PLAYS.get(h)
 }
 
 fn with_play(h: jlong, f: impl FnOnce(&Play)) {
@@ -506,7 +510,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_start(
     })));
     let play = Arc::new(Mutex::new(Some(play)));
     let _ = host.play.set(Arc::downgrade(&play));
-    Box::into_raw(Box::new(Handle { host, play })) as jlong
+    PLAYS.insert(Handle { host, play })
 }
 
 /// La surface a changé (recréée, retirée en arrière-plan).
@@ -524,10 +528,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_setSurfac
 /// la libère. Hors du fil principal.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_stop(_: Env, _: JClass, h: jlong) {
-    if h == 0 {
-        return;
-    }
-    let h = unsafe { Box::from_raw(h as *mut Handle) };
+    let Some(h) = PLAYS.remove(h) else { return };
     // Le verrou n'est pas tenu pendant l'attente : le fil du décodeur peut encore le prendre.
     let play = h.play.lock().unwrap().take();
     if let Some(mut p) = play {
@@ -693,7 +694,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_padTouchC
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffReceive(mut env: Env, _: JClass, name: JString, platform: JString) -> jlong {
     let (name, platform) = (string(&mut env, &name), string(&mut env, &platform));
     match handoff::Receiver::start(&name, &platform) {
-        Ok(r) => Box::into_raw(Box::new(r)) as jlong,
+        Ok(r) => RECEIVERS.insert(r),
         Err(e) => {
             log::warn!("PlayStation : attente d'un envoi impossible ({e})");
             0
@@ -701,8 +702,8 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffRe
     }
 }
 
-fn receiver<'a>(h: jlong) -> Option<&'a handoff::Receiver> {
-    (h != 0).then(|| unsafe { &*(h as *const handoff::Receiver) })
+fn receiver(h: jlong) -> Option<Arc<handoff::Receiver>> {
+    RECEIVERS.get(h)
 }
 
 /// Le code à 6 chiffres à afficher.
@@ -732,9 +733,8 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffNe
 /// Arrête l'attente et la libère.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffStop(_: Env, _: JClass, h: jlong) {
-    if h != 0 {
-        drop(unsafe { Box::from_raw(h as *mut handoff::Receiver) });
-    }
+    // Un `handoffNext` encore en cours garde l'attente jusqu'à son retour (AND-09).
+    drop(RECEIVERS.remove(h));
 }
 
 /// Les appareils du réseau qui attendent un envoi, cherchés `waitMs` (bloque) :

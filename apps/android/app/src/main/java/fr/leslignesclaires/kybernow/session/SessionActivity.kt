@@ -1639,6 +1639,16 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         return (lx.coerceIn(0f, 1f) * d.width).toDouble() to (ly.coerceIn(0f, 1f) * d.height).toDouble()
     }
 
+    /** La souris (non capturée) à cet endroit de la vue : le calcul de [viewToHost], sans objet par mouvement (AND-26). */
+    private fun mouseMoveTo(h: Long, x: Float, y: Float) {
+        val d = state.display.value ?: return
+        val v = surfaceView
+        if (v.width == 0 || v.height == 0) return
+        val lx = ((x - v.left) / v.width).coerceIn(0f, 1f)
+        val ly = ((y - v.top) / v.height).coerceIn(0f, 1f)
+        Native.pointerMoveTo(h, (lx * d.width).toDouble(), (ly * d.height).toDouble())
+    }
+
     /** Pixels de l'ordinateur par pixel de l'image à l'écran (gain du pavé tactile). */
     private fun hostPerViewPixel(): Double {
         val d = state.display.value ?: return 1.0
@@ -1785,7 +1795,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             }
             val h = handle
             when (event.actionMasked) {
-                MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_MOVE -> viewToHost(event.x, event.y)?.let { (x, y) -> Native.pointerMoveTo(h, x, y) }
+                MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_MOVE -> mouseMoveTo(h, event.x, event.y)
                 MotionEvent.ACTION_BUTTON_PRESS -> Native.inputMouseButton(h, button(event.actionButton), true)
                 MotionEvent.ACTION_BUTTON_RELEASE -> Native.inputMouseButton(h, button(event.actionButton), false)
                 MotionEvent.ACTION_SCROLL -> Native.inputWheel(h, event.getAxisValue(MotionEvent.AXIS_HSCROLL), -event.getAxisValue(MotionEvent.AXIS_VSCROLL))
@@ -1803,7 +1813,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (ev.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.covering) {
             val h = handle
             when (ev.actionMasked) {
-                MotionEvent.ACTION_MOVE -> if (ui.keyboardMouseAllowed()) viewToHost(ev.x, ev.y)?.let { (x, y) -> Native.pointerMoveTo(h, x, y) }
+                MotionEvent.ACTION_MOVE -> if (ui.keyboardMouseAllowed()) mouseMoveTo(h, ev.x, ev.y)
             }
             return true
         }

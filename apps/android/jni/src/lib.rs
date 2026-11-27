@@ -39,6 +39,9 @@ mod playstation;
 mod pyrowave;
 #[cfg(target_os = "android")]
 mod recording;
+/// Les objets rendus à Kotlin, par numéro (AND-10).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+mod registry;
 #[cfg(target_os = "android")]
 mod relay;
 #[cfg(target_os = "android")]

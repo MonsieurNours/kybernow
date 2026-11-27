@@ -707,17 +707,20 @@ pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>
         };
         let shape = if change.shape { state.shape.as_ref() } else { None };
         let pixels = shape.map(|s| s.premultiplied());
-        sh.listener.with(|env, obj| {
+        let listener = &sh.listener;
+        listener.with(|env, obj| {
             let arr: JObject = match &pixels {
                 Some(p) => {
                     let a = env.new_int_array(p.len() as i32)?;
-                    let ints: Vec<i32> = p.iter().map(|v| *v as i32).collect();
-                    env.set_int_array_region(&a, 0, &ints)?;
+                    // u32 et i32 ont la même disposition : pas de copie de plus (AND-26).
+                    let ints: &[i32] = unsafe { std::slice::from_raw_parts(p.as_ptr() as *const i32, p.len()) };
+                    env.set_int_array_region(&a, 0, ints)?;
                     a.into()
                 }
                 None => JObject::null(),
             };
-            env.call_method(
+            listener.call_void(
+                env,
                 obj,
                 "onPointer",
                 "(ZDDZIIII[I)V",

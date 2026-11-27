@@ -237,6 +237,10 @@ private fun DrawScope.stick(s: PadShape, st: StickState, g: PadGeometry, opacity
     }
 }
 
+/** Les branches de la croix et les boutons de face, dans l'ordre du dessin (pas de liste neuve à chaque image, AND-26). */
+private val DPAD = intArrayOf(Pad.UP, Pad.DOWN, Pad.LEFT, Pad.RIGHT)
+private val FACE = intArrayOf(Pad.Y, Pad.X, Pad.B, Pad.A)
+
 private fun DrawScope.dpad(s: PadShape, pressed: Set<Int>, g: PadGeometry, opacity: Float) {
     val u = g.u
     val arm = g.dpadArm
@@ -250,13 +254,13 @@ private fun DrawScope.dpad(s: PadShape, pressed: Set<Int>, g: PadGeometry, opaci
         )
     }
     glass(cross, false, u, opacity)
-    val arms = mapOf(
-        Pad.UP to Rect(s.cx - arm, s.cy - half, s.cx + arm, s.cy - arm * 0.2f),
-        Pad.DOWN to Rect(s.cx - arm, s.cy + arm * 0.2f, s.cx + arm, s.cy + half),
-        Pad.LEFT to Rect(s.cx - half, s.cy - arm, s.cx - arm * 0.2f, s.cy + arm),
-        Pad.RIGHT to Rect(s.cx + arm * 0.2f, s.cy - arm, s.cx + half, s.cy + arm),
-    )
-    for ((b, rect) in arms) {
+    for (b in DPAD) {
+        val rect = when (b) {
+            Pad.UP -> Rect(s.cx - arm, s.cy - half, s.cx + arm, s.cy - arm * 0.2f)
+            Pad.DOWN -> Rect(s.cx - arm, s.cy + arm * 0.2f, s.cx + arm, s.cy + half)
+            Pad.LEFT -> Rect(s.cx - half, s.cy - arm, s.cx - arm * 0.2f, s.cy + arm)
+            else -> Rect(s.cx + arm * 0.2f, s.cy - arm, s.cx + half, s.cy + arm)
+        }
         val on = b in pressed
         if (on) {
             val path = rounded(rect.left, rect.top, rect.right, rect.bottom, corner)
@@ -285,7 +289,7 @@ private fun DrawScope.dpad(s: PadShape, pressed: Set<Int>, g: PadGeometry, opaci
 }
 
 private fun DrawScope.face(pressed: Set<Int>, g: PadGeometry, opacity: Float, labels: PadLabels) {
-    for (b in listOf(Pad.Y, Pad.X, Pad.B, Pad.A)) {
+    for (b in FACE) {
         val (cx, cy) = g.faceCenter(b)
         val on = b in pressed
         pressedScale(on, cx, cy) {

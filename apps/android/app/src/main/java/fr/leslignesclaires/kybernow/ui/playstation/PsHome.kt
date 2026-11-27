@@ -59,7 +59,8 @@ import fr.leslignesclaires.kybernow.ui.Mono
 import fr.leslignesclaires.kybernow.ui.PrimaryButton
 import fr.leslignesclaires.kybernow.ui.home.elides
 
-/** Ce que l'accueil montre des consoles. */
+/** Ce que l'accueil montre des consoles (immuable, comme `HomeState`). */
+@androidx.compose.runtime.Immutable
 data class PsHomeState(
     val consoles: List<PsConsole> = emptyList(),
     val status: Map<String, PsStatus> = emptyMap(),

@@ -445,7 +445,7 @@ class HostStore(private val context: Context) {
         val c = if (i >= 0) computer.copy(id = list[i].id) else computer
         if (i >= 0) list[i] = c else list.add(c)
         saveBorrowed(list)
-        if (password != null) setPassword(c.id, password) else secrets.edit().remove(c.id).apply()
+        if (password != null) setPassword(c.id, password) else forgetPassword(c.id)
         selectedId = c.id
         return c
     }
@@ -456,7 +456,7 @@ class HostStore(private val context: Context) {
 
     fun removeBorrowed(id: String) {
         saveBorrowed(_borrowed.value.filterNot { it.id == id })
-        secrets.edit().remove(id).apply()
+        forgetPassword(id)
         if (selectedId == id) selectedId = _hosts.value.firstOrNull()?.id ?: _borrowed.value.firstOrNull()?.id
     }
 
@@ -491,7 +491,7 @@ class HostStore(private val context: Context) {
 
     fun remove(id: String) {
         save(_hosts.value.filterNot { it.id == id })
-        secrets.edit().remove(id).apply()
+        forgetPassword(id)
         imageFile(id).delete()
         forgetStationMemory(id)
         if (selectedId == id) selectedId = _hosts.value.firstOrNull()?.id
@@ -541,7 +541,22 @@ class HostStore(private val context: Context) {
 
     // MARK: - Mots de passe
 
-    private fun key(): SecretKey {
+    /**
+     * La clé d'AndroidKeyStore et les mots de passe déjà déchiffrés, gardés en mémoire (AND-28) : l'accueil en
+     * redemandait un par ordinateur à chaque sondage (toutes les 8 s), sur le fil principal, en rechargeant le magasin
+     * de clés à chaque fois. Rien de plus n'est écrit sur l'appareil.
+     */
+    @Volatile private var cachedKey: SecretKey? = null
+    private val plain = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun forgetPassword(id: String) {
+        plain.remove(id)
+        secrets.edit().remove(id).apply()
+    }
+
+    private fun key(): SecretKey = cachedKey ?: loadKey().also { cachedKey = it }
+
+    private fun loadKey(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (ks.getEntry(ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
         val gen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
@@ -558,9 +573,12 @@ class HostStore(private val context: Context) {
         val c = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
         val data = c.iv + c.doFinal(password.toByteArray())
         secrets.edit().putString(id, Base64.encodeToString(data, Base64.NO_WRAP)).apply()
+        plain[id] = password
     }
 
-    fun password(id: String): String? = runCatching {
+    fun password(id: String): String? = plain[id] ?: decrypt(id)?.also { plain[id] = it }
+
+    private fun decrypt(id: String): String? = runCatching {
         val data = Base64.decode(secrets.getString(id, null) ?: return null, Base64.NO_WRAP)
         val c = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, data, 0, 12)) }
         String(c.doFinal(data, 12, data.size - 12))

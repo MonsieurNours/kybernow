@@ -465,7 +465,6 @@ class PsSessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionAc
 
     private fun padKey(e: KeyEvent): Boolean {
         if (e.repeatCount > 0) return true
-        app.gamepads.noteUsed(e.deviceId)
         val down = e.action == KeyEvent.ACTION_DOWN
         val s = slot(e.deviceId)
         if (s < 0) return true
@@ -481,7 +480,6 @@ class PsSessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionAc
     }
 
     private fun padMotion(e: MotionEvent): Boolean {
-        app.gamepads.noteUsed(e.deviceId)
         if (captured) return false
         val s = slot(e.deviceId)
         if (s < 0) return true
