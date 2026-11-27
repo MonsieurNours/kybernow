@@ -2127,6 +2127,11 @@ final class SessionController: NSObject, ObservableObject {
         // Les moitiés se referment, puis la fenêtre se ferme tout de suite ; la
         // console vérifie la remise en état en arrière-plan (onReport).
         scene.close(over: revealedAt != nil ? last : nil, home: homeImage) { [weak self] in self?.finish() }
+        // Secours : une animation que le serveur d'affichage ne joue pas
+        // (fenêtre occultée, autre espace, écran en veille) ne rend jamais
+        // sa complétion ; la fin ne l'attend pas plus de 1,5 s (`finish` ne
+        // passe qu'une fois). Sans lui, l'image restait figée, sans bouton.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.finish() }
         withAnimation(.easeInOut(duration: 0.3)) { phase = .ending }
         engineStreaming = false
         clearScreenOffer()

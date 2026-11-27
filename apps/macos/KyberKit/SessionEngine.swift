@@ -1396,6 +1396,12 @@ public final class SessionEngine: @unchecked Sendable {
         self.input = input
         lock.unlock()
         DispatchQueue.main.async { [self] in
+            // Session finie entre-temps : la vue, déjà détachée, le reste
+            // (sinon la souris relative pourrait se rallumer à la fermeture).
+            lock.lock()
+            let over = ended
+            lock.unlock()
+            if over { return }
             guard !screens.isEmpty else {
                 view.attach(input: input, hostSize: CGSize(width: display.width, height: display.height))
                 return
