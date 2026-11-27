@@ -49,7 +49,7 @@ Each app captures its microphone its own way and hands its samples to the core (
 | App | Capture | Echo and noise |
 |---|---|---|
 | Mac | AVAudioEngine (input node) | Apple's voice processing (`setVoiceProcessingEnabled`) |
-| iPhone, iPad | AVAudioEngine, `playAndRecord` session in `voiceChat` mode while the microphone is on | Apple's voice processing |
+| iPhone, iPad | AVAudioEngine, `playAndRecord` session while the microphone is on, in `voiceChat` mode only when “Reduce echo and noise” is on (otherwise `default`) | Apple's voice processing |
 | Android | `AudioRecord`, `VOICE_COMMUNICATION` source | `AcousticEchoCanceler` and `NoiseSuppressor` when the device has them |
 | Windows | WASAPI, “Communications” category | the system's processing when the microphone's driver has some |
 | Linux, Deck, Pi | SDL2 (capture), “communication” role | PipeWire's echo module if loaded; otherwise none |
