@@ -32,8 +32,35 @@ use crate::synced::{self as rules, Local, SyncFile};
 
 /// `synced.json`, lu une fois (`None` : pas encore lu).
 static FILE: Mutex<Option<SyncFile>> = Mutex::new(None);
-/// Un échange avec le relais à la fois (lecture ou envoi), dans l'ordre.
+/// Un échange avec le relais à la fois (lecture ou envoi). L'ordre des envois
+/// est celui de la file de `send_queue`, pas celui de ce verrou.
 static BUSY: Mutex<()> = Mutex::new(());
+
+type Job = Box<dyn FnOnce() + Send>;
+
+/// Les envois au relais, sur un seul fil, dans l'ordre où la personne a changé
+/// ses réglages : deux changements rapprochés (« Bureau » puis « Jeu ») ne
+/// peuvent plus arriver au relais dans le désordre, ce qui laissait les autres
+/// appareils sur l'avant-dernier choix.
+fn send_queue(job: Job) {
+    static QUEUE: std::sync::OnceLock<Mutex<mpsc::Sender<Job>>> = std::sync::OnceLock::new();
+    let queue = QUEUE.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<Job>();
+        let spawned = std::thread::Builder::new().name("kybernow-reglages".into()).spawn(move || {
+            while let Ok(job) = rx.recv() {
+                job();
+            }
+        });
+        if let Err(e) = spawned {
+            log::error!("réglages synchronisés : fil des envois refusé ({e})");
+        }
+        Mutex::new(tx)
+    });
+    if let Err(mpsc::SendError(job)) = queue.lock().unwrap_or_else(|e| e.into_inner()).send(job) {
+        // Sans fil (refusé) : sur un fil à part, comme avant.
+        std::thread::spawn(job);
+    }
+}
 /// Avant une session : au plus ce temps pour lire les réglages du compte.
 const BEFORE_SESSION: Duration = Duration::from_millis(1500);
 
@@ -226,7 +253,7 @@ pub fn changed(app: &AppHandle, id: &str, before: &Settings) {
         return;
     }
     let Some(a) = account::list().into_iter().find(|a| a.key() == key) else { return };
-    std::thread::spawn(move || {
+    send_queue(Box::new(move || {
         let _busy = BUSY.lock().unwrap();
         let (values, last) = with_file(|f| {
             let s = f.accounts.entry(key.clone()).or_default();
@@ -244,7 +271,7 @@ pub fn changed(app: &AppHandle, id: &str, before: &Settings) {
                 with_file(|f| f.accounts.entry(key.clone()).or_default().unsent(&station, &values));
             }
         }
-    });
+    }));
 }
 
 // MARK: - Interrupteur
