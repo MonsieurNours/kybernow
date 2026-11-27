@@ -1322,7 +1322,20 @@ pub fn purge_staging(layout: &Layout) {
     if result["undo_failed"].as_bool() == Some(true) {
         return;
     }
+    purge_staging_older_than(layout, Duration::from_secs(3600));
+}
+
+/// Les restes de `.staging` qui n'ont pas bougé depuis `age` : l'applicateur
+/// d'une Station 0.11.7 (sans verrou ni marqueur) a pu lancer cette console
+/// et attendre encore sa réponse ; s'il doit revenir en arrière, il remet les
+/// dossiers dans `.staging\<version>`, qui doit rester là.
+fn purge_staging_older_than(layout: &Layout, age: Duration) {
+    let now = std::time::SystemTime::now();
     for entry in fs::read_dir(layout.staging()).into_iter().flatten().flatten() {
+        let recent = entry.metadata().and_then(|m| m.modified()).is_ok_and(|t| now.duration_since(t).unwrap_or_default() < age);
+        if recent {
+            continue;
+        }
         let path = entry.path();
         let _ = if entry.file_type().is_ok_and(|t| t.is_dir()) { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
     }
@@ -1828,7 +1841,10 @@ mod tests {
         // Restes de .staging effacés hors installation.
         fs::create_dir_all(bench.layout.staging().join("0.2.7/paquet")).unwrap();
         fs::write(bench.layout.staging().join(APPLICATOR), "copie").unwrap();
+        // Tout juste écrits : gardés (un applicateur peut encore en avoir besoin).
         purge_staging(&bench.layout);
+        assert_eq!(fs::read_dir(bench.layout.staging()).unwrap().count(), 2);
+        purge_staging_older_than(&bench.layout, Duration::ZERO);
         assert_eq!(fs::read_dir(bench.layout.staging()).unwrap().count(), 0);
     }
 
