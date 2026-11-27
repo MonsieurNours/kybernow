@@ -355,6 +355,28 @@ Adding a migration: a `to_N` function in `migrate.rs`, added to `MIGRATIONS`, `C
 
 **Update that needs the installer.** Some releases cannot be installed by the update package: new driver (virtual display, gamepads), service to recreate, permissions to set again. They are published with `scripts/release.sh X.Y.Z --requires-setup`: the signed manifest carries `"requires_setup": true` and Admin then refuses "Install", pointing to `KyberNow-Station-Setup.exe` (`KyberNow-Server-Setup.exe` for Admin 0.3.1 and earlier, hence its copy). Likewise, `--min-installer A.B.C` refuses the package on a Station installed before version A.B.C (`min_installer_version`). The package keeps a copy (`requirements.json`), which `update.ps1`, having no manifest, checks in the same way; for Admin, the signed manifest is authoritative.
 
+## Relay image signature
+
+The relay's Docker image (`ghcr.io/monsieurnours/kybernow-relay`) is built and pushed by the `relay-image.yml` workflow, on GitHub, for each published release. It signs it with [cosign](https://docs.sigstore.dev/cosign/) by its digest (all its tags with it) when the repository secrets `COSIGN_PRIVATE_KEY` and `COSIGN_PASSWORD` are set; without them, the image ships unsigned and the workflow notes it, as do the `release.sh` pre-checks (a "note", never a failure). A relay whose `.env` names a public key (`RELAY_COSIGN_KEY`) only takes a new image if its signature verifies against it (`server/relay/update.sh`); otherwise it keeps the previous one.
+
+**Creating the key, once, on the Mac** (offline; never in the repository):
+
+```bash
+mkdir -p ~/Library/Application\ Support/KyberNow && cd ~/Library/Application\ Support/KyberNow
+cosign generate-key-pair          # asks for a password; writes cosign.key and cosign.pub
+```
+
+Then, on the repository, the two secrets the workflow reads (`gh` reads them from standard input, nothing goes through arguments):
+
+```bash
+gh secret set COSIGN_PRIVATE_KEY -R MonsieurNours/kybernow < ~/Library/Application\ Support/KyberNow/cosign.key
+gh secret set COSIGN_PASSWORD -R MonsieurNours/kybernow    # type the key's password
+```
+
+Back up `cosign.key` and its password with the other keys ("Backing up the signing keys", below): without them, a new pair is needed, and the new public key has to be put on every relay.
+
+**On the relay machine** (for the author to do): copy `cosign.pub` into the relay's folder (the one with `docker-compose.yml`), then add `RELAY_COSIGN_KEY=cosign.pub` to its `.env` and run `docker compose up -d` again. Verification goes through cosign's official image (`RELAY_COSIGN_IMAGE` to change it). Images published before the first signature are unsigned: set the key only after a signed release.
+
 ## Keys, GitHub account and Windows signing
 
 ### Backing up the signing keys

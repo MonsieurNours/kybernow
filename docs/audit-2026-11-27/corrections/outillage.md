@@ -22,6 +22,7 @@ Branche `claude/fix-outillage-73093a`. Zone : `scripts/`, `tools/`, `.github/wor
 | TRANS-08 | `x86-chroot.sh setup` : abandon si `findmnt` voit encore un montage sous le chroot, puis `rm -rf --one-file-system`. |
 | TRANS-52 | `tools/latency/run_client.sh` : identifiants de curl dans un fichier de configuration `chmod 600`, retiré à la sortie. |
 | TRANS-02 (licence) | L'auteur a choisi l'AGPL-3.0 : `LICENSE` est à la racine de main (fusionné ici). Il était déjà dans les entrées de la Station Windows, de la Station Mac, de la Station Linux, du Flatpak et du `.deb` ; l'essai des entrées voit maintenant son absence pour la Station Linux (`package.sh`). |
+| REL-20 (publication) | `relay-image.yml` signe l'image poussée avec cosign, par son empreinte, quand les secrets `COSIGN_PRIVATE_KEY` et `COSIGN_PASSWORD` sont posés ; sinon une note, sans échec. `release.sh` le dit dans ses vérifications préalables (`gh secret list`, note). Création de la clé et pose de `cosign.pub` sur le relais : `docs/releases.md`, « Signature de l'image du relais ». Clé pas créée, rien fait sur le relais. |
 | STLIN-23 (a) | Entrées de `station_linux` : `apps/macos/kyber-patches` (déjà fait pour TRANS-02) et `kyber_tetes linux kyber-desktop-linux` (défaut de `build-kyber.sh` et `package.sh` à la main). |
 | IOS-29 (CI) | `ci.yml` : job « App iPhone/iPad (règles) » qui lance `apps/ios/tests/screen-pad` et `session-rules` (sauté tant qu'il n'est pas fusionné) ; l'en-tête ne dit plus le cœur sans essais (`coeur.yml`). |
 | (trouvé) | `tools/banc` ne compilait plus (champ `feedback` ajouté à `Second` dans le cœur) : réparé ; la CI le compile désormais. |
@@ -49,6 +50,7 @@ Branche `claude/fix-outillage-73093a`. Zone : `scripts/`, `tools/`, `.github/wor
 - `entrees_de` et `deps_de` extraits de `release.sh` et lancés sur un arbre vide : quinze empreintes, stables d'un appel à l'autre, changées quand une recette change ; dépendances du Flatpak x86_64 : `link_os`, `station_linux`.
 - `cargo test --locked --workspace` de `server/relay` : 22 essais sur 23 ; `un_bout_qui_ne_lit_pas_ses_reponses_est_coupe` a échoué une fois dans la suite entière et passe seul (sensible au minutage) : à regarder côté relais, la nouvelle CI le fera tourner. `cargo build --locked` de `tools/banc` : passe.
 - Échappement du fichier de configuration de curl (guillemets, barres obliques inverses) essayé à part.
+- `relay-image.yml` passé par `actionlint` ; la signature cosign n'a jamais tourné (pas de clé, pas de lancement sur GitHub).
 - **Pas vérifié** : `release.sh` de bout en bout (interdit pendant la publication 0.11.8), les workflows sur GitHub, les parties par ssh (VM, chroot x86_64), `x86-chroot.sh` dans la VM.
 
 **À la fusion** : toutes les empreintes d'étapes changent (recette et nouvelles entrées) : la première publication après la fusion refait chaque étape une fois, et Kyber pour Mac est recompilé une fois (marqueur `.kybernow-pyrowave` absent). Rien d'autre à faire.

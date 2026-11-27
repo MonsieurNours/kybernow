@@ -298,6 +298,14 @@ if [ "$MODE" = release ] || [ "$MODE" = check ]; then
         elif ! grep -qi "not found" <<< "$INFO"; then
             problem "lecture des releases de $REPO impossible : $INFO"
         fi
+        # Image du relais, signée par le workflow relay-image.yml si sa clé cosign
+        # est dans les secrets du dépôt : sans elle, elle part non signée (note).
+        if SECRETS="$(gh secret list -R "$REPO" 2>/dev/null)"; then
+            if grep -q '^COSIGN_PRIVATE_KEY' <<< "$SECRETS" && grep -q '^COSIGN_PASSWORD' <<< "$SECRETS"; then ok "image du relais : clé cosign dans les secrets du dépôt (signée à la publication)"
+            else note "image du relais : pas de clé cosign dans les secrets du dépôt, elle sera publiée sans signature (docs/releases.md, « Signature de l'image du relais »)"; fi
+        else
+            note "image du relais : secrets du dépôt illisibles par gh, signature cosign non vérifiée"
+        fi
     else
         problem "gh non connecté : gh auth login (jeton et droits : docs/releases.md)"
     fi

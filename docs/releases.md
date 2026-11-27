@@ -355,6 +355,28 @@ Ajouter une migration : une fonction `to_N` dans `migrate.rs`, ajoutée à `MIGR
 
 **Mise à jour qui exige l'installateur.** Certaines versions ne peuvent pas s'installer par le paquet de mise à jour : nouveau pilote (écran virtuel, manettes), service à recréer, droits à reposer. Elles se publient avec `scripts/release.sh X.Y.Z --requires-setup` : le manifeste signé porte `"requires_setup": true` et Admin refuse alors « Installer » en renvoyant vers `KyberNow-Station-Setup.exe` (`KyberNow-Server-Setup.exe` pour Admin en 0.3.1 et avant, d'où sa copie). De même, `--min-installer A.B.C` refuse le paquet sur une Station installée avant la version A.B.C (`min_installer_version`). Le paquet en garde une copie (`requirements.json`), que `update.ps1`, sans manifeste, vérifie de la même façon ; pour Admin, le manifeste signé fait foi.
 
+## Signature de l'image du relais
+
+L'image Docker du relais (`ghcr.io/monsieurnours/kybernow-relay`) est construite et poussée par le workflow `relay-image.yml`, sur GitHub, à chaque version publiée. Il la signe avec [cosign](https://docs.sigstore.dev/cosign/) par son empreinte (toutes ses étiquettes avec) quand les secrets `COSIGN_PRIVATE_KEY` et `COSIGN_PASSWORD` sont posés sur le dépôt ; sans eux, l'image part non signée et le workflow le note, comme les vérifications préalables de `release.sh` (« note », jamais un échec). Un relais dont le `.env` nomme une clé publique (`RELAY_COSIGN_KEY`) ne prend une nouvelle image que si sa signature s'y vérifie (`server/relay/update.sh`) ; sinon il garde la précédente.
+
+**Créer la clé, une fois, sur le Mac** (hors ligne ; jamais dans le dépôt) :
+
+```bash
+mkdir -p ~/Library/Application\ Support/KyberNow && cd ~/Library/Application\ Support/KyberNow
+cosign generate-key-pair          # demande un mot de passe ; écrit cosign.key et cosign.pub
+```
+
+Puis, sur le dépôt, les deux secrets que lit le workflow (`gh` les lit sur l'entrée standard, rien ne passe en argument) :
+
+```bash
+gh secret set COSIGN_PRIVATE_KEY -R MonsieurNours/kybernow < ~/Library/Application\ Support/KyberNow/cosign.key
+gh secret set COSIGN_PASSWORD -R MonsieurNours/kybernow    # tapez le mot de passe de la clé
+```
+
+Sauvegardez `cosign.key` et son mot de passe avec les autres clés (« Sauvegarde des clés de signature », plus bas) : sans eux, il faut une nouvelle paire, et poser la nouvelle clé publique sur chaque relais.
+
+**Sur la machine du relais** (à faire par l'auteur) : copier `cosign.pub` dans le dossier du relais (celui de `docker-compose.yml`), puis ajouter `RELAY_COSIGN_KEY=cosign.pub` à son `.env` et relancer `docker compose up -d`. La vérification passe par l'image officielle de cosign (`RELAY_COSIGN_IMAGE` pour en changer). Les images publiées avant la première signature ne sont pas signées : poser la clé seulement après une version signée.
+
 ## Clés, compte GitHub et signature Windows
 
 ### Sauvegarde des clés de signature
