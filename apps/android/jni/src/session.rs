@@ -38,8 +38,7 @@ use crate::video::{Msg, VideoSink};
 pub struct Shared {
     pub listener: Listener,
     session: OnceLock<Weak<Session>>,
-    pub window: Mutex<Option<NativeWindow>>,
-    pub video_tx: Mutex<Option<Sender<Msg>>>,
+    pub surface: crate::media::SurfaceSlot,
     pub pointer: Arc<PointerLayer>,
     clock: Arc<MonotonicClock>,
     pub input: Mutex<Option<Arc<InputPipeline>>>,
@@ -80,10 +79,7 @@ impl Shared {
     }
 
     pub fn set_window(&self, window: Option<NativeWindow>) {
-        *self.window.lock().unwrap() = window;
-        if let Some(tx) = self.video_tx.lock().unwrap().as_ref() {
-            let _ = tx.send(Msg::Surface);
-        }
+        self.surface.set(window);
     }
 
     pub fn set_device_refresh(&self, hz: u32) {
@@ -114,7 +110,7 @@ impl MediaHost for Shared {
     }
 
     fn window(&self) -> Option<NativeWindow> {
-        self.window.lock().unwrap().clone()
+        self.surface.window()
     }
 
     fn video_size(&self) -> (u32, u32) {
@@ -126,7 +122,11 @@ impl MediaHost for Shared {
     }
 
     fn set_video_tx(&self, tx: Sender<Msg>) {
-        *self.video_tx.lock().unwrap() = Some(tx);
+        self.surface.set_video_tx(tx);
+    }
+
+    fn surface_gate(&self) -> &crate::gate::SurfaceGate {
+        self.surface.gate()
     }
 
     fn hdr(&self) -> bool {
@@ -681,8 +681,7 @@ pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>
     let shared = Arc::new(Shared {
         listener,
         session: OnceLock::new(),
-        window: Mutex::new(window),
-        video_tx: Mutex::new(None),
+        surface: crate::media::SurfaceSlot::new(window),
         pointer: pointer.clone(),
         clock: clock.clone(),
         input: Mutex::new(None),

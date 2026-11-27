@@ -18,6 +18,9 @@ mod autotest;
 mod camera;
 #[cfg(target_os = "android")]
 mod exports;
+/// La surface retirée, attendue (AND-04).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+mod gate;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 mod hdr;
 #[cfg(target_os = "android")]

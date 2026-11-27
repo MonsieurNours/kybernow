@@ -301,8 +301,7 @@ const KEYBOARD_CLOSED: i32 = 2;
 /// Ce que partagent la partie, son image, son son et les appels de Kotlin.
 struct Host {
     listener: Listener,
-    window: Mutex<Option<NativeWindow>>,
-    video_tx: Mutex<Option<Sender<Msg>>>,
+    surface: crate::media::SurfaceSlot,
     refresh: AtomicU32,
     size: (u32, u32),
     hdr: bool,
@@ -321,10 +320,7 @@ impl Host {
     }
 
     fn set_window(&self, w: Option<NativeWindow>) {
-        *self.window.lock().unwrap() = w;
-        if let Some(tx) = self.video_tx.lock().unwrap().as_ref() {
-            let _ = tx.send(Msg::Surface);
-        }
+        self.surface.set(w);
     }
 }
 
@@ -334,7 +330,7 @@ impl MediaHost for Host {
     }
 
     fn window(&self) -> Option<NativeWindow> {
-        self.window.lock().unwrap().clone()
+        self.surface.window()
     }
 
     fn video_size(&self) -> (u32, u32) {
@@ -346,7 +342,11 @@ impl MediaHost for Host {
     }
 
     fn set_video_tx(&self, tx: Sender<Msg>) {
-        *self.video_tx.lock().unwrap() = Some(tx);
+        self.surface.set_video_tx(tx);
+    }
+
+    fn surface_gate(&self) -> &crate::gate::SurfaceGate {
+        self.surface.gate()
     }
 
     fn hdr(&self) -> bool {
@@ -438,8 +438,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_start(
     let profile = settings.profile(hevc_decoder != 0, ps5);
     let host = Arc::new(Host {
         listener,
-        window: Mutex::new(w),
-        video_tx: Mutex::new(None),
+        surface: crate::media::SurfaceSlot::new(w),
         refresh: AtomicU32::new(refresh.max(0) as u32),
         size: (profile.width, profile.height),
         hdr: profile.hdr,

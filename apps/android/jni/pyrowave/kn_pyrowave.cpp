@@ -862,6 +862,13 @@ int frame_locked(kn_pw_session *s, const uint8_t *data, size_t size)
 	if (!pyrowave_decoder_decode_is_ready(s->decoder, false) && !pyrowave_decoder_decode_is_ready(s->decoder, true))
 		return KN_PW_INCOMPLETE;
 
+	// Une recréation ratée (surface en transition : fenêtre redimensionnée,
+	// réduite, passée sur un autre écran) laisse la swapchain nulle :
+	// vkAcquireNextImageKHR sur VK_NULL_HANDLE plante dans le pilote (AND-02).
+	// On la refait, sinon la session PyroWave est à refaire.
+	if (s->swapchain == VK_NULL_HANDLE && !create_swapchain(s))
+		return KN_PW_LOST;
+
 	uint32_t index = 0;
 	VkResult r = VK_SUCCESS;
 	for (int attempt = 0; attempt < 2; attempt++)
@@ -979,16 +986,22 @@ int frame_locked(kn_pw_session *s, const uint8_t *data, size_t size)
 	// GPU terminé avant de rendre la main : l'instant du décodage pour les
 	// statistiques, et les tampons de PyroWave libres pour l'image suivante.
 	r = vkWaitForFences(g->device, 1, &s->fence, VK_TRUE, 1'000'000'000ull);
-	vkResetFences(g->device, 1, &s->fence);
 	if (r != VK_SUCCESS)
 	{
+		// Clôture encore en vol : la remettre à zéro est interdit (et plante
+		// certains pilotes, AND-03). On attend que le GPU ait fini, puis on la
+		// remet à zéro, et la session est à refaire.
 		LOGW("PyroWave : GPU did not finish (%d)", int(r));
+		vkDeviceWaitIdle(g->device);
+		vkResetFences(g->device, 1, &s->fence);
 		return KN_PW_LOST;
 	}
+	vkResetFences(g->device, 1, &s->fence);
 	if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR)
 	{
 		vkDeviceWaitIdle(g->device);
-		create_swapchain(s);
+		if (!create_swapchain(s))
+			return KN_PW_LOST;
 	}
 	else if (pr != VK_SUCCESS)
 	{

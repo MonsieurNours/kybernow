@@ -145,6 +145,8 @@ struct DecodeLoop {
     pw_config: Option<PwConfig>,
     pw_failed: bool,
     pw_announced: Option<PwConfig>,
+    /// Le dernier changement de surface pris en compte (`SurfaceGate`).
+    surface_gen: u64,
 }
 
 impl DecodeLoop {
@@ -164,6 +166,7 @@ impl DecodeLoop {
             pw_config: None,
             pw_failed: false,
             pw_announced: None,
+            surface_gen: 0,
         }
     }
 
@@ -173,6 +176,7 @@ impl DecodeLoop {
 
     fn run(mut self, rx: Receiver<Msg>) {
         let mut pending: VecDeque<Msg> = VecDeque::new();
+        self.surface_gen = self.host.surface_gate().generation();
         loop {
             let m = match pending.pop_front() {
                 Some(m) => m,
@@ -181,6 +185,15 @@ impl DecodeLoop {
                     Err(_) => break,
                 },
             };
+            // La surface a changé : avant toute image en file, le décodeur la
+            // lâche, et le fil principal qui attend dans `surfaceDestroyed` le
+            // sait (AND-04). `Msg::Surface` ne sert qu'à réveiller ce fil.
+            let g = self.host.surface_gate().generation();
+            if g != self.surface_gen {
+                self.surface_gen = g;
+                self.surface_changed();
+                self.host.surface_gate().released(g);
+            }
             // PyroWave : seule la plus récente des images en attente est
             // décodée (les autres comptent parmi les images perdues).
             let m = match m {
@@ -229,21 +242,29 @@ impl DecodeLoop {
                 // PyroWave : chaque image se décode seule, rien à attendre ni à demander.
                 Msg::Hole if self.pyrowave() => {}
                 Msg::Hole => self.lost(),
-                Msg::Surface if self.pyrowave() => {
-                    self.pw = None;
-                    self.pw_failed = false;
-                }
-                Msg::Surface => {
-                    self.decoder = None;
-                    self.gate.reset();
-                    self.waiting_key = true;
-                    self.request_keyframe();
-                }
+                Msg::Surface => {}
                 Msg::Stop => break,
             }
         }
         self.decoder = None;
         self.pw = None;
+        self.host.surface_gate().released(self.host.surface_gate().generation());
+    }
+
+    /// Surface refaite ou retirée : décodeur (ou swapchain) lâché ; une image
+    /// clé redemandée seulement s'il y a de nouveau où l'afficher.
+    fn surface_changed(&mut self) {
+        if self.pyrowave() {
+            self.pw = None;
+            self.pw_failed = false;
+            return;
+        }
+        self.decoder = None;
+        self.gate.reset();
+        self.waiting_key = true;
+        if self.host.window().is_some() {
+            self.request_keyframe();
+        }
     }
 
     /// Une image PyroWave : session d'affichage ouverte sur la surface au
@@ -331,7 +352,11 @@ impl DecodeLoop {
         let stale = self.decoder.as_ref().is_some_and(|d| key && !self.config.is_empty() && d.config != self.config);
         if self.decoder.is_none() || stale {
             if !key {
-                self.request_keyframe();
+                // Sans surface (arrière-plan), rien à demander : la surface
+                // revenue redemandera l'image clé (AND-15).
+                if self.host.window().is_some() {
+                    self.request_keyframe();
+                }
                 return;
             }
             self.decoder = None;
