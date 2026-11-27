@@ -268,6 +268,15 @@ pub unsafe extern "C" fn kn_pyrowave_config(data: *const u8, len: usize) -> *mut
     })
 }
 
+/// Un paquet de configuration PyroWave plutôt qu'une image (`KNPW` et 16
+/// octets au moins, `Config::is_config`) : lu à chaque paquet, sans JSON.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_pyrowave_is_config(data: *const u8, len: usize) -> bool {
+    kybernow_core::ffi_guard!({
+        !data.is_null() && pyrowave::Config::is_config(unsafe { std::slice::from_raw_parts(data, len) })
+    })
+}
+
 /// Sans paquet de configuration (perdu) : la définition et la chroma lues
 /// dans l'en-tête de séquence d'une image (`Config::from_sequence_header`),
 /// SDR et plage pleine ; même JSON que `kn_pyrowave_config` (version 0), nul
@@ -430,6 +439,8 @@ mod tests {
         let c1 = config(&v1).unwrap();
         assert_eq!((c1["version"].as_u64(), c1["width"].as_u64(), c1["hdr"].as_bool()), (Some(1), Some(1920), Some(false)));
         assert!(c1["mastering"].is_null() && c1["light"].is_null());
+        assert!(unsafe { kn_pyrowave_is_config(v1.as_ptr(), v1.len()) });
+        assert!(!unsafe { kn_pyrowave_is_config(v1.as_ptr(), 15) });
 
         let c2 = config(&knpw_v2(3)).unwrap();
         assert_eq!(c2["version"], 2);
