@@ -769,7 +769,7 @@ index f69df02..6330bfd 100644
          Ok(response) => {
              let numeric_session_id = generate_session_id();
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
-index 30f232d..d9cae36 100644
+index f757a80..a72b735 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
 @@ -46,6 +46,7 @@ mod config;

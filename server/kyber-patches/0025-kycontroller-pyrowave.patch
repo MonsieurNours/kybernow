@@ -417,7 +417,7 @@ index 00c4f3f..dd08e57 100644
                      intra_refresh: config.intra_refresh,
                  };
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
-index d9cae36..0b0e019 100644
+index a72b735..2528e7d 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
 @@ -54,6 +54,7 @@ mod kyber_agent;
