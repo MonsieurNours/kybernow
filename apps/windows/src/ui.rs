@@ -1250,6 +1250,9 @@ fn station_news(app: &AppHandle, c: &Computer, info: &Info) {
     });
 }
 
+/// Ordinateurs interrogés en même temps par le relevé.
+const POLL_AT_ONCE: usize = 6;
+
 /// Chaque ordinateur, sauf ceux en session : toutes les 8 s quand
 /// l'accueil est affiché, toutes les 30 s sans lui (l'app dans l'icône), et
 /// tout de suite à l'ouverture du menu de l'icône (`poll_soon`).
@@ -1257,13 +1260,15 @@ fn poll(app: AppHandle) {
     loop {
         let state = app.state::<UiState>();
         let in_session = state.session_ids();
-        let computers = state.with_store(|s| s.computers.clone());
+        let computers: Vec<Computer> = state.with_store(|s| s.computers.clone()).into_iter().filter(|c| !in_session.contains(&c.id)).collect();
+        // Interrogés ensemble (six à la fois) : un ordinateur éteint (≈ 4 s
+        // sans réponse) ne retarde plus les autres ; un seul envoi à la fin.
         let mut changed = false;
-        for c in computers {
-            if in_session.contains(&c.id) {
-                continue;
-            }
-            changed |= refresh(&app, &c);
+        for batch in computers.chunks(POLL_AT_ONCE) {
+            changed |= std::thread::scope(|scope| {
+                let jobs: Vec<_> = batch.iter().map(|c| scope.spawn(|| refresh(&app, c))).collect();
+                jobs.into_iter().fold(false, |any, j| j.join().unwrap_or(false) || any)
+            });
         }
         if changed {
             emit_computers(&app);
