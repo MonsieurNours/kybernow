@@ -1,19 +1,19 @@
 # shellcheck shell=bash
-# Empreinte des correctifs de Kyber pour la Station Linux (STLIN-23), lue
-# (source) par build-kyber.sh, qui l'écrit dans $OUT/.kybernow-patches après
-# la compilation, et par package.sh et run-station.sh, qui refusent un Kyber
-# construit avec d'autres correctifs. Comme sur Mac
-# (server/macos/scripts/build-kyber.sh) : correctifs communs, ceux des apps
-# (apply.sh les repose toujours, le 0027 commun en dépend), ceux de Linux et
-# les scripts qui les posent.
+# Empreinte de Kyber pour la Station Linux (STLIN-23), lue (source) par
+# build-kyber.sh, qui l'écrit dans $OUT/.kybernow-patches après la
+# compilation, et par package.sh et run-station.sh, qui refusent un Kyber
+# construit avec d'autres correctifs. La liste est celle de
+# kyber_station_inputs (server/kyber-patches/apply.sh), commune aux trois
+# Stations (STCOM-11) : correctifs communs, ceux des apps (apply.sh les
+# repose, le 0027 commun en dépend), ceux de Linux, les scripts qui les
+# posent, la chaîne d'outils et le commit de PyroWave.
+
+# shellcheck source=../../kyber-patches/apply.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/server/kyber-patches/apply.sh"
 
 # kyber_linux_patches_hash <racine du dépôt> : l'empreinte (sha256, hex).
 kyber_linux_patches_hash() {
-    local root=$1 sum
-    if command -v sha256sum >/dev/null 2>&1; then sum=(sha256sum); else sum=(shasum -a 256); fi
-    (cd "$root" && cat server/kyber-patches/*.patch server/kyber-patches/apply.sh apps/macos/kyber-patches/*.patch \
-        server/linux/kyber-patches/*.patch server/linux/scripts/build-kyber.sh server/linux/scripts/pyrowave-linux.sh \
-        2>/dev/null | "${sum[@]}" | cut -d' ' -f1)
+    kyber_station_hash "$1" linux
 }
 
 # kyber_linux_check_stamp <racine du dépôt> <rootfs de Kyber> : vrai si Kyber

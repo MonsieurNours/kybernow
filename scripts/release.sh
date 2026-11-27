@@ -376,16 +376,14 @@ OVERLAY_WANT="$(server/kyber-patches/stamp.sh)"
 overlay_voulue() { "$(arbre_dir station-windows)/server/kyber-patches/stamp.sh"; }
 if [ "$(cat "$STATION_STAMP" 2>/dev/null)" = "$OVERLAY_WANT" ]; then ok "surcouche Kyber de l'arbre station-windows : correctifs actuels (empreinte)"
 else note "surcouche Kyber (Station Windows) à compiler dans son arbre : correctifs changés ou arbre neuf (automatique, long)"; fi
-mac_kyber_hash() { (cd "$1" && cat server/kyber-patches/*.patch server/kyber-patches/apply.sh apps/macos/kyber-patches/*.patch apps/webos/kyber-patches/*.patch server/macos/kyber-patches/*.patch server/macos/crates/*.patch server/macos/scripts/build-kyber.sh server/macos/pyrowave/* 2>/dev/null | shasum -a 256 | cut -d' ' -f1); }
-# L'encodeur PyroWave de Kyber pour Mac est compilé depuis apps/macos/PyroWave
-# (server/macos/pyrowave/build.sh) : le même commit que le décodeur des apps.
-# mac_kyber_hash (la liste de build-kyber.sh) ne le compte pas : son arbre git
-# est noté à côté (.kybernow-pyrowave) après chaque compilation.
-mac_pyrowave_id() { git -C "$1" rev-parse "HEAD:apps/macos/PyroWave"; }
+# Empreinte de Kyber pour Mac : la fonction qu'emploie build-kyber.sh
+# (kyber_station_hash d'apply.sh, STCOM-11), calculée dans le dépôt donné ;
+# elle compte aussi apps/macos/PyroWave, d'où vient l'encodeur PyroWave de la
+# Station Mac (le même commit que le décodeur des apps, TRANS-03).
+mac_kyber_hash() { (. "$1/server/kyber-patches/apply.sh" && kyber_station_hash "$1" mac); }
 mac_kyber_a_jour() {
     local mk="$1/third_party/kyber-desktop-macos/rootfs-arm64-macos"
-    [ -x "$mk/bin/kybernow-pyrowave-check" ] && [ "$(cat "$mk/.kybernow-patches" 2>/dev/null)" = "$(mac_kyber_hash "$2")" ] \
-        && [ "$(cat "$mk/.kybernow-pyrowave" 2>/dev/null)" = "$(mac_pyrowave_id "$2")" ]
+    [ -x "$mk/bin/kybernow-pyrowave-check" ] && [ "$(cat "$mk/.kybernow-patches" 2>/dev/null)" = "$(mac_kyber_hash "$2")" ]
 }
 if mac_kyber_a_jour "$(arbre_dir station-mac)" "$ROOT"; then
     ok "Station Mac : Kyber pour Mac de l'arbre compilé avec les correctifs actuels (empreinte, PyroWave)"
@@ -651,7 +649,7 @@ entrees_de() {
         station) echo "maj $UPDATE_FLAGS_STR" ;;
         notarisation) echo "notariser $NOTARISER" ;;
         surcouche) declare -f overlay_voulue ;;
-        station_mac) echo "notariser $NOTARISER"; declare -f mac_kyber_hash mac_pyrowave_id mac_kyber_a_jour ;;
+        station_mac) echo "notariser $NOTARISER"; declare -f mac_kyber_hash mac_kyber_a_jour ;;
         flatpak_aarch64 | flatpak_x86_64 | deb_pi) echo "$VM_TOOLS" ;;
         station_linux) echo "$VM_TOOLS"; echo "$VM_KYBER_STATION" ;;
     esac
@@ -815,7 +813,7 @@ construire_notarisation() {
     ditto -x -k "$CACHE/app_mac/fichiers/app-mac-signee.zip" "$w"
     app="$w/KyberNow Link.app"
     if [ "$NOTARISER" = 1 ]; then
-        # Profil enregistré une fois : xcrun notarytool store-credentials kybernow --apple-id … --team-id P6DB682S4K
+        # Profil enregistré une fois : xcrun notarytool store-credentials kybernow --apple-id … --team-id <KYBER_TEAM_ID de scripts/identite.sh>
         xcrun notarytool submit "$CACHE/app_mac/fichiers/app-mac-signee.zip" --keychain-profile kybernow --wait --timeout 30m | tee "$w/notarytool.txt"
         grep -q "status: Accepted" "$w/notarytool.txt" || { echo "notarisation refusée (xcrun notarytool log <id> --keychain-profile kybernow)" >&2; exit 1; }
         xcrun stapler staple "$app"
@@ -853,12 +851,7 @@ construire_station_mac() {
     local t
     t="$(arbre_dir station-mac)"
     cd "$t"
-    MK="third_party/kyber-desktop-macos/rootfs-arm64-macos"
-    if ! mac_kyber_a_jour "$t" "$t"; then
-        rm -f "$MK/.kybernow-pyrowave"
-        server/macos/scripts/build-kyber.sh
-        mac_pyrowave_id "$t" > "$MK/.kybernow-pyrowave"
-    fi
+    mac_kyber_a_jour "$t" "$t" || server/macos/scripts/build-kyber.sh
     mac_kyber_a_jour "$t" "$t"
     if [ "$NOTARISER" = 1 ]; then server/macos/scripts/build-station-app.sh --notarize; else server/macos/scripts/build-station-app.sh; fi
     cp server/macos/dist/KyberNow-Station-Mac.dmg server/macos/dist/KyberNow-Station-Mac-update.zip "$E/"

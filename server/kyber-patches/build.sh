@@ -232,12 +232,6 @@ for tool in wasm-bindgen wasm-opt; do
 done
 [ -f "$KYWEB/Cargo.toml" ] || { echo "$KYWEB introuvable : client web de Kyber 0.29 (docs/build-notes.md, moteur web)" >&2; exit 1; }
 
-# Sortie de cargo sans les lignes de progression ; avec pipefail, le code de
-# retour reste celui de cargo.
-cargo_quiet() {
-    "$@" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating) ' || true; }
-}
-
 # Refuse un binaire plus ancien que le début du script : il viendrait d'un
 # build précédent, sans les correctifs de celui-ci.
 check_fresh() {
@@ -260,20 +254,14 @@ cd "$KYMEDIA"
 . "$HERE/pyrowave.sh"
 pyrowave_fetch
 pyrowave_build
-# FFmpeg est extrait une fois par meson, avec les correctifs du wrap de ce
-# moment-là : quand le wrap ou ses fichiers changent (0025 y ajoute
-# l'encodeur PyroWave, 0026 le débit en direct), il faut l'extraire et le
-# configurer à nouveau.
-FFMPEG_STAMP="$KYMEDIA/subprojects/FFmpeg-n8.1/.kybernow-wrap"
-FFMPEG_WRAP=$(cat "$KYMEDIA/subprojects/ffmpeg.wrap" $(find "$KYMEDIA/subprojects/packagefiles/ffmpeg" -type f | sort) | shasum -a 256 | cut -d' ' -f1)
-if [ -d "$KYMEDIA/subprojects/FFmpeg-n8.1" ] && [ "$(cat "$FFMPEG_STAMP" 2>/dev/null)" != "$FFMPEG_WRAP" ]; then
-    echo "==> FFmpeg : wrap changé, nouvelle extraction"
-    rm -rf "$KYMEDIA/subprojects/FFmpeg-n8.1" "$KYMEDIA/builddir-win32/subprojects/FFmpeg-n8.1"
-fi
+# FFmpeg est extrait une fois par meson, avec les fichiers du wrap de ce
+# moment-là (0025 y ajoute l'encodeur PyroWave, 0026 le débit en direct) :
+# extrait de nouveau quand ils changent (kyber_wrap_refresh, apply.sh).
+kyber_wrap_refresh "$KYMEDIA" ffmpeg builddir-win32 || exit 1
 
 echo "==> Compilation (dépendances, txproto, kyavserver)"
 ./build-win32.sh -w -o "$ROOTFS"
-echo "$FFMPEG_WRAP" > "$FFMPEG_STAMP"
+kyber_wrap_mark "$KYMEDIA" ffmpeg
 
 echo "==> Essai PyroWave (pyrowave-capture-test.exe, pas livré)"
 # Capture DXGI → images D3D11 → encodeur libpyrowave → décodage de contrôle :
@@ -327,18 +315,7 @@ git -C "$KYCTL" archive HEAD | tar -x -C "$WEB_KYSDK/kyctl"
 for p in "$HERE"/*.patch; do
     case "$(basename "$p")" in *-kywebplayer-* | *-kyctlweb-*) ;; *) continue ;; esac
     echo "    $(basename "$p") (moteur web)"
-    out="$(cd "$WEB_KYSDK/kyctl" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p")" || {
-        printf '%s\n' "$out" | sed 's/^/        /'
-        echo "Correctif $(basename "$p") inapplicable au kyctl d'origine" >&2
-        exit 1
-    }
-    printf '%s\n' "$out" | sed 's/^/        /'
-    # Comme apply.sh : un décalage du contexte est un échec, sauf avec
-    # KYBERNOW_PATCH_STRICT=0.
-    if grep -q 'with fuzz' <<< "$out"; then
-        echo "Correctif $(basename "$p") posé avec un décalage du contexte (fuzz) : à régénérer" >&2
-        [ "${KYBERNOW_PATCH_STRICT:-1}" = 0 ] || exit 1
-    fi
+    kyber_patch_put "$p" "$WEB_KYSDK/kyctl" || exit 1
 done
 for r in kymedia kymux kynput kyutil; do
     ln -sfn "$THIRD_PARTY/kyber-desktop/kysdk/$r" "$WEB_KYSDK/$r"

@@ -2,3 +2,6 @@
 # étape	chemin	raison
 *	server/installer/build.sh	cité dans un message d'erreur de server/kyber-patches/build.sh
 station_mac	apps/macos	motif de comparaison (case) dans server/kyber-patches/apply.sh ; ses correctifs sont dans l'empreinte
+station_mac	server/linux/kyber-patches	liste de la Station Linux dans kyber_station_inputs (server/kyber-patches/apply.sh), lue seulement pour elle
+station_mac	server/linux/scripts/build-kyber.sh	liste de la Station Linux dans kyber_station_inputs (server/kyber-patches/apply.sh), lue seulement pour elle
+station_mac	server/linux/scripts/pyrowave-linux.sh	liste de la Station Linux dans kyber_station_inputs (server/kyber-patches/apply.sh), lue seulement pour elle

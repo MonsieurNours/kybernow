@@ -1,12 +1,51 @@
 # shellcheck shell=bash
-# Pose des correctifs serveur de KyberNow sur les sources de Kyber, commune à
-# build.sh (Windows) et à server/macos/scripts/build-kyber.sh (Mac) : mêmes
-# correctifs, même ordre, pour les deux systèmes.
+# Pose des correctifs serveur de KyberNow sur les sources de Kyber, commune aux
+# trois Stations : build.sh (Windows), server/macos/scripts/build-kyber.sh
+# (Mac) et server/linux/scripts/build-kyber.sh (Linux). Mêmes correctifs
+# communs, même ordre ; puis, pour Mac et Linux, leurs correctifs propres.
+# Aussi la liste de ce qui entre dans l'empreinte de chaque Station
+# (kyber_station_hash), lue par stamp.sh (Windows), build-kyber.sh (Mac),
+# kyber-stamp.sh (Linux) et scripts/release.sh : une seule liste (STCOM-11).
+#
+# Les primitives (remise à l'origine, pose sans décalage du contexte, wraps de
+# meson) sont dans scripts/kyber-patches-lib.sh.
 #
 # À sourcer après avoir défini HERE (ce dossier), ROOT (racine du dépôt),
 # KYMEDIA, KYCTL, KYMUX, KYNPUT et, pour le moteur web, KYWEB (vide ou absent :
 # les correctifs *-kyberweb-* sont laissés de côté). Puis appeler
-# kyber_apply_server_patches.
+# kyber_apply_server_patches, et, pour Mac et Linux,
+# kyber_apply_own_patches. kyber_station_inputs et kyber_station_hash ne
+# demandent que la racine du dépôt.
+
+# shellcheck source=../../scripts/kyber-patches-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/kyber-patches-lib.sh"
+
+# Le dépôt visé par un correctif serveur, d'après son nom : *-kycontroller-*,
+# *-kyclient-* et *-kywebplayer-* visent kysdk/kyctl, *-kynet-* kysdk/kymux,
+# *-kynput-* kysdk/kynput, *-kyberweb-* kyber-web, les autres kysdk/kymedia.
+# *-kyctlweb-* ne vise que la copie de kyctl du moteur web (build.sh), jamais le
+# kyctl partagé : ils touchent kyclient (lib.rs, enums.rs, host_service.rs),
+# comme le correctif kyclient des apps (apps/macos/kyber-patches/0001-kyclient-…),
+# qui ne s'y reposerait plus. Rien n'est rendu pour eux.
+kyber_server_repo() {
+    case "$(basename "$1")" in
+        *-kyctlweb-*) ;;
+        *-kycontroller-* | *-kyclient-* | *-kywebplayer-*) echo "$KYCTL" ;;
+        *-kyberweb-*) echo "${KYWEB:-}" ;;
+        *-kynet-*) echo "$KYMUX" ;;
+        *-kynput-*) echo "$KYNPUT" ;;
+        *) echo "$KYMEDIA" ;;
+    esac
+}
+
+# Le dépôt visé par un correctif des apps (apps/macos, apps/webos).
+kyber_app_repo() {
+    case "$(basename "$1")" in
+        *-kyclient-*) echo "$KYCTL" ;;
+        *-kynput-*) echo "$KYNPUT" ;;
+        *-kynet-*) echo "$KYMUX" ;;
+    esac
+}
 
 kyber_apply_server_patches() {
     # L'ordre de pose est celui des noms, octet par octet, quelle que soit la
@@ -14,27 +53,8 @@ kyber_apply_server_patches() {
     # dépôt ou par moteur), et 0085-kycontroller-micro-droits se pose sur
     # 0085-kycontroller-flux-montant (« f » avant « m »).
     local LC_ALL=C
+    local p repo
     echo "==> Correctifs"
-    # Les correctifs se suivent et touchent parfois les mêmes fichiers : on part
-    # toujours des sources d'origine, puis on les applique tous, dans l'ordre.
-    # Ceux nommés *-kycontroller-*, *-kyclient-* et *-kywebplayer-* visent kysdk/kyctl,
-    # *-kynet-* kysdk/kymux, *-kynput-* kysdk/kynput, *-kyberweb-* kyber-web, les
-    # autres kysdk/kymedia. Seuls les fichiers des correctifs sont remis à
-    # l'origine : kyctl et kymux portent aussi les correctifs des apps.
-    # *-kyctlweb-* ne vise que la copie de kyctl du moteur web (plus bas), jamais
-    # le kyctl partagé : ils touchent kyclient (lib.rs, enums.rs, host_service.rs),
-    # comme le correctif kyclient des apps (apps/macos/kyber-patches/0001-kyclient-…),
-    # qui ne s'y reposerait plus. Ici, repo_of ne rend rien pour eux.
-    repo_of() {
-            case "$(basename "$1")" in
-            *-kyctlweb-*) ;;
-            *-kycontroller-* | *-kyclient-* | *-kywebplayer-*) echo "$KYCTL" ;;
-            *-kyberweb-*) echo "${KYWEB:-}" ;;
-            *-kynet-*) echo "$KYMUX" ;;
-            *-kynput-*) echo "$KYNPUT" ;;
-            *) echo "$KYMEDIA" ;;
-        esac
-    }
     # Piège : les correctifs des apps (apps/macos, apps/webos) posés par leurs
     # scripts dans kyctl, kymux et kynput touchent parfois les mêmes fichiers
     # (kynput/Cargo.toml : 0013 et le correctif webOS). Remis à l'origine, ces
@@ -42,67 +62,41 @@ kyber_apply_server_patches() {
     # correctif à moitié posé, ni applicable ni retirable. Ceux qui sont posés en
     # entier sont donc retirés d'abord (du dernier au premier), puis reposés après
     # ceux du serveur.
-    client_repo_of() {
-            case "$(basename "$1")" in
-            *-kyclient-*) echo "$KYCTL" ;;
-            *-kynput-*) echo "$KYNPUT" ;;
-            *-kynet-*) echo "$KYMUX" ;;
-        esac
-    }
-    CLIENT_APPLIED=()
+    local client_applied=()
     for p in "$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/apps/webos/kyber-patches/*.patch; do
-        repo=$(client_repo_of "$p")
-        [ -n "$repo" ] && git -C "$repo" apply --reverse --check "$p" 2>/dev/null && CLIENT_APPLIED=("$p" ${CLIENT_APPLIED[@]+"${CLIENT_APPLIED[@]}"})
+        repo=$(kyber_app_repo "$p")
+        [ -n "$repo" ] && git -C "$repo" apply --reverse --check "$p" 2>/dev/null \
+            && client_applied=("$p" ${client_applied[@]+"${client_applied[@]}"})
     done
-    for p in ${CLIENT_APPLIED[@]+"${CLIENT_APPLIED[@]}"}; do
-        git -C "$(client_repo_of "$p")" apply --reverse "$p"
+    for p in ${client_applied[@]+"${client_applied[@]}"}; do
+        git -C "$(kyber_app_repo "$p")" apply --reverse "$p" || exit 1
     done
+    # Les correctifs se suivent et touchent parfois les mêmes fichiers : on part
+    # toujours des sources d'origine, puis on les applique tous, dans l'ordre.
+    # Seuls les fichiers des correctifs sont remis à l'origine : kyctl et kymux
+    # portent aussi les correctifs des apps.
     for p in "$HERE"/*.patch; do
-        repo=$(repo_of "$p")
+        repo=$(kyber_server_repo "$p")
         [ -n "$repo" ] || continue
-        for f in $(grep -h '^+++ b/' "$p" | sed 's|^+++ b/||; s|[[:space:]].*||'); do
-            case "$f" in
-                subprojects/txproto/*) dir="$repo/subprojects/txproto" f="${f#subprojects/txproto/}" ;;
-                subprojects/libavconv/*) dir="$repo/subprojects/libavconv" f="${f#subprojects/libavconv/}" ;;
-                *) dir="$repo" ;;
-            esac
-            if git -C "$dir" cat-file -e "HEAD:$f" 2>/dev/null; then
-                git -C "$dir" checkout -q HEAD -- "$f"
-            else
-                rm -f "$dir/$f"     # ajouté par le correctif : absent de l'origine
-            fi
-        done
+        kyber_patch_reset "$repo" "$p" || exit 1
     done
     for p in "$HERE"/*.patch; do
-        repo=$(repo_of "$p")
+        repo=$(kyber_server_repo "$p")
         [ -n "$repo" ] || continue
         echo "    $(basename "$p")"
-        out="$(cd "$repo" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p")" || {
-            printf '%s\n' "$out" | sed 's/^/        /'
-            echo "Correctif $(basename "$p") inapplicable (hunk en échec ci-dessus)" >&2
-            exit 1
-        }
-        printf '%s\n' "$out" | sed 's/^/        /'
-        # Un morceau posé avec un décalage du contexte (« fuzz ») a pu
-        # tomber au mauvais endroit : c'est un échec (STCOM-05), sauf avec
-        # KYBERNOW_PATCH_STRICT=0 (signalé seulement). Tous les correctifs se
-        # posent sans depuis le 27/11/2026.
-        if grep -q 'with fuzz' <<< "$out"; then
-            echo "Correctif $(basename "$p") posé avec un décalage du contexte (fuzz) : à régénérer" >&2
-            [ "${KYBERNOW_PATCH_STRICT:-1}" = 0 ] || exit 1
-        fi
+        kyber_patch_put "$p" "$repo" || exit 1
     done
     # Puis ceux des apps : ceux qui étaient posés, et toujours ceux de
     # apps/macos (tous les clients les posent) : le correctif serveur du stylet
     # (0027-kynput) s'appuie sur celui des apps (0005-kynput, Pen). Sur des
     # sources d'origine (arbre de construction de release.sh), rien ne les
     # avait encore posés et kynput ne compilait pas.
-    REAPPLY=("$ROOT"/apps/macos/kyber-patches/*.patch)
-    for p in ${CLIENT_APPLIED[@]+"${CLIENT_APPLIED[@]}"}; do
-        case "$p" in "$ROOT"/apps/macos/*) ;; *) REAPPLY+=("$p") ;; esac
+    local reapply=("$ROOT"/apps/macos/kyber-patches/*.patch)
+    for p in ${client_applied[@]+"${client_applied[@]}"}; do
+        case "$p" in "$ROOT"/apps/macos/*) ;; *) reapply+=("$p") ;; esac
     done
-    for p in ${REAPPLY[@]+"${REAPPLY[@]}"}; do
-        repo=$(client_repo_of "$p")
+    for p in ${reapply[@]+"${reapply[@]}"}; do
+        repo=$(kyber_app_repo "$p")
         if git -C "$repo" apply --check "$p" 2>/dev/null; then
             git -C "$repo" apply "$p" && echo "    $(basename "$p") (app) reposé"
         elif ! git -C "$repo" apply --reverse --check "$p" 2>/dev/null; then
@@ -110,4 +104,68 @@ kyber_apply_server_patches() {
             exit 1
         fi
     done
+}
+
+# kyber_apply_own_patches <dossier> <libellé> : les correctifs propres à une
+# Station (server/macos/kyber-patches, server/linux/kyber-patches), même
+# nommage que les communs, posés après eux dans l'ordre de leur nom. Leurs
+# fichiers sont remis à l'origine une fois pour toutes, avant le premier (deux
+# correctifs propres peuvent toucher le même fichier : Mac 0003 et 0004,
+# mod.rs) ; un fichier déjà touché par un correctif commun reste tel quel.
+kyber_apply_own_patches() {
+    local LC_ALL=C
+    local dir=$1 label=$2 p
+    local own=()
+    for p in "$dir"/*.patch; do [ -f "$p" ] && own+=("$p"); done
+    [ ${#own[@]} -gt 0 ] || return 0
+    for p in "${own[@]}"; do
+        kyber_patch_reset "$(kyber_server_repo "$p")" "$p" "$HERE"/*.patch || exit 1
+    done
+    for p in "${own[@]}"; do
+        echo "    $(basename "$p") ($label)"
+        kyber_patch_put "$p" "$(kyber_server_repo "$p")" || exit 1
+    done
+}
+
+# kyber_station_inputs <windows|mac|linux> : ce qui entre dans l'empreinte du
+# Kyber d'une Station, chemins relatifs à la racine du dépôt, dans l'ordre :
+# correctifs communs et ceux des apps (kyber_apply_server_patches repose
+# toujours ceux de apps/macos, le 0027 commun en dépend ; ceux de webOS quand
+# ils étaient posés), les scripts qui les posent, la chaîne d'outils, le commit
+# de PyroWave (apps/macos/PyroWave/COMMIT : l'encodeur de chaque Station en
+# vient), puis ce qui est propre à la Station. Les fichiers de cette liste sont
+# aussi dans les entrées de son étape (scripts/release-entrees.sh).
+kyber_station_inputs() {
+    local LC_ALL=C
+    case "$1" in
+        windows | mac | linux) ;;
+        *) echo "kyber_station_inputs : Station inconnue « $1 » (windows, mac ou linux)" >&2; return 1 ;;
+    esac
+    printf '%s\n' server/kyber-patches/*.patch server/kyber-patches/apply.sh scripts/kyber-patches-lib.sh \
+        scripts/kyber-toolchain.sh apps/macos/kyber-patches/*.patch apps/webos/kyber-patches/*.patch \
+        apps/macos/PyroWave/COMMIT
+    case "$1" in
+        # Surcouche de la Station Windows (third_party/payload/kyber-overlay) :
+        # aussi le moteur web, PyroWave pour Windows et les aides compilées dans
+        # la surcouche (micro, caméra, essai de l'encodeur ; en 0.11.7, celles du
+        # micro et de la caméra corrigées sont parties dans leur ancienne
+        # version, faute d'y être).
+        windows) printf '%s\n' server/kyber-patches/build.sh server/kyber-patches/pyrowave.sh \
+            server/micro server/camera server/encoder-check ;;
+        # Kyber pour Mac : ses correctifs, ses crates corrigées, l'encodeur
+        # PyroWave Metal (server/macos/pyrowave) et le port Metal qu'il compile
+        # (apps/macos/PyroWave/upstream, audit TRANS-03).
+        mac) printf '%s\n' server/macos/kyber-patches/*.patch server/macos/crates/*.patch \
+            server/macos/scripts/build-kyber.sh server/macos/pyrowave apps/macos/PyroWave ;;
+        linux) printf '%s\n' server/kyber-patches/pyrowave.sh server/linux/kyber-patches/*.patch \
+            server/linux/scripts/build-kyber.sh server/linux/scripts/pyrowave-linux.sh ;;
+    esac
+}
+
+# kyber_station_hash <racine du dépôt> <windows|mac|linux> : l'empreinte.
+kyber_station_hash() {
+    local list=() p
+    kyber_station_inputs "$2" > /dev/null || return 1
+    while IFS= read -r p; do list+=("$p"); done < <(cd "$1" && kyber_station_inputs "$2")
+    kyber_files_hash "$1" "${list[@]}"
 }
