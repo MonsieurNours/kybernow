@@ -37,8 +37,9 @@ Détail des API : [`apps/core/README.md`](../../apps/core/README.md), section «
 
 ### À faire dans tous les ponts
 
-1. `ffi_guard!` autour du corps de **chaque** fonction exportée et de chaque rappel C : pont Apple (`apps/apple/src`, 351 fonctions : `lib.rs` 105, `input.rs` 69, `playstation.rs` 54, `share.rs` 29, `account.rs` 25, `autotest.rs` 17, `lend.rs` 13, `audio.rs` 11, `welcome.rs` 9, `camera.rs` 8, `relay.rs` 8, `recording.rs` 2, `invite.rs` 1), JNI (`apps/android/jni/src`, fonctions `extern "system"` ; seul `audio.rs:57` a un `catch_unwind`), rappels C de Windows (`pyrowave.rs`, `decoder.rs`, `gpu.rs`), Linux et LG (`device/*.rs`). Défauts : `()`, `false`, `0`, le code d'erreur de la fonction, `null =>` pour une chaîne ou une poignée, `JObject::null()` (défaut du type).
-2. Exposer ce que l'interface ne peut pas appeler elle-même (noms proposés, à garder d'un pont à l'autre) :
+1. `Platform::on_pyrowave_fallback` (méthode nouvelle, vide par défaut) : l'implémenter pour montrer l'avis « Image en {format} : PyroWave n'a pas pu démarrer sur cet appareil. » (link-ui), une fois par session.
+2. `ffi_guard!` autour du corps de **chaque** fonction exportée et de chaque rappel C : pont Apple (`apps/apple/src`, 351 fonctions : `lib.rs` 105, `input.rs` 69, `playstation.rs` 54, `share.rs` 29, `account.rs` 25, `autotest.rs` 17, `lend.rs` 13, `audio.rs` 11, `welcome.rs` 9, `camera.rs` 8, `relay.rs` 8, `recording.rs` 2, `invite.rs` 1), JNI (`apps/android/jni/src`, fonctions `extern "system"` ; seul `audio.rs:57` a un `catch_unwind`), rappels C de Windows (`pyrowave.rs`, `decoder.rs`, `gpu.rs`), Linux et LG (`device/*.rs`). Défauts : `()`, `false`, `0`, le code d'erreur de la fonction, `null =>` pour une chaîne ou une poignée, `JObject::null()` (défaut du type).
+3. Exposer ce que l'interface ne peut pas appeler elle-même (noms proposés, à garder d'un pont à l'autre) :
 
 | Cœur | Pont C (Apple) | JNI (Android) | Tauri (Windows) |
 |---|---|---|---|
@@ -50,6 +51,7 @@ Détail des API : [`apps/core/README.md`](../../apps/core/README.md), section «
 | `values_json` | `kn_values_json()` | `Native.valuesJson()` | au lancement |
 | `plan_json` | `kn_plan_json(choix)` | `Native.planJson(choix)` | `displays_info` |
 | `pyrowave_failed` | `kn_session_pyrowave_failed(s)` | `Native.sessionPyroWaveFailed(handle)` | `Session::pyrowave_failed` |
+| `Platform::on_pyrowave_fallback(format, texte)` (avis bref, une fois) | rappel `on_pyrowave_fallback` de `KnPlatform` | `SessionListener.onPyroWaveFallback` | avis de la barre |
 | `Lowered::text` | `kn_pyrowave_lowered_text(l, h, fréquence, mbps)` | `Native.pyrowaveLoweredText(…)` | Rust |
 | `looks_like_invite` | `kn_looks_like_invite(texte)` | `Native.looksLikeInvite(texte)` | Rust |
 | `recording::clock` | `kn_recording_clock` (existe) | `Native.recordingClock(secondes)` | Rust |
@@ -122,7 +124,7 @@ L'interface se compile sans le cœur (captures) : elle dépend de **`kybernow-ru
 - **`welcome.rs`** : l'inclusion `#[path = "../../core/src/welcome.rs"]` (`main.rs:30`) marche de nouveau (elle cassait la construction depuis COEUR-40) ; elle reste jusqu'à ce que le cœur retire ses deux inclusions internes (après la 2b).
 - **Device, par le cœur** : `device/session.rs:819-821` (mise à l'échelle recopiée) → `profile::pixel_rate_scale`, ou mieux `plan::plan` ; `device/video.rs:69-127` (`PwConfig`) → `pyrowave::Config` ; `run`/`frame` (`device/video.rs:384-646`) → `frames::FrameFlow` (Linux gagne le repli « format jamais annoncé ») ; `device/jobs.rs:223-261` → `discovery::found` ; `device/ps.rs:1313-1400` (`bundle`, `merge` à la main) → `playstation::bundle` (identifiant PSN vérifié) ; `recording_ui` (`device/session.rs:559-588`) inchangé (`ui_json`).
 - **LINAPP-40** : `synced.rs` → la mémoire des envois passe au cœur (`account::AccountSync`, côté device) ; l'interface garde `apply` sur `HostSettings` et `snap_mbps` (son menu), et un essai compare `SyncKeys` à `SyncedValues` (même JSON : `json_comme_le_coeur`) ; `merge`, `remove_sent`, `without` → `SyncedValues::{overlay, remove_sent, without}` côté device. `PsSettings` (`model.rs:497-555`) a le JSON de `PlaySettings` (essai du cœur `json_des_reglages_comme_les_apps`) : la conversion device passe par serde.
-- **Micro** : `micro.rs:48-150` (`MicUi`, textes en dur) → `micro::MicUi::ui_json` donné par le device à l'interface (comme `recording_ui`) ; le sous-titre « Envoi… » n'est pas dans link-ui (le cœur dit « Envoyé » dès qu'il est allumé et pas refusé).
+- **Micro** : `micro.rs:48-150` (`MicUi`, textes en dur) → `micro::MicUi::ui_json` donné par le device à l'interface (comme `recording_ui`) ; la tuile dit « Envoi… » tant que l'ordinateur n'a pas répondu, comme link-ui (le cœur le donne).
 - **TRANS-40** : aucun plafond aujourd'hui → `Session::set_background(…, Device::Computer)` (20 Mbit/s) quand la fenêtre est réduite ou cachée (événements SDL), sauf en Link OS plein écran.
 - **WINAPP-49** : rien à changer à la courbe (Linux avait déjà celle de la Station).
 

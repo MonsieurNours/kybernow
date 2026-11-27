@@ -21,7 +21,7 @@ Branche `claude/v2-coeur-8452cb`. Plan : [`../vague-2.md`](../vague-2.md). Guide
 | COEUR-38 | `Reply::read` (statut, corps, `Retry-After`, une fois), `Console::answer`, `Console::failure` : huit copies réunies ; `share_wait` garde maintenant `Retry-After`. |
 | COEUR-39 | `relay::choose` et `relay::DIRECT_PROBE` : une règle pour la session, le prêt et « Regarder » ; certificat changé et compte sans jeton s'arrêtent partout ; `KYBERNOW_RELAY=off` ne prend jamais le relais ; `lend::DIRECT_PROBE`, `share::LOCAL_FIRST`, `session::DIRECT_PROBE` retirés (aucune app ne les lisait). |
 | COEUR-41 | `share::format_code` et `recording::clock` dans `rules::format` ; `lend::looks_like_invite` ; « Définition ramenée » : `pyrowave::Lowered::text` existait, il ne manque que la fonction du pont (2b) ; textes de l'enregistrement : `ui_json` reste la seule source (décision de COEUR-43). |
-| WINAPP-11 | `Session::pyrowave_failed()` : repli de l'appareil pour la session, image relancée (sans nouvelle variante de `Notice`, voir « Laissé »). |
+| WINAPP-11 | `Session::pyrowave_failed()` : repli de l'appareil pour la session, image relancée ; l'avis de link-ui une fois par `Platform::on_pyrowave_fallback(format, texte)` (méthode vide par défaut : aucune variante de `Notice`, les `match` des ponts ne cassent pas), texte `pyrowave.fallback_notice` du catalogue FR et EN. |
 | WINAPP-49 | `rules::hdr` : PQ, `BT2020_TO_709`, EETF de BT.2390 **avec** le relèvement du noir, courbe vers le SDR **de la Station** (correctifs 0022, celle de Linux ; Windows avait un Reinhard étendu), `yuv_matrix`, `content_peak`, `frame_is_pq`, `Output`, `tone`, `hdr10_for` ; `HdrLuminance::from_display`. |
 | WINAPP-50 | `pyrowave::Config` : 16 octets au moins, version 1 et suivantes (octets en trop ignorés : prêt pour la v2 de KYB-29), octets 5 à 7 vérifiés, 4:2:0 pair, en-tête de séquence, repli. |
 | WINAPP-51 | `frames::FrameFlow` : machine pure du flux d'images (format jamais annoncé ouvert d'office avec les paramètres reçus, paramètres bout à bout puis remplacés, décodeur refait quand ils changent, `av1C`, perte dite une fois, image clé au plus toutes les 300 ms, reprise, PyroWave intra, décodeur indisponible, décodeur refait par l'app). |
@@ -29,7 +29,7 @@ Branche `claude/v2-coeur-8452cb`. Plan : [`../vague-2.md`](../vague-2.md). Guide
 | WINAPP-54 | `playstation::bundle` (paquet tolérant, identifiants PSN vérifiés, comptes rapprochés, Stations par la règle commune des empreintes). |
 | WINAPP-55 | `account::AccountSync`, `settings::changed`, `SyncedValues::overlay`. |
 | LINAPP-40 | `SyncedValues::remove_sent`, `without` ; `PlaySettings` a exactement le JSON de `PsSettings` de Linux (essai). |
-| WINAPP-56 | `micro::MicUi`, `MicTap` ; textes de link-ui (puce, infobulles, tuile) dans le catalogue du cœur, FR et EN. |
+| WINAPP-56 | `micro::MicUi`, `MicTap` ; textes de link-ui (puce, infobulles, tuile, « Envoi… » tant que l'ordinateur n'a pas répondu) dans le catalogue du cœur, FR et EN. |
 | WINAPP-62 | `Screens::session_hdr`, `Screens::primary`. |
 | AND-30 | Côté cœur, rien à ajouter : `lendAvailabilityLabel`, `relayErrorText`, `relayPathLabel` existent, et `WakeTarget::from_mac` lit déjà l'IPv4 ; le guide dit quoi remplacer en Kotlin. |
 | TRANS-50 | `ndk-sys` et `kynput-sys` retirés du pont Android, `kynput-sys` de l'app LG (aucun usage ; `apps/Cargo.lock` suit). L'app Apple garde le sien (`lib.rs:1159`). |
@@ -39,11 +39,11 @@ Branche `claude/v2-coeur-8452cb`. Plan : [`../vague-2.md`](../vague-2.md). Guide
 
 ## Laissé, et pourquoi
 
-- **Avis quand PyroWave ne s'ouvre pas** : une nouvelle variante de `Notice` casserait les `match` exhaustifs des ponts Apple, Linux, LG et Android avant leur migration. Le repli se voit dans la barre (format) et au journal. Si un avis est voulu, son texte est à écrire dans `docs/link-ui.md` (session des docs), puis la variante à ajouter avec la 2b.
+- **Avis quand PyroWave ne s'ouvre pas, dans les apps** : le cœur l'envoie (`Platform::on_pyrowave_fallback`) ; chaque pont l'implémente en 2b pour le montrer.
 - **KYB-25** (`PacketSink` non `Copy`, avec `Drop`) : l'API n'existe pas encore (session des correctifs Kyber). Quand elle arrive, `media.rs` (`packet_sink`, `packet_sink_tracked`, `trampoline`) s'y adapte : la boîte ne sera plus libérée par le seul `Closed` de la tâche ; à fusionner en même temps. Noté dans le guide et dans le dossier partagé.
 - **Ports PlayStation partagés avec le relais et Admin** (TRANS-42) : leur place est `server/relay/tunnel` (zone du relais) ; le cœur les reprendra ensuite.
 - **`welcome.rs` dans la caisse** : il reste dans le cœur tant que Linux et LG l'incluent par `#[path]` ; ses deux inclusions de `rules/src` sont « à retirer en 2b ».
-- **Le sous-titre « Envoi… » du micro** (Linux) n'est pas dans link-ui : `MicUi::tile` dit « Envoyé » dès que le micro est allumé et pas refusé. À trancher dans `docs/link-ui.md` si l'attente doit se dire.
+- **Tuile du micro en anglais** : link-ui (branche des docs) écrit “Connecting…” pour « Envoi… » ; le cœur suit link-ui (la coordination avait écrit “Sending…”).
 - **Débit en arrière-plan d'un téléviseur LG** : la décision de l'auteur nomme Mac et PC (20), iPhone, iPad, Apple TV (8) et Android (2) ; LG (aucun plafond aujourd'hui) prend 2 Mbit/s, comme Android. À changer dans `rules::limits::background_bitrate` si l'auteur préfère autre chose.
 - **Bornes du débit à la main** : 500 Mbit/s en HEVC, AV1 et H.264, 2 500 en PyroWave (décision de l'auteur) ; le Mac allait jusqu'à 4 294. Le client web garde ses bornes de navigateur (10 à 150, 1 000 en PyroWave), exception à écrire dans link-ui par la session des docs.
 - **Retraits** : `lend::DIRECT_PROBE`, `share::LOCAL_FIRST`, `session::DIRECT_PROBE`, `regist::PORT`, `takion::PORT`, `playstation::session::PORT` : cherchés dans toutes les apps (Rust des ponts, Swift, Kotlin, TypeScript) avant d'être retirés ; aucun usage. `RecordingState::menu_item`, rétabli dans main, est gardé.

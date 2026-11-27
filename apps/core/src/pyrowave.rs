@@ -207,6 +207,13 @@ impl Config {
     }
 }
 
+/// L'avis bref quand PyroWave n'a pas pu démarrer sur l'appareil (docs/link-ui.md,
+/// « PyroWave ») : « Image en {format} : PyroWave n'a pas pu démarrer sur
+/// cet appareil. », `codec` le format de repli.
+pub fn fallback_text(codec: crate::profile::Codec, lang: crate::i18n::Lang) -> String {
+    crate::i18n::tr(lang, "pyrowave.fallback_notice", &[("format", codec.label())])
+}
+
 fn even(v: f64) -> u32 {
     (((v / 2.0).round() as u32) * 2).max(2)
 }

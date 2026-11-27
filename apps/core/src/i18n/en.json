@@ -124,7 +124,8 @@
     "state_off": "Lending off"
   },
   "pyrowave": {
-    "lowered": "Resolution lowered to {width} × {height} to fit in {mbps} Mbit/s."
+    "lowered": "Resolution lowered to {width} × {height} to fit in {mbps} Mbit/s.",
+    "fallback_notice": "Picture in {format}: PyroWave couldn't start on this device."
   },
   "hdr": {
     "off": "The computer doesn't offer HDR.",
@@ -269,7 +270,8 @@
     "tooltip_on": "Microphone: sent to the computer ({shortcut})",
     "tooltip_off": "Microphone off ({shortcut})",
     "tile_on": "On",
-    "tile_off": "Off"
+    "tile_off": "Off",
+    "tile_waiting": "Connecting…"
   },
   "camera": {
     "paused": "Paused",

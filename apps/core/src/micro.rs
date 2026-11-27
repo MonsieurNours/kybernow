@@ -215,9 +215,16 @@ impl MicUi {
         i18n::tr(lang, if self.lit() { "micro.tooltip_on" } else { "micro.tooltip_off" }, &[("shortcut", shortcut)])
     }
 
-    /// Le sous-titre de la tuile « Micro » : « Envoyé » ou « Coupé ».
+    /// Le sous-titre de la tuile « Micro » : « Envoyé », « Coupé », et
+    /// « Envoi… » tant que l'ordinateur n'a ni pris ni refusé le micro allumé
+    /// (seulement dans la tuile).
     pub fn tile(&self, lang: i18n::Lang) -> String {
-        i18n::tr(lang, if self.lit() { "micro.tile_on" } else { "micro.tile_off" }, &[])
+        let key = match (self.lit(), self.state) {
+            (false, _) => "micro.tile_off",
+            (true, MicState::On) => "micro.tile_on",
+            (true, _) => "micro.tile_waiting",
+        };
+        i18n::tr(lang, key, &[])
     }
 
     /// Pour les ponts : `{"on","state","lit","sent","reason","label",
@@ -658,6 +665,8 @@ mod tests {
         assert_eq!(m.tap(), MicTap::Set(true));
         m.set(true);
         assert!(m.lit() && !m.sent(), "allumé, réponse attendue");
+        assert_eq!((m.tile(Lang::Fr), m.tile(Lang::En)), ("Envoi…".to_string(), "Connecting…".to_string()));
+        assert_eq!(m.label(Lang::Fr), "Micro", "la puce, sans autre texte");
         assert_eq!(m.changed(MicState::Waiting, "PC"), None);
         let notice = m.changed(MicState::On, "PC-SALON").unwrap();
         assert!(notice.contains("PC-SALON"));

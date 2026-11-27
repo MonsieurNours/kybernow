@@ -541,6 +541,12 @@ pub trait Platform: Send + Sync {
     /// Un jeu est en plein écran sur l'ordinateur (souris Auto).
     fn on_game_fullscreen(&self, _game: bool) {}
     fn on_notice(&self, _notice: &Notice) {}
+    /// PyroWave n'a pas pu démarrer sur l'appareil ([`Session::pyrowave_failed`]) :
+    /// l'image repart en `codec`, pour cette session ; `text` est l'avis bref
+    /// de link-ui, à montrer une fois (« Image en HEVC : PyroWave n'a pas pu
+    /// démarrer sur cet appareil. »). Une méthode à part plutôt qu'une
+    /// variante de [`Notice`], que les ponts lisent de façon exhaustive.
+    fn on_pyrowave_fallback(&self, _codec: Codec, _text: &str) {}
     /// Le micro de l'appareil (docs/micro.md) : à chaque changement d'état.
     /// L'app capte tant que [`crate::micro::MicState::capturing`] et donne
     /// ses échantillons à [`Session::push_microphone`]. Jamais appelé sans
@@ -3758,6 +3764,7 @@ impl Worker {
         self.pyrowave_failed = true;
         let to = self.effective();
         warn!("PyroWave : le décodeur de l'appareil ne s'ouvre pas, {} pour le reste de la session", to.codec.label());
+        self.platform.on_pyrowave_fallback(to.codec, &crate::pyrowave::fallback_text(to.codec, i18n::current()));
         true
     }
 
@@ -5864,9 +5871,14 @@ mod tests {
         notices: Mutex<Vec<Notice>>,
         /// Enregistrement : actif, et l'avis bref.
         recordings: Mutex<Vec<(bool, Option<String>)>>,
+        /// PyroWave qui ne s'ouvre pas : le format de repli et l'avis.
+        fallbacks: Mutex<Vec<(Codec, String)>>,
     }
 
     impl Platform for Recorder {
+        fn on_pyrowave_fallback(&self, codec: Codec, text: &str) {
+            self.fallbacks.lock().unwrap().push((codec, text.to_owned()));
+        }
         fn on_recording(&self, state: &crate::recording::RecordingState, notice: Option<&str>, _computer: Option<&str>) {
             self.recordings.lock().unwrap().push((state.active, notice.map(str::to_owned)));
         }
@@ -5991,7 +6003,7 @@ mod tests {
     /// de repli de l'appareil pour le reste de la session, une fois.
     #[test]
     fn pyrowave_qui_ne_s_ouvre_pas() {
-        let (mut w, _) = worker(crate::profile::Profile::Max, two_screens(0));
+        let (mut w, rec) = worker(crate::profile::Profile::Max, two_screens(0));
         w.params.capabilities = Some(Capabilities { hevc: true, hevc444: true, av1: true, hdr: false, pyrowave: true });
         w.params.settings.codec = Codec::PyroWave;
         w.params.settings.profile = None;
@@ -6004,6 +6016,11 @@ mod tests {
         assert!(w.on_pyrowave_failed());
         assert_eq!(w.effective().codec, Codec::Hevc);
         assert!(!w.on_pyrowave_failed(), "une fois");
+        // L'avis de link-ui, une fois, avec le format de repli.
+        assert_eq!(rec.fallbacks.lock().unwrap().len(), 1);
+        assert_eq!(rec.fallbacks.lock().unwrap()[0].0, Codec::Hevc);
+        assert_eq!(crate::pyrowave::fallback_text(Codec::Hevc, Lang::Fr), "Image en HEVC : PyroWave n'a pas pu démarrer sur cet appareil.");
+        assert_eq!(crate::pyrowave::fallback_text(Codec::Av1, Lang::En), "Picture in AV1: PyroWave couldn't start on this device.");
         // Le choix de l'app reste PyroWave : il revient à la session suivante.
         assert_eq!(w.params.settings.codec, Codec::PyroWave);
         // Hors PyroWave : rien.
