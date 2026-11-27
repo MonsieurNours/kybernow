@@ -399,6 +399,33 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_looksLikeIn
     })
 }
 
+/// Une Station trouvée sur le réseau (`discovery::found`) : l'app résout
+/// l'annonce mDNS elle-même (NsdManager, JmDNS) et donne `{"fullname",
+/// "port", "addresses": ["192.168.1.20", …], "txt": {"name", "fp", "kyber"}}` ;
+/// rend `{"id", "name", "host", "port", "fingerprint"}` (adresse choisie,
+/// empreinte sous sa forme normale), ou nul pour une annonce à ignorer.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_discoveryFound(mut env: Env, _: JClass, json: JString) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        #[derive(serde::Deserialize)]
+        struct Announce {
+            fullname: String,
+            port: u16,
+            #[serde(default)]
+            addresses: Vec<String>,
+            #[serde(default)]
+            txt: std::collections::HashMap<String, String>,
+        }
+        let json = string(&mut env, &json);
+        let Ok(a) = serde_json::from_str::<Announce>(&json) else { return std::ptr::null_mut() };
+        let addresses: Vec<std::net::IpAddr> = a.addresses.iter().filter_map(|s| s.parse().ok()).collect();
+        match kybernow_core::discovery::found(&a.fullname, a.port, &addresses, |k| a.txt.get(k).cloned()) {
+            Some(f) => give(&mut env, &serde_json::to_string(&f).unwrap_or_default()),
+            None => std::ptr::null_mut(),
+        }
+    })
+}
+
 // MARK: - Réveil par le réseau
 
 /// Une adresse MAC tapée à la main, lue par le cœur (`wake::parse_mac` :

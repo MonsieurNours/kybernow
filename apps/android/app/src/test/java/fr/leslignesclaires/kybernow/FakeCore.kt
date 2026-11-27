@@ -31,6 +31,13 @@ open class FakeCore : Core.Source {
     override fun relayParts(addr: String): String? = null
     override fun relayLabel(addr: String) = addr.substringBefore('#')
     override fun looksLikeInvite(text: String) = text.contains("borrow")
+    override fun discoveryFound(json: String): String? {
+        val o = JSONObject(json)
+        val host = o.optJSONArray("addresses")?.optString(0)?.takeIf { it.isNotEmpty() } ?: return null
+        val txt = o.optJSONObject("txt") ?: JSONObject()
+        return JSONObject().put("id", o.getString("fullname")).put("name", txt.optString("name", "Station")).put("host", host)
+            .put("port", o.getInt("port")).put("fingerprint", txt.opt("fp") ?: JSONObject.NULL).toString()
+    }
     override fun recordingClock(seconds: Long) = "%02d:%02d".format(seconds / 60, seconds % 60)
     override fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean): String {
         val (yuv, mbps, reliable) = when (profile) {

@@ -92,6 +92,11 @@ object Native {
      * bornes du débit à la main, débit en arrière-plan, maxima, délais, port d'Admin. Une fois au lancement ; nul si illisible.
      */
     @JvmStatic external fun valuesJson(capabilitiesJson: String): String?
+    /**
+     * Une Station trouvée sur le réseau (`discovery::found`) : `{fullname, port, addresses, txt}` résolus par l'app →
+     * `{id, name, host, port, fingerprint}` (adresse choisie, empreinte sous sa forme normale), nul pour une annonce à ignorer.
+     */
+    @JvmStatic external fun discoveryFound(json: String): String?
     /** Le texte ressemble à un lien d'invitation, lisible ou non. */
     @JvmStatic external fun looksLikeInvite(text: String): Boolean
 

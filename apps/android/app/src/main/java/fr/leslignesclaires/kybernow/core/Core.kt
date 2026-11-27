@@ -22,6 +22,7 @@ object Core {
         fun relayParts(addr: String): String?
         fun relayLabel(addr: String): String
         fun looksLikeInvite(text: String): Boolean
+        fun discoveryFound(json: String): String?
         fun recordingClock(seconds: Long): String
         fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean): String
         fun accountSettingsKnown(syncedJson: String): String
@@ -44,6 +45,7 @@ object Core {
         override fun relayParts(addr: String) = Native.relayParts(addr)
         override fun relayLabel(addr: String) = Native.relayLabel(addr)
         override fun looksLikeInvite(text: String) = Native.looksLikeInvite(text)
+        override fun discoveryFound(json: String) = Native.discoveryFound(json)
         override fun recordingClock(seconds: Long) = Native.recordingClock(seconds)
         override fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean) = Native.profileSettings(profile, hevc, hevc444, av1)
         override fun accountSettingsKnown(syncedJson: String) = Native.accountSettingsKnown(syncedJson)
@@ -155,6 +157,16 @@ object Core {
 
     /** Les parties d'une adresse de relais (`rules::relay::parse`) : `{authority, pin}` ; nul si elle ne se lit pas. */
     fun relayParts(addr: String): JSONObject? = ask("relais", null) { relayParts(addr) }?.let { runCatching { JSONObject(it) }.getOrNull() }
+
+    /**
+     * Une Station trouvée sur le réseau, lue par le cœur (`discovery::found`) : l'annonce résolue par l'app ([fullname],
+     * [port], ses [addresses], son TXT) ; rend `{id, name, host, port, fingerprint}`, ou nul pour une annonce à ignorer.
+     */
+    fun discoveryFound(fullname: String, port: Int, addresses: List<String>, txt: Map<String, String?>): JSONObject? {
+        val o = JSONObject().put("fullname", fullname).put("port", port).put("addresses", org.json.JSONArray(addresses))
+            .put("txt", JSONObject().apply { txt.forEach { (k, v) -> if (v != null) put(k, v) } })
+        return ask("découverte", null) { discoveryFound(o.toString()) }?.let { runCatching { JSONObject(it) }.getOrNull() }
+    }
 
     /** Le texte ressemble à un lien d'invitation, lisible ou non. */
     fun looksLikeInvite(text: String): Boolean = ask("lien d'invitation", false) { looksLikeInvite(text) }
