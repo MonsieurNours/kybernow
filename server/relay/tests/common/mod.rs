@@ -84,11 +84,14 @@ pub struct Policy {
     pub kyber_tcp: bool,
     /// Réponse au deuxième `wait` : 200 (accepté) ou 403 (refusé).
     pub wait_status: u16,
+    /// Sert les flux `browser_tls` (Admin 0.11.8), avec un certificat pour
+    /// `<id>.station.share.test` signé par une autorité à elle (`FakeStation::station_roots`).
+    pub browser_tls: bool,
 }
 
 impl Default for Policy {
     fn default() -> Self {
-        Policy { flows: true, kyber_tcp: true, wait_status: 200 }
+        Policy { flows: true, kyber_tcp: true, wait_status: 200, browser_tls: false }
     }
 }
 
@@ -104,6 +107,9 @@ pub struct FakeStation {
     pub attached: Arc<Mutex<Vec<kybernow_tunnel::msg::Attached>>>,
     /// Les `detached` reçus.
     pub detached: Arc<AtomicU32>,
+    /// L'autorité qui a signé le certificat de bout en bout de la Station (`browser_tls`) : un
+    /// navigateur qui ne connaît qu'elle prouve que le relais n'a rien déchiffré.
+    pub station_roots: Arc<RootCertStore>,
     tasks: Vec<JoinHandle<()>>,
 }
 
@@ -213,7 +219,27 @@ pub fn fake_station_with(identity: Arc<StationIdentity>, relay: RelayAddr, roots
         version: "essai".into(),
         roots: Some(roots),
         force_tcp,
+        browser_tls: policy.browser_tls,
     });
+    // Le certificat de bout en bout : `<id>.station.share.test`, d'une autorité que le relais ignore.
+    let (station_roots, e2e) = {
+        let ca_key = rcgen::KeyPair::generate().unwrap();
+        let mut ca_params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+        ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let ca = ca_params.self_signed(&ca_key).unwrap();
+        let key = rcgen::KeyPair::generate().unwrap();
+        let leaf = rcgen::CertificateParams::new(vec![format!("{}.station.{DOMAIN}", identity.id())]).unwrap().signed_by(&key, &ca, &ca_key).unwrap();
+        let mut roots = RootCertStore::empty();
+        roots.add(ca.der().clone()).unwrap();
+        let mut cfg = rustls::ServerConfig::builder_with_provider(kybernow_tunnel::tls::provider())
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![leaf.der().clone()], PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key.serialize_der())))
+            .unwrap();
+        cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
+        (Arc::new(roots), tokio_rustls::TlsAcceptor::from(Arc::new(cfg)))
+    };
     let headers = Arc::new(Mutex::new(Vec::new()));
     let std_echo = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     let udp_echo_addr = std_echo.local_addr().unwrap();
@@ -247,7 +273,7 @@ pub fn fake_station_with(identity: Arc<StationIdentity>, relay: RelayAddr, roots
             match ev {
                 Incoming::Stream { header, mut stream } => {
                     seen.lock().unwrap().push(header.clone());
-                    let (tls, waits, policy) = (tls.clone(), waits.clone(), policy.clone());
+                    let (tls, e2e, waits, policy) = (tls.clone(), e2e.clone(), waits.clone(), policy.clone());
                     tokio::spawn(async move {
                         match header.kind {
                             StreamKind::KyberTcp if policy.kyber_tcp => {
@@ -285,6 +311,12 @@ pub fn fake_station_with(identity: Arc<StationIdentity>, relay: RelayAddr, roots
                                 let svc = service_fn(move |req| fake_admin(req, waits.clone(), policy.clone()));
                                 let _ = hyper::server::conn::http1::Builder::new().serve_connection(TokioIo::new(stream), svc).with_upgrades().await;
                             }
+                            StreamKind::BrowserTls => {
+                                if let Ok(tls) = e2e.accept(stream).await {
+                                    let svc = service_fn(move |req| fake_admin(req, waits.clone(), policy.clone()));
+                                    let _ = hyper::server::conn::http1::Builder::new().serve_connection(TokioIo::new(tls), svc).with_upgrades().await;
+                                }
+                            }
                         }
                     });
                 }
@@ -312,7 +344,7 @@ pub fn fake_station_with(identity: Arc<StationIdentity>, relay: RelayAddr, roots
             }
         }
     });
-    FakeStation { agent, identity, admin_fp: admin.fp, headers, flow_targets, udp_echo: udp_echo_addr, attached, detached, tasks: vec![task, echo_task] }
+    FakeStation { agent, identity, admin_fp: admin.fp, headers, flow_targets, udp_echo: udp_echo_addr, attached, detached, station_roots, tasks: vec![task, echo_task] }
 }
 
 impl FakeStation {

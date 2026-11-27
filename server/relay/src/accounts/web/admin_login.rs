@@ -117,12 +117,15 @@ pub(super) fn open_admin(cx: Cx<'_>, post: bool) -> Reply {
     if !is_station_id(&station_id) || !nonce_ok(&nonce) {
         return refused(cx, "Cette demande ne vient pas d'Admin.", "This request doesn't come from Admin.");
     }
-    // Sur le réseau (une adresse locale), ou à distance : exactement l'adresse de cette Station par le relais.
+    // Sur le réseau (une adresse locale), ou à distance : exactement l'adresse de cette Station par le
+    // relais, de bout en bout (`<id>.<tls_zone>`, quand elle tient son certificat) ou déchiffrée.
     let acc = cx.acc;
-    let remote_origin = acc.station_origin(&station_id);
-    let remote = retour.trim().trim_end_matches('/') == remote_origin;
+    let asked = retour.trim().trim_end_matches('/');
+    let e2e_origin = acc.stations.tls_origin(&station_id);
+    let e2e = e2e_origin.as_deref() == Some(asked);
+    let remote = e2e || asked == acc.legacy_origin(&station_id);
     let published = acc.stations.admin(&station_id).map(|(lan, _)| lan).unwrap_or_default();
-    let Some(origin) = (if remote { Some(remote_origin.clone()) } else { admin_origin(&retour, &published) }) else {
+    let Some(origin) = (if remote { Some(asked.to_string()) } else { admin_origin(&retour, &published) }) else {
         return refused(
             cx,
             "Cette adresse n'est ni celle d'Admin sur le réseau local, ni celle de cet ordinateur par KyberNow Share.",
@@ -191,7 +194,10 @@ pub(super) fn open_admin(cx: Cx<'_>, post: bool) -> Reply {
         let _ = acc.db().org_log(org, Some(&account), "acces", detail, Some(&cx.ip()), cx.now);
     }
     tracing::info!(station = %station.id, "Admin ouvert avec un compte KyberNow");
-    let page = console::open_admin_go(&cx.view(), &format!("{origin}/api/login/kybernow?token={token}"));
+    // De bout en bout, la Station est au moins une 0.11.8 : le jeton part dans le fragment (jamais
+    // envoyé au serveur ni gardé dans un journal, REL-10) ; une Station 0.11.7 ne lit que `?token=`.
+    let sep = if e2e { '#' } else { '?' };
+    let page = console::open_admin_go(&cx.view(), &format!("{origin}/api/login/kybernow{sep}token={token}"));
     cx.page(200, page)
 }
 

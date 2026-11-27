@@ -267,7 +267,7 @@ pub fn not_found(lang: Lang) -> String {
 /// Ce que le relais voit et garde.
 pub fn privacy(lang: Lang) -> String {
     let title = t(lang, "Confidentialité du relais", "Relay privacy");
-    let items: [(&str, &str); 5] = [
+    let items: [(&str, &str); 6] = [
         (
             "Ce relais fait passer KyberNow par internet quand votre appareil n'est pas sur le même réseau que l'ordinateur.",
             "This relay carries KyberNow over the internet when your device is not on the same network as the computer.",
@@ -277,8 +277,12 @@ pub fn privacy(lang: Lang) -> String {
             "The KyberNow Link apps stay encrypted end to end: the relay sees neither the picture, nor the sound, nor what you type.",
         ),
         (
-            "Dans un navigateur, le relais déchiffre la connexion pour la faire suivre à l'ordinateur. Il n'en garde rien.",
-            "In a browser, the relay decrypts the connection to pass it on to the computer. It keeps none of it.",
+            "Dans un navigateur aussi, la connexion est chiffrée de bout en bout, jusqu'à l'ordinateur, quand il est à jour (KyberNow 0.11.8 ou plus récent). Avec un ordinateur plus ancien, le relais la déchiffre pour la faire suivre à l'ordinateur. Il n'en garde rien.",
+            "In a browser too, the connection is encrypted end to end, all the way to the computer, when it is up to date (KyberNow 0.11.8 or later). With an older computer, the relay decrypts the connection to pass it on to the computer. It keeps none of it.",
+        ),
+        (
+            "Pour cela, chaque ordinateur a son propre certificat, et les certificats sont inscrits dans des journaux publics (Certificate Transparency) : l'identifiant de l'ordinateur, déjà présent dans ses liens de partage, y figure.",
+            "For this, each computer has its own certificate, and certificates are listed in public logs (Certificate Transparency): the computer's identifier, already present in its share links, appears there.",
         ),
         (
             "Pour se protéger des abus, le relais garde dans ses journaux les adresses IP et l'heure des connexions, quelques jours. Il ne garde jamais les codes de partage.",

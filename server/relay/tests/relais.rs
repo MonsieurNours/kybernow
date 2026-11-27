@@ -438,6 +438,105 @@ async fn fichiers_de_la_page_d_accueil() {
     .expect("délai");
 }
 
+/// Navigateur chiffré de bout en bout (docs/relais.md, STWIN-17) : le relais annonce la zone, fait
+/// passer le TLS de `<id>.station.share.test` tel quel jusqu'à la Station (le navigateur ne connaît que
+/// l'autorité de la Station, pas celle du relais), et ses liens y mènent quand la Station est prête.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn navigateur_de_bout_en_bout() {
+    timeout(T * 2, async {
+        let pki = pki();
+        // Port public 443 : la zone n'est annoncée qu'ainsi (défi TLS-ALPN-01).
+        let relay = relay(&pki, |c| c.public_port = Some(443)).await;
+        let station = fake_station(relay_addr(&relay), pki.roots.clone(), false, Policy { browser_tls: true, ..Policy::default() });
+        station.joined().await;
+        let mut zone = station.agent.subscribe_tls_zone();
+        timeout(T, zone.wait_for(|z| z.is_some())).await.expect("zone annoncée").unwrap();
+        assert_eq!(station.agent.tls_zone().as_deref(), Some("station.share.test"));
+        let name = format!("{}.station.{DOMAIN}", station.id());
+        // Le navigateur ne fait confiance qu'à l'autorité de la Station : la négociation aboutit,
+        // donc c'est la Station qui a répondu, pas le relais.
+        let r = https(&relay, &station.station_roots, &name, "GET", "/link/?join=123456", &[]).await.unwrap();
+        assert_eq!(r.status, 200, "{}", r.body);
+        let echoed: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        assert_eq!(echoed["headers"]["host"], name);
+        let h = station.headers.lock().unwrap().iter().find(|h| h.kind == StreamKind::BrowserTls).cloned().expect("flux browser_tls");
+        assert_eq!(h.host.as_deref(), Some(name.as_str()));
+        assert_eq!(h.client.len(), 16);
+        // Avec l'autorité du relais seule, rien : le relais n'a aucun certificat pour ce nom.
+        assert!(https(&relay, &pki.roots, &name, "GET", "/", &[]).await.is_err());
+        // L'ALPN du défi ACME passe aussi tel quel (la fausse Station ne propose que http/1.1 : refus TLS chez elle).
+        let before = station.headers.lock().unwrap().iter().filter(|h| h.kind == StreamKind::BrowserTls).count();
+        let tcp = TcpStream::connect(relay.addr).await.unwrap();
+        let mut cfg = rustls::ClientConfig::builder_with_provider(kybernow_tunnel::tls::provider())
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_root_certificates(station.station_roots.clone())
+            .with_no_client_auth();
+        cfg.alpn_protocols = vec![b"acme-tls/1".to_vec()];
+        let _ = tokio_rustls::TlsConnector::from(std::sync::Arc::new(cfg)).connect(rustls::pki_types::ServerName::try_from(name.clone()).unwrap(), tcp).await;
+        let after = station.headers.lock().unwrap().iter().filter(|h| h.kind == StreamKind::BrowserTls).count();
+        assert_eq!(after, before + 1, "le défi va à la Station");
+        // Les liens : l'ancien nom tant que la Station n'a pas son certificat, puis le nouveau.
+        let code = station.agent.reserve(Some("515151")).await.unwrap();
+        let j = https(&relay, &pki.roots, DOMAIN, "GET", &format!("/j/{code}"), &[]).await.unwrap();
+        assert_eq!(j.headers.get("location").unwrap().to_str().unwrap(), format!("https://{}.{DOMAIN}/link/?join={code}", station.id()));
+        station.agent.admin_status(kybernow_tunnel::AdminInfo { tls_ready: true, ..Default::default() });
+        let wanted = format!("https://{name}/link/?join={code}");
+        let mut location = String::new();
+        for _ in 0..50 {
+            let j = https(&relay, &pki.roots, DOMAIN, "GET", &format!("/j/{code}"), &[]).await.unwrap();
+            location = j.headers.get("location").unwrap().to_str().unwrap().to_string();
+            if location == wanted {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(location, wanted);
+        // L'ancien nom marche toujours (liens déjà donnés), déchiffré par le relais.
+        let old = https(&relay, &pki.roots, &format!("{}.{DOMAIN}", station.id()), "GET", "/link/", &[]).await.unwrap();
+        assert_eq!(old.status, 200);
+        // Une Station absente : fermé (pas de page possible sans certificat).
+        let absent = format!("{}.station.{DOMAIN}", kybernow_tunnel::id::station_id(b"absente"));
+        assert!(https(&relay, &station.station_roots, &absent, "GET", "/", &[]).await.is_err());
+    })
+    .await
+    .expect("délai");
+}
+
+/// Une Station d'avant la 0.11.8 (pas de `browser_tls`) : ni zone annoncée, ni passage ; et un
+/// relais dont le port public n'est pas le 443 n'annonce rien.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn bout_en_bout_seulement_si_annonce() {
+    timeout(T * 2, async {
+        let pki = pki();
+        let relay = relay(&pki, |c| c.public_port = Some(443)).await;
+        let old = fake_station(relay_addr(&relay), pki.roots.clone(), false, Policy::default());
+        old.joined().await;
+        let name = format!("{}.station.{DOMAIN}", old.id());
+        assert!(https(&relay, &old.station_roots, &name, "GET", "/", &[]).await.is_err());
+        assert!(old.headers.lock().unwrap().iter().all(|h| h.kind != StreamKind::BrowserTls));
+        assert_eq!(old.agent.tls_zone(), None);
+        // Même annoncé prêt, une Station sans `browser_tls` garde l'ancien nom dans les liens.
+        old.agent.admin_status(kybernow_tunnel::AdminInfo { tls_ready: true, ..Default::default() });
+        let code = old.agent.reserve(Some("525252")).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let j = https(&relay, &pki.roots, DOMAIN, "GET", &format!("/j/{code}"), &[]).await.unwrap();
+        assert_eq!(j.headers.get("location").unwrap().to_str().unwrap(), format!("https://{}.{DOMAIN}/link/?join={code}", old.id()));
+        // Port public autre que le 443 : pas de zone.
+        let other = relay_on_8443(&pki).await;
+        let s = fake_station(relay_addr(&other), pki.roots.clone(), false, Policy { browser_tls: true, ..Policy::default() });
+        s.joined().await;
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert_eq!(s.agent.tls_zone(), None);
+    })
+    .await
+    .expect("délai");
+}
+
+async fn relay_on_8443(pki: &Pki) -> kybernow_relay::Relay {
+    relay(pki, |c| c.public_port = Some(8443)).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn mandataire_du_navigateur() {
     timeout(T * 2, async {
@@ -772,6 +871,8 @@ async fn un_bout_qui_ne_lit_pas_ses_reponses_est_coupe() {
             version: None,
             admin_lan: Vec::new(),
             remote_admin: false,
+            browser_tls: false,
+            tls_ready: false,
         };
         send.write_all(&encode(&Msg::Hello(hello))).await.unwrap();
         assert!(matches!(read_msg(&mut recv).await.unwrap(), Some(Msg::Welcome(_))));

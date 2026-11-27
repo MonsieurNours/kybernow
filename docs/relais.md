@@ -58,7 +58,7 @@ Le bout qui se connecte ouvre le premier flux bidirectionnel de `kn-ctl/1` (ou l
 |---|---|---|
 | `hello` | Station → relais | `v`, `role: "station"`, `version` (Admin), `admin_fp` (empreinte d'Admin), `sig` (signature de la Station sur `admin_fp`, ci-dessous), `codes` (codes à garder, après une reconnexion) ; depuis la 0.11.8 : `browser_tls` (vrai : la Station sert les flux `browser_tls`) et `tls_ready` (vrai : elle tient un certificat valable pour `<id>.<tls_zone>`) |
 | `hello` | app → relais | `v`, `role: "client"`, `station` (identifiant, ou absent pour une connexion qui ne sert qu'à `status`), `token` |
-| `welcome` | relais → bout | `v`, `id` (identifiant de la Station, ou du client), `relay` (version du relais) ; pour une app : `online` (la Station est-elle là) ; pour la Station : `codes` (ceux de `hello` que le relais a gardés ; les autres sont à réserver de nouveau) et, depuis la 0.11.8, `tls_zone` (`station.share.kybernow.app` : le relais fait passer le TLS des noms `<id>.<tls_zone>` ; absent : relais d'avant, ou passage coupé) |
+| `welcome` | relais → bout | `v`, `id` (identifiant de la Station, ou du client), `relay` (version du relais) ; pour une app : `online` (la Station est-elle là) ; pour la Station : `codes` (ceux de `hello` que le relais a gardés ; les autres sont à réserver de nouveau) |
 | `error` | relais → bout | `req` (si c'est une réponse), `code` : `version`, `bad_request`, `unknown_station`, `too_many`, `banned`, `replaced`, `no_code`, `not_bound`, `no_accounts`, `enroll_refused` ; `message` facultatif (journaux, jamais affiché tel quel) |
 | `reserve` | Station → relais | `req`, `preferred` (code voulu, facultatif) |
 | `reserved` | relais → Station | `req`, `code` (le code voulu s'il est libre, sinon un autre) |
@@ -76,6 +76,7 @@ Le bout qui se connecte ouvre le premier flux bidirectionnel de `kn-ctl/1` (ou l
 | `ping` / `pong` | dans les deux sens | `n` ; sert de signe de vie et de mesure sur le repli TCP |
 | `attach_request` / `attach_code` | Station → relais / relais → Station | Comptes KyberNow : code de rattachement (docs/comptes.md, « Rattachement et appareils sur le relais ») |
 | `attach_status`, `detach` | Station → relais | Où en est le rattachement ; détachée dans Admin |
+| `tls_zone` | relais → Station | `zone` (`station.share.kybernow.app`), juste après `welcome` : le relais fait passer le TLS des noms `<id>.<zone>` jusqu'à la Station (0.11.8 ; jamais envoyé par un relais d'avant, ni passage coupé) |
 | `admin_status` | Station → relais | `admin_lan`, `remote_admin` (docs/comptes.md, « Admin depuis KyberNow Share ») et, depuis la 0.11.8, `tls_ready` ; à chaque changement |
 | `attached` / `detached` | relais → Station | Rattachée (relais, compte, propriétaire, clés) ; détachée dans la console |
 | `enroll` | Station → relais | Comptes KyberNow, lot 5 : enrôlement (installation silencieuse) par un jeton d'organisation ; réponse `attached` (avec `req`) ou `error` `enroll_refused` (raison dans `message`) / `no_accounts` (docs/comptes.md, « Personnes, droits et organisations » et « Installateurs ») |
@@ -142,7 +143,7 @@ Décidé avec l'auteur le 27/11/2026 (audit, STWIN-17). Jusqu'à la 0.11.7, le n
 - Le navigateur ouvre la Station par **`https://<id>.<tls_zone>`**, `tls_zone` valant `station.<domaine du relais>` : `https://<id>.station.share.kybernow.app` pour le relais public.
 - Pourquoi pas `<id>.share.kybernow.app` : le relais garde son certificat générique `*.share.kybernow.app` pour les Stations 0.11.7 ; il vaut pour tous ces noms, et un relais qui le tient pourrait s'interposer sans que le navigateur voie rien. Un certificat générique ne couvre qu'une étiquette : `*.share.kybernow.app` ne vaut pas pour `<id>.station.share.kybernow.app`. Le relais ne tient **aucune clé valable** pour la nouvelle zone, et ne demande jamais de certificat pour elle.
 - DNS : le joker `*.share.kybernow.app` répond déjà pour `<id>.station.share.kybernow.app` (RFC 4592, tant que `station.share.kybernow.app` n'a pas d'enregistrement à lui) ; un `*.station.share.kybernow.app` explicite vers la même machine est plus clair (déploiement, plus bas).
-- Le relais n'annonce la zone que si son port public est le 443 (l'autorité de certification ne valide que sur le 443) et que `tls_zone` n'est pas vide dans sa configuration (`tls_zone = ""` coupe le passage).
+- Le relais n'annonce la zone (message `tls_zone`, juste après `welcome`) que si son port public est le 443 (l'autorité de certification ne valide que sur le 443) et que `tls_zone` n'est pas vide dans sa configuration (`tls_zone = ""` coupe le passage).
 
 ### Le certificat de la Station : ACME, défi TLS-ALPN-01, relayé tel quel
 
@@ -171,10 +172,10 @@ Décidé avec l'auteur le 27/11/2026 (audit, STWIN-17). Jusqu'à la 0.11.7, le n
 | Station | Relais | Navigateur |
 |---|---|---|
 | 0.11.7 | 0.11.7 ou 0.11.8 | `<id>.share…`, déchiffré par le relais, comme avant (la Station n'annonce pas `browser_tls` : le relais ne lui envoie jamais de flux `browser_tls`, et ferme `<id>.station…`) |
-| 0.11.8 | 0.11.7 | `<id>.share…`, comme avant (pas de `tls_zone` dans `welcome` : pas de certificat demandé, « Admin à distance » marche comme en 0.11.7) |
+| 0.11.8 | 0.11.7 | `<id>.share…`, comme avant (pas de message `tls_zone` : pas de certificat demandé, « Admin à distance » marche comme en 0.11.7) |
 | 0.11.8 | 0.11.8 | `<id>.station…`, de bout en bout dès que le certificat est là ; `<id>.share…` en attendant, et pour les invités qui ont un ancien lien |
 
-Les champs ajoutés (`browser_tls`, `tls_ready`, `tls_zone`) sont ignorés par les versions qui ne les connaissent pas.
+Les champs ajoutés (`browser_tls`, `tls_ready`) et le message `tls_zone` sont ignorés par les versions qui ne les connaissent pas.
 
 ### Ce que le relais voit encore, et ce qu'il peut encore
 
@@ -189,7 +190,7 @@ Les champs ajoutés (`browser_tls`, `tls_ready`, `tls_zone`) sont ignorés par l
 2. Image du relais 0.11.8 (`ghcr.io/monsieurnours/kybernow-relay`) : rien à régler, `tls_zone` vaut `station.share.kybernow.app` par défaut. lego et le certificat générique ne changent pas (ils servent encore les Stations 0.11.7).
 3. Vérifier : `/v1/health` (version 0.11.8) ; une Station 0.11.8 avec « Admin à distance » obtient son certificat en moins d'une minute (`GET /api/relay` : `remote_tls.state = "ready"`) ; `https://<id>.station.share.kybernow.app` s'ouvre, et le certificat montré par le navigateur est celui de la Station (émis pour ce nom seul, pas `*.share`).
 4. Limites de Let's Encrypt : 50 nouveaux certificats par semaine pour `kybernow.app` (les renouvellements n'y comptent pas). Au-delà, les Stations attendent et réessaient (le navigateur passe par l'ancien nom en attendant). Quand le nombre de Stations s'en approche : demander une hausse à Let's Encrypt (formulaire « Rate Limit Adjustment »), ou inscrire `station.share.kybernow.app` à la Public Suffix List (chaque Station devient alors son propre domaine pour les limites et pour les cookies ; ne jamais y inscrire `share.kybernow.app`, qui porte les passkeys des comptes).
-5. Retour en arrière : `KN_RELAY_TLS_ZONE=""` (ou `tls_zone = ""`) ; les Stations qui avaient été de bout en bout suspendent « Admin à distance » (état `lost`) jusqu'à ce que l'hôte le rallume sur place.
+5. Retour en arrière : `KN_RELAY_TLS_ZONE=off` (ou `tls_zone = ""`) ; les Stations qui avaient été de bout en bout suspendent « Admin à distance » (état `lost`) jusqu'à ce que l'hôte le rallume sur place.
 
 ## Admin
 

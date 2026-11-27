@@ -21,6 +21,8 @@ pub(super) struct FakeLink {
     sent: Mutex<Vec<(String, Msg)>>,
     /// Les adresses d'Admin et « Admin à distance » de chaque Station.
     pub(super) admin: Mutex<std::collections::HashMap<String, (Vec<String>, bool)>>,
+    /// L'origine de bout en bout des Stations qui tiennent leur certificat (`<id>.station.share.test`).
+    pub(super) tls: Mutex<std::collections::HashMap<String, String>>,
 }
 
 impl StationLink for FakeLink {
@@ -45,6 +47,13 @@ impl StationLink for FakeLink {
             return None;
         }
         self.admin.lock().unwrap().get(station).cloned()
+    }
+
+    fn tls_origin(&self, station: &str) -> Option<String> {
+        if !self.online(station) {
+            return None;
+        }
+        self.tls.lock().unwrap().get(station).cloned()
     }
 }
 
