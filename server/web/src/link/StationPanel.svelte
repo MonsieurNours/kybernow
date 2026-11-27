@@ -9,7 +9,7 @@
   import { onMount } from 'svelte'
   import Icon from '../lib/Icon.svelte'
   import { t } from '../lib/i18n/index.svelte'
-  import { backend, logout, type Info } from './backend'
+  import { logout, streamUser, type Info } from './backend'
   import { cancelConfirm, run, station } from './station.svelte'
 
   let { info, onSignedOut }: { info: Info | null; onSignedOut: () => void } = $props()
@@ -17,9 +17,8 @@
   let account = $state<string | null>(null)
 
   onMount(() => {
-    backend
-      .ticket()
-      .then((ticket) => (account = ticket.user))
+    streamUser()
+      .then((user) => (account = user))
       .catch(() => {})
   })
 

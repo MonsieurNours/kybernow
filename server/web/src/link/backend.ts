@@ -3,6 +3,8 @@
 import { ApiError, type GuestImage, type ShareQuality, type ShareRole, type ShareView } from '../lib/api'
 import { t } from '../lib/i18n/index.svelte'
 import { send, type SendOptions } from '../lib/http'
+import { forgetTicket, ticket } from './ticket'
+export { streamUser, ticket, type Ticket } from './ticket'
 import type { Mode } from './device'
 import { viaRelay } from './plan'
 import { deviceId } from './prefs'
@@ -65,13 +67,6 @@ export interface Session {
   relay?: boolean
 }
 
-export interface Ticket {
-  token: string
-  user: string
-  expires_in: number
-  kyber_port: number | null
-  hostname: string | null
-}
 
 export interface Live {
   name: string
@@ -216,7 +211,7 @@ export const backend = {
   stationRestart: (body: { device_id: string; force: boolean }) => station<{ ok: boolean }>('/api/stream/station/restart', body),
   stationUpdate: (body: { device_id: string; force: boolean }) => station<{ ok: boolean; version: string }>('/api/stream/station/update', body),
   login: (password: string) => call('POST', '/api/login', { password }),
-  ticket: () => call<Ticket>('GET', '/api/web/ticket'),
+  ticket: () => ticket(),
   live: async (): Promise<Live | null> => {
     const s = await call<{ activity?: { live: Live | null } }>('GET', '/api/status')
     return s.activity?.live ?? null
@@ -483,8 +478,10 @@ export function endOnUnload(extra: Extra = {}): void {
 
 /** Déconnexion de la console (le compte de ce navigateur). */
 export function logout(): Promise<unknown> {
+  forgetTicket()
   return request('POST', '/api/logout').catch(() => {})
 }
+
 
 /** Champs en plus dans les corps du signal de vie et de la fin (par exemple
  * `device_id`) : la console ignore ceux qu'elle ne connaît pas. */
