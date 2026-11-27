@@ -191,5 +191,9 @@
   },
   "micro": {
     "shortcut": "Ctrl+Alt+Maj+V"
+  },
+  "camera": {
+    "no_answer": "L'ordinateur ne répond pas : la caméra est éteinte.",
+    "start_refused": "La caméra n'a pas pu démarrer sur l'ordinateur."
   }
 }

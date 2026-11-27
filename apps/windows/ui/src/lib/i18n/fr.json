@@ -794,6 +794,7 @@
   },
   "camera": {
     "camera": "Caméra",
+    "open_settings": "Ouvrir les Réglages",
     "starting": "Caméra…",
     "turn_on": "Allumer la caméra",
     "turn_off": "Éteindre la caméra",

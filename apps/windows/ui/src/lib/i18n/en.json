@@ -794,6 +794,7 @@
   },
   "camera": {
     "camera": "Camera",
+    "open_settings": "Open Settings",
     "starting": "Camera…",
     "turn_on": "Turn on camera",
     "turn_off": "Turn off camera",

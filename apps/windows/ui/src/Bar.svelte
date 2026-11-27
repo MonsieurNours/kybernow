@@ -174,7 +174,8 @@
   /** Avis bref d'un changement de rôle, montré à la place des statistiques. */
   let notice = $state<string | null>(null)
   /** L'avis est celui d'une demande (à rejoindre, à emprunter) : le choisir ouvre ce panneau. */
-  let noticePanel = $state<'share' | 'lend' | null>(null)
+  /** L'avis se choisit : il ouvre un panneau (`share`, `lend`) ou les paramètres de la caméra de Windows (`camera_settings`). */
+  let noticePanel = $state<'share' | 'lend' | 'camera_settings' | null>(null)
   /** L'icône de la capsule d'un avis (`gamepad` : « Manettes indisponibles sur cet ordinateur. ») ; sinon celle d'un écran. */
   let noticeIcon = $state<string | null>(null)
   let noticeTimer: ReturnType<typeof setTimeout> | null = null
@@ -239,6 +240,7 @@
     notice?: string | null
     notice_opens_share?: boolean
     notice_opens_lend?: boolean
+    notice_opens_settings?: boolean
     notice_icon?: string | null
     /** Le bandeau de PyroWave (`pyrowave_wifi`, `pyrowave_relay`, `pyrowave_strained`). */
     notice_kind?: PyroWaveBanner | null
@@ -444,6 +446,11 @@
           }
           return
         }
+        // La caméra refusée par Windows : l'avis qui ouvre ses paramètres, sur cette session.
+        if (e.panel === 'camera_settings') {
+          if (e.id === id) showNotice(e.text, 'camera_settings', 8000)
+          return
+        }
         const panel = e.panel ?? 'share'
         // Barre ouverte : pas de capsule (la pastille « 1 demande » le dit) ; capsule déjà là : elle passe à la nouvelle demande.
         if (e.id !== id || guest || borrow || view !== 'capsule') return
@@ -561,7 +568,7 @@
           view = 'capsule'
           held = false
           inside = false
-          showNotice(s.notice, s.notice_opens_share ? 'share' : s.notice_opens_lend ? 'lend' : null, s.notice_kind ? 8000 : 4000)
+          showNotice(s.notice, s.notice_opens_share ? 'share' : s.notice_opens_lend ? 'lend' : s.notice_opens_settings ? 'camera_settings' : null, s.notice_kind ? 8000 : 4000)
           noticeIcon = s.notice_icon ?? null
           noticeKind = s.notice_kind ?? null
         } else {
@@ -916,7 +923,7 @@
   }
 
   /** Un avis bref à la place des statistiques ; la barre repart ensuite d'elle-même (sauf pointeur dessus ou menu ouvert). */
-  function showNotice(text: string, panel: 'share' | 'lend' | null = null, ms = 4000) {
+  function showNotice(text: string, panel: 'share' | 'lend' | 'camera_settings' | null = null, ms = 4000) {
     clearNotice()
     notice = text
     noticePanel = panel
@@ -968,6 +975,12 @@
   async function openShareFromNotice() {
     const panel = noticePanel
     clearNotice()
+    // « Ouvrir les Réglages » de la caméra refusée : les paramètres de Windows, la barre repart.
+    if (panel === 'camera_settings') {
+      invoke('open_camera_settings').catch(() => {})
+      if (view === 'capsule') invoke('bar_hide', { id, focus: false })
+      return
+    }
     // La capsule laisse place à la barre, qui reste le temps de répondre (le panneau ouvert la tient).
     view = 'bar'
     held = true
@@ -1550,7 +1563,8 @@
     </div>
   {:else if notice && noticePanel}
     <button class="capsule choice" aria-live="polite" onclick={openShareFromNotice} bind:this={bar}>
-      <Icon name={noticePanel === 'lend' ? 'key' : 'share'} size={15} stroke={1.8} />{notice}
+      <Icon name={noticePanel === 'lend' ? 'key' : noticePanel === 'camera_settings' ? 'camera' : 'share'} size={15} stroke={1.8} />{notice}
+      {#if noticePanel === 'camera_settings'}<strong class="open">{t('camera.open_settings')}</strong>{/if}
     </button>
   {:else if notice}
     <div class="capsule" role="status" bind:this={bar}><Icon name={noticeIcon ?? 'monitor'} size={15} stroke={1.8} />{notice}</div>
@@ -2052,6 +2066,12 @@
   .capsule.choice:hover {
     color: var(--text);
     border-color: var(--signal);
+  }
+
+  /* « Ouvrir les Réglages » dans l'avis de la caméra refusée. */
+  .capsule.choice .open {
+    color: var(--signal);
+    font-weight: 600;
   }
 
   @keyframes drop {

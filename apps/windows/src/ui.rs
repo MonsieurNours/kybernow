@@ -2160,6 +2160,9 @@ struct BarShown {
     /// L'avis est celui d'une demande d'emprunt : le choisir ouvre le panneau de
     /// « Prêter l'ordinateur… ».
     notice_opens_lend: bool,
+    /// L'avis est celui de la caméra refusée par Windows : le choisir ouvre
+    /// ses paramètres de confidentialité (« Ouvrir les Réglages »).
+    notice_opens_settings: bool,
     /// L'icône de l'avis dans sa capsule (`gamepad` : « Manettes indisponibles sur
     /// cet ordinateur. ») ; absente : celle d'un écran.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2214,6 +2217,7 @@ fn console_bar_shown(id: &str, name: &str, pinned: bool, sessions: usize, route:
         notice: None,
         notice_opens_share: false,
         notice_opens_lend: false,
+        notice_opens_settings: false,
         notice_icon: None,
         route,
         hdr: None,
@@ -4128,6 +4132,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         notice,
         notice_opens_share: panel == Some("share"),
         notice_opens_lend: panel == Some("lend"),
+        notice_opens_settings: panel == Some("camera_settings"),
         notice_icon: icon,
         route,
         hdr: bar_hdr(&state, id),
@@ -4572,6 +4577,7 @@ pub fn run(args: Vec<String>) {
             camera::session_camera,
             camera::session_camera_pick,
             camera::session_camera_state,
+            camera::open_camera_settings,
             probe_address,
             parse_link,
             add_computer,

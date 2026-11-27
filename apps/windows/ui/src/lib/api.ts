@@ -793,7 +793,7 @@ export type ShareStateEvent = { id: string; share: Share }
  * (« Passer en HEVC ») ; profil Auto sur un autre réseau que celui du test (`auto_network`, « Refaire le test »).
  */
 export type PyroWaveBanner = 'pyrowave_wifi' | 'pyrowave_relay' | 'pyrowave_strained' | 'auto_network'
-export type ShareRequestEvent = { id: string; text: string; panel?: 'share' | 'lend' | PyroWaveBanner }
+export type ShareRequestEvent = { id: string; text: string; panel?: 'share' | 'lend' | 'camera_settings' | PyroWaveBanner }
 
 /** Une pseudo-fiche d'ordinateur pour le passage et la connexion d'une session d'invité (ni dans la liste, ni gardée). */
 export const guestComputer = (j: { title: string; fingerprint: string | null }) => ({ name: j.title, preview: null, fingerprint: j.fingerprint })
