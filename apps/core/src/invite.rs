@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use crate::console::{Console, ConsoleError, DeviceInfo};
+use crate::console::{self, Console, ConsoleError, DeviceInfo};
 use crate::i18n::{self, tr, Lang};
 use crate::relay::{RelayInfo, RelayRoute};
 use crate::share::ShareTarget;
@@ -192,14 +192,9 @@ impl Console {
         let r = self
             .request("POST", "api/pair/invite", REDEEM_TIMEOUT)
             .send_json(serde_json::json!({ "code": code, "password": password, "device": device }));
-        match r {
-            Ok(resp) => resp.into_json().map_err(|e| InviteError::Other(ConsoleError::Invalid(e.to_string()))),
-            Err(ureq::Error::Status(status, resp)) => {
-                let retry_after = resp.header("Retry-After").and_then(|h| h.trim().parse().ok());
-                let body: serde_json::Value = resp.into_json().unwrap_or(serde_json::Value::Null);
-                Err(invite_refusal(status, &body, retry_after))
-            }
-            Err(e) => Err(InviteError::Other(self.read::<serde_json::Value>(Err(e)).err().unwrap_or_else(|| ConsoleError::Invalid(String::new())))),
+        match self.answer(r).map_err(InviteError::Other)? {
+            console::Answer::Ok(resp) => resp.into_json().map_err(|e| InviteError::Other(ConsoleError::Invalid(e.to_string()))),
+            console::Answer::Refused(r) => Err(invite_refusal(r.status, &r.body, r.retry_after)),
         }
     }
 }

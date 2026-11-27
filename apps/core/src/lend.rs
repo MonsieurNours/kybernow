@@ -12,13 +12,11 @@ use std::time::Duration;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::console::{Console, ConsoleError, Mode};
+use crate::console::{Answer, Console, ConsoleError, Mode};
 use crate::i18n::{self, Lang, tr};
 use crate::relay::{RelayMode, RelayRoute};
 use crate::share::{ShareDisplay, ShareKyber, ShareTarget, ShareVia};
 
-/// Sans réponse d'Admin sur le réseau dans ce délai, le relais.
-pub const DIRECT_PROBE: Duration = Duration::from_millis(1500);
 /// Un emprunt revient (fenêtre fermée, réseau perdu) pendant ce temps par
 /// [`borrow`], avec la même demande (même appareil, compte ou code).
 pub const COME_BACK: Duration = Duration::from_secs(15 * 60);
@@ -867,19 +865,14 @@ fn borrow_answer(status: u16, v: serde_json::Value) -> Result<BorrowAnswer, Lend
 
 /// Une réponse d'Admin aux routes de l'ami : la valeur, ou son refus.
 fn lend_read(console: &Console, r: Result<ureq::Response, ureq::Error>) -> Result<(u16, serde_json::Value), LendError> {
-    match r {
-        Ok(resp) => {
+    match console.answer(r).map_err(LendError::Other)? {
+        Answer::Ok(resp) => {
             let status = resp.status();
             // Une Station antérieure peut répondre la page d'Admin (200, HTML).
             let v: serde_json::Value = resp.into_json().map_err(|_| LendError::Unsupported)?;
             Ok((status, v))
         }
-        Err(ureq::Error::Status(status, resp)) => {
-            let retry_after = resp.header("Retry-After").and_then(|h| h.trim().parse().ok());
-            let body: serde_json::Value = resp.into_json().unwrap_or(serde_json::Value::Null);
-            Err(lend_refusal(status, &body, retry_after))
-        }
-        Err(e) => Err(LendError::Other(console.read::<serde_json::Value>(Err(e)).err().unwrap_or_else(|| ConsoleError::Invalid(String::new())))),
+        Answer::Refused(r) => Err(lend_refusal(r.status, &r.body, r.retry_after)),
     }
 }
 
@@ -974,35 +967,32 @@ impl Console {
 
 // MARK: - L'ami : emprunter
 
-/// Où joindre Admin : par le relais seul (une Station venue par le relais,
-/// `port` 0), sur le réseau seul (sans route), ou sur le réseau si Admin
-/// répond en 1,5 s (même par une erreur), sinon par le relais. Rend la
-/// console, la Station à retenir et la route prise.
-fn reach(target: &ShareTarget, route: Option<&RelayRoute>) -> (Console, ShareTarget, Option<RelayRoute>) {
+/// Où joindre Admin ([`crate::relay::choose`]) : par le relais seul (une
+/// Station venue par le relais, `port` 0), sur le réseau seul (sans route),
+/// ou sur le réseau si Admin répond en 1,5 s (même par une erreur), sinon
+/// par le relais. Rend la console, la Station à retenir et la route prise ;
+/// un certificat changé sur le réseau est une erreur.
+fn reach(target: &ShareTarget, route: Option<&RelayRoute>) -> Result<(Console, ShareTarget, Option<RelayRoute>), ConsoleError> {
     let direct = || Console::guest(&target.host, target.port, target.fingerprint.clone());
-    let relay = |r: &RelayRoute| (crate::share::relay_console(r), crate::share::relay_target(r), Some(r.clone()));
-    let Some(r) = route else { return (direct(), target.clone(), None) };
-    if target.port == 0 || target.host.is_empty() || RelayMode::current() == RelayMode::Force {
-        return relay(r);
-    }
-    if RelayMode::current() == RelayMode::Off {
-        return (direct(), target.clone(), None);
-    }
-    let c = direct();
-    match c.info_within(DIRECT_PROBE) {
-        Ok(_) | Err(ConsoleError::Http { .. } | ConsoleError::CertificateChanged { .. }) => (c, target.clone(), None),
-        Err(e) => {
-            log::info!("prêt : Admin ne répond pas sur le réseau ({}), par le relais", e.text(Lang::Fr));
-            relay(r)
-        }
-    }
+    let reachable = target.port != 0 && !target.host.is_empty();
+    let mut probed = None;
+    let way = crate::relay::choose(RelayMode::current(), reachable, route.is_some(), || {
+        let c = direct();
+        let r = c.info_within(crate::relay::DIRECT_PROBE).map(|_| ());
+        probed = Some(c);
+        r
+    })?;
+    Ok(match (way, route) {
+        (crate::relay::Way::Relay, Some(r)) => (crate::share::relay_console(r), crate::share::relay_target(r), Some(r.clone())),
+        _ => (probed.unwrap_or_else(direct), target.clone(), None),
+    })
 }
 
 /// L'état de l'ordinateur d'un ami (la carte « Ordinateur de {hôte} »), par
 /// son compte. `route` : le relais de l'invitation, pour hors de chez soi.
 /// Bloquant.
 pub fn status(target: &ShareTarget, route: Option<&RelayRoute>, login: &str, password: &str) -> Result<LendStatus, LendError> {
-    let (console, _, _) = reach(target, route);
+    let (console, _, _) = reach(target, route).map_err(LendError::Other)?;
     console.lend_status(login, password)
 }
 
@@ -1012,7 +1002,7 @@ pub fn status(target: &ShareTarget, route: Option<&RelayRoute>, login: &str, pas
 /// doit accepter ([`Borrowing::Pending`] : « En attente de {hôte}… »).
 /// Bloquant : jusqu'à 30 s, le temps que la Station passe en mode console.
 pub fn borrow(target: &ShareTarget, route: Option<&RelayRoute>, req: &BorrowRequest) -> Result<Borrowing, LendError> {
-    let (console, target, route) = reach(target, route);
+    let (console, target, route) = reach(target, route).map_err(LendError::Other)?;
     log::info!("prêt : demande {}{}", match req.credentials {
         LendCredentials::Code { .. } => "par un code",
         LendCredentials::Account { .. } => "par un compte d'ami",

@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use crate::console::ConsoleError;
 use crate::i18n::{self, Lang, tr};
 
 pub use kybernow_tunnel::lookup::CodeLookup;
@@ -108,6 +109,49 @@ impl crate::account::AccountComputer {
 /// sont égales.
 pub fn normalize(addr: &str) -> Option<String> {
     addr.parse::<RelayAddr>().ok().map(|a| a.to_string())
+}
+
+/// Délai d'une réponse d'Admin sur le réseau avant de passer par le relais
+/// (session d'un compte, prêt, « Regarder », « Rejoindre » : une seule
+/// valeur, COEUR-39).
+pub const DIRECT_PROBE: Duration = Duration::from_millis(1500);
+
+/// Le chemin pris vers une Station ([`choose`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Way {
+    /// Sur le réseau, à l'adresse que l'app connaît.
+    Direct,
+    /// Par le relais, de bout en bout.
+    Relay,
+}
+
+/// « Le réseau en 1,5 s, sinon le relais » (COEUR-39), la même règle pour la
+/// session, le prêt et « Regarder » :
+///
+/// - sans relais connu (`relay` faux), ou `KYBERNOW_RELAY=off` : le réseau,
+///   toujours ;
+/// - sans adresse sur le réseau (`direct` faux : Station connue par le
+///   relais seulement), ou `KYBERNOW_RELAY=force` : le relais ;
+/// - sinon `probe` (Admin sur le réseau, en [`DIRECT_PROBE`]) : une réponse,
+///   même un refus, garde le réseau ; un certificat changé ou un compte qui
+///   ne donne pas de jeton s'arrêtent là (le relais n'y changerait rien, et
+///   un ordinateur réinstallé doit être confirmé sur l'appareil) ; pas de
+///   réponse : le relais.
+pub fn choose(mode: RelayMode, direct: bool, relay: bool, probe: impl FnOnce() -> Result<(), ConsoleError>) -> Result<Way, ConsoleError> {
+    if !relay || mode == RelayMode::Off {
+        return Ok(Way::Direct);
+    }
+    if !direct || mode == RelayMode::Force {
+        return Ok(Way::Relay);
+    }
+    match probe() {
+        Ok(()) | Err(ConsoleError::Http { .. }) => Ok(Way::Direct),
+        Err(e @ (ConsoleError::CertificateChanged { .. } | ConsoleError::Account(_))) => Err(e),
+        Err(e) => {
+            log::info!("ordinateur sans réponse sur le réseau ({}) : par le relais", e.text(Lang::Fr));
+            Ok(Way::Relay)
+        }
+    }
 }
 
 /// `KYBERNOW_RELAY` : `force` (toujours par le relais, pour essayer à la
@@ -572,10 +616,9 @@ pub(crate) fn lookup_with(relay: &RelayAddr, code: &str, roots: Option<Arc<rustl
             let found: CodeLookup = resp.into_json().map_err(|e| RelayError::Unreachable(e.to_string()))?;
             lookup_answer(200, Some(found), None, None)
         }
-        Err(ureq::Error::Status(status, resp)) => {
-            let header = resp.header("Retry-After").and_then(|h| h.trim().parse().ok());
-            let body: serde_json::Value = resp.into_json().unwrap_or(serde_json::Value::Null);
-            lookup_answer(status, None, body.get("retry_after").and_then(|v| v.as_u64()), header)
+        Err(ureq::Error::Status(_, resp)) => {
+            let r = crate::account::Reply::read(resp);
+            lookup_answer(r.status, None, r.body.get("retry_after").and_then(|v| v.as_u64()), r.retry_after)
         }
         Err(e) => Err(RelayError::Unreachable(e.to_string())),
     }
@@ -608,6 +651,26 @@ pub fn presence(relay: &RelayAddr, stations: &[String]) -> Result<Vec<bool>, Rel
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// COEUR-39 : une seule règle « le réseau en 1,5 s, sinon le relais ».
+    #[test]
+    fn un_seul_choix_du_chemin() {
+        use RelayMode::{Force, Normal, Off};
+        let never = || -> Result<(), ConsoleError> { panic!("pas d'essai sur le réseau") };
+        let net = || Err(ConsoleError::Network("délai".into()));
+        assert_eq!(choose(Normal, true, false, never).ok(), Some(Way::Direct), "sans relais");
+        assert_eq!(choose(Normal, false, true, never).ok(), Some(Way::Relay), "Station connue par le relais seulement");
+        assert_eq!(choose(Normal, true, true, || Ok(())).ok(), Some(Way::Direct));
+        assert_eq!(choose(Normal, true, true, || Err(ConsoleError::Http { status: 401, message: String::new() })).ok(), Some(Way::Direct), "un refus est une réponse");
+        assert_eq!(choose(Normal, true, true, net).ok(), Some(Way::Relay));
+        // Certificat changé, compte sans jeton : l'erreur, jamais le relais.
+        assert!(matches!(choose(Normal, true, true, || Err(ConsoleError::CertificateChanged { seen: "sha256:ff".into() })), Err(ConsoleError::CertificateChanged { .. })));
+        assert!(matches!(choose(Normal, true, true, || Err(ConsoleError::Account(crate::account::AccountError::SignedOut))), Err(ConsoleError::Account(_))));
+        // KYBERNOW_RELAY : off, jamais le relais ; force, sans essai sur le réseau.
+        assert_eq!(choose(Off, false, true, never).ok(), Some(Way::Direct));
+        assert_eq!(choose(Force, true, true, never).ok(), Some(Way::Relay));
+        assert_eq!(choose(Force, true, false, never).ok(), Some(Way::Direct), "rien à forcer sans relais");
+    }
 
     const STATION: &str = "abcdefghijklmnopqrstuvwxyz";
 

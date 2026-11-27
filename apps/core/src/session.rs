@@ -51,6 +51,7 @@ use crate::adaptive::{AdaptiveBitrate, Load, TargetBitrate, TargetInputs};
 use crate::latency::{LatencyTracker, Second};
 use crate::media::{Packet, PacketHandler, StreamLoss, packet_sink, packet_sink_tracked};
 use crate::profile::{Capabilities, Codec, HdrLuminance, SettingsJson, StreamSettings};
+use crate::relay::DIRECT_PROBE;
 use crate::screens::{self, PlannedScreen, Screens};
 use crate::share::{self, Found, ShareBeat, ShareDisplay, ShareEnd, ShareError, ShareImage, ShareJoined, ShareQuality, ShareRole, ShareState};
 #[cfg(test)]
@@ -190,8 +191,6 @@ pub enum Route {
     Auto(Option<crate::relay::RelayRoute>),
 }
 
-/// Délai d'`info` en direct avant de passer par le relais (`Route::Auto`).
-pub const DIRECT_PROBE: Duration = Duration::from_millis(1500);
 
 impl SessionParams {
     /// Les paramètres d'une session d'invité, d'après la Station trouvée par
@@ -1088,31 +1087,22 @@ fn ask_quality(
 /// Le chemin regardé de nouveau toutes les 5 s (par le relais).
 const ROUTE_CHECK: Duration = Duration::from_secs(5);
 
-/// Par où passer (`Some` : par ce relais), d'après la route de la session et
-/// `KYBERNOW_RELAY` ; `probe` : `info` en direct, appelé seulement pour
-/// `Route::Auto` (1,5 s). Admin qui répond, même par une erreur : en direct.
-/// Une empreinte changée : l'erreur, jamais de bascule vers le relais.
+/// Le relais à prendre pour cette route, ou `None` : sur le réseau
+/// ([`crate::relay::choose`]).
 fn choose_route(
     route: &Route,
     mode: crate::relay::RelayMode,
     probe: impl FnOnce() -> Result<(), ConsoleError>,
 ) -> Result<Option<crate::relay::RelayRoute>, Failure> {
-    use crate::relay::RelayMode;
-    if mode == RelayMode::Off {
-        return Ok(None);
-    }
-    match route {
-        Route::Direct | Route::Auto(None) => Ok(None),
-        Route::Relay(r) => Ok(Some(r.clone())),
-        Route::Auto(Some(r)) if mode == RelayMode::Force => Ok(Some(r.clone())),
-        Route::Auto(Some(r)) => match probe() {
-            Ok(()) | Err(ConsoleError::Http { .. }) => Ok(None),
-            Err(e @ ConsoleError::CertificateChanged { .. }) => Err(e.to_string().into()),
-            Err(e) => {
-                info!("ordinateur sans réponse sur le réseau ({}) : par le relais", e.text(Lang::Fr));
-                Ok(Some(r.clone()))
-            }
-        },
+    let (direct, relay) = match route {
+        Route::Direct | Route::Auto(None) => (true, None),
+        Route::Relay(r) => (false, Some(r)),
+        Route::Auto(Some(r)) => (true, Some(r)),
+    };
+    match crate::relay::choose(mode, direct, relay.is_some(), probe) {
+        Ok(crate::relay::Way::Direct) => Ok(None),
+        Ok(crate::relay::Way::Relay) => Ok(relay.cloned()),
+        Err(e) => Err(e.to_string().into()),
     }
 }
 
@@ -1126,6 +1116,19 @@ fn check_relay_fingerprint(known: Option<&str>, route: &crate::relay::RelayRoute
         Some(k) if !k.trim().is_empty() && !k.trim().eq_ignore_ascii_case(route.admin_fp.trim()) => Err(t("relay.fingerprint_mismatch", &[]).into()),
         _ => Ok(()),
     }
+}
+
+/// La console d'un invité ou d'un emprunteur (COEUR-37) : Admin de la
+/// Station sur le réseau, ou par le relais (`relay`), épinglé sur
+/// l'empreinte de la route, qui doit être celle que l'appareil connaît.
+fn guest_console(p: &SessionParams, relay: Option<crate::relay::RelayRoute>) -> Result<Arc<Console>, Failure> {
+    Ok(match relay {
+        None => Arc::new(Console::guest(&p.console_host, p.console_port, p.console_fingerprint.clone())),
+        Some(r) => {
+            check_relay_fingerprint(p.console_fingerprint.as_deref(), &r)?;
+            Arc::new(Console::guest(&p.console_host, p.console_port, Some(r.admin_fp.clone())).with_relay(Some(r)))
+        }
+    })
 }
 
 /// L'écran d'un invité dans la liste de Kyber : celui que la Station donne
@@ -2819,9 +2822,11 @@ impl Worker {
         info!("HDR : {:?} demandé à la Station (écrans {:?}, valeurs {:?})", ask.wanted, ask.order, ask.luminance);
         let device = self.device_id.clone();
         let tx = self.tx.clone();
+        let label = journal::current();
         std::thread::Builder::new()
             .name("kybernow-hdr".into())
             .spawn(move || {
+                journal::resume(label);
                 let r = console.stream_hdr(&device, &ask.wanted, &ask.luminance).map_err(|e| e.to_string());
                 let _ = tx.send(Msg::HdrApplied(asked, ask, r));
             })
@@ -2973,9 +2978,6 @@ impl Worker {
         let prepared = self.prepared.clone().expect("prepare");
 
         self.status(Status::Connecting);
-        // Fournisseur de chiffrement par défaut de rustls (kyclient::init_crypto
-        // échoue s'il est déjà posé, à la deuxième session par exemple).
-        let _ = rustls::crypto::ring::default_provider().install_default();
         let (kyber_host, kyber_port) = self.kyber_endpoint(&console, prepared.kyber_host.as_deref(), prepared.kyber_port.unwrap_or(8080))?;
         let mut config = ConnectConfig {
             host: kyber_host,
@@ -3003,16 +3005,7 @@ impl Worker {
             // Console d'avant 0.2.8 : certificat retenu au premier contact.
             None => config.enable_tofu_auto_accept().map_err(|e| e.to_string())?,
         }
-        let client = Client::new(config, true).map_err(|e| format!("Kyber : {e}"))?;
-        let tracker = self.latency.clone();
-        client.set_metrics_callback(Some(Box::new(move |m| tracker.on_metric(&m))));
-        client.get_event_manager().add_event_sink(Box::new(Events {
-            tx: Mutex::new(self.tx.clone()),
-            alive: self.alive.clone(),
-        }));
-        let client = Arc::new(client);
-        self.client = Some(client.clone());
-        client.connect().map_err(|e| format!("Kyber : {e}"))?;
+        self.connect_kyber(config)?;
 
         self.spawn_heartbeat(prepared.heartbeat_seconds);
         self.spawn_foreground();
@@ -3042,13 +3035,7 @@ impl Worker {
             Route::Relay(r) => Some(r.clone()),
             _ => j.route.clone(),
         };
-        let console = match relay {
-            None => Arc::new(Console::guest(&p.console_host, p.console_port, p.console_fingerprint.clone())),
-            Some(r) => {
-                check_relay_fingerprint(p.console_fingerprint.as_deref(), &r)?;
-                Arc::new(Console::guest(&p.console_host, p.console_port, Some(r.admin_fp.clone())).with_relay(Some(r)))
-            }
-        };
+        let console = guest_console(&p, relay)?;
         self.console = Some(console.clone());
         self.open_relay(&console)?;
         // Le format de l'hôte s'il est lisible ici (en 4:2:0 sans son 4:4:4),
@@ -3094,7 +3081,6 @@ impl Worker {
         }
 
         self.status(Status::Connecting);
-        let _ = rustls::crypto::ring::default_provider().install_default();
         let (kyber_host, kyber_port) = self.kyber_endpoint(&console, None, j.kyber.port)?;
         let mut config = ConnectConfig {
             host: kyber_host,
@@ -3105,16 +3091,7 @@ impl Worker {
             auto_reconnection: p.auto_reconnect,
         };
         config.set_tls_fingerprint(&fingerprint).map_err(|e| e.to_string())?;
-        let client = Client::new(config, true).map_err(|e| format!("Kyber : {e}"))?;
-        let tracker = self.latency.clone();
-        client.set_metrics_callback(Some(Box::new(move |m| tracker.on_metric(&m))));
-        client.get_event_manager().add_event_sink(Box::new(Events {
-            tx: Mutex::new(self.tx.clone()),
-            alive: self.alive.clone(),
-        }));
-        let client = Arc::new(client);
-        self.client = Some(client.clone());
-        client.connect().map_err(|e| format!("Kyber : {e}"))?;
+        self.connect_kyber(config)?;
         self.spawn_share_beat(j.beat.max(1));
         Ok(())
     }
@@ -3131,13 +3108,7 @@ impl Worker {
             Route::Relay(r) => Some(r.clone()),
             _ => b.route.clone(),
         };
-        let console = match relay {
-            None => Arc::new(Console::guest(&p.console_host, p.console_port, p.console_fingerprint.clone())),
-            Some(r) => {
-                check_relay_fingerprint(p.console_fingerprint.as_deref(), &r)?;
-                Arc::new(Console::guest(&p.console_host, p.console_port, Some(r.admin_fp.clone())).with_relay(Some(r)))
-            }
-        };
+        let console = guest_console(&p, relay)?;
         self.console = Some(console.clone());
         self.open_relay(&console)?;
         // Jamais de premier contact avec Kyber.
@@ -3163,7 +3134,6 @@ impl Worker {
         self.apply_borrowed_hdr(d.hdr);
 
         self.status(Status::Connecting);
-        let _ = rustls::crypto::ring::default_provider().install_default();
         let (kyber_host, kyber_port) = self.kyber_endpoint(&console, None, b.kyber.port)?;
         let mut config = ConnectConfig {
             host: kyber_host,
@@ -3174,6 +3144,18 @@ impl Worker {
             auto_reconnection: p.auto_reconnect,
         };
         config.set_tls_fingerprint(&fingerprint).map_err(|e| e.to_string())?;
+        self.connect_kyber(config)?;
+        self.spawn_lend_beat(b.beat.max(1));
+        Ok(())
+    }
+
+    /// Rejoint Kyber (hôte, invité, emprunt : COEUR-37) : client créé avec
+    /// les mesures de latence et les événements de la session, gardé, puis
+    /// connecté. Le fournisseur de chiffrement par défaut de rustls est posé
+    /// d'abord (`kyclient::init_crypto` échoue s'il l'est déjà, à la deuxième
+    /// session par exemple).
+    fn connect_kyber(&mut self, config: ConnectConfig) -> Result<(), Failure> {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let client = Client::new(config, true).map_err(|e| format!("Kyber : {e}"))?;
         let tracker = self.latency.clone();
         client.set_metrics_callback(Some(Box::new(move |m| tracker.on_metric(&m))));
@@ -3184,7 +3166,6 @@ impl Worker {
         let client = Arc::new(client);
         self.client = Some(client.clone());
         client.connect().map_err(|e| format!("Kyber : {e}"))?;
-        self.spawn_lend_beat(b.beat.max(1));
         Ok(())
     }
 
@@ -3197,10 +3178,49 @@ impl Worker {
         let Some(b) = self.borrow.clone() else { return };
         let console = self.console.clone().expect("console");
         let tx = self.tx.clone();
+        self.spawn_guest_beat(
+            "kybernow-pret",
+            seconds,
+            move || console.lend_beat(&b.lend, &b.secret),
+            move |reply, since_ok| match reply {
+                Ok(beat) => {
+                    let end = beat.end.is_some();
+                    let _ = tx.send(Msg::LendBeat(beat));
+                    end
+                }
+                Err(ConsoleError::Http { status, .. }) if lend_gone(status) => {
+                    warn!("signe de vie de l'emprunt : la Station ne connaît plus le prêt ({status})");
+                    let _ = tx.send(Msg::LendGone(crate::lend::LendEnd::Stopped));
+                    true
+                }
+                Err(e) if since_ok >= GUEST_BEAT_LIMIT => {
+                    warn!("signe de vie de l'emprunt : sans réponse depuis {} s ({})", GUEST_BEAT_LIMIT.as_secs(), e.text(Lang::Fr));
+                    let _ = tx.send(Msg::Fail(t("lend.lost", &[]).into()));
+                    true
+                }
+                Err(e) => {
+                    warn!("signe de vie de l'emprunt : {} (nouvel essai)", e.text(Lang::Fr));
+                    false
+                }
+            },
+        );
+    }
+
+    /// Fil du signe de vie d'un invité ou d'un emprunteur (COEUR-37) :
+    /// toutes les `seconds`, `call` tant que la session vit ; `handle` reçoit
+    /// la réponse et le temps depuis la dernière réussie (ou le départ), et
+    /// rend vrai pour arrêter le fil. Le nom de l'ordinateur reste au journal.
+    fn spawn_guest_beat<T: Send + 'static>(
+        &self,
+        thread: &str,
+        seconds: u64,
+        mut call: impl FnMut() -> Result<T, ConsoleError> + Send + 'static,
+        mut handle: impl FnMut(Result<T, ConsoleError>, Duration) -> bool + Send + 'static,
+    ) {
         let alive = self.alive.clone();
         let label = journal::current();
         std::thread::Builder::new()
-            .name("kybernow-pret".into())
+            .name(thread.into())
             .spawn(move || {
                 journal::resume(label);
                 let mut last_ok = Instant::now();
@@ -3209,34 +3229,20 @@ impl Worker {
                     if !alive.load(Ordering::Relaxed) {
                         return;
                     }
-                    let reply = console.lend_beat(&b.lend, &b.secret);
+                    let reply = call();
                     if !alive.load(Ordering::Relaxed) {
                         return;
                     }
-                    match reply {
-                        Ok(beat) => {
-                            last_ok = Instant::now();
-                            let end = beat.end.is_some();
-                            let _ = tx.send(Msg::LendBeat(beat));
-                            if end {
-                                return;
-                            }
-                        }
-                        Err(ConsoleError::Http { status, .. }) if lend_gone(status) => {
-                            warn!("signe de vie de l'emprunt : la Station ne connaît plus le prêt ({status})");
-                            let _ = tx.send(Msg::LendGone(crate::lend::LendEnd::Stopped));
-                            return;
-                        }
-                        Err(e) if last_ok.elapsed() >= GUEST_BEAT_LIMIT => {
-                            warn!("signe de vie de l'emprunt : sans réponse depuis {} s ({})", GUEST_BEAT_LIMIT.as_secs(), e.text(Lang::Fr));
-                            let _ = tx.send(Msg::Fail(t("lend.lost", &[]).into()));
-                            return;
-                        }
-                        Err(e) => warn!("signe de vie de l'emprunt : {} (nouvel essai)", e.text(Lang::Fr)),
+                    let ok = reply.is_ok();
+                    if handle(reply, last_ok.elapsed()) {
+                        return;
+                    }
+                    if ok {
+                        last_ok = Instant::now();
                     }
                 }
             })
-            .expect("fil du signe de vie de l'emprunt");
+            .expect("fil du signe de vie");
     }
 
     /// Réponse du signe de vie de l'emprunt : le jeton de Kyber renouvelé, le
@@ -3374,50 +3380,35 @@ impl Worker {
         let Some(g) = self.guest.clone() else { return };
         let console = self.console.clone().expect("console");
         let tx = self.tx.clone();
-        let alive = self.alive.clone();
-        let label = journal::current();
-        std::thread::Builder::new()
-            .name("kybernow-partage".into())
-            .spawn(move || {
-                journal::resume(label);
-                let mut last_ok = Instant::now();
-                loop {
-                    std::thread::sleep(Duration::from_secs(seconds));
-                    if !alive.load(Ordering::Relaxed) {
-                        return;
+        self.spawn_guest_beat(
+            "kybernow-partage",
+            seconds,
+            move || console.share_beat(&g.joined.guest, &g.joined.secret),
+            move |reply, since_ok| {
+                let failed = reply.as_ref().err().map(|e| e.text(Lang::Fr));
+                match beat_outcome(reply, since_ok) {
+                    BeatOutcome::Reply(b) => {
+                        let end = b.end.is_some();
+                        let _ = tx.send(Msg::ShareBeat(b));
+                        end
                     }
-                    let reply = console.share_beat(&g.joined.guest, &g.joined.secret);
-                    if !alive.load(Ordering::Relaxed) {
-                        return;
+                    BeatOutcome::Gone(end) => {
+                        warn!("signe de vie de l'invité : la Station ne le connaît plus");
+                        let _ = tx.send(Msg::ShareGone(end));
+                        true
                     }
-                    let failed = match &reply {
-                        Err(e) => Some(e.text(Lang::Fr)),
-                        Ok(_) => None,
-                    };
-                    match beat_outcome(reply, last_ok.elapsed()) {
-                        BeatOutcome::Reply(b) => {
-                            last_ok = Instant::now();
-                            let end = b.end.is_some();
-                            let _ = tx.send(Msg::ShareBeat(b));
-                            if end {
-                                return;
-                            }
-                        }
-                        BeatOutcome::Gone(end) => {
-                            warn!("signe de vie de l'invité : la Station ne le connaît plus");
-                            let _ = tx.send(Msg::ShareGone(end));
-                            return;
-                        }
-                        BeatOutcome::Retry => warn!("signe de vie de l'invité : {} (nouvel essai)", failed.unwrap_or_default()),
-                        BeatOutcome::Lost => {
-                            warn!("signe de vie de l'invité : sans réponse depuis {} s", GUEST_BEAT_LIMIT.as_secs());
-                            let _ = tx.send(Msg::Fail(t("share.lost", &[]).into()));
-                            return;
-                        }
+                    BeatOutcome::Retry => {
+                        warn!("signe de vie de l'invité : {} (nouvel essai)", failed.unwrap_or_default());
+                        false
+                    }
+                    BeatOutcome::Lost => {
+                        warn!("signe de vie de l'invité : sans réponse depuis {} s", GUEST_BEAT_LIMIT.as_secs());
+                        let _ = tx.send(Msg::Fail(t("share.lost", &[]).into()));
+                        true
                     }
                 }
-            })
-            .expect("fil du signe de vie de l'invité");
+            },
+        );
     }
 
     /// Réponse du signe de vie de l'invité : la fin, le jeton de Kyber

@@ -288,6 +288,18 @@ pub struct Reply {
     pub retry_after: Option<u64>,
 }
 
+impl Reply {
+    /// Une réponse HTTP lue une fois pour toutes (COEUR-38 : Admin, relais,
+    /// comptes) : statut, corps JSON (nul s'il ne se lit pas), en-tête
+    /// `Retry-After` en secondes.
+    pub(crate) fn read(resp: ureq::Response) -> Reply {
+        let status = resp.status();
+        let retry_after = resp.header("Retry-After").and_then(|h| h.trim().parse().ok());
+        let body = resp.into_json::<Value>().unwrap_or(Value::Null);
+        Reply { status, body, retry_after }
+    }
+}
+
 /// Le transport vers le relais : HTTPS en production ([`UreqHttp`]), un faux
 /// relais dans les essais.
 pub trait RelayHttp: Send + Sync {
@@ -312,15 +324,8 @@ impl RelayHttp for UreqHttp {
             Some(b) => req.send_json(b),
             None => req.call(),
         };
-        let read = |resp: ureq::Response| {
-            let status = resp.status();
-            let retry_after = resp.header("Retry-After").and_then(|h| h.trim().parse().ok());
-            let body = resp.into_json::<Value>().unwrap_or(Value::Null);
-            Reply { status, body, retry_after }
-        };
         match r {
-            Ok(resp) => Ok(read(resp)),
-            Err(ureq::Error::Status(_, resp)) => Ok(read(resp)),
+            Ok(resp) | Err(ureq::Error::Status(_, resp)) => Ok(Reply::read(resp)),
             Err(e) => Err(e.to_string()),
         }
     }
