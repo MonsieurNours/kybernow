@@ -103,8 +103,17 @@ impl WelcomeState {
 pub fn sign_up_url(relay: &str, lang: crate::i18n::Lang) -> String {
     // Sous la forme du relais (sans empreinte épinglée ni port 443, COEUR-40).
     let host = relay.trim().trim_start_matches("https://").trim_end_matches('/');
-    let host = if host.is_empty() { "share.kybernow.app".to_string() } else { crate::account::relay_label(host) };
+    let host = if host.is_empty() { "share.kybernow.app".to_string() } else { web_host(host) };
     format!("https://{host}/compte/inscription?lang={}", lang.code())
+}
+
+/// Le relais sous la forme de son adresse web : sans l'empreinte épinglée
+/// (`#sha256:…`) ni le port 443, comme `RelayAddr::web_authority`. Écrit ici
+/// plutôt que par `crate::account` : ce fichier est aussi compilé tel quel
+/// dans les apps Linux et webOS (`#[path]`), qui n'ont pas le reste du cœur.
+fn web_host(relay: &str) -> String {
+    let host = relay.split('#').next().unwrap_or_default();
+    host.strip_suffix(":443").unwrap_or(host).to_string()
 }
 
 /// La page de téléchargement de KyberNow Station (écran 3 de l'accueil).
@@ -165,5 +174,6 @@ mod tests {
         assert_eq!(sign_up_url("https://relais.exemple.org:9443/", Lang::En), "https://relais.exemple.org:9443/compte/inscription?lang=en");
         // Relais épinglé : l'empreinte n'entre pas dans l'adresse (COEUR-40).
         assert_eq!(sign_up_url("relais.exemple.org:9443#sha256:abcd", Lang::Fr), "https://relais.exemple.org:9443/compte/inscription?lang=fr");
+        assert_eq!(sign_up_url("relais.exemple.org:443#sha256:abcd", Lang::Fr), "https://relais.exemple.org/compte/inscription?lang=fr");
     }
 }
