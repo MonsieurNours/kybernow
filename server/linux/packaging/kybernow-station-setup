@@ -40,23 +40,34 @@ record() {
     printf '{\n  "console_port": %s\n}\n' "$port" > "$BASE/kybernow.json"
 }
 
-[ -f "$DATA/kyber-admin.toml" ] && { record; exit 0; }
-
-# L'encodeur de la carte graphique : NVIDIA → NVENC ; AMD, Intel → VA-API
-# (s'il y a un nœud de rendu) ; sinon le processeur.
+# L'encodeur de la carte graphique : NVIDIA avec son pilote propriétaire →
+# NVENC ; AMD, Intel, ou NVIDIA sans ce pilote (nouveau, NVK : pas de NVENC,
+# STLIN-14) → VA-API s'il y a un nœud de rendu ; sinon le processeur.
+# KYBERNOW_SETUP_ROOT : racine de /sys, /proc et /dev (essais).
+nvenc_driver() {
+    [ -f "${KYBERNOW_SETUP_ROOT:-}/proc/driver/nvidia/version" ] && return 0
+    [ -z "${KYBERNOW_SETUP_ROOT:-}" ] && command -v ldconfig >/dev/null 2>&1 \
+        && ldconfig -p 2>/dev/null | grep -q 'libnvidia-encode\.so\.1'
+}
 encoder() {
-    local vendor
-    for vendor in /sys/class/drm/card*/device/vendor; do
-        [ -f "$vendor" ] && [ "$(cat "$vendor")" = 0x10de ] && { echo nvenc; return; }
+    local root="${KYBERNOW_SETUP_ROOT:-}" vendor render=0
+    ls "$root"/dev/dri/renderD* >/dev/null 2>&1 && render=1
+    for vendor in "$root"/sys/class/drm/card*/device/vendor; do
+        [ -f "$vendor" ] && [ "$(cat "$vendor")" = 0x10de ] && nvenc_driver && { echo nvenc; return; }
     done
-    for vendor in /sys/class/drm/card*/device/vendor; do
+    for vendor in "$root"/sys/class/drm/card*/device/vendor; do
         [ -f "$vendor" ] || continue
         case "$(cat "$vendor")" in
-            0x1002 | 0x8086) ls /dev/dri/renderD* >/dev/null 2>&1 && { echo vaapi; return; } ;;
+            0x1002 | 0x8086 | 0x10de) [ $render = 1 ] && { echo vaapi; return; } ;;
         esac
     done
     echo x264
 }
+# Essais : « kybernow-station-setup --encoder » donne le choix, sans rien initialiser.
+[ "${1:-}" = --encoder ] && { encoder; exit 0; }
+
+[ -f "$DATA/kyber-admin.toml" ] && { record; exit 0; }
+
 
 echo "Première initialisation de KyberNow Station ($BASE)"
 mkdir -p "$DATA" "$KYBER/log"
