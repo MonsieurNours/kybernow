@@ -327,16 +327,6 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_stationOffe
     })
 }
 
-/// Adresse d'Admin à ouvrir dans le navigateur (`https://adresse:port/`).
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleAdminUrl(mut env: Env, _: JClass, h: jlong) -> jstring {
-    kybernow_core::ffi_guard!(null => {
-        let Some(c) = console(h) else { return std::ptr::null_mut() };
-        let url = c.admin_url();
-        give(&mut env, &url)
-    })
-}
-
 /// Adresse d'Admin sans connexion (`console::admin_url` du cœur) : une IPv6
 /// prend ses crochets (`https://[fe80::1]:47990/`), une seule fois (TRANS-36).
 #[unsafe(no_mangle)]

@@ -77,7 +77,6 @@ object Native {
     // Refus : codes 10 à 15, avec `kind`, `device` et `seconds` (voir [Reply.Failed]).
     @JvmStatic external fun consoleStationRestart(handle: Long, deviceId: String?, force: Boolean): String?
     @JvmStatic external fun consoleStationUpdate(handle: Long, deviceId: String?, force: Boolean): String?
-    @JvmStatic external fun consoleAdminUrl(handle: Long): String?
     /** Adresse MAC tapée à la main, lue par le cœur : `AA:BB:CC:DD:EE:FF`, ou nul si elle ne vaut rien. */
     @JvmStatic external fun wakeParseMac(text: String): String?
     /** Adresse d'Admin sans connexion, écrite par le cœur (crochets d'une IPv6 compris). */

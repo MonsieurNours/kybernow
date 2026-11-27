@@ -285,9 +285,6 @@ class ConsoleClient private constructor(private var handle: Long) : AutoCloseabl
         }
     }
 
-    /** Adresse d'Admin à ouvrir dans le navigateur (`https://adresse:port/`). */
-    val adminUrl: String? get() = if (handle != 0L) Native.consoleAdminUrl(handle) else null
-
     // Consoles PlayStation (docs/relais.md, « Consoles PlayStation »).
 
     /** `GET /api/consoles` : les consoles que voit la Station (`[{host_id, name, model, state, seen}]`) ; −404 : Station d'avant les consoles. */
