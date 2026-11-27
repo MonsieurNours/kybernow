@@ -123,6 +123,15 @@ pub unsafe extern "C" fn kn_settings_bitrate(settings_json: *const c_char, width
     })
 }
 
+/// Le même débit pour des écrans dont les pixels par seconde font ensemble
+/// `pixel_rate` (multi-écrans : la somme des écrans de la session).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_settings_bitrate_for_pixel_rate(settings_json: *const c_char, pixel_rate: f64) -> u32 {
+    kybernow_core::ffi_guard!({
+        StreamSettings::from_json(&text(settings_json)).map_or(0, |s| s.bitrate_for_pixel_rate(pixel_rate) / 1_000_000)
+    })
+}
+
 /// Un débit réglé à la main (ancien réglage, reçu d'un autre appareil)
 /// ramené dans les bornes de cet appareil et de ce format (Mbit/s).
 #[unsafe(no_mangle)]
@@ -335,6 +344,9 @@ mod tests {
         assert_eq!(unsafe { kn_settings_bitrate(jeu.as_ptr(), 3840, 2160, 60) }, 60);
         let main = c(r#"{"codec":"hevc","yuv444":false,"mbps":80,"reliable":false}"#);
         assert_eq!(unsafe { kn_settings_bitrate(main.as_ptr(), 1280, 720, 30) }, 80);
+        let rate = 2.0 * 3840.0 * 2160.0 * 60.0;
+        let one = unsafe { kn_settings_bitrate(jeu.as_ptr(), 3840, 2160, 120) };
+        assert_eq!(unsafe { kn_settings_bitrate_for_pixel_rate(jeu.as_ptr(), rate) }, one, "deux écrans à 60 Hz = un écran à 120 Hz");
     }
 
     fn knpw_v2(flags: u8) -> Vec<u8> {
