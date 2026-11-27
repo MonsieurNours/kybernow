@@ -12,7 +12,11 @@
 #
 # Les cibles Rust de tvOS sont de rang 3 : Rust nightly et la bibliothèque
 # standard recompilée (-Zbuild-std), comme le fait build-ios.sh de Kyber.
-#   rustup toolchain install nightly --profile minimal --component rust-src
+# Le nightly est celui de scripts/kyber-toolchain.sh (KYBER_NIGHTLY), épinglé :
+# la toolchain datée si elle est installée, sinon « nightly » seulement s'il
+# est de cette date ; un autre arrête le script (l'empreinte de release.sh
+# ne verrait pas le changement de compilateur).
+#   rustup toolchain install nightly-<KYBER_NIGHTLY> --profile minimal --component rust-src
 #
 # Le correctif kyclient de PyroWave (0025, `VideoCodec::PyroWave`,
 # `fallback_codec`) n'est posé qu'avec --kyber-pyrowave (comme
@@ -58,11 +62,16 @@ done
 [ -d "$OPUS_SRC" ] || { echo "Sources d'Opus introuvables : $OPUS_SRC" >&2; exit 1; }
 
 export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
-rustup run nightly rustc --version >/dev/null 2>&1 || {
-    echo "Rust nightly manquant : rustup toolchain install nightly --profile minimal --component rust-src" >&2
+# Le nightly épinglé : `nightly-<date>` installé, ou `nightly` de la même date.
+if rustup run "nightly-$KYBER_NIGHTLY" rustc --version >/dev/null 2>&1; then
+    NIGHTLY="nightly-$KYBER_NIGHTLY"
+elif [ "$(rustup run nightly rustc --version 2>/dev/null | sed -n 's/.* \([0-9-]*\))$/\1/p')" = "$KYBER_NIGHTLY" ]; then
+    NIGHTLY=nightly
+else
+    echo "Rust nightly du $KYBER_NIGHTLY manquant : rustup toolchain install nightly-$KYBER_NIGHTLY --profile minimal --component rust-src" >&2
     exit 1
-}
-kyber_toolchain_check nightly cargo-c
+fi
+kyber_toolchain_check cargo-c
 
 # Sortie de cargo sans les lignes de progression ; avec pipefail, le code de
 # retour reste celui de cargo.
@@ -99,10 +108,10 @@ build_platform() {
     rm -f "$prefix/lib/libkyclient.a" "$prefix/lib/libkynput.a"
 
     echo "==> libkynput ($target)"
-    (cd "$KYSDK/kynput" && cargo_quiet cargo +nightly cinstall -p kynput --target="$target" -Zbuild-std=std,panic_abort \
+    (cd "$KYSDK/kynput" && cargo_quiet cargo "+$NIGHTLY" cinstall -p kynput --target="$target" -Zbuild-std=std,panic_abort \
         --release --library-type=staticlib --prefix="$prefix")
     echo "==> libkyclient ($target)"
-    (cd "$KYSDK/kyctl" && cargo_quiet cargo +nightly cinstall -p kyclient --target="$target" -Zbuild-std=std,panic_abort \
+    (cd "$KYSDK/kyctl" && cargo_quiet cargo "+$NIGHTLY" cinstall -p kyclient --target="$target" -Zbuild-std=std,panic_abort \
         --release --library-type=staticlib --prefix="$prefix" --features=kymux,rtp)
     [ -f "$prefix/lib/libkyclient.a" ] && [ -f "$prefix/lib/libkynput.a" ] || { echo "Échec de la compilation Rust ($target)" >&2; exit 1; }
 

@@ -64,7 +64,7 @@ Ce que `KyberKitTV/` fournit : la capture des événements de GameController (`G
 
 ```sh
 # SDK de Kyber pour tvOS (une fois, puis après un changement de kyber-patches) :
-rustup toolchain install nightly --profile minimal --component rust-src
+rustup toolchain install nightly-2026-10-19 --profile minimal --component rust-src  # KYBER_NIGHTLY (scripts/kyber-toolchain.sh)
 scripts/build-kyber-tvos.sh
 
 # Le cœur Rust et son pont C pour tvOS (après chaque changement de apps/core ou apps/apple) :

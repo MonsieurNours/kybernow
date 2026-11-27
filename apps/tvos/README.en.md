@@ -64,7 +64,7 @@ What `KyberKitTV/` provides: capture of GameController's events (`GamepadBridge`
 
 ```sh
 # Kyber SDK for tvOS (once, then after a change to kyber-patches):
-rustup toolchain install nightly --profile minimal --component rust-src
+rustup toolchain install nightly-2026-10-19 --profile minimal --component rust-src  # KYBER_NIGHTLY (scripts/kyber-toolchain.sh)
 scripts/build-kyber-tvos.sh
 
 # The Rust core and its C bridge for tvOS (after every change to apps/core or apps/apple):
