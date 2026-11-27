@@ -106,11 +106,13 @@ struct Feeder {
     /// Le chargement en cours est en HDR ; la file de NDL au journal, toutes les 5 s.
     hdr_on: bool,
     queue: crate::journal::Queue,
+    /// Ce fil comme propriétaire du décodeur (`ndl::owner`) : il ne décharge que le chargement qu'il tient encore.
+    owner: u64,
 }
 
 impl Feeder {
     fn new(shared: Arc<Shared>) -> Self {
-        Self { shared, kind: ndl::VIDEO_H265, config: Vec::new(), in_config: false, loaded_config: None, waiting_key: true, gate: ResumeGate::default(), generation: 0, lost_reported: false, last_request: None, failed: false, hdr_on: false, queue: crate::journal::Queue::new(Instant::now()) }
+        Self { shared, kind: ndl::VIDEO_H265, config: Vec::new(), in_config: false, loaded_config: None, waiting_key: true, gate: ResumeGate::default(), generation: 0, lost_reported: false, last_request: None, failed: false, hdr_on: false, queue: crate::journal::Queue::new(Instant::now()), owner: ndl::owner() }
     }
 
     fn run(mut self, rx: Receiver<Msg>) {
@@ -142,9 +144,13 @@ impl Feeder {
                 Msg::Stop => break,
             }
         }
-        // La chaîne Dolby d'abord : le décodeur de jeu se recharge avant elle.
-        esplayer::unload();
-        ndl::unload();
+        // Le décodeur n'est rendu que s'il est encore à ce fil : un fil d'image plus récent (image relancée) l'a peut-être
+        // déjà repris (WEBOS-02). La chaîne Dolby d'abord, mise en attente plutôt que déchargée pour de bon : le
+        // décodeur de jeu se recharge avant elle, et elle se recharge à la trame suivante si le son continue.
+        if ndl::owns(self.owner) {
+            esplayer::suspend();
+        }
+        ndl::unload_if(self.owner);
     }
 
     /// Le HDR de ce flux, lu dans son jeu de paramètres et cette image clé
@@ -217,7 +223,7 @@ impl Feeder {
             }
             let (w, h) = self.shared.video_size();
             let hdr = self.hdr(data);
-            if let Err(e) = ndl::ensure(self.kind, w, h, hdr) {
+            if let Err(e) = ndl::ensure(self.owner, self.kind, w, h, hdr) {
                 if e == ndl::BUSY {
                     // Les mires du réglage du HDR tiennent le décodeur : l'image attend leur fin.
                     return;
@@ -371,6 +377,9 @@ pub struct AudioSink {
     dolby: bool,
     /// Paquets donnés à NDL ou à la chaîne Dolby (journal).
     ndl_packets: Mutex<u64>,
+    /// Le chargement de la chaîne Dolby de ce puits (`esplayer::load`, 0 : aucun) : à sa fin, il ne décharge que le
+    /// sien (WEBOS-02).
+    dolby_token: std::sync::atomic::AtomicU64,
 }
 
 impl AudioSink {
@@ -389,6 +398,7 @@ impl AudioSink {
             encoder: Mutex::new(None),
             dolby,
             ndl_packets: Mutex::new(0),
+            dolby_token: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -409,12 +419,12 @@ impl AudioSink {
                     }
                 }
                 Err(e) if e == "tampon plein" => log::debug!("son : chaîne Dolby, trame sautée (tampon plein)"),
-                // Déchargée par le téléviseur (avec le décodeur d'image) : elle se
-                // recharge en fond, après lui ; les trames d'ici là sont sautées.
+                // Chargement en cours (en fond, WEBOS-05), ou déchargée par le téléviseur (avec le décodeur d'image) :
+                // elle se recharge en fond, après lui ; les trames d'ici là sont sautées.
                 Err(e) if e == esplayer::RELOADING_ERR => log::debug!("son : chaîne Dolby, trame sautée (rechargement)"),
                 Err(e) => {
                     log::warn!("son : chaîne Dolby : {e} ; stéréo par SDL pour la suite de la session");
-                    esplayer::unload();
+                    esplayer::unload_if(self.dolby_token.swap(0, std::sync::atomic::Ordering::AcqRel));
                     self.to_sdl();
                     return;
                 }
@@ -495,11 +505,10 @@ impl AudioSink {
                     self.to_sdl();
                     return;
                 };
-                if let Err(e) = esplayer::load(&silence) {
-                    log::warn!("son : {e} ; stéréo par SDL");
-                    self.to_sdl();
-                    return;
-                }
+                // Chargée en fond (jusqu'à ~5 s : NDL d'abord, puis l'amorce), pas dans le rappel des paquets
+                // (WEBOS-05) : les trames d'ici là sont sautées ; un échec repasse par SDL à la trame suivante.
+                let token = esplayer::load(&silence);
+                self.dolby_token.store(token, std::sync::atomic::Ordering::Release);
                 *self.encoder.lock().unwrap() = Some(enc);
                 *self.decoder.lock().unwrap() = Some((d, vec![0.0; MAX_FRAMES * 6], Vec::new()));
                 *self.route.lock().unwrap() = Route::NdlDolby;
@@ -612,8 +621,9 @@ impl PacketHandler for AudioSink {
 
 impl Drop for AudioSink {
     fn drop(&mut self) {
-        if *self.route.lock().unwrap() == Route::NdlDolby {
-            esplayer::unload();
+        let token = self.dolby_token.swap(0, std::sync::atomic::Ordering::AcqRel);
+        if token != 0 {
+            esplayer::unload_if(token);
         }
         self.engine.stop();
         let id = *self.device.lock().unwrap();

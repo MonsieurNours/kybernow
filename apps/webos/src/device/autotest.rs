@@ -110,8 +110,7 @@ pub fn start(app: &App, host: &str, attempt: u32, tx: Sender<Event>) {
         let tx2 = tx.clone();
         let mut progress = |p: &Progress| send(&tx2, AutoEvent::Progress { attempt, steps: steps(p) });
         let result = autotest::run(console, &device, &mut decoder, &mut progress, &flag, lang);
-        // Le décodeur est rendu après chaque extrait ; une dernière fois, au cas où.
-        ndl::unload();
+        // Le test rend le décodeur après chaque extrait (`ndl::bench`, le sien seulement : WEBOS-15).
         let result = match result {
             Ok(r) => {
                 log::info!("profil auto : {} {}×{} à {} Hz, {} Mbit/s, {}", r.codec.label(), r.width, r.height, r.refresh, r.mbps, if r.reliable { "fiable" } else { "rapide" });

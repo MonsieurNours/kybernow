@@ -4,6 +4,7 @@
 #![cfg_attr(not(feature = "device"), allow(dead_code))]
 
 mod accounts;
+mod av_clock;
 mod app;
 mod autotest;
 mod hdr;
