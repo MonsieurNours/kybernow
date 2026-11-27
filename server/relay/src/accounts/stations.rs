@@ -413,7 +413,7 @@ impl Accounts {
             }
             let lang = if owner.lang == "en" { Lang::En } else { Lang::Fr };
             let date = super::pages::date(lang, now);
-            mailer.send(super::mail::compose(&self.public_url, &owner.email, lang, super::mail::Message::AdminOpened { by: name, computer: &row.name, date: &date }));
+            mailer.send(super::mail::compose(&self.public_url, &owner.email, lang, super::mail::Message::AdminOpened { by: name, computer: &row.name, date: &date, manager: row.account.is_none() }));
         }
     }
 

@@ -167,7 +167,7 @@ Décidé avec l'auteur le 25/11/2026 ; **revient sur une décision du cadrage** 
 - **Avertissements à chaque ouverture à distance** :
   - l'ordinateur le dit : sur Mac, une notification « Admin est ouvert à distance par {nom} » ; sous Windows, le panneau de l'icône s'ouvre avec la même ligne (l'icône n'a pas de notifications) ; et Admin montre un bandeau « Admin ouvert à distance, par KyberNow Share. » à qui l'a ouvert ainsi ;
   - une ligne dans le fil d'Admin et, pour l'ordinateur d'une famille ou d'une équipe, dans son journal ;
-  - un e-mail aux propriétaires (et aux administrateurs d'une famille ou d'une équipe), quand le relais envoie des e-mails : « Admin de {ordinateur} ouvert à distance par {nom}, {date}, depuis {ville ou adresse}. » ;
+  - un e-mail aux propriétaires (et aux administrateurs d'une famille ou d'une équipe), quand le relais envoie des e-mails : « {nom} a ouvert Admin de {ordinateur} le {date}, par KyberNow Share. » (sans lieu : le relais ne situe pas les adresses ; la raison de l'e-mail dit « propriétaire » ou « vous gérez la famille ou l'équipe ») ;
   - la session d'Admin ouverte par le relais **se ferme après 30 minutes sans activité** (et au plus 8 heures).
 - **Passkey exigée** à distance : il faut confirmer par une passkey à chaque ouverture, même déjà connecté. Un compte sans passkey voit « Ajoutez d'abord une passkey à votre compte : elle protège l'ouverture d'Admin à distance. » Sur le réseau, la règle reste celle d'aujourd'hui (double authentification faite).
 - **Tout Admin** à distance : les mêmes pages et réglages que sur le réseau, y compris le mot de passe d'Admin, les ports, le certificat, le compte rattaché et la désinstallation. Une seule exception, de bon sens : « Admin à distance » ne s'allume pas à distance.
@@ -196,7 +196,7 @@ Décidé avec l'auteur le 25/11/2026 ; **revient sur une décision du cadrage** 
 | Admin, interrupteur | « Admin à distance » ; « Les administrateurs de cet ordinateur ouvrent Admin depuis KyberNow Share, de n'importe où. Le relais voit ce qui passe, comme pour un invité dans le navigateur. » ; « S'allume seulement ici, sur le réseau. » | “Remote Admin”; “This computer's administrators open Admin from KyberNow Share, from anywhere. The relay sees what goes through, as for a guest in the browser.”; “Can only be turned on here, on the network.” |
 | Admin, bandeau à distance | « Admin ouvert à distance, par KyberNow Share. » ; « Se déconnecter » | “Admin opened remotely, through KyberNow Share.”; “Sign out” |
 | Notification (icône) | « Admin est ouvert à distance par {nom}. » | “Admin is open remotely by {name}.” |
-| E-mail | « Admin de {ordinateur} ouvert à distance » ; « {nom} a ouvert Admin de {ordinateur} le {date}, depuis {lieu}. Ce n'est pas normal ? Coupez « Admin à distance » dans Admin, sur l'ordinateur. » | “{computer}'s Admin opened remotely”; “{name} opened {computer}'s Admin on {date}, from {place}. Not expected? Turn off “Remote Admin” in Admin, on the computer.” |
+| E-mail | « Admin de {ordinateur} ouvert à distance » ; « {nom} a ouvert Admin de {ordinateur} le {date}, par KyberNow Share. Ce n'est pas normal ? Coupez « Admin à distance » dans Admin, sur l'ordinateur. » | “{computer}'s Admin opened remotely”; “{name} opened {computer}'s Admin on {date}, from {place}. Not expected? Turn off “Remote Admin” in Admin, on the computer.” |
 
 ### Essais à prévoir
 

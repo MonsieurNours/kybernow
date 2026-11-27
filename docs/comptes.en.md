@@ -167,7 +167,7 @@ Decided with the author on 11/25/2026; **reverses a scoping decision** (“Not t
 - **Warnings at each remote opening**:
   - the computer says so: on Mac, a notification “Admin is open remotely by {name}”; on Windows, the icon's panel opens with the same line (the icon has no notifications); and Admin shows a banner “Admin opened remotely, through KyberNow Share.” to whoever opened it that way;
   - a line in Admin's feed and, for a family's or team's computer, in its log;
-  - an email to the owners (and to a family's or team's administrators), when the relay sends emails: “{computer}'s Admin opened remotely by {name}, {date}, from {city or address}.”;
+  - an email to the owners (and to a family's or team's administrators), when the relay sends emails: “{name} opened {computer}'s Admin on {date}, through KyberNow Share.” (no place: the relay doesn't locate addresses; the email's reason says “owner” or “you manage the family or team”);
   - the Admin session opened through the relay **closes after 30 minutes of inactivity** (and 8 hours at most).
 - **Passkey required** remotely: each opening must be confirmed with a passkey, even when already signed in. An account without a passkey sees “Add a passkey to your account first: it protects opening Admin remotely.” On the network, the rule stays today's (two-factor authentication done).
 - **All of Admin** remotely: the same pages and settings as on the network, including Admin's password, the ports, the certificate, the attached account and uninstalling. One common-sense exception: “Remote Admin” can't be turned on remotely.

@@ -58,7 +58,8 @@ impl Outbox {
     }
 }
 
-/// L'envoi par SMTP, dans un fil qui garde la connexion.
+/// L'envoi par SMTP, dans son fil ; chaque e-mail ouvre sa connexion (la fonction `pool` de
+/// lettre n'est pas prise : sans gravité aux volumes du relais).
 pub struct Smtp {
     tx: Mutex<mpsc::Sender<Mail>>,
 }
@@ -175,7 +176,8 @@ pub enum Message<'a> {
     /// Le compte a été supprimé (lot 1b).
     AccountDeleted,
     /// Admin d'un ordinateur ouvert à distance (« Admin depuis KyberNow Share »).
-    AdminOpened { by: &'a str, computer: &'a str, date: &'a str },
+    /// `manager` : le destinataire gère la famille ou l'équipe propriétaire (sinon : il en est le propriétaire) (REL-41).
+    AdminOpened { by: &'a str, computer: &'a str, date: &'a str, manager: bool },
 }
 
 /// Le code « 123 456 », plus facile à lire.
@@ -346,7 +348,7 @@ fn content(lang: Lang, message: Message<'_>) -> (String, Body) {
                 reason: security,
             },
         ),
-        Message::AdminOpened { by, computer, date } => {
+        Message::AdminOpened { by, computer, date, manager } => {
             let who = if by.is_empty() { tr("Quelqu'un", "Someone") } else { by.to_string() };
             (
                 fe(format!("Admin de {computer} ouvert à distance"), format!("{computer}'s Admin opened remotely")),
@@ -367,10 +369,14 @@ fn content(lang: Lang, message: Message<'_>) -> (String, Body) {
                             ),
                         },
                     ],
-                    reason: tr(
-                        "Vous recevez cet e-mail parce que vous êtes propriétaire de cet ordinateur.",
-                        "You're receiving this email because you own this computer.",
-                    ),
+                    reason: if manager {
+                        tr(
+                            "Vous recevez cet e-mail parce que vous gérez la famille ou l'équipe de cet ordinateur.",
+                            "You're receiving this email because you manage this computer's family or team.",
+                        )
+                    } else {
+                        tr("Vous recevez cet e-mail parce que vous êtes propriétaire de cet ordinateur.", "You're receiving this email because you own this computer.")
+                    },
                 },
             )
         }
@@ -687,7 +693,8 @@ mod tests {
             Message::OrgInvite { by: "Ana", org: "Famille Martin", role: "Membre", has_account: true, link: "https://share.test/c" },
             Message::PasskeyAdded { name: "Chrome, Mac", account: "https://share.test/c" },
             Message::AccountDeleted,
-            Message::AdminOpened { by: "Camille", computer: "PC du salon", date: "25/11/2026" },
+            Message::AdminOpened { by: "Camille", computer: "PC du salon", date: "25/11/2026", manager: false },
+            Message::AdminOpened { by: "Camille", computer: "PC de l'atelier", date: "25/11/2026", manager: true },
         ]
     }
 
