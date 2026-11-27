@@ -308,6 +308,7 @@ impl Store {
     }
 
     /// Une base en mémoire (essais).
+    #[cfg(test)]
     pub fn memory(now: i64) -> Result<Store> {
         Store::setup(Connection::open_in_memory()?, now)
     }
@@ -789,6 +790,7 @@ impl Store {
     }
 
     /// Les lignes du journal d'un compte : `(type, quand)`, la plus récente d'abord.
+    #[cfg(test)]
     pub fn audit_of(&self, account: i64) -> Result<Vec<(String, i64)>> {
         let mut stmt = self.conn.prepare("SELECT kind, at FROM audit WHERE account = ?1 ORDER BY at DESC, id DESC")?;
         let rows = stmt.query_map([account], |r| Ok((r.get(0)?, r.get(1)?)))?;

@@ -190,6 +190,7 @@ impl Grant {
     }
 
     /// Une invitation : quand elle expire (30 jours après son dernier envoi).
+    #[cfg(test)]
     pub fn invite_expires_at(&self) -> Option<i64> {
         matches!(self.subject, Subject::Invite { .. }).then_some(self.sent_at + INVITE_SECS)
     }

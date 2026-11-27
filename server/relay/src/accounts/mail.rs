@@ -46,6 +46,7 @@ impl Mailer for Outbox {
     }
 }
 
+#[cfg(test)]
 impl Outbox {
     /// Le dernier e-mail envoyé à cette adresse.
     pub fn last_to(&self, to: &str) -> Option<Mail> {

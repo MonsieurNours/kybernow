@@ -82,6 +82,7 @@ impl Hasher {
     }
 
     /// Des réglages bas, pour les essais seulement.
+    #[cfg(test)]
     pub fn fast() -> Hasher {
         Hasher::with(Params::new(256, 1, 1, None).expect("réglages d'Argon2"))
     }
