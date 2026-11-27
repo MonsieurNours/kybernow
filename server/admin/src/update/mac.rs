@@ -73,21 +73,24 @@ pub fn previous_version(layout: &Layout) -> Option<String> {
     app_version(&previous_app(layout))
 }
 
+/// Le domaine launchd de la Station (`gui/<uid>` de la session d'Admin, STMAC-06).
 fn domain() -> String {
-    use std::os::unix::fs::MetadataExt;
-    format!("gui/{}", fs::metadata("/dev/console").map(|m| m.uid()).unwrap_or(0))
+    crate::mac::launchd_domain()
 }
 
-fn launchctl(args: &[&str]) -> std::process::Output {
-    Command::new("/bin/launchctl").args(args).output().unwrap_or_else(|_| std::process::Output {
-        status: std::process::ExitStatus::default(),
-        stdout: Vec::new(),
-        stderr: Vec::new(),
+use crate::mac::launchctl;
+
+/// Le service est-il chargé ? `Err` : `launchctl` ne se lance pas (jamais pris pour un succès, STMAC-07).
+fn loaded(label: &str) -> Result<bool> {
+    Ok(launchctl(&["print", &format!("{}/{label}", domain())])?.status.success())
+}
+
+/// [`loaded`], `launchctl` en échec noté au journal ; `unknown` est rendu à sa place.
+fn loaded_or(label: &str, unknown: bool, log: &mut Journal) -> bool {
+    loaded(label).unwrap_or_else(|e| {
+        log.line(format!("    {label} : {e:#}"));
+        unknown
     })
-}
-
-fn loaded(label: &str) -> bool {
-    launchctl(&["print", &format!("{}/{label}", domain())]).status.success()
 }
 
 fn home() -> PathBuf {
@@ -98,17 +101,20 @@ fn plist(label: &str) -> PathBuf {
     home().join("Library/LaunchAgents").join(format!("{label}.plist"))
 }
 
-fn stop_all(log: &mut Journal) {
+/// Arrête l'icône, Admin et Kyber. `Err` si `launchctl` ne se lance pas : rien ne dit alors que la
+/// Station est arrêtée, et l'app en marche ne doit pas être remplacée.
+fn stop_all(log: &mut Journal) -> Result<()> {
     for label in LABELS {
-        if loaded(label) {
+        if loaded(label)? {
             log.line(format!("    arrêt de {label}"));
-            launchctl(&["bootout", &format!("{}/{label}", domain())]);
+            launchctl(&["bootout", &format!("{}/{label}", domain())])?;
             let deadline = Instant::now() + Duration::from_secs(15);
-            while loaded(label) && Instant::now() < deadline {
+            while loaded(label)? && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(250));
             }
         }
     }
+    Ok(())
 }
 
 fn start_all(log: &mut Journal) {
@@ -117,14 +123,18 @@ fn start_all(log: &mut Journal) {
         if !path.is_file() {
             continue;
         }
-        if !loaded(label) {
-            let out = launchctl(&["bootstrap", &domain(), &path.to_string_lossy()]);
-            if !out.status.success() {
-                log.line(format!("    {label} : {}", String::from_utf8_lossy(&out.stderr).trim()));
+        if !loaded_or(label, false, log) {
+            match launchctl(&["bootstrap", &domain(), &path.to_string_lossy()]) {
+                Ok(out) if !out.status.success() => log.line(format!("    {label} : {}", String::from_utf8_lossy(&out.stderr).trim())),
+                Ok(_) => {}
+                Err(e) => log.line(format!("    {label} : {e:#}")),
             }
         }
-        launchctl(&["kickstart", &format!("{}/{label}", domain())]);
-        log.line(format!("    {label} lancé"));
+        match launchctl(&["kickstart", &format!("{}/{label}", domain())]) {
+            Ok(out) if out.status.success() => log.line(format!("    {label} lancé")),
+            Ok(out) => log.line(format!("    {label} non lancé : {}", String::from_utf8_lossy(&out.stderr).trim())),
+            Err(e) => log.line(format!("    {label} non lancé : {e:#}")),
+        }
     }
 }
 
@@ -193,7 +203,8 @@ fn swap_and_check(layout: &Layout, incoming: &Path, version: &str, log: &mut Jou
     let _ = fs::remove_file(&probe);
 
     log.line("==> Arrêt de la Station");
-    stop_all(log);
+    // `launchctl` muet : rien ne dit que la Station est arrêtée, l'app en marche reste en place.
+    stop_all(log).context("arrêt de la Station")?;
 
     log.line("==> Bascule");
     fs::create_dir_all(previous.parent().unwrap())?;
@@ -215,7 +226,7 @@ fn swap_and_check(layout: &Layout, incoming: &Path, version: &str, log: &mut Jou
         Err(e) => {
             log.line(format!("ERREUR : {e:#}"));
             log.line("==> Retour à la version qui tournait");
-            stop_all(log);
+            stop_all(log).context("retour arrière")?;
             let failed = layout.updates().join("failed").join(APP_NAME);
             let _ = remove(&failed);
             let _ = fs::create_dir_all(failed.parent().unwrap());
@@ -299,7 +310,8 @@ fn finish(layout: &Layout, version: &str, result: Result<()>, log: &mut Journal)
             let (rolled_back, undo_failed) = (message.contains("version remise en place"), message.contains("retour arrière"));
             log.line(format!("ERREUR : {e:#}"));
             // Arrêtée en route avant la bascule : la Station n'a pas bougé, ou a été relancée.
-            if !LABELS.iter().any(|l| loaded(l)) {
+            // `launchctl` qui ne répond pas : on relance quand même (STMAC-07).
+            if !LABELS.iter().any(|l| loaded_or(l, false, log)) {
                 start_all(log);
             }
             write_result(
@@ -345,10 +357,10 @@ pub fn launch(layout: &Layout, log_dir: &Path, args: &[std::ffi::OsString]) -> R
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n    <key>Label</key><string>{LABEL}</string>\n    <key>ProgramArguments</key><array>{arguments}</array>\n    <key>StandardOutPath</key><string>{output}</string>\n    <key>StandardErrorPath</key><string>{output}</string>\n    <key>RunAtLoad</key><true/>\n    <key>LaunchOnlyOnce</key><true/>\n    <key>AssociatedBundleIdentifiers</key><array><string>{BUNDLE_ID}</string></array>\n</dict>\n</plist>\n"
         ),
     )?;
-    if loaded(LABEL) {
-        launchctl(&["bootout", &format!("{}/{LABEL}", domain())]);
+    if loaded(LABEL)? {
+        launchctl(&["bootout", &format!("{}/{LABEL}", domain())])?;
     }
-    let out = launchctl(&["bootstrap", &domain(), &plist.to_string_lossy()]);
+    let out = launchctl(&["bootstrap", &domain(), &plist.to_string_lossy()])?;
     if !out.status.success() {
         bail!("launchctl bootstrap : {}", String::from_utf8_lossy(&out.stderr).trim());
     }

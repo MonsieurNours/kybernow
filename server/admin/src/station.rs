@@ -217,12 +217,15 @@ fn launch_assistant(data_dir: &Path) -> Result<Option<Child>> {
         let mut log = Journal::open(dir.join(LOG));
         log.line("==> Redémarrage de KyberNow Station demandé depuis Admin (Mac)");
         std::thread::sleep(GRACE);
-        use std::os::unix::fs::MetadataExt;
-        let uid = fs::metadata("/dev/console").map(|m| m.uid()).unwrap_or(0);
-        let domain = format!("gui/{uid}");
+        // La session de la Station (celle d'Admin), pas celle devant l'écran (STMAC-06).
+        let domain = crate::mac::launchd_domain();
         for label in [crate::mac::KYBER_LABEL, "fr.leslignesclaires.kybernow.station.admin"] {
             log.line(format!("launchctl kickstart -k {domain}/{label}"));
-            let _ = std::process::Command::new("/bin/launchctl").args(["kickstart", "-k", &format!("{domain}/{label}")]).status();
+            match crate::mac::launchctl(&["kickstart", "-k", &format!("{domain}/{label}")]) {
+                Ok(out) if !out.status.success() => log.line(format!("    échec : {}", String::from_utf8_lossy(&out.stderr).trim())),
+                Ok(_) => {}
+                Err(e) => log.line(format!("    échec : {e:#}")),
+            }
         }
     });
     tracing::info!("redémarrage de la Station : Kyber puis Admin relancés par launchd");
