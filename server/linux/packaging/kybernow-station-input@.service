@@ -1,0 +1,34 @@
+# KyberNow Station pour Linux : prend les claviers, souris, pavés tactiles et
+# manettes branchés sur l'ordinateur (EVIOCGRAB) pour l'agent de console d'un
+# prêt (kyber-admin input serve, la connexion en entrée standard). Ne renvoie
+# que les touches Entrée et Échap ; rend tout dès que la connexion se ferme ou
+# se tait 20 s. Journal : journalctl -u 'kybernow-station-input@*'.
+[Unit]
+Description=KyberNow Station (entrée de l'ordinateur pendant un prêt)
+CollectMode=inactive-or-failed
+
+[Service]
+ExecStart=/usr/lib/kybernow-station/bin/kyber-admin input serve
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
+# Rien d'autre que /dev/input et le propriétaire noté par les mises à jour.
+DevicePolicy=closed
+DeviceAllow=char-input r
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native

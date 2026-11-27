@@ -1,0 +1,23 @@
+# KyberNow Station pour Linux : la prise du clavier et de la souris de
+# l'ordinateur pendant un prêt (docs/station-linux.md, « Prêt de
+# l'ordinateur »). L'agent de console du prêt (kybernow-tray --console, avec
+# le compte de l'utilisateur) s'y connecte ; systemd lance pour chaque
+# connexion le service root kybernow-station-input@.service, qui prend
+# l'entrée le temps de la connexion et la rend dès qu'elle se ferme.
+#
+# Réservé au propriétaire de la Station et au groupe kybernow-station, comme
+# les mises à jour : le paquet note le propriétaire dans
+# /etc/systemd/system/kybernow-station-input.socket.d/owner.conf.
+[Unit]
+Description=KyberNow Station (prise de l'entrée pendant un prêt)
+
+[Socket]
+ListenStream=/run/kybernow-station/input.sock
+SocketMode=0660
+SocketGroup=kybernow-station
+DirectoryMode=0755
+Accept=yes
+MaxConnections=4
+
+[Install]
+WantedBy=sockets.target

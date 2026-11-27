@@ -99,7 +99,9 @@ fn detect() -> Lang {
 }
 
 /// Script posé dans le panneau avant son chargement : sa langue et ses
-/// textes (`panel` de la langue, et du français pour le repli).
+/// textes (`panel` de la langue, et du français pour le repli). Le
+/// panneau n'existe que sous Windows.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn panel_script() -> String {
     let lang = lang();
     format!(

@@ -261,7 +261,7 @@
     "locked": "Access away from home blocked for 10 min after too many attempts."
   },
   "lend": {
-    "inputNotLocked": "This computer's keyboard and mouse cannot be locked during the loan: whoever sits at the screen keeps control. Reinstall the KyberNow Station package (input udev rule), then sign in again.",
+    "inputNotLocked": "This computer's keyboard and mouse cannot be locked during the loan: whoever sits at the screen keeps control. Install KyberNow Station with its .deb or .rpm package, then sign in again.",
     "badSlot": "Unreadable time slot: one or more days, and an end time after the start time (“14:00”, “18:00”).",
     "passwordLength": "A friend's password has at least 6 characters.",
     "nameRequired": "Give this friend account a name.",
