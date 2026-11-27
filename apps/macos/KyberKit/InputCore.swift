@@ -515,9 +515,20 @@ final class InputPipeline: @unchecked Sendable {
     private static let pasteboardChangeCount: (@convention(c) (UnsafeMutableRawPointer?) -> UInt64)? = { _ in
         UInt64(max(0, UIPasteboard.general.changeCount))
     }
+    // Lire le texte peut afficher « Autoriser à coller ? » et bloquer le fil
+    // appelant pendant l'alerte : jamais le fil de kynput (pointeur,
+    // vibrations, image figés, IOS-15). La lecture se fait sur le fil
+    // principal et se garde pour ce contenu (`changeCount`) ; la première
+    // demande après une copie ailleurs ne rend rien, la suivante le texte.
     private static let pasteboardText: (@convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutablePointer<CChar>?)? = { _ in
-        guard UIPasteboard.general.hasStrings, let text = UIPasteboard.general.string else { return nil }
-        return strdup(text)
+        guard UIPasteboard.general.hasStrings else { return nil }
+        if Thread.isMainThread {
+            return UIPasteboard.general.string.map { strdup($0) }
+        }
+        let count = UIPasteboard.general.changeCount
+        if let text = PasteboardRead.cached(count) { return strdup(text) }
+        DispatchQueue.main.async { PasteboardRead.read() }
+        return nil
     }
     private static let pasteboardSetText: (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void)? = { _, text in
         guard let text else { return }
@@ -530,6 +541,22 @@ final class InputPipeline: @unchecked Sendable {
         UIPasteboard.general.hasStrings
     }
     private static let pasteboardReadingAsksUser = true
+
+    /// Le texte lu sur le fil principal, pour le contenu en cours.
+    private enum PasteboardRead {
+        private static let lock = NSLock()
+        nonisolated(unsafe) private static var last: (count: Int, text: String)?
+
+        static func cached(_ count: Int) -> String? {
+            lock.withLock { last.flatMap { $0.count == count ? $0.text : nil } }
+        }
+
+        static func read() {
+            let count = UIPasteboard.general.changeCount
+            guard cached(count) == nil, let text = UIPasteboard.general.string else { return }
+            lock.withLock { last = (count, text) }
+        }
+    }
     #else
     // Pas de presse-papiers sur l'Apple TV.
     private static let pasteboardChangeCount: (@convention(c) (UnsafeMutableRawPointer?) -> UInt64)? = nil
