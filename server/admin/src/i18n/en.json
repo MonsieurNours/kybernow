@@ -231,6 +231,9 @@
     "accountAdminRemote": "{name} opens Admin remotely, through KyberNow Share",
     "remoteAdminOn": "Remote Admin turned on",
     "remoteAdminOff": "Remote Admin turned off",
+    "remoteAdminE2e": "Remote Admin encrypted end to end, all the way to this computer ({name})",
+    "remoteAdminForeign": "A certificate this computer did not ask for exists for {name}: Remote Admin is suspended. Turn it on again here, on the network, to resume it.",
+    "remoteAdminLost": "The relay no longer passes end-to-end encryption through: Remote Admin is suspended. Turn it on again here, on the network, to accept it anyway.",
     "recordingStarted": "{name} is recording the session",
     "recordingSaved": "Recording saved ({duration})",
     "recordingDiskFull": "Recording stopped: disk full",
@@ -311,7 +314,9 @@
     "badOrigin": "Unreadable Admin address.",
     "alreadyAttached": "This computer is already attached to a KyberNow account: detach it in Admin first.",
     "badEnrollToken": "Enrollment token refused: it's unknown, revoked, expired or already used for all its Stations.",
-    "remoteAdminOff": "Remote Admin is off on this computer. Turn it on in Admin › Away from home, on the network."
+    "remoteAdminOff": "Remote Admin is off on this computer. Turn it on in Admin › Away from home, on the network.",
+    "remoteAdminE2e": "This computer only opens remotely end to end: go through “Open Admin” in KyberNow Share.",
+    "remoteAdminSuspended": "Remote Admin is suspended on this computer (end-to-end encryption lost, or unknown certificate). Turn it on in Admin › Away from home, on the network."
   },
   "linux": {
     "update": {

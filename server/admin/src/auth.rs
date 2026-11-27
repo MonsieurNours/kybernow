@@ -60,7 +60,8 @@ pub struct Auth {
     setup_code: Mutex<Option<String>>,
     sessions: Mutex<HashMap<String, Instant>>,
     /// Les sessions ouvertes à distance : le nom de la personne, la dernière activité, l'échéance.
-    remote: Mutex<HashMap<String, (String, Instant, Instant)>>,
+    /// Sessions à distance : (nom, dernière activité, fin, ouverte de bout en bout).
+    remote: Mutex<HashMap<String, (String, Instant, Instant, bool)>>,
     /// Essais de connexion manqués, par adresse.
     failures: Mutex<HashMap<IpAddr, Failures>>,
     hashing: tokio::sync::Semaphore,
@@ -192,21 +193,24 @@ impl Auth {
         self.remote.lock().unwrap().remove(token);
     }
 
-    /// Une session ouverte à distance, au nom de cette personne.
-    pub fn open_remote_session(&self, name: &str) -> String {
+    /// Une session ouverte à distance, au nom de cette personne ; `e2e` : par le chemin chiffré de
+    /// bout en bout (`browser_tls`), sinon déchiffré par le relais (`admin_http`).
+    pub fn open_remote_session(&self, name: &str, e2e: bool) -> String {
         let token = self.open_session();
         let now = Instant::now();
-        self.remote.lock().unwrap().insert(token.clone(), (name.to_string(), now, now + REMOTE_MAX));
+        self.remote.lock().unwrap().insert(token.clone(), (name.to_string(), now, now + REMOTE_MAX, e2e));
         token
     }
 
-    /// La session à distance vaut-elle encore ? Elle compte alors comme une activité.
-    pub fn remote_session_valid(&self, token: &str) -> bool {
+    /// La session à distance vaut-elle encore, sur ce chemin (`e2e` : de bout en bout) ? Elle compte
+    /// alors comme une activité. Une session ne vaut que sur le chemin où elle s'est ouverte.
+    pub fn remote_session_valid(&self, token: &str, e2e: bool) -> bool {
         let now = Instant::now();
         let ok = {
             let mut remote = self.remote.lock().unwrap();
             match remote.get_mut(token) {
-                Some((_, last, until)) if now < *until && now.duration_since(*last) < REMOTE_IDLE => {
+                Some((_, _, _, opened_e2e)) if *opened_e2e != e2e => return false,
+                Some((_, last, until, _)) if now < *until && now.duration_since(*last) < REMOTE_IDLE => {
                     *last = now;
                     true
                 }
@@ -232,12 +236,29 @@ impl Auth {
         }
     }
 
+    /// Ferme les sessions à distance ouvertes en clair (`admin_http`) : la Station vient d'être de bout
+    /// en bout avec son relais (docs/relais.md, « Navigateur chiffré de bout en bout »).
+    pub fn close_remote_sessions_except_e2e(&self) {
+        let tokens: Vec<String> = {
+            let mut remote = self.remote.lock().unwrap();
+            let gone: Vec<String> = remote.iter().filter(|(_, r)| !r.3).map(|(t, _)| t.clone()).collect();
+            for t in &gone {
+                remote.remove(t);
+            }
+            gone
+        };
+        let mut sessions = self.sessions.lock().unwrap();
+        for t in tokens {
+            sessions.remove(&t);
+        }
+    }
+
     /// Les personnes qui ont Admin ouvert à distance en ce moment.
     pub fn remote_names(&self) -> Vec<String> {
         let now = Instant::now();
         let mut remote = self.remote.lock().unwrap();
-        remote.retain(|_, (_, last, until)| now < *until && now.duration_since(*last) < REMOTE_IDLE);
-        let mut names: Vec<String> = remote.values().map(|(n, _, _)| n.clone()).collect();
+        remote.retain(|_, (_, last, until, _)| now < *until && now.duration_since(*last) < REMOTE_IDLE);
+        let mut names: Vec<String> = remote.values().map(|(n, _, _, _)| n.clone()).collect();
         names.sort();
         names.dedup();
         names

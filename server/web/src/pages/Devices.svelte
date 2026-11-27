@@ -559,6 +559,19 @@
           {:else if relay.via_relay && !relay.remote_admin}
             <p class="muted">{t('devices.away.remoteAdminHere')}</p>
           {/if}
+          {#if relay.remote_admin && relay.remote_tls?.foreign}
+            <p class="muted">{t('devices.away.remoteAdminForeign')}</p>
+          {:else if relay.remote_admin && relay.remote_tls?.state === 'lost'}
+            <p class="muted">{t('devices.away.remoteAdminLost')}</p>
+          {:else if relay.remote_admin && relay.remote_tls?.state === 'ready'}
+            <p class="muted">{t('devices.away.remoteAdminE2e')}</p>
+          {:else if relay.remote_admin && relay.remote_tls?.state === 'pending'}
+            <p class="muted">{t('devices.away.remoteAdminE2ePending')}</p>
+          {:else if relay.remote_admin && relay.remote_tls?.state === 'error'}
+            <p class="muted">{t('devices.away.remoteAdminE2eError')}</p>
+          {:else if relay.remote_admin && relay.remote_tls?.state === 'unsupported'}
+            <p class="muted">{t('devices.away.remoteAdminE2eUnsupported')}</p>
+          {/if}
           {#if relay.remote_admin_sessions?.length}
             <p class="muted">{t('devices.away.remoteAdminOpen', { names: relay.remote_admin_sessions.join(', ') })}</p>
           {/if}
