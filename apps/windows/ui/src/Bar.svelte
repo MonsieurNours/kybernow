@@ -86,6 +86,8 @@
   import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
   import Switch from './lib/Switch.svelte'
+  import LendPanelView from './bar/LendPanel.svelte'
+  import SharePanel from './bar/SharePanel.svelte'
   import type { BarHdr, BarMic, Chosen, PyroWaveBanner, PsBar, PsBarNav, PsStats } from './lib/api'
   import { psStatsLines } from './lib/api'
   import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RecordingEvent, RecordingView, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
@@ -1265,40 +1267,7 @@
   }
 </script>
 
-<!--
-  Le code et son lien, partagés par « Partager » et « Prêter l'ordinateur… » : « 123 456 », « Copier le lien », le QR code
-  (un indicateur d'attente tant que le lien du relais se prépare) et, copie impossible, l'adresse à copier à la main.
--->
-{#snippet codeTop(code: string, qr: ShareQr | null, address: string, phase: RelayPhase, done: 'ok' | 'fail' | null, copy: () => void)}
-  <div class="top">
-    <div class="codebox">
-      <span class="eyebrow">{t('share.code')}</span>
-      <span class="digits mono" aria-label={t('share.code') + ' ' + code}>{code}</span>
-      <button class="ghost" onclick={copy} disabled={phase === 'waiting'}><Icon name="copy" size={16} stroke={1.6} />{t('share.copy_link')}</button>
-      {#if done === 'ok'}<span class="copied" role="status">{t('share.link_copied')}</span>{/if}
-    </div>
-    {#if phase === 'waiting'}
-      <div class="qr qr-wait" role="img" aria-label={t('share.relay_preparing')}><span class="spin big"></span></div>
-    {:else if qr}
-      <svg class="qr" role="img" aria-label={t('share.qr')} viewBox="-4 -4 {qr.size + 8} {qr.size + 8}" shape-rendering="crispEdges">
-        <rect x="-4" y="-4" width={qr.size + 8} height={qr.size + 8} fill="#fff" />
-        <path d={qr.path} fill="#000" />
-      </svg>
-    {/if}
-  </div>
-  {#if done === 'fail'}
-    <!-- Copie impossible : l'adresse reste là, sélectionnée d'un clic. -->
-    <p class="note refusal" role="alert">{t('share.copy_failed')}</p>
-    <input class="field link mono" readonly value={address} onfocus={selectAll} onclick={selectAll} aria-label={t('share.copy_link')} />
-  {/if}
-{/snippet}
 
-<!-- Sous l'aide du même réseau : « Préparation du lien hors de chez vous… », puis « Pas encore joignable hors de chez vous. ». -->
-{#snippet relayLine(phase: RelayPhase)}
-  {#if phase === 'waiting'}
-    <p class="help" role="status"><span class="spin" aria-hidden="true"></span>{t('share.relay_preparing')}</p>
-  {:else if phase === 'unreachable'}<p class="help">{t('share.relay_down')}</p>{/if}
-{/snippet}
 
 <!--
   Une puce de la barre : icône, libellé (rien en barre étroite, le libellé accessible reste), ▾ quand elle ouvre un
@@ -1804,70 +1773,16 @@
       </button>
       {#if menu === 'share'}
         <div class="menu share" role="dialog" aria-label={t('share.title', { name: computerName })}>
-          {#if share?.open}
-            <h3>{t('share.title', { name: computerName })}</h3>
-            {@render codeTop(share.code, share.qr, share.web || share.link, relay, copied, copyLink)}
-            <!-- Relais joint : le partage vaut aussi hors de chez vous, et l'hôte accepte chaque invité venu de loin. -->
-            <p class="help">{t(relay === 'joined' ? 'share.help_relay' : 'share.help')}</p>
-            {@render relayLine(relay)}
-            {#if share.requests.length > 0}
-              <div class="eyebrow list-title">{t('share.requests')}</div>
-              <ul class="guests requests">
-                {#each share.requests as g (g.id)}
-                  <li>
-                    <div class="who">
-                      <span class="gname">{t('share.wants_to_join', { name: g.name })}</span>
-                      <span class="gmeta">{requestMeta(g)}</span>
-                    </div>
-                    <div class="acts">
-                      <!-- Quatre invités ont leur place : « Accepter » est inactif (la raison est dessous : « Quatre invités au plus. »), « Refuser » reste. -->
-                      <button class="accept" aria-disabled={acting || share.full} onclick={() => accept(g)}>{t('share.accept')}</button>
-                      <button class="danger" aria-disabled={acting} onclick={() => refuse(g)}>{t('share.decline')}</button>
-                    </div>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-            <div class="eyebrow list-title">{t('share.guests')}</div>
-            {#if share.guests.length === 0}
-              <p class="nobody">{t('share.nobody')}</p>
-            {:else}
-              <ul class="guests">
-                {#each share.guests as g (g.id)}
-                  <li>
-                    <div class="who">
-                      <span class="gname">{t(`share.guest_${g.role}`, { name: g.name })}</span>
-                      <span class="gmeta">{guestMeta(g)}</span>
-                    </div>
-                    <div class="acts">
-                      <!-- Deux droits indépendants, chacun donné ou repris sans toucher à l'autre : les manettes, puis le
-                           clavier et la souris. Pas d'autre clic tant qu'Admin n'a pas répondu : le rôle qui part se
-                           déduit de celui qui est affiché. -->
-                      <button aria-disabled={acting} onclick={() => setRole(g, roleOf(!rolePads(g.role), roleKbm(g.role)))}>{t(rolePads(g.role) ? 'share.take_pads' : 'share.give_pads')}</button>
-                      <button aria-disabled={acting} onclick={() => setRole(g, roleOf(rolePads(g.role), !roleKbm(g.role)))}>{t(roleKbm(g.role) ? 'share.take_kbm' : 'share.give_kbm')}</button>
-                      <button class="danger" aria-disabled={acting} onclick={() => kick(g)}>{t('share.remove')}</button>
-                    </div>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-            {#if share.full}<p class="note" role="note">{t('share.limit')}</p>{/if}
-            {#if share.guests_speak != null}
-              <!-- Micro des invités : coupé à chaque nouveau partage, vaut tout de suite pour ceux déjà là. -->
-              <div class="speak">
-                <span class="speak-title">{t('micro.guests')}</span>
-                <Switch label={t('micro.guests')} checked={share.guests_speak} disabled={acting} onchange={guestsSpeak} />
-              </div>
-              <p class="speak-help">{t('micro.guests_help')}</p>
-            {/if}
-            <div class="foot">
-              <button class="ghost" onclick={newCode}>{t('share.new_code')}</button>
-              <button class="ghost danger" onclick={stopSharing}>{t('share.stop')}</button>
-            </div>
-          {:else if share?.text}
-            <!-- « Partager » inactif : Station trop ancienne, partage coupé sur l'ordinateur. -->
-            <p class="note" role="note">{share.text}</p>
-          {/if}
+          <SharePanel
+            {share}
+            name={computerName}
+            {relay}
+            {copied}
+            {acting}
+            {guestMeta}
+            {requestMeta}
+            on={{ copy: copyLink, accept, refuse, setRole, kick, guestsSpeak, newCode, stop: stopSharing }}
+          />
           {#if shownError}<p class="note refusal" role="alert">{shownError}</p>{/if}
         </div>
       {/if}
@@ -1894,69 +1809,20 @@
       </button>
       {#if menu === 'lend'}
         <div class="menu share lend" role="dialog" aria-label={t('lend.panel_title', { name: computerName })}>
-          {#if lendText}
-            <p class="note" role="note">{lendText}</p>
-          {:else}
-            <h3>{t('lend.panel_title', { name: computerName })}</h3>
-            {#if lend?.notice?.reason === 'slot_start' && lend.notice.text && !slotAsked}<p class="help" role="status">{lend.notice.text}</p>{/if}
-            {#if lend && lend.requests.length > 0}
-              <div class="eyebrow list-title">{t('share.requests')}</div>
-              <ul class="guests requests">
-                {#each lend.requests as r (r.id)}
-                  <li>
-                    <div class="who">
-                      <!-- Pendant son créneau, l'ami passe avant : le texte du créneau, et « Accepter » seul (sans « Refuser »). -->
-                      <span class="gname">{r.kind === 'slot' ? t('lend.slot_notice', { name: r.name }) : t('lend.wants_to_borrow', { name: r.name })}</span>
-                      {#if lendRequestMeta(r)}<span class="gmeta">{lendRequestMeta(r)}</span>{/if}
-                    </div>
-                    <div class="acts">
-                      <button class="accept" aria-disabled={lendActing} onclick={() => answer(r, true)}>{t('share.accept')}</button>
-                      {#if r.kind !== 'slot'}<button class="danger" aria-disabled={lendActing} onclick={() => answer(r, false)}>{t('share.decline')}</button>{/if}
-                    </div>
-                  </li>
-                {/each}
-              </ul>
-              <p class="help">{t('lend.accept_closes')}</p>
-            {/if}
-            {#if lend?.code}
-              {@render codeTop(lend.code.code, lend.code.qr, lend.code.web || lend.code.link, lendRelay.value, lendCopied, copyLendLink)}
-              <p class="help">{t('lend.code_valid')}</p>
-              <p class="help">{t('lend.code_help')}</p>
-              {@render relayLine(lendRelay.value)}
-              <p class="help strong">{t('lend.session_closes')}</p>
-              <div class="foot">
-                <button class="ghost danger" aria-disabled={lendActing} onclick={cancelCode}>{t('lend.cancel_code')}</button>
-              </div>
-            {:else if !lend?.borrower}
-              <div class="col">
-                <span class="eyebrow">{t('lend.duration')}</span>
-                <Segmented
-                  label={t('lend.duration')}
-                  options={lendDurations.map((d) => ({ value: d === null ? 'none' : String(d), label: t(`lend.duration_${d ?? 'none'}`) }))}
-                  value={lendDuration}
-                  disabled={lendActing}
-                  onchange={(v) => (lendDuration = v)}
-                />
-              </div>
-              <div class="col">
-                <span class="eyebrow">{t('lend.steam')}</span>
-                <Segmented
-                  label={t('lend.steam')}
-                  options={[
-                    { value: 'friend' as const, label: t('lend.steam_friend') },
-                    { value: 'host' as const, label: t('lend.steam_host') },
-                  ]}
-                  value={lendSteam}
-                  disabled={lendActing}
-                  onchange={(v) => (lendSteam = v)}
-                />
-              </div>
-              {#if trustOnce}<p class="note" role="note">{t('lend.trust')}</p>{/if}
-              <div class="foot">
-                <button class="primary" disabled={lendActing} onclick={createCode}>{t('lend.create_code')}</button>
-              </div>
-            {/if}
-          {/if}
+          <LendPanelView
+            {lend}
+            name={computerName}
+            text={lendText}
+            {slotAsked}
+            acting={lendActing}
+            relay={lendRelay.value}
+            copied={lendCopied}
+            bind:duration={lendDuration}
+            bind:steam={lendSteam}
+            {trustOnce}
+            requestMeta={lendRequestMeta}
+            on={{ answer, copy: copyLendLink, cancelCode, createCode }}
+          />
           {#if lendError && lendError !== lendText}<p class="note refusal" role="alert">{lendError}</p>{/if}
         </div>
       {/if}
@@ -2588,85 +2454,6 @@
     background: var(--signal-strong);
   }
 
-  /* Panneau de l'hôte : à gauche de la barre, aligné sur son bouton, comme « Ordinateurs ». */
-  .menu.share {
-    left: -8px;
-    transform: none;
-    width: 400px;
-    padding: 16px;
-    gap: 12px;
-    white-space: normal;
-    /* Un petit écran : le panneau défile dans la fenêtre de la barre (qui ne dépasse pas l'écran). */
-    max-height: calc(100vh - 90px);
-    overflow-y: auto;
-  }
-
-  .menu.share h3 {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 640;
-  }
-
-  .menu.share .top {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-  }
-
-  .menu.share .codebox {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-
-  .menu.share .digits {
-    font-size: 32px;
-    letter-spacing: 0.08em;
-    user-select: text;
-  }
-
-  .menu.share .qr {
-    flex: none;
-    width: 150px;
-    height: 150px;
-    border-radius: 8px;
-  }
-
-  .menu.share .ghost {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    height: 36px;
-    padding: 0 12px;
-    border: 1px solid var(--line-2);
-    border-radius: 8px;
-    background: none;
-    color: var(--muted);
-    font-size: 13px;
-    grid-template-columns: none;
-  }
-
-  .menu.share .ghost:hover {
-    color: var(--text);
-    border-color: var(--faint);
-    background: none;
-  }
-
-  /* « Copier le lien » attend le lien du relais. */
-  .menu.share .ghost:disabled {
-    opacity: 0.5;
-    cursor: default;
-    pointer-events: none;
-  }
-
-  /* Lien du relais en préparation : un indicateur d'attente, à la place du QR code et devant le message. */
-  .menu.share .qr-wait {
-    display: grid;
-    place-items: center;
-  }
-
   .spin {
     display: inline-block;
     width: 12px;
@@ -2698,125 +2485,9 @@
     }
   }
 
-  .menu.share .ghost.danger,
-  .menu.share .danger {
-    color: #ff8a8a;
-  }
-
   .copied {
     font-size: 12px;
     color: var(--ok);
-  }
-
-  .menu.share .field.link {
-    height: 36px;
-    font-size: 12px;
-  }
-
-  .menu.share .help,
-  .menu.share .nobody {
-    margin: 0;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--muted);
-  }
-
-  .menu.share .list-title {
-    margin-top: 2px;
-  }
-
-  .menu.share .guests {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .menu.share .guests li {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 10px 12px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--ink-2);
-  }
-
-  .menu.share .who {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .menu.share .gname {
-    font-size: 13px;
-    font-weight: 600;
-  }
-
-  .menu.share .gmeta {
-    font-size: 12px;
-    color: var(--faint);
-  }
-
-  .menu.share .acts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  /* Les actions sur un invité : de petits boutons, pas des lignes de menu. */
-  .menu.share .acts button {
-    display: inline-flex;
-    padding: 5px 10px;
-    border: 1px solid var(--line-2);
-    border-radius: 7px;
-    font-size: 12px;
-    grid-template-columns: none;
-  }
-
-  .menu.share .acts button:hover {
-    border-color: var(--faint);
-  }
-
-  /* « Accepter » : l'action que l'on attend d'une demande. */
-  .menu.share .acts button.accept {
-    border-color: var(--signal);
-    background: var(--signal-soft);
-  }
-
-  /* Une action attend la réponse d'Admin : les autres patientent. */
-  .menu.share .acts button[aria-disabled="true"] {
-    opacity: 0.5;
-    pointer-events: none;
-  }
-
-  .menu.share .speak {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-top: 12px;
-  }
-  .menu.share .speak-title {
-    font-size: 13px;
-  }
-  .menu.share .speak-help {
-    margin: 4px 0 0;
-    font-size: 12px;
-    color: var(--muted);
-  }
-  .menu.share .foot {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    padding-top: 4px;
-    border-top: 1px solid var(--line);
-  }
-
-  .menu.share .foot .ghost {
-    margin-top: 8px;
   }
 
   /* « Se déconnecter », « Quitter le partage », « Rendre l'ordinateur » : en rouge, avec leur icône. */
@@ -2862,23 +2533,17 @@
     color: var(--warn);
   }
 
-  .menu.lend .col {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .menu.lend .help.strong {
-    color: var(--text);
-  }
-
-  .menu.lend .foot .primary {
-    height: 40px;
-    margin-top: 8px;
-    padding: 0 18px;
-    background: var(--signal-strong);
-    color: #fff;
-    font-weight: 600;
+  /* Panneau de l'hôte : à gauche de la barre, aligné sur son bouton, comme « Ordinateurs ». */
+  .menu.share {
+    left: -8px;
+    transform: none;
+    width: 400px;
+    padding: 16px;
+    gap: 12px;
+    white-space: normal;
+    /* Un petit écran : le panneau défile dans la fenêtre de la barre (qui ne dépasse pas l'écran). */
+    max-height: calc(100vh - 90px);
+    overflow-y: auto;
   }
 
   .menu.giveback {
@@ -2903,8 +2568,7 @@
     gap: 8px;
   }
 
-  .menu.giveback button,
-  .menu.lend .foot .primary {
+  .menu.giveback button {
     display: inline-flex;
     align-items: center;
     justify-content: center;

@@ -1,0 +1,262 @@
+/*
+  Panneaux « Partager » et « Prêter l'ordinateur… » de la barre (bar/SharePanel.svelte, bar/LendPanel.svelte,
+  bar/CodeTop.svelte, bar/RelayLine.svelte) : leur cadre (.menu.share) est dans Bar.svelte, leur contenu dans ces
+  composants. Feuille de la seule fenêtre de la barre (bar.ts). Le style de base des boutons d'un menu
+  (`.menu button`) est repris dans chaque composant, limité à ses propres boutons.
+*/
+
+.menu.share h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 640;
+}
+
+.menu.share .top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.menu.share .codebox {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.menu.share .digits {
+  font-size: 32px;
+  letter-spacing: 0.08em;
+  user-select: text;
+}
+
+.menu.share .qr {
+  flex: none;
+  width: 150px;
+  height: 150px;
+  border-radius: 8px;
+}
+
+.menu.share .ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  grid-template-columns: none;
+}
+
+.menu.share .ghost:hover {
+  color: var(--text);
+  border-color: var(--faint);
+  background: none;
+}
+
+/* « Copier le lien » attend le lien du relais. */
+.menu.share .ghost:disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Lien du relais en préparation : un indicateur d'attente, à la place du QR code et devant le message. */
+.menu.share .qr-wait {
+  display: grid;
+  place-items: center;
+}
+
+.menu.share .ghost.danger,
+.menu.share .danger {
+  color: #ff8a8a;
+}
+
+.menu.share .field.link {
+  height: 36px;
+  font-size: 12px;
+}
+
+.menu.share .help,
+.menu.share .nobody {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.menu.share .list-title {
+  margin-top: 2px;
+}
+
+.menu.share .guests {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.menu.share .guests li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ink-2);
+}
+
+.menu.share .who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.menu.share .gname {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.menu.share .gmeta {
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.menu.share .acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Les actions sur un invité : de petits boutons, pas des lignes de menu. */
+.menu.share .acts button {
+  display: inline-flex;
+  padding: 5px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  font-size: 12px;
+  grid-template-columns: none;
+}
+
+.menu.share .acts button:hover {
+  border-color: var(--faint);
+}
+
+/* « Accepter » : l'action que l'on attend d'une demande. */
+.menu.share .acts button.accept {
+  border-color: var(--signal);
+  background: var(--signal-soft);
+}
+
+/* Une action attend la réponse d'Admin : les autres patientent. */
+.menu.share .acts button[aria-disabled="true"] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.menu.share .speak {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.menu.share .speak-help {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.menu.share .foot .ghost {
+  margin-top: 8px;
+}
+
+.menu.lend .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.menu.lend .help.strong {
+  color: var(--text);
+}
+
+.menu.lend .foot .primary {
+  height: 40px;
+  margin-top: 8px;
+  padding: 0 18px;
+  background: var(--signal-strong);
+  color: #fff;
+  font-weight: 600;
+}
+
+.menu.lend .foot .primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+}
+
+.spin {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  vertical-align: -2px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-top-color: var(--signal, currentColor);
+  animation: spin 0.8s linear infinite;
+}
+
+.spin.big {
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  border-width: 3px;
+}
+
+.copied {
+  font-size: 12px;
+  color: var(--ok);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.menu.share .note {
+  margin: 4px 10px 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--warn);
+  white-space: normal;
+}
+
+.menu.share .note.refusal {
+  color: var(--bad-text);
+}
+
+.menu.share .speak-title {
+  font-size: 13px;
+}
+
+.menu.share .foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
