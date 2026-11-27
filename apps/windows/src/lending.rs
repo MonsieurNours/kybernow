@@ -147,11 +147,22 @@ pub fn save_friends(path: &Path, friends: &[Friend]) -> std::io::Result<()> {
     crate::files::write_atomic(path, &text)
 }
 
+/// Même Station, même compte : même adresse (sans la casse), même port, même identifiant.
+pub fn same_friend(a: &Friend, b: &Friend) -> bool {
+    a.host.eq_ignore_ascii_case(&b.host) && a.port == b.port && a.login == b.login
+}
+
+/// L'identifiant que `upsert` gardera pour `f` : celui de l'ordinateur déjà
+/// connu, sinon le sien.
+pub fn id_for(friends: &[Friend], f: &Friend) -> String {
+    friends.iter().find(|o| same_friend(o, f)).map_or_else(|| f.id.clone(), |o| o.id.clone())
+}
+
 /// Ajoute ou remplace (même Station, même compte : même adresse, même port, même
 /// identifiant) ; rend l'identifiant gardé. Le prénom et le nom déjà appris restent
 /// tant que le nouvel ajout ne les dit pas.
 pub fn upsert(friends: &mut Vec<Friend>, mut f: Friend) -> String {
-    match friends.iter_mut().find(|o| o.host.eq_ignore_ascii_case(&f.host) && o.port == f.port && o.login == f.login) {
+    match friends.iter_mut().find(|o| same_friend(o, &f)) {
         Some(old) => {
             f.id = old.id.clone();
             if f.owner.is_empty() {
@@ -645,7 +656,12 @@ mod tests {
     fn liste_des_ordinateurs_empruntes() {
         let mut list = Vec::new();
         let a = Friend::from_invite("a".into(), &invite());
+        // L'identifiant gardé se sait avant l'ajout (le mot de passe est posé d'abord).
+        assert_eq!(id_for(&list, &a), "a");
         assert_eq!(upsert(&mut list, a.clone()), "a");
+        let again = Friend { id: "b".into(), host: "192.168.1.100".to_uppercase(), ..a.clone() };
+        assert_eq!(id_for(&list, &again), "a");
+        assert_eq!(id_for(&list, &Friend { login: "hugo".into(), ..again.clone() }), "b");
         // Le même compte sur la même Station : remplacé, l'identifiant et le prénom appris restent.
         list[0].owner = "Matthieu".into();
         let again = Friend { id: "b".into(), remember: true, relay: None, sid: None, ..a.clone() };

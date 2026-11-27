@@ -614,7 +614,7 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
         mic: Default::default(),
     });
     let mut running = state.sessions.lock().unwrap();
-    let host = SessionHost::start_as(
+    let host = match SessionHost::start_as(
         session,
         guest.title.clone(),
         params,
@@ -638,7 +638,14 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
             layout,
         },
         events.clone(),
-    );
+    ) {
+        Ok(h) => h,
+        Err(e) => {
+            drop(running);
+            log::error!("session : fil de la fenêtre refusé ({e})");
+            return Err(t("errors.session_thread", &[("error", &e.to_string())]));
+        }
+    };
     running.push(Running { id: id.clone(), name: guest.title.clone(), host, bar, sent, stats, guest: Some(guest), borrow: None, share, lend, route, events });
     let cancelled = take_cancelled_launch(&state, &id);
     drop(running);

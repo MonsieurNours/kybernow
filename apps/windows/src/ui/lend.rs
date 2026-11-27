@@ -285,9 +285,12 @@ pub fn lend_add(app: AppHandle, link: Option<String>, candidate: Option<Candidat
     f.remember = remember;
     let status = lend::status(&f.target(), f.route().as_ref(), &f.login, &password).map_err(|e| e.text(lang(), ""))?;
     f.learn(&status);
-    let id = state.lend.with_friends(|l| lending::upsert(l, f.clone()));
+    // Le mot de passe d'abord : s'il ne peut pas être gardé, l'ordinateur
+    // n'est pas ajouté.
+    let id = state.lend.with_friends(|l| lending::id_for(l, &f));
     let f = Friend { id: id.clone(), ..f };
     state.lend.keep_password(&f, &password, remember)?;
+    state.lend.with_friends(|l| lending::upsert(l, f.clone()));
     state.lend.save();
     state.lend.seen.lock().unwrap().insert(id.clone(), Seen::Status(status));
     log::info!("prêt : ordinateur de {} ajouté{}", f.owner_name(), if f.route().is_some() { " (avec le relais)" } else { "" });
@@ -628,7 +631,7 @@ pub fn lend_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         mic: Default::default(),
     });
     let mut running = state.sessions.lock().unwrap();
-    let host = SessionHost::start_as(
+    let host = match SessionHost::start_as(
         session,
         title.clone(),
         params,
@@ -652,7 +655,14 @@ pub fn lend_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             layout,
         },
         events.clone(),
-    );
+    ) {
+        Ok(h) => h,
+        Err(e) => {
+            drop(running);
+            log::error!("session : fil de la fenêtre refusé ({e})");
+            return Err(t("errors.session_thread", &[("error", &e.to_string())]));
+        }
+    };
     running.push(Running { id: id.clone(), name: title, host, bar, sent, stats, guest: None, borrow: Some(borrow), share, lend: lend_view, route, events });
     let cancelled = take_cancelled_launch(&state, &id);
     drop(running);

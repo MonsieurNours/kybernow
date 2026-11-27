@@ -283,23 +283,26 @@ pub struct SessionHost {
 }
 
 impl SessionHost {
-    pub fn start(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>) -> Self {
+    pub fn start(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>) -> std::io::Result<Self> {
         Self::start_as(window::new_app_id(), host_name, params, opts, events)
     }
 
     /// [`Self::start`] avec son identifiant (`window::new_app_id`), pris
     /// avant : ce qui suit la session (sa fenêtre de connexion, sa fin) la
     /// désigne par lui, jamais par son ordinateur seul.
-    pub fn start_as(id: u64, host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>) -> Self {
+    ///
+    /// Le fil refusé (mémoire, limite de fils) rend l'erreur au lieu de
+    /// paniquer : l'appelant tient le verrou des sessions, qu'une panique
+    /// empoisonnerait pour toute l'app.
+    pub fn start_as(id: u64, host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>) -> std::io::Result<Self> {
         let control = Arc::new(AtomicIsize::new(0));
         let app = Arc::new(OnceLock::new());
         let end_asked = Arc::new(Mutex::new(false));
         let (c, a, e) = (control.clone(), app.clone(), end_asked.clone());
         std::thread::Builder::new()
             .name("kybernow-window".into())
-            .spawn(move || run(id, host_name, params, opts, events, c, a, e))
-            .expect("fil de la fenêtre de session");
-        Self { id, control, app, end_asked }
+            .spawn(move || run(id, host_name, params, opts, events, c, a, e))?;
+        Ok(Self { id, control, app, end_asked })
     }
 
     pub fn id(&self) -> u64 {

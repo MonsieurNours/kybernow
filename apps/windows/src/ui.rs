@@ -1569,9 +1569,18 @@ fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str, by_co
     let info = console.info().map_err(|e| e.to_string())?;
     let fingerprint = candidate.fingerprint.clone().or_else(|| console.fingerprint_seen());
     let state = app.state::<UiState>();
+    // Le mot de passe d'abord : s'il ne peut pas être gardé, l'ordinateur
+    // n'est pas ajouté (il apparaîtrait, et chaque connexion échouerait), et
+    // un ordinateur déjà connu garde son compte.
+    let id = state
+        .with_store(|s| s.computers.iter().find(|o| o.host == candidate.host && o.port == candidate.port).map(|o| o.id.clone()))
+        .unwrap_or_else(store::new_id);
+    if !store::set_password(&id, user, password) {
+        return Err(t("errors.password_store", &[]));
+    }
     let id = state.with_store(|s| {
         s.upsert(Computer {
-            id: store::new_id(),
+            id: id.clone(),
             name: if info.hostname.is_empty() {
                 candidate.name.clone().unwrap_or_else(|| candidate.host.clone())
             } else {
@@ -1596,9 +1605,6 @@ fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str, by_co
             encoder_max: None,
         })
     });
-    if !store::set_password(&id, user, password) {
-        return Err(t("errors.password_store", &[]));
-    }
     state.live.lock().unwrap().insert(id.clone(), Live { online: Some(true), info: Some(info), ..Default::default() });
     emit_computers(app);
     Ok(id)
@@ -3483,7 +3489,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     // Face à un Mac, « Ctrl agit comme ⌘ » (avant de tenir la table des sessions).
     let control_as_command = kybernow_core::input::keymap::control_as_command(s.ctrl_command, &computer_os(&state, &id));
     let mut running = state.sessions.lock().unwrap();
-    let host = SessionHost::start_as(
+    let host = match SessionHost::start_as(
         session,
         c.name.clone(),
         params,
@@ -3504,7 +3510,14 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             microphone: s.microphone,
         },
         events.clone(),
-    );
+    ) {
+        Ok(h) => h,
+        Err(e) => {
+            drop(running);
+            log::error!("session : fil de la fenêtre refusé ({e})");
+            return Err(t("errors.session_thread", &[("error", &e.to_string())]));
+        }
+    };
     let screens = plan.as_ref().map_or(1, |p| p.len());
     running.push(Running { id: id.clone(), name: c.name.clone(), host, bar, sent, stats, guest: None, borrow: None, share: share_state, lend: lend_state, route, events });
     let cancelled = take_cancelled_launch(&state, &id);

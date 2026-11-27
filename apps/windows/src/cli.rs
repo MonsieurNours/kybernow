@@ -397,6 +397,10 @@ pub fn main() -> i32 {
         },
         Arc::new(CliEvents(std::sync::Mutex::new(tx))),
     );
+    if let Err(e) = &_host {
+        system::error_box(&format!("La session n'a pas pu démarrer : {e}"));
+        return 1;
+    }
     let summary = rx.recv().unwrap_or_default();
     match summary.error {
         Some(e) => {
