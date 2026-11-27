@@ -372,14 +372,11 @@ async fn change_password(State(s): State<AppState>, ConnectInfo(peer): ConnectIn
 }
 
 async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
-    let service_state = s.service.state().unwrap_or(service::ServiceState::Unknown);
-    let port = s
-        .kyber
-        .values()
-        .ok()
-        .and_then(|v| v.into_iter().find(|f| f.id == "network.port"))
-        .and_then(|f| f.value.as_u64())
-        .unwrap_or(8080) as u16;
+    // `launchctl`, `systemctl --user`, `scutil` : jamais sur le fil asynchrone.
+    let st = s.clone();
+    let (service_state, hostname) =
+        blocking(move || Ok((st.service.state().unwrap_or(service::ServiceState::Unknown), crate::system::computer_name()))).await?;
+    let port = s.kyber.port().unwrap_or(8080);
     let reachable = tokio::time::timeout(
         Duration::from_millis(500),
         tokio::net::TcpStream::connect(("127.0.0.1", port)),
@@ -389,7 +386,7 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     let gpu = tokio::task::spawn_blocking(gpu::status).await.ok().flatten();
 
     Ok(Json(json!({
-        "hostname": crate::system::computer_name(),
+        "hostname": hostname,
         "os": crate::system::os_name(),
         "lan_ip": crate::tls::lan_ip(),
         "admin_version": env!("CARGO_PKG_VERSION"),
@@ -446,9 +443,16 @@ async fn local_state(
     headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
     local_only(&s, peer, &headers)?;
-    let service_state = s.service.state().unwrap_or(service::ServiceState::Unknown);
-    let (d, a) = (s.display.clone(), s.audio.clone());
-    let (display, audio) = blocking(move || Ok((d.status()["session"].clone(), a.status()["session"].clone()))).await?;
+    let st = s.clone();
+    let (service_state, hostname, display, audio) = blocking(move || {
+        Ok((
+            st.service.state().unwrap_or(service::ServiceState::Unknown),
+            crate::system::computer_name(),
+            st.display.status()["session"].clone(),
+            st.audio.status()["session"].clone(),
+        ))
+    })
+    .await?;
     let user = display["user"].as_str().map(str::to_owned);
     let requests: Vec<Value> = s
         .pairing
@@ -460,7 +464,7 @@ async fn local_state(
         "service": service_state,
         "session": !display.is_null() || !audio.is_null(),
         "user": user,
-        "hostname": crate::system::computer_name(),
+        "hostname": hostname,
         "address": crate::tls::lan_ip(),
         "console_port": s.listen_port,
         "activity": s.activity.summary(),

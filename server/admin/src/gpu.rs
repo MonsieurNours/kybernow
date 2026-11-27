@@ -230,8 +230,19 @@ pub fn encoding_pci_ids() -> Option<(u16, u16)> {
     Some((a.vendor.pci()?, a.device_id?))
 }
 
+/// Dernière lecture de l'activité des cartes par une page (Admin, apps) :
+/// tant qu'on la regarde, elle est relevée chaque seconde.
+static LAST_READ: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+
+/// L'activité a-t-elle été lue depuis `within` ?
+#[cfg_attr(not(windows), allow(dead_code))]
+fn read_lately(within: Duration) -> bool {
+    LAST_READ.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some_and(|t| t.elapsed() < within)
+}
+
 /// Appel bloquant : à lancer dans `spawn_blocking`.
 pub fn status() -> Option<GpuStatus> {
+    *LAST_READ.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Instant::now());
     let mut devices = {
         let s = shared().lock().unwrap();
         s.adapters
@@ -259,13 +270,19 @@ pub fn status() -> Option<GpuStatus> {
     add_nvml(&mut devices);
     // Mac : la puce Apple (« Apple M4 Max »), son GPU et son encodeur.
     if cfg!(target_os = "macos") && devices.is_empty() {
-        let name = std::process::Command::new("/usr/sbin/sysctl")
-            .args(["-n", "machdep.cpu.brand_string"])
-            .output()
-            .ok()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .filter(|n| n.starts_with("Apple"))
-            .unwrap_or_else(|| Vendor::Apple.fallback_name().to_string());
+        // Lu une fois : la puce ne change pas (`/api/status` toutes les 3 s).
+        static CHIP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        let name = CHIP
+            .get_or_init(|| {
+                std::process::Command::new("/usr/sbin/sysctl")
+                    .args(["-n", "machdep.cpu.brand_string"])
+                    .output()
+                    .ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .filter(|n| n.starts_with("Apple"))
+                    .unwrap_or_else(|| Vendor::Apple.fallback_name().to_string())
+            })
+            .clone();
         devices.push(GpuDevice::new(Vendor::Apple, name, None));
     }
     let driver = devices.first()?.driver.clone();
@@ -589,9 +606,14 @@ mod windows_monitor {
                     tracing::info!("compteurs « GPU Engine » indisponibles : activité des cartes inconnue hors NVIDIA");
                 }
             }
+            // Toutes les secondes pendant un flux (kyavserver tourne) ou
+            // quand une page regarde l'activité, toutes les 10 s sinon : ni
+            // compteurs PDH ni instantané des processus en continu, 24 h/24.
+            let encoder = process_ids(ENCODER_PROCESS);
+            let busy = !encoder.is_empty() || super::read_lately(Duration::from_secs(15));
             if let Some(q) = &query {
                 let samples: Vec<_> = q.collect().into_iter().filter_map(|(name, v)| parse_engine(&name, v)).collect();
-                let encoding = encoding_adapters(&samples, &process_ids(ENCODER_PROCESS));
+                let encoding = encoding_adapters(&samples, &encoder);
                 let mut s = shared().lock().unwrap();
                 s.usage = usage_by_adapter(&samples);
                 let now = Instant::now();
@@ -599,7 +621,18 @@ mod windows_monitor {
                     s.last_encode.insert(luid, now);
                 }
             }
-            std::thread::sleep(Duration::from_secs(1));
+            if busy {
+                std::thread::sleep(Duration::from_secs(1));
+            } else {
+                // Réveillé tout de suite si une page regarde ; un flux qui
+                // démarre est vu au plus 10 s après (`ENCODE_HOLD` : 15 s).
+                for _ in 0..10 {
+                    std::thread::sleep(Duration::from_secs(1));
+                    if super::read_lately(Duration::from_secs(2)) {
+                        break;
+                    }
+                }
+            }
         }
     }
 

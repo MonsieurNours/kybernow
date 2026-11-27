@@ -38,6 +38,9 @@ pub struct KyberConfig {
     /// Comptes lus la dernière fois, avec la date du fichier : les appels des
     /// appareils (signal de vie chaque seconde) ne relisent pas le TOML à chaque fois.
     logins: Mutex<Option<(SystemTime, u64, Vec<(String, String)>)>>,
+    /// Port lu la dernière fois, avec la date du fichier (`/api/status` le
+    /// demande toutes les 3 s par onglet ouvert).
+    port: Mutex<Option<(SystemTime, u64, Option<u16>)>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -57,7 +60,7 @@ pub struct User {
 
 impl KyberConfig {
     pub fn new(path: PathBuf, backup_dir: PathBuf) -> Self {
-        Self { path, backup_dir, write: Mutex::new(()), logins: Mutex::new(None) }
+        Self { path, backup_dir, write: Mutex::new(()), logins: Mutex::new(None), port: Mutex::new(None) }
     }
 
     /// Comptes Kyber (identifiant, empreinte), relus seulement si le fichier a changé.
@@ -135,12 +138,22 @@ impl KyberConfig {
 
     /// Port du serveur Kyber (TCP et UDP).
     pub fn port(&self) -> Option<u16> {
-        self.values()
+        let meta = fs::metadata(&self.path).ok()?;
+        let stamp = (meta.modified().unwrap_or(SystemTime::UNIX_EPOCH), meta.len());
+        if let Some((modified, len, port)) = *self.port.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+            && (modified, len) == stamp
+        {
+            return port;
+        }
+        let port = self
+            .values()
             .ok()?
             .into_iter()
             .find(|f| f.id == "network.port")
             .and_then(|f| f.value.as_u64())
-            .and_then(|p| u16::try_from(p).ok())
+            .and_then(|p| u16::try_from(p).ok());
+        *self.port.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((stamp.0, stamp.1, port));
+        port
     }
 
     /// Clé HS256 des jetons JWT acceptés par Kyber, posée par `init` : dans

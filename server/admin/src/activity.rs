@@ -194,9 +194,18 @@ impl Activity {
         }
     }
 
+    /// Le fil des événements, réécrit à chaque événement : un journal, pas
+    /// une donnée à garder coûte que coûte. Écrit d'un bloc (temporaire puis
+    /// renommage) mais sans forcer le disque, qui retarderait sous le verrou
+    /// les signaux de vie ; s'il revient abîmé après un gel, `store` reprend
+    /// sa dernière copie lisible.
     fn save_events(&self, s: &State) {
         if let Ok(bytes) = serde_json::to_vec(&s.events) {
-            let _ = crate::durable::write(&self.dir.join(EVENTS_FILE), bytes);
+            let path = self.dir.join(EVENTS_FILE);
+            let tmp = self.dir.join(format!("{EVENTS_FILE}.tmp"));
+            if std::fs::write(&tmp, bytes).is_ok() {
+                let _ = std::fs::rename(&tmp, &path);
+            }
         }
     }
 

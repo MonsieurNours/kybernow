@@ -632,6 +632,10 @@ pub struct Inner {
     pub data_dir: PathBuf,
     pub kyber_dir: PathBuf,
     pub settings: Mutex<Settings>,
+    /// Écriture des réglages : génération de la dernière copie mise sur le
+    /// disque (une plus ancienne n'écrase jamais une plus récente).
+    pub settings_saved: Mutex<u64>,
+    pub settings_gen: std::sync::atomic::AtomicU64,
     /// Réglages de Kyber modifiés, en attente d'un redémarrage (manuel).
     pub restart_pending: AtomicBool,
     /// Comptes d'appareils que Kyber en marche ne connaît pas encore : il
@@ -691,6 +695,8 @@ impl AppState {
             data_dir: data_dir.clone(),
             kyber_dir: data_dir,
             settings: Mutex::new(settings),
+            settings_saved: Mutex::new(0),
+            settings_gen: std::sync::atomic::AtomicU64::new(0),
             restart_pending: AtomicBool::new(false),
             pending_access: access::PendingAccess::default(),
             kyber_restart: tokio::sync::Mutex::new(()),
@@ -722,10 +728,21 @@ impl AppState {
         sources
     }
 
+    /// Change les réglages puis les écrit (forcés sur le disque) hors du
+    /// verrou des réglages : les autres requêtes qui les lisent n'attendent
+    /// pas `FlushFileBuffers`.
     pub fn update_settings(&self, f: impl FnOnce(&mut Settings)) -> Result<()> {
-        let mut settings = self.settings.lock().unwrap();
-        f(&mut settings);
-        settings.save(&self.data_dir)
+        let (copy, generation) = {
+            let mut settings = self.settings.lock().unwrap();
+            f(&mut settings);
+            (settings.clone(), self.settings_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1)
+        };
+        let mut saved = self.settings_saved.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if generation > *saved {
+            copy.save(&self.data_dir)?;
+            *saved = generation;
+        }
+        Ok(())
     }
 }
 
@@ -1063,6 +1080,8 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         data_dir: data_dir.clone(),
         kyber_dir,
         settings: Mutex::new(settings),
+        settings_saved: Mutex::new(0),
+        settings_gen: std::sync::atomic::AtomicU64::new(0),
         restart_pending: AtomicBool::new(false),
         pending_access: access::PendingAccess::default(),
         kyber_restart: tokio::sync::Mutex::new(()),
