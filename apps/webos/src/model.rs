@@ -1205,7 +1205,7 @@ mod tests {
     fn fichier_d_une_version_plus_recente() {
         let d = dir("futur");
         let path = d.join("kybernow.json");
-        let json = r#"{"device_id":"tv","hosts":[{"id":"a","name":"PC","address":"192.168.1.2","port":47990,"settings":{"profile":"nouveau"},"champ_futur":1}]}"#;
+        let json = r#"{"device_id":"tv","hosts":[{"id":"a","name":"PC","address":"192.168.1.2","port":47990,"fingerprint":null,"user":"tv","settings":{"profile":"nouveau"},"champ_futur":1}]}"#;
         std::fs::write(&path, json).unwrap();
         let s = Store::load_from(path.clone());
         assert!(s.damaged.is_none());
