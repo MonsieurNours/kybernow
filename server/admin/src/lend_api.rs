@@ -1001,10 +1001,7 @@ fn create_code(s: &AppState, body: CodeBody, user: Option<&str>) -> LendResult<J
         return Err(LendError::new(StatusCode::BAD_REQUEST, "bad_request", Msg::new("lend.badDuration")));
     }
     // Un code créé par l'appareil en session vaut accord : sa session se fermera.
-    let from_session = s.activity.live().is_some_and(|l| match &body.device_id {
-        Some(id) => &l.device_id == id,
-        None => user.is_some_and(|u| u == l.user),
-    });
+    let from_session = s.activity.live().is_some_and(|l| user.is_some_and(|u| crate::activity::Activity::is_live(&l, u, body.device_id.as_deref())));
     let share_code = s.share.snapshot().map(|snap| snap.code);
     let previous = s.lend.code_value();
     s.lend.create_code(body.duration, body.steam.unwrap_or_default(), from_session, |c| share_code.as_deref() == Some(c) || previous.as_deref() == Some(c));

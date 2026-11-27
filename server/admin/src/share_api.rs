@@ -692,10 +692,7 @@ fn host_session(s: &AppState, headers: &HeaderMap, device_id: Option<&str>) -> S
     let user = stream_user(s, headers)?;
     s.activity
         .live()
-        .filter(|l| match device_id {
-            Some(id) => l.device_id == id,
-            None => l.user == user,
-        })
+        .filter(|l| crate::activity::Activity::is_live(l, &user, device_id))
         .ok_or_else(|| ShareError::new(StatusCode::CONFLICT, "not_in_session", Msg::new("share.notInSession")))
 }
 

@@ -525,10 +525,7 @@ pub async fn stream_recording(State(s): State<AppState>, headers: HeaderMap, bod
     let live = s
         .activity
         .live()
-        .filter(|l| match body.device_id.as_deref() {
-            Some(id) => l.device_id == id,
-            None => l.user == user,
-        })
+        .filter(|l| crate::activity::Activity::is_live(l, &user, body.device_id.as_deref()))
         .ok_or_else(|| conflict("not_in_session", "recording.notInSession"))?;
     if body.record {
         Ok(Json(start(&s, Some(live.name)).await?))

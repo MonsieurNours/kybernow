@@ -1476,7 +1476,7 @@ async fn stream_prepare(
     // et attend qu'il ait rendu la main avant de préparer l'écran du nouveau.
     // L'app ouverte au début de ses sessions (réglée dans Admin), s'il en a une.
     let launch = s.activity.launch_of(&device_id).map(|(l, _)| l);
-    if let activity::Claim::Waiting { previous } = s.activity.claim(&device_id, &device_name) {
+    if let activity::Claim::Waiting { previous } = s.activity.claim(&device_id, &user, &device_name) {
         tracing::info!("{device_name} prend la main : on attend que {previous} se déconnecte");
         // Si l'arrivant veut la même app que le partant, elle reste ouverte.
         s.launcher.expect_takeover(&device_name, launch.as_ref());
@@ -1701,7 +1701,7 @@ async fn stream_heartbeat(
     // Par le relais : l'appareil en session reste autorisé à joindre Kyber.
     if let Some(axum::Extension(via)) = &via {
         let id = device.map(str::to_owned).unwrap_or_else(|| activity::identity(None, &user).0);
-        if s.activity.live().is_some_and(|l| l.device_id == id) {
+        if s.activity.live().is_some_and(|l| l.device_id == id && l.user == user) {
             s.relay.grant_device(via, &id);
         }
     }
