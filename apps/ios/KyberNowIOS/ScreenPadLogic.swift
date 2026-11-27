@@ -20,10 +20,6 @@ enum PadControl: String, CaseIterable, Hashable {
     }
 
     static let face: [PadControl] = [.a, .b, .x, .y]
-
-    var isFace: Bool { Self.face.contains(self) }
-    var isStick: Bool { self == .leftStick || self == .rightStick }
-    var isTrigger: Bool { self == .lt || self == .rt }
 }
 
 /// Marges sûres de l'écran (encoche, Dynamic Island, barre de gestes).

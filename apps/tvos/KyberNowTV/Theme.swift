@@ -19,7 +19,6 @@ enum Theme {
 
     // Encre
     static let background = rgb(0x05070A)
-    static let bar = rgb(0x090D12)
     static let surface = rgb(0x0E141A)
     static let surface2 = rgb(0x141B23)
     static let line = rgb(0x1E2832)
@@ -44,10 +43,6 @@ enum Theme {
     static let warnLine = rgb(0x4A3A1E)
     static let danger = rgb(0xFF6B6B)
     static let dangerText = rgb(0xFFC9C4)
-
-    /// Marges sûres d'un téléviseur.
-    static let gutter: CGFloat = 96
-    static let top: CGFloat = 56
 
     // MARK: Polices
 

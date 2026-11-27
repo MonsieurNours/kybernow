@@ -44,10 +44,6 @@ enum Theme {
     static let danger = rgb(0xFF6B6B)
     static let dangerText = rgb(0xFFC9C4)
 
-    /// Marges latérales (iPhone) ; l'iPad en prend le double.
-    static let gutter: CGFloat = 20
-    static let top: CGFloat = 12
-
     // MARK: Polices
 
     static func registerFonts() {
@@ -365,16 +361,6 @@ struct SignalCorner: Shape {
     }
 }
 
-private struct ChamferEdge: Shape {
-    var chamfer: CGFloat
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: r.maxX, y: r.maxY - chamfer))
-        p.addLine(to: CGPoint(x: r.maxX - chamfer, y: r.maxY))
-        return p
-    }
-}
-
 /// Bouton principal : aplat Spectre et pan coupé ; éclair du néon au toucher.
 struct PrimaryButton: ButtonStyle {
     var height: CGFloat = 52
@@ -407,29 +393,6 @@ struct GlassButton: ButtonStyle {
             .frame(minHeight: height)
             .glass(12)
             .opacity(configuration.isPressed ? 0.7 : 1)
-            .contentShape(Rectangle())
-    }
-}
-
-/// Choix dans une liste (profil, réglage) : allumé quand il est retenu.
-struct ChoiceButton: ButtonStyle {
-    var selected: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(Theme.sans(15, selected ? .semibold : .regular))
-            .foregroundStyle(selected ? Theme.text : Theme.muted)
-            .padding(.horizontal, 14)
-            .frame(minHeight: 44)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(selected ? Theme.accentFill.opacity(0.28) : Theme.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(selected ? Theme.accent.opacity(0.7) : Theme.line)
-            )
-            .opacity(configuration.isPressed ? 0.75 : 1)
             .contentShape(Rectangle())
     }
 }

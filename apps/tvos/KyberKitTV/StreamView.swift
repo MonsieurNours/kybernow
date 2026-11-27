@@ -29,9 +29,8 @@ public final class StreamView: UIView {
     public let videoView = UIView()
     let surface = MetalSurface()
 
-    /// Modes de souris de l'app Mac (réglages partagés). L'Apple TV applique
-    /// Auto sans réglage : le plein écran d'un jeu suffit (`MouseModeRules`).
-    public typealias MouseMode = KyberKit.MouseMode
+    /// L'Apple TV applique la souris Auto sans réglage : le plein écran d'un
+    /// jeu suffit (`MouseModeRules`).
     private static let rules = MouseModeRules(needsHiddenPointer: false)
 
     /// Un jeu est en plein écran sur l'ordinateur (d'après Admin) : la

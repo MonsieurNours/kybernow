@@ -23,8 +23,6 @@ final class MetalSurface: NSView {
     private var screenObservers: [NSObjectProtocol] = []
     /// L'écran de la fenêtre est HDR (dernière valeur dite au rendu).
     private(set) var screenHDR = false
-    /// L'écran de la fenêtre gagne ou perd le HDR (fil principal).
-    var onScreenHDR: ((Bool) -> Void)?
     /// Relève la marge EDR du moment (couche HDR `linear` : la courbe du shader s'y cale).
     private var headroomTimer: Timer?
 
@@ -78,7 +76,7 @@ final class MetalSurface: NSView {
         updateScreenHDR()
     }
 
-    /// L'écran de la fenêtre est-il HDR ? Dit au rendu, et à `onScreenHDR` s'il change.
+    /// L'écran de la fenêtre est-il HDR ? Dit au rendu (et au journal s'il change).
     func updateScreenHDR() {
         let hdr = HDRDisplay.isHDR(window?.screen)
         renderer?.hdrDisplay = hdr
@@ -86,7 +84,6 @@ final class MetalSurface: NSView {
         guard hdr != screenHDR else { return }
         screenHDR = hdr
         KyberLog.video.notice("écran de la fenêtre \(hdr ? "HDR" : "SDR", privacy: .public) (marge EDR \(String(format: "%.1f", HDRDisplay.headroom(self.window?.screen)), privacy: .public))")
-        onScreenHDR?(hdr)
     }
 
     /// Couche `linear` sur un écran HDR : la marge EDR du moment, deux fois

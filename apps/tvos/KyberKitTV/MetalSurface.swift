@@ -44,8 +44,6 @@ final class MetalSurface: UIView {
     #endif
     /// L'écran est HDR (dernière valeur dite au rendu).
     private(set) var screenHDR = false
-    /// L'écran gagne ou perd le HDR (fil principal).
-    var onScreenHDR: ((Bool) -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -97,7 +95,7 @@ final class MetalSurface: UIView {
         updateScreenHDR()
     }
 
-    /// L'écran est-il HDR ? Dit au rendu, et à `onScreenHDR` s'il change.
+    /// L'écran est-il HDR ? Dit au rendu (et au journal s'il change).
     func updateScreenHDR() {
         let hdr = HDRDisplay.isHDR(window?.screen)
         renderer?.hdrDisplay = hdr
@@ -111,7 +109,6 @@ final class MetalSurface: UIView {
         #else
         KyberLog.video.notice("écran \(hdr ? "HDR" : "SDR", privacy: .public) (marge EDR \(String(format: "%.1f", HDRDisplay.headroom(self.window?.screen)), privacy: .public))")
         #endif
-        onScreenHDR?(hdr)
     }
 
     private func makeLayer() -> CAMetalLayer {
