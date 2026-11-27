@@ -1,0 +1,12 @@
+[package]
+name = "kybernow-rules"
+description = "Règles pures des apps KyberNow Link (adresses, empreintes, codes, relais, bornes et valeurs communes, courbes HDR), sans aucune dépendance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# Aucune dépendance : la caisse se compile partout (cœur, interfaces Linux et
+# LG sans le cœur, Admin plus tard), et ses fichiers peuvent être repris par
+# `#[path]` (welcome.rs du cœur) : chaque module ne nomme que `super::` et std.
+[dependencies]
