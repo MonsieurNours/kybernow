@@ -44,7 +44,6 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::thread::JoinHandle;
@@ -273,7 +272,7 @@ impl InputPipeline {
             on_first: Some(Box::new(move |kind, sent| log::info!("{}entrées : premier envoi {kind} ({})", l1.prefix(), if sent { "parti" } else { "refusé" }))),
             on_dropped: Some(Box::new(move |kind, final_, total| {
                 if final_ {
-                    log::error!("{}entrées : {kind} perdu après 200 ms de réessais ({total} perdus)", l2.prefix());
+                    log::error!("{}entrées : {kind} perdu après les réessais ({total} perdus en tout ; une ligne par rafale)", l2.prefix());
                 } else {
                     log::info!("{}entrées : {kind} refusé par la file d'envoi ({total} perdus)", l2.prefix());
                 }
@@ -1050,9 +1049,20 @@ impl InputPipeline {
         if !self.kbm_ok() {
             return;
         }
-        for character in text.chars() {
-            let packet = Unicode { character }.to_packet(InputTarget::Host).and_then(OwnedPacket::from_packet);
-            self.reliably(packet, "texte");
+        // Un caractère par paquet ; ils attendent leur tour tant que la file
+        // avance (COEUR-18), au plus TEXT_MAX par appel.
+        let count = text.chars().count();
+        if count > TEXT_MAX {
+            log::warn!("{}entrées : texte de {count} caractères, coupé à {TEXT_MAX}", self.label.prefix());
+        }
+        for character in text.chars().take(TEXT_MAX) {
+            let packet = (Unicode { character }).to_packet(InputTarget::Host).and_then(OwnedPacket::from_packet);
+            if let Some(p) = packet {
+                self.packets.send_text(p, "texte");
+            }
+        }
+        if self.packets.has_backlog() {
+            self.wake();
         }
     }
 
@@ -1306,11 +1316,13 @@ impl HandlerInterface for Producer {
 
 struct CursorHandler {
     pipeline: Weak<InputPipeline>,
-    /// Empreinte de la dernière forme reçue, par écran de l'ordinateur : un
-    /// simple déplacement renvoie la même image (kyber-patches serveur 0006),
-    /// inutile de la refaire ; un pointeur qui passe sur un autre écran y
-    /// arrive avec sa forme, que la couche de cet écran n'a pas encore.
-    last_shapes: Mutex<HashMap<u32, Option<u64>>>,
+    /// Dernière forme partie, par couche de l'appareil (adresse de la
+    /// couche) : un simple déplacement renvoie la même image (kyber-patches
+    /// serveur 0006), inutile de la refaire ; un pointeur qui passe sur un
+    /// autre écran y arrive avec sa forme, que la couche de cet écran n'a pas
+    /// encore. Par couche et non par écran de l'ordinateur : à un écran,
+    /// tous les écrans du PC vont à la même couche (COEUR-17).
+    last_shapes: Mutex<HashMap<usize, ShapeMemo>>,
 }
 
 impl HandlerInterface for CursorHandler {
@@ -1329,7 +1341,7 @@ impl ConsumerInterface for CursorHandler {
         let Some(layer) = pipeline.pointer_for(display_id) else { return };
         let remote = {
             let mut shapes = self.last_shapes.lock().unwrap();
-            decode_cursor(cursor, shapes.entry(display_id).or_default())
+            decode_cursor(cursor, shapes.entry(Arc::as_ptr(&layer) as usize).or_default())
         };
         layer.remote_cursor_changed(remote);
     }
@@ -1341,14 +1353,22 @@ impl HandlerConsumerInterface for CursorHandler {
     }
 }
 
-/// Forme ARGB du pointeur (32 bits, non prémultipliée) telle que kynput la
-/// livre, dédoublonnée : `None` quand elle n'a pas changé, ou qu'elle est
-/// entièrement transparente (lecteurs vidéo, certains jeux : le Mac
-/// garderait un pointeur invisible ; on garde la forme précédente).
+/// Caractères au plus d'un texte tapé ou collé d'un coup.
+pub const TEXT_MAX: usize = 4096;
+
 /// Côté le plus grand d'une forme de pointeur acceptée.
 const CURSOR_MAX: u32 = 1024;
 
-pub(crate) fn decode_cursor(c: Cursor, last_shape: &mut Option<u64>) -> RemoteCursor {
+/// La dernière forme partie vers une couche : largeur, hauteur, pixels.
+pub(crate) type ShapeMemo = Option<(u32, u32, Vec<u32>)>;
+
+/// Forme ARGB du pointeur (32 bits, non prémultipliée) telle que kynput la
+/// livre, dédoublonnée : `None` quand elle n'a pas changé, ou qu'elle est
+/// entièrement transparente (lecteurs vidéo, certains jeux : le Mac
+/// garderait un pointeur invisible ; on garde la forme précédente). La
+/// comparaison est une simple comparaison de mémoire (plus d'empreinte
+/// SipHash de tous les pixels sous le verrou du routeur, COEUR-36).
+pub(crate) fn decode_cursor(c: Cursor, last_shape: &mut ShapeMemo) -> RemoteCursor {
     let position = (c.x, c.y);
     let visible = c.visible;
     let (width, height) = (c.width, c.height);
@@ -1366,15 +1386,17 @@ pub(crate) fn decode_cursor(c: Cursor, last_shape: &mut Option<u64>) -> RemoteCu
         return RemoteCursor { visible, image: None, position };
     }
     let pixels = &raw[..count];
-    let mut hasher = DefaultHasher::new();
-    width.hash(&mut hasher);
-    height.hash(&mut hasher);
-    pixels.hash(&mut hasher);
-    let shape = hasher.finish();
-    if *last_shape == Some(shape) {
+    if last_shape.as_ref().is_some_and(|(w, h, p)| (*w, *h) == (width, height) && p.as_slice() == pixels) {
         return RemoteCursor { visible, image: None, position };
     }
-    *last_shape = Some(shape);
+    match last_shape {
+        Some((w, h, p)) => {
+            (*w, *h) = (width, height);
+            p.clear();
+            p.extend_from_slice(pixels);
+        }
+        None => *last_shape = Some((width, height, pixels.to_vec())),
+    }
     if pixels.iter().all(|p| p >> 24 == 0) {
         return RemoteCursor { visible, image: None, position };
     }
@@ -1934,6 +1956,15 @@ mod tests {
         assert!(r.image.is_none(), "forme entièrement transparente : gardée");
         let r = decode_cursor(cursor(vec![0, 0xFF00_0000], 4), &mut last);
         assert_eq!(r.image.map(|s| (s.hot_x, s.width)), Some((1, 2)));
+        // COEUR-17 : une seule couche pour deux écrans du PC (session à un
+        // écran) : flèche, texte (annoncé sur l'autre écran), flèche de
+        // nouveau : la flèche repart, la couche n'a plus qu'elle de connue.
+        let mut layer = None;
+        let arrow = || cursor(vec![0xFF00_0000, 0], 1);
+        let text = || cursor(vec![0xFF00_0000, 0xFF00_0000], 1);
+        assert!(decode_cursor(arrow(), &mut layer).image.is_some());
+        assert!(decode_cursor(text(), &mut layer).image.is_some());
+        assert!(decode_cursor(arrow(), &mut layer).image.is_some(), "retour à la flèche : forme renvoyée");
     }
 
     /// COEUR-08 : une taille qui déborderait est refusée, pas reprise à

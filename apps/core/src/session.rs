@@ -2397,8 +2397,8 @@ impl Worker {
 
     /// Attend au plus `wait` une demande de fin pendant le dernier recours
     /// (`Duration::ZERO` : seulement ce qui est déjà arrivé). Le reste de la
-    /// tentative close est écarté ; les réglages changés entre-temps sont
-    /// gardés pour la suivante.
+    /// tentative close est écarté ; les réglages, le HDR, les écrans et le
+    /// mode changés entre-temps sont gardés pour la suivante.
     fn stop_requested(&mut self, wait: Duration) -> bool {
         let until = Instant::now() + wait;
         loop {
@@ -2410,6 +2410,24 @@ impl Worker {
                 }
                 Ok(Msg::Settings(s)) => self.params.settings = s,
                 Ok(Msg::BitrateCap(cap)) => self.bitrate_cap = cap,
+                // L'état que reprend la tentative suivante (`renew` clone
+                // `params` et `screens`) : HDR, écrans, mode (COEUR-14). Un
+                // écran de Kyber choisi ne vaut que pour la connexion close.
+                Ok(Msg::SetHdr(hdr)) if self.guest.is_none() => self.params.settings.hdr = hdr,
+                Ok(Msg::ScreenHdr(screen, hdr, luminance)) => match self.screens.as_mut() {
+                    Some(list) => {
+                        if let Some(d) = list.list.get_mut(screen) {
+                            d.hdr = hdr;
+                            d.luminance = luminance;
+                        }
+                    }
+                    None => {
+                        self.params.screen_hdr = hdr;
+                        self.params.screen_luminance = luminance;
+                    }
+                },
+                Ok(Msg::SetScreens(screens)) if self.multi() => self.screens = Some(screens),
+                Ok(Msg::SetMode(mode)) if self.plan.is_empty() => self.params.mode = mode,
                 Ok(_) => {}
                 Err(RecvTimeoutError::Timeout) => return false,
             }
@@ -5907,6 +5925,26 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let w = Worker::new(params, Some(screens), recorder.clone(), tx, rx, Arc::new(LatencyTracker::new()), Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)), FocusState::new());
         (w, recorder)
+    }
+
+    /// COEUR-14 : HDR, écrans et mode changés pendant l'attente de la
+    /// Station repartent avec la tentative suivante.
+    #[test]
+    fn reglages_gardes_pendant_l_attente_de_la_station() {
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        let hdr = !w.params.settings.hdr;
+        let _ = w.tx.send(Msg::SetHdr(hdr));
+        let _ = w.tx.send(Msg::ScreenHdr(1, true, None));
+        assert!(!w.stop_requested(Duration::from_millis(20)));
+        assert_eq!(w.params.settings.hdr, hdr);
+        assert!(w.screens.as_ref().unwrap().list[1].hdr);
+        let mut fewer = two_screens(0);
+        fewer.list.truncate(1);
+        let _ = w.tx.send(Msg::SetScreens(fewer));
+        assert!(!w.stop_requested(Duration::from_millis(20)));
+        w.renew();
+        assert_eq!(w.screens.as_ref().unwrap().list.len(), 1, "la tentative suivante part avec les écrans à jour");
+        assert_eq!(w.params.settings.hdr, hdr);
     }
 
     /// COEUR-12 : une panique du fil de session arrête les fils de fond.
