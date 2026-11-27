@@ -1,3 +1,5 @@
+diff --git a/subprojects/txproto/src/iosys_screencapturekit.m b/subprojects/txproto/src/iosys_screencapturekit.m
+index 129a009..90074a5 100644
 --- a/subprojects/txproto/src/iosys_screencapturekit.m
 +++ b/subprojects/txproto/src/iosys_screencapturekit.m
 @@ -23,12 +23,14 @@
@@ -38,12 +40,10 @@
      /* KyberNow (0008): a share guest's own image at a capped rate
       * ("max_framerate", frames per second), 0 = the display's. */
      int max_framerate;
-@@ -280,6 +298,149 @@
- {
-     sp_assert(buf == opaque);
+@@ -282,6 +300,149 @@ static void cvpixelbuffer_free(void *opaque, uint8_t *buf)
      CVPixelBufferRelease((CVPixelBufferRef)opaque);
-+}
-+
+ }
+ 
 +/*
 + * KyberNow (0010): the white of the desktop. ScreenCaptureKit writes SDR
 + * white at 100 nits in its PQ image (measured on 2026-11-03: 10-bit level
@@ -185,10 +185,12 @@
 +    }
 +    CVBufferPropagateAttachments(pb, out);
 +    return out;
- }
- 
++}
++
  static AVFrame *avframe_from_video_samplebuffer(SCKCapture *capture, CMSampleBufferRef sb)
-@@ -290,6 +451,10 @@
+ {
+     CVPixelBufferRef pb = CMSampleBufferGetImageBuffer(sb);
+@@ -290,6 +451,10 @@ static void cvpixelbuffer_free(void *opaque, uint8_t *buf)
                     "%s : can't get image buffer\n", __FUNCTION__);
          return NULL;
      }
@@ -199,8 +201,30 @@
  
      size_t w = CVPixelBufferGetWidth(pb);
      size_t h = CVPixelBufferGetHeight(pb);
-@@ -325,12 +490,42 @@
+@@ -300,6 +465,8 @@ static void cvpixelbuffer_free(void *opaque, uint8_t *buf)
+     if (!hw_ctx) {
+         os_log(capture->os_log,
+                    "%s : can't get hwframe ctx\n", __FUNCTION__);
++        if (gained) /* KyberNow (0010): ours, not handed over yet */
++            CVPixelBufferRelease(gained);
+         return NULL;
+     }
+ 
+@@ -308,6 +475,8 @@ static void cvpixelbuffer_free(void *opaque, uint8_t *buf)
+         os_log(capture->os_log,
+                    "%s : can't alloc avframe\n", __FUNCTION__);
+         av_buffer_unref(&hw_ctx);
++        if (gained)
++            CVPixelBufferRelease(gained);
+         return NULL;
+     }
+ 
+@@ -323,15 +492,47 @@ static void cvpixelbuffer_free(void *opaque, uint8_t *buf)
+         os_log(capture->os_log,
+                    "%s : can't create avbuffer\n", __FUNCTION__);
          av_frame_free(&frame);
++        if (gained)
++            CVPixelBufferRelease(gained);
          return NULL;
      }
 -    CVBufferRetain(pb);
@@ -211,7 +235,7 @@
      frame->pts = (int64_t)(CMTimeGetSeconds(pts_cm) * 1e6) - capture->epoch;
  
      frame->time_base = AV_TIME_BASE_Q;
-+
+ 
 +    /* KyberNow (0010): HDR10 frames, labelled as such. Every 240 frames,
 +     * the brightest level of a 64 x 36 grid is logged, in nits: with no HDR
 +     * content on screen, the white of the desktop. */
@@ -240,10 +264,11 @@
 +        frame->colorspace = AVCOL_SPC_BT2020_NCL;
 +        frame->color_range = AVCOL_RANGE_MPEG;
 +    }
- 
++
      frame->opaque_ref = av_buffer_allocz(sizeof(FormatExtraData));
      if (!frame->opaque_ref) {
-@@ -356,7 +551,11 @@
+         os_log(capture->os_log,
+@@ -356,7 +557,11 @@ static void sck_process_video_buffer(IOSysEntry *entry, CMSampleBufferRef sb)
          return;
      }
  
@@ -255,7 +280,7 @@
  
      if (!frame) {
          return;
-@@ -713,6 +912,17 @@
+@@ -713,6 +918,17 @@ static int sck_stopCapture(IOSysEntry *entry)
      av_buffer_unref(&capture->hw_frames_ctx);
      av_buffer_pool_uninit(&capture->audio_pool);
  
@@ -273,7 +298,7 @@
      return 0;
  }
  
-@@ -786,6 +996,23 @@
+@@ -786,6 +1002,23 @@ static int sck_startVideoCapture(IOSysEntry *entry)
      [capture->streamConfiguration setShowsCursor:NO];
      [capture->streamConfiguration setQueueDepth:3];
      [capture->streamConfiguration setCapturesAudio:NO];
@@ -297,21 +322,23 @@
      /* KyberNow (0008): no more frames than the guest's image needs. */
      if (capture->max_framerate > 0)
          [capture->streamConfiguration setMinimumFrameInterval:
-@@ -1043,6 +1270,11 @@
-         return AVERROR(ENOMEM);
+@@ -1064,6 +1297,11 @@ static int sck_init_io(AVBufferRef *ctx_ref, AVBufferRef *entry_ref,
  
      capture->quit = ATOMIC_VAR_INIT(0);
-+
+ 
 +    /* KyberNow (0010): "hdr" option of kyavservice (0009). */
 +    AVDictionaryEntry *hdr_opt = av_dict_get(opts, "hdr", NULL, 0);
 +    if (hdr_opt)
 +        capture->hdr = (int)strtol(hdr_opt->value, NULL, 10);
- 
++
      /* KyberNow (0008): "max_framerate" option of kyavservice (0007). */
      AVDictionaryEntry *max_fr = av_dict_get(opts, "max_framerate", NULL, 0);
+     if (max_fr)
+diff --git a/subprojects/txproto/src/meson.build b/subprojects/txproto/src/meson.build
+index 5aeda63..1102194 100644
 --- a/subprojects/txproto/src/meson.build
 +++ b/subprojects/txproto/src/meson.build
-@@ -161,7 +161,7 @@
+@@ -161,7 +161,7 @@ have_screencapturekit = false
  
  # ScreenCaptureKit
  screencapturekit = dependency('appleframeworks',

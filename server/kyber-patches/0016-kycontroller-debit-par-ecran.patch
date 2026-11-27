@@ -1,6 +1,8 @@
+diff --git a/kycontroller/src/avservices_manager.rs b/kycontroller/src/avservices_manager.rs
+index 2feff95..5c33105 100644
 --- a/kycontroller/src/avservices_manager.rs
 +++ b/kycontroller/src/avservices_manager.rs
-@@ -396,13 +396,92 @@
+@@ -396,11 +396,112 @@ impl Drop for AudioSubscription {
  
  #[derive(Debug, Clone, PartialEq)]
  pub(crate) struct VideoStreamConfig {
@@ -44,12 +46,34 @@
 +    };
 +    let refresh_rate = refresh_rate_at(display.x, display.y).unwrap_or(0);
 +    width * height * u64::from(refresh_rate)
- }
- 
++}
++
 +/// KyberNow: current refresh rate (Hz) of the Windows display whose top-left
 +/// corner is at `(x, y)` on the desktop.
++/// Kept a second: it is read under the displays' and services' locks, for
++/// each stream that KyberNow Admin lists every 2 s; the Win32 calls stay
++/// out of these paths most of the time.
 +#[cfg(windows)]
 +fn refresh_rate_at(x: i32, y: i32) -> Option<u32> {
++    use std::collections::HashMap;
++    use std::sync::Mutex;
++    use std::time::{Duration, Instant};
++    type Cache = HashMap<(i32, i32), (Instant, Option<u32>)>;
++    static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
++    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
++    let cache = cache.get_or_insert_with(HashMap::new);
++    if let Some((at, rate)) = cache.get(&(x, y))
++        && at.elapsed() < Duration::from_secs(1)
++    {
++        return *rate;
++    }
++    let rate = refresh_rate_read(x, y);
++    cache.insert((x, y), (Instant::now(), rate));
++    rate
++}
++
++#[cfg(windows)]
++fn refresh_rate_read(x: i32, y: i32) -> Option<u32> {
 +    use windows_sys::Win32::Graphics::Gdi::{
 +        DEVMODEW, DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICEW, ENUM_CURRENT_SETTINGS,
 +        EnumDisplayDevicesW, EnumDisplaySettingsW,
@@ -89,12 +113,10 @@
 +#[cfg(not(windows))]
 +fn refresh_rate_at(_x: i32, _y: i32) -> Option<u32> {
 +    None
-+}
-+
+ }
+ 
  pub(crate) struct AVServicesManager {
-     /// Keyed by [`VideoStreamKey`]: `Shared` entries fan out via kydup;
-     /// `Exclusive` entries are per-session, no kydup.
-@@ -719,7 +798,7 @@
+@@ -719,7 +820,7 @@ impl AVServicesManager {
              display_id,
              kycom_uri,
              metrics_uri,
@@ -103,15 +125,15 @@
              config.codec.clone(),
              config.yuv444,
              config.intra_refresh,
-@@ -1004,10 +1083,40 @@
+@@ -1004,10 +1105,40 @@ mod tests {
              codec: VideoCodec::H264,
              yuv444: false,
              intra_refresh: None,
 -            video_stream_count: 1,
 +            pixel_rate: 0,
          }
-+    }
-+
+     }
+ 
 +    /// KyberNow: bitrate split by pixels per second, evenly when a mode is
 +    /// unknown.
 +    #[test]
@@ -127,8 +149,8 @@
 +        assert_eq!(bitrate_shares(30_000_000, &[1920 * 1080 * 60, 0]), vec![15_000_000; 2]);
 +        assert_eq!(bitrate_shares(20_000_000, &[0]), vec![20_000_000]);
 +        assert_eq!(bitrate_shares(20_000_000, &[]), Vec::<u32>::new());
-     }
- 
++    }
++
 +    #[test]
 +    fn pixel_rate_is_unknown_without_the_display() {
 +        let display = kyavservice_types::Display {
@@ -145,13 +167,14 @@
      fn insert_video(manager: &mut AVServicesManager, key: VideoStreamKey, client_count: usize) {
          manager.video_streams.insert(
              key,
+diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
+index a2be8f7..ecdf310 100644
 --- a/kycontroller/src/kymux_controller/mod.rs
 +++ b/kycontroller/src/kymux_controller/mod.rs
-@@ -335,10 +335,24 @@
-                 .to_string(),
+@@ -336,9 +336,23 @@ async fn start_video(
          });
      }
-+
+ 
 +    // KyberNow: each stream gets a share of the bitrate proportional to its
 +    // display's pixels per second (evenly if one is unknown).
 +    let pixel_rates: Vec<u64> = {
@@ -163,7 +186,7 @@
 +    };
 +    let bitrates = crate::avservices_manager::bitrate_shares(request.bitrate, &pixel_rates);
 +    info!("Video bitrate per stream: {bitrates:?} (pixels per second: {pixel_rates:?})");
- 
++
      let mut video_streams = vec![];
  
 -    for stream_request in video_request {
@@ -173,7 +196,7 @@
          let (endpoint_id, client_endpoint, connection_tx, intra_refresh) = match &transport {
              KyTransport::KyProto(connection) => {
                  let video_protocol = request.kymux_config.kyproto_config().video_protocol;
-@@ -377,11 +391,11 @@
+@@ -377,11 +391,11 @@ async fn start_video(
          let display_id = stream_request.display_id;
  
          let config = crate::avservices_manager::VideoStreamConfig {
@@ -187,14 +210,18 @@
          };
  
          // Build the topology. In Mono mode we consume `client_endpoint`
+diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
+index f2df705..f5df758 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
-@@ -538,10 +538,22 @@
+@@ -538,10 +538,22 @@ pub(crate) async fn set_bitrate(
      // global; log a warning since the change will affect every other client
      // on the same display (last-writer-wins, temporary).
      if !services.video_subscriptions.is_empty() {
 -        let per_stream = split_bitrate(services.video_subscriptions.len());
          let av_services_manager = ctrl.av_services_manager.lock().await;
+-
+-        for sub in &services.video_subscriptions {
 +        // KyberNow: same split as at session start, by each display's pixels
 +        // per second (evenly if one is unknown).
 +        let weights: Vec<u64> = services
@@ -208,13 +235,12 @@
 +            })
 +            .collect();
 +        let shares = crate::avservices_manager::bitrate_shares(request.bitrate, &weights);
- 
--        for sub in &services.video_subscriptions {
++
 +        for (sub, per_stream) in services.video_subscriptions.iter().zip(shares) {
              let key = sub.key();
  
              if matches!(
-@@ -556,7 +568,7 @@
+@@ -556,7 +568,7 @@ pub(crate) async fn set_bitrate(
              let Some(stream) = av_services_manager.video_streams.get(key) else {
                  continue;
              };

@@ -1,4 +1,5 @@
 diff --git a/kyavservice-types/src/lib.rs b/kyavservice-types/src/lib.rs
+index 62a69ff..9867a2f 100644
 --- a/kyavservice-types/src/lib.rs
 +++ b/kyavservice-types/src/lib.rs
 @@ -97,6 +97,12 @@ pub enum Command {
@@ -15,6 +16,7 @@ diff --git a/kyavservice-types/src/lib.rs b/kyavservice-types/src/lib.rs
  
  /// KyberNow (0020): the size of a scaled-down image (even numbers).
 diff --git a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
+index 1683da5..9975dca 100644
 --- a/kyavservice/src/avconv/mod.rs
 +++ b/kyavservice/src/avconv/mod.rs
 @@ -466,6 +466,8 @@ async fn handle_command(
@@ -27,6 +29,7 @@ diff --git a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
              *stop = true;
              if let Some(old) = ctx.take() {
 diff --git a/kyavservice/src/config.rs b/kyavservice/src/config.rs
+index e4de631..6040cab 100644
 --- a/kyavservice/src/config.rs
 +++ b/kyavservice/src/config.rs
 @@ -242,6 +242,9 @@ pub struct Config {
@@ -52,6 +55,7 @@ diff --git a/kyavservice/src/config.rs b/kyavservice/src/config.rs
          *self.clock_type.as_ref().unwrap_or(&ClockType::ZeroedOrigin)
      }
 diff --git a/kyavservice/src/txproto/rtp.rs b/kyavservice/src/txproto/rtp.rs
+index 6c6b537..99dec58 100644
 --- a/kyavservice/src/txproto/rtp.rs
 +++ b/kyavservice/src/txproto/rtp.rs
 @@ -94,6 +94,7 @@ pub(crate) async fn generate_sdp(
@@ -63,6 +67,7 @@ diff --git a/kyavservice/src/txproto/rtp.rs b/kyavservice/src/txproto/rtp.rs
          clock_type: config::ClockType::ZeroedOrigin,
          cursor_move_rate: config::DEFAULT_CURSOR_MOVE_RATE,
 diff --git a/kyavservice/src/txproto/run.rs b/kyavservice/src/txproto/run.rs
+index ce13344..a9002b6 100644
 --- a/kyavservice/src/txproto/run.rs
 +++ b/kyavservice/src/txproto/run.rs
 @@ -101,6 +101,32 @@ fn handle_video_force_idr(
@@ -123,9 +128,10 @@ diff --git a/kyavservice/src/txproto/run.rs b/kyavservice/src/txproto/run.rs
              response.send(Ok(Response::None))?;
              *stop = true;
 diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
+index 413fad3..ab8776d 100644
 --- a/kyavservice/src/txproto/video.rs
 +++ b/kyavservice/src/txproto/video.rs
-@@ -39,6 +39,9 @@ pub(crate) struct VideoConfig {
+@@ -40,6 +40,9 @@ pub(crate) struct VideoConfig {
      pub(crate) codec: VideoCodec,
      pub(crate) yuv444: bool,
      pub(crate) intra_refresh: bool,
@@ -135,9 +141,9 @@ diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
      pub(crate) encoder_config: Option<config::EncoderConfig>,
      pub(crate) clock_type: config::ClockType,
      /// Pointer moves forwarded per second (`[kyavserver] cursor_move_rate`).
-@@ -203,6 +206,11 @@ fn create_nvenc(
-         options.push(("profile", profile).into());
+@@ -214,6 +217,11 @@ fn create_nvenc(
      }
+     options.extend(rate_control_options(RateControl::Nvenc, &config.codec));
  
 +    // KyberNow (0060): repair of a loss without a keyframe.
 +    if config.loss_repair && config.codec == VideoCodec::HEVC {
@@ -147,7 +153,7 @@ diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
      if let Some(encoder_config) = &config.encoder_config {
          options.extend(encoder_config_to_dict(encoder_config));
      }
-@@ -649,6 +657,11 @@ fn create_videotoolbox(
+@@ -664,6 +672,11 @@ fn create_videotoolbox(
          ("b", config.bitrate as i64).into(),
      ];
  
@@ -160,6 +166,7 @@ diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
          options.extend(encoder_config_to_dict(encoder_config));
      }
 diff --git a/txproto-rs/src/lib.rs b/txproto-rs/src/lib.rs
+index 2dfef9a..13c6a5b 100644
 --- a/txproto-rs/src/lib.rs
 +++ b/txproto-rs/src/lib.rs
 @@ -357,6 +357,17 @@ impl Txproto {

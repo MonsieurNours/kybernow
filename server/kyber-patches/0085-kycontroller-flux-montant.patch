@@ -1,7 +1,8 @@
 diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
+index b058cb0..b4367c1 100644
 --- a/kycontroller/src/kymux_controller/mod.rs
 +++ b/kycontroller/src/kymux_controller/mod.rs
-@@ -774,6 +774,8 @@
+@@ -774,6 +774,8 @@ pub(crate) struct StartSessionResponse {
      pub(crate) metrics: Option<StartSessionMetricsResponse>,
      /// KyberNow (0052): the feedback channel, for a viewer that asked.
      pub(crate) feedback: Option<kyproto::FeedbackHost>,
@@ -10,7 +11,7 @@ diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_c
  }
  
  fn run_clock_sync_task(endpoint: kyproto::ClockSyncServerEndpoint) -> Task {
-@@ -807,6 +809,8 @@
+@@ -807,6 +809,8 @@ async fn start_session(
      request: requests::StartRequest,
      // KyberNow (0022): `hdr` of each `request.video` entry.
      hdr: Vec<bool>,
@@ -19,7 +20,7 @@ diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_c
  ) -> Result<StartSessionResponse> {
      let transport = if let KymuxConfig::KyProto(_) = &request.kymux_config {
          // Get the pending connection receiver (was created in start_mux)
-@@ -941,6 +945,20 @@
+@@ -948,6 +952,20 @@ async fn start_session(
          None
      };
  
@@ -40,7 +41,7 @@ diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_c
      let video_connection_tx = video
          .as_mut()
          .and_then(|vec| vec.first_mut())
-@@ -982,6 +1000,7 @@
+@@ -989,6 +1007,7 @@ async fn start_session(
          clock_sync,
          metrics,
          feedback,
@@ -49,9 +50,10 @@ diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_c
  }
  
 diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/kymux_controller/requests.rs
+index 01f4a5c..9bbc09b 100644
 --- a/kycontroller/src/kymux_controller/requests.rs
 +++ b/kycontroller/src/kymux_controller/requests.rs
-@@ -68,6 +68,8 @@
+@@ -68,6 +68,8 @@ pub(crate) async fn start_session(
  ) -> HttpResponse {
      // KyberNow (0022): `hdr` of each display, read beside the request.
      let hdr = crate::hdr::requested(&request);
@@ -60,7 +62,7 @@ diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/ky
      let request: StartRequest = match serde_json::from_value(request.into_inner()) {
          Ok(request) => request,
          Err(err) => {
-@@ -116,13 +118,16 @@
+@@ -123,13 +125,16 @@ pub(crate) async fn start_session(
      };
  
      // Start session
@@ -78,7 +80,7 @@ diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/ky
  
              let video = response.video.map(|video| {
                  video
-@@ -243,7 +248,8 @@
+@@ -257,7 +262,8 @@ pub(crate) async fn start_session(
                  ));
              }
  
@@ -88,7 +90,7 @@ diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/ky
                  session_id: Some(numeric_session_id),
                  video,
                  audio,
-@@ -252,6 +258,9 @@
+@@ -266,6 +272,9 @@ pub(crate) async fn start_session(
                  metrics,
                  feedback,
              })
@@ -99,9 +101,10 @@ diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/ky
          // KyberNow: no image the share guest's device reads.
          Err(crate::error::Error::ShareNoImage) => {
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
+index d723e2a..0f09b59 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
-@@ -64,6 +64,7 @@
+@@ -64,6 +64,7 @@ mod session;
  mod statemachine;
  mod tls;
  mod tray;
@@ -111,9 +114,10 @@ diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
  mod webclient;
 diff --git a/kycontroller/src/uplink.rs b/kycontroller/src/uplink.rs
 new file mode 100644
+index 0000000..7bd84b2
 --- /dev/null
 +++ b/kycontroller/src/uplink.rs
-@@ -0,0 +1,415 @@
+@@ -0,0 +1,507 @@
 +// KyberNow (0085): upstream streams, from the app to the computer (the
 +// device's camera, its microphone).
 +//
@@ -121,7 +125,8 @@ new file mode 100644
 +// can send (`["camera", "microphone"]`), read from the request's JSON beside
 +// kyctl-common's `StartRequest`, like `hdr` (an older app sends none). For
 +// each kind whose sink sits next to kycontroller (`kybernow-camera`,
-+// `kybernow-micro`), and never for a share guest, a kyproto data endpoint is
++// `kybernow-micro`) and says its virtual device is ready (`--probe`,
++// `--check`: `ready`), and never for a share guest, a kyproto data endpoint is
 +// registered; the response gives them in `uplink`
 +// (`[{"kind": "camera", "endpoint": 12}]`). A data endpoint is a reliable
 +// QUIC stream of its own each way: what goes up never waits behind the
@@ -147,7 +152,7 @@ new file mode 100644
 +// its input closes: STOP, the app gone, the session ended.
 +
 +use std::collections::HashMap;
-+use std::path::PathBuf;
++use std::path::{Path, PathBuf};
 +use std::process::Stdio;
 +use std::sync::Mutex;
 +
@@ -214,6 +219,63 @@ new file mode 100644
 +    Some((kind, sink_path(sink)?))
 +}
 +
++/// The option by which a sink says whether its virtual device is ready
++/// (exit code 0): `kybernow-camera --probe` (camera registered),
++/// `kybernow-micro --check` (virtual microphone present).
++fn probe_arg(kind: &str) -> Option<&'static str> {
++    match kind {
++        "camera" => Some("--probe"),
++        "microphone" => Some("--check"),
++        _ => None,
++    }
++}
++
++/// How long a sink may take to answer its probe; past that, the kind is
++/// offered (the session never waits longer, and the sink reports at START).
++const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
++/// A probe's answer is kept this long (sessions started together).
++const PROBE_KEPT: std::time::Duration = std::time::Duration::from_secs(10);
++static PROBES: Mutex<Option<HashMap<&'static str, (std::time::Instant, bool)>>> = Mutex::new(None);
++
++/// Whether a kind's virtual device is ready on this computer: `false` only
++/// when its sink says so (camera not registered, no virtual microphone),
++/// so that the app never offers what cannot work; a sink that does not
++/// answer in time, or cannot start, counts as ready.
++async fn ready(kind: &'static str, sink: &Path) -> bool {
++    let Some(arg) = probe_arg(kind) else {
++        return true;
++    };
++    if let Some((at, ready)) = PROBES.lock().unwrap().get_or_insert_with(HashMap::new).get(kind)
++        && at.elapsed() < PROBE_KEPT
++    {
++        return *ready;
++    }
++    let probe = Command::new(sink)
++        .arg(arg)
++        .stdin(Stdio::null())
++        .stdout(Stdio::null())
++        .stderr(Stdio::null())
++        .kill_on_drop(true)
++        .status();
++    let ready = match tokio::time::timeout(PROBE_TIMEOUT, probe).await {
++        Ok(Ok(status)) => status.success(),
++        Ok(Err(err)) => {
++            warn!("Uplink \"{kind}\": probe not started ({err}), offered anyway");
++            true
++        }
++        Err(_) => {
++            warn!("Uplink \"{kind}\": probe without answer, offered anyway");
++            true
++        }
++    };
++    PROBES
++        .lock()
++        .unwrap()
++        .get_or_insert_with(HashMap::new)
++        .insert(kind, (std::time::Instant::now(), ready));
++    ready
++}
++
 +/// The endpoints prepared for a session, and what keeps them.
 +#[derive(Default)]
 +pub(crate) struct Started {
@@ -240,6 +302,12 @@ new file mode 100644
 +            info!("Uplink \"{kind}\": no sink on this computer");
 +            continue;
 +        };
++        // Its virtual device missing (camera not registered): not offered,
++        // the app says the computer cannot receive it, as without a sink.
++        if !ready(kind, &sink).await {
++            info!("Uplink \"{kind}\": virtual device not ready on this computer, not offered");
++            continue;
++        }
 +        match connection.register_data_endpoint().await {
 +            Ok((id, endpoint)) => {
 +                info!("Uplink \"{kind}\" ready. Endpoint: {id:X}");
@@ -490,6 +558,34 @@ new file mode 100644
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
++
++    #[cfg(unix)]
++    fn fake_sink(name: &str, script: &str) -> PathBuf {
++        use std::os::unix::fs::PermissionsExt;
++        let path = std::env::temp_dir().join(format!("kn-sink-{}-{name}", std::process::id()));
++        std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
++        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
++        path
++    }
++
++    #[cfg(unix)]
++    #[tokio::test]
++    async fn probes_decide_what_is_offered() {
++        // Each kind once (the answers are kept): camera missing, microphone
++        // without an answer in time (offered).
++        let missing = fake_sink("missing", "exit 1");
++        assert!(!ready("camera", &missing).await);
++        let slow = fake_sink("slow", "sleep 5");
++        assert!(ready("microphone", &slow).await);
++        // A kind without a probe is always offered.
++        assert!(ready("other", &missing).await);
++        // The answer is kept.
++        let fine = fake_sink("fine", "exit 0");
++        assert!(!ready("camera", &fine).await);
++        for p in [missing, slow, fine] {
++            let _ = std::fs::remove_file(p);
++        }
++    }
 +
 +    #[test]
 +    fn reads_the_kinds_asked_for() {

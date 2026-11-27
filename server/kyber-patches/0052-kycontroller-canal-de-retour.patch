@@ -14,7 +14,7 @@ index 94664e5..7e1490e 100644
  
  impl StreamingServices {
 diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
-index 6ae6f2b..f4b41d1 100644
+index 9f22b62..b058cb0 100644
 --- a/kycontroller/src/kymux_controller/mod.rs
 +++ b/kycontroller/src/kymux_controller/mod.rs
 @@ -34,7 +34,7 @@ use kymux::{kynet, kyproto, kywebsocket, types};
@@ -60,7 +60,7 @@ index 6ae6f2b..f4b41d1 100644
  }
  
  fn run_clock_sync_task(endpoint: kyproto::ClockSyncServerEndpoint) -> Task {
-@@ -845,6 +854,22 @@ async fn start_session(
+@@ -845,6 +854,25 @@ async fn start_session(
  
      let mode = ctrl.config.session_mode();
  
@@ -68,7 +68,10 @@ index 6ae6f2b..f4b41d1 100644
 +    // that every datagram of the session is numbered. The sound carries the
 +    // previous packet only if it was asked to go in datagrams.
 +    let feedback = match (&transport, &request.feedback) {
-+        (KyTransport::KyProto(connection), Some(asked)) => {
++        // Version 1 is the only one: a request for 0 is refused, a later
++        // one is answered in version 1 (`v` of the response), which the
++        // application checks.
++        (KyTransport::KyProto(connection), Some(asked)) if asked.v >= 1 => {
 +            let audio = request.kymux_config.kyproto_config().audio_protocol;
 +            let redundancy = asked.audio_redundancy
 +                && matches!(audio, AudioProtocol::Unreliable | AudioProtocol::UnreliableFec);
@@ -83,7 +86,7 @@ index 6ae6f2b..f4b41d1 100644
      let av_services_manager = &mut ctrl.av_services_manager.lock().await;
  
      let mut video = start_video(
-@@ -865,6 +890,7 @@ async fn start_session(
+@@ -865,6 +893,7 @@ async fn start_session(
          session_id,
          av_services_manager,
          mode,
@@ -91,7 +94,7 @@ index 6ae6f2b..f4b41d1 100644
      )
      .await?;
  
-@@ -955,6 +981,7 @@ async fn start_session(
+@@ -959,6 +988,7 @@ async fn start_session(
          input,
          clock_sync,
          metrics,
@@ -100,7 +103,7 @@ index 6ae6f2b..f4b41d1 100644
  }
  
 diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/kymux_controller/requests.rs
-index 0dedc45..cc69269 100644
+index 6330bfd..3c0e6e5 100644
 --- a/kycontroller/src/kymux_controller/requests.rs
 +++ b/kycontroller/src/kymux_controller/requests.rs
 @@ -23,8 +23,9 @@ use log::{error, info, warn};
@@ -115,7 +118,7 @@ index 0dedc45..cc69269 100644
  };
  
  use crate::controller::StreamingServices;
-@@ -190,6 +191,17 @@ pub(crate) async fn start_session(
+@@ -197,6 +198,17 @@ pub(crate) async fn start_session(
                  None
              };
  
@@ -133,7 +136,7 @@ index 0dedc45..cc69269 100644
              let res = ctrl.with_session(&session_id, |session| Ok(session.services.clone()));
  
              let Ok(session_services) = res else {
-@@ -227,6 +239,7 @@ pub(crate) async fn start_session(
+@@ -241,6 +253,7 @@ pub(crate) async fn start_session(
                  input,
                  clock_sync,
                  metrics,

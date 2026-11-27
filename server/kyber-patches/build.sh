@@ -10,7 +10,9 @@
 #         audio_quality (standard, hd, studio) et audio_bitrate
 #   0002  curseur stable : masquage transmis après 250 ms seulement
 #   0003  son continu : horodatage audio au fil des échantillons, silences à zéro
-#   0004  son basse latence : paquets Opus de 10 ms, Opus « lowdelay »
+#   0004  son basse latence : paquets Opus de 10 ms, Opus « lowdelay » ;
+#         0004-txproto-son-voies-opus : disposition ramenée à une que libopus
+#         prend (5.1 et 7.1 à voies latérales, sinon stéréo)
 #   0005  image clé à la demande : POST /force_idr sur kycontroller (le client
 #         la demande quand il a perdu une référence), une par session toutes
 #         les 150 ms au plus
@@ -45,6 +47,8 @@
 #         (parts égales si un mode est inconnu), au démarrage et à /set_bitrate
 #   (0017, diagnostic de la capture des écrans secondaires : retiré, son
 #         rôle est fini)
+#   0018-txproto-ecran-retire : la capture DXGI d'un écran débranché ou
+#         retiré s'arrête sur une erreur au lieu de figer l'image
 #   0018  capture des écrans secondaires (txproto) : pour un écran dont
 #         KyberNow Admin a lancé la capture Windows Graphics Capture, les
 #         images viennent de ses textures D3D11 partagées au lieu de la
@@ -159,6 +163,10 @@
 #         signalée deux fois
 #   0061  kycontroller (après 0052, qu'il demande) : pertes du canal de
 #         retour (FeedbackEvent::Lost) réparées aussitôt
+#   0028-kynput-paquets-courts : presse-papiers et contrôle trop courts
+#         refusés, sans panique (lus avant les droits de 0019)
+#   0085-kynet-plafond-donnees : un paquet de données (flux montant) annonce
+#         16 Mio au plus, refusé avant toute allocation
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target
@@ -319,10 +327,18 @@ git -C "$KYCTL" archive HEAD | tar -x -C "$WEB_KYSDK/kyctl"
 for p in "$HERE"/*.patch; do
     case "$(basename "$p")" in *-kywebplayer-* | *-kyctlweb-*) ;; *) continue ;; esac
     echo "    $(basename "$p") (moteur web)"
-    (cd "$WEB_KYSDK/kyctl" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | sed 's/^/        /') || {
+    out="$(cd "$WEB_KYSDK/kyctl" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p")" || {
+        printf '%s\n' "$out" | sed 's/^/        /'
         echo "Correctif $(basename "$p") inapplicable au kyctl d'origine" >&2
         exit 1
     }
+    printf '%s\n' "$out" | sed 's/^/        /'
+    # Comme apply.sh : un décalage du contexte est un échec, sauf avec
+    # KYBERNOW_PATCH_STRICT=0.
+    if grep -q 'with fuzz' <<< "$out"; then
+        echo "Correctif $(basename "$p") posé avec un décalage du contexte (fuzz) : à régénérer" >&2
+        [ "${KYBERNOW_PATCH_STRICT:-1}" = 0 ] || exit 1
+    fi
 done
 for r in kymedia kymux kynput kyutil; do
     ln -sfn "$THIRD_PARTY/kyber-desktop/kysdk/$r" "$WEB_KYSDK/$r"
@@ -346,37 +362,47 @@ KYCONTROLLER="$KYCTL/target/x86_64-pc-windows-gnu/release/kycontroller.exe"
 KYNPUTSERVER="$KYNPUT/target/x86_64-pc-windows-gnu/release/kynputserver.exe"
 check_fresh "$ROOTFS/bin/kyavserver.exe" "$ROOTFS/bin/libtxproto-0.dll" "$KYCONTROLLER" \
     "$KYNPUT_ROOTFS/bin/kynput.dll" "$KYNPUTSERVER"
-rm -rf "$OVERLAY" "$OVERLAY.stamp" && mkdir -p "$OVERLAY"
+# Assemblée à côté ($OVERLAY.new), puis mise à la place d'un coup : un échec
+# (aide de la caméra qui ne compile pas…) laisse la surcouche précédente
+# entière, jamais une à moitié remplie qu'un server/installer/build.sh lancé
+# à la main embarquerait.
+NEW="$OVERLAY.new"
+rm -rf "$NEW" && mkdir -p "$NEW"
 for f in kyavserver.exe libtxproto-0.dll liblua.dll libspirv-cross-c-shared.dll; do
-    cp "$ROOTFS/bin/$f" "$OVERLAY/"
+    cp "$ROOTFS/bin/$f" "$NEW/"
 done
 # PyroWave (0025) : la bibliothèque (runtime C++ en statique) que charge
 # libtxproto-0.dll, et l'outil par lequel Admin vérifie le Vulkan de la carte.
 for f in libpyrowave-shared-1.dll pyrowave-device-validation.exe; do
     [ -f "$ROOTFS/bin/$f" ] || { echo "$ROOTFS/bin/$f introuvable (pyrowave.sh)" >&2; exit 1; }
-    cp "$ROOTFS/bin/$f" "$OVERLAY/"
+    cp "$ROOTFS/bin/$f" "$NEW/"
 done
-cp "$KYCONTROLLER" "$KYNPUT_ROOTFS/bin/kynput.dll" "$KYNPUTSERVER" "$OVERLAY/"
+cp "$KYCONTROLLER" "$KYNPUT_ROOTFS/bin/kynput.dll" "$KYNPUTSERVER" "$NEW/"
 # L'outil par lequel Admin essaie l'encodeur (docs/profil-auto.md), contre le
 # FFmpeg de kyavserver ; lancé depuis le dossier de Kyber.
-"$ROOT/server/encoder-check/build.sh" windows "$ROOTFS" "$OVERLAY/kybernow-encoder-check.exe"
+"$ROOT/server/encoder-check/build.sh" windows "$ROOTFS" "$NEW/kybernow-encoder-check.exe"
 # L'aide du micro de l'appareil (docs/micro.md, flux montant du correctif 0085), que
 # kycontroller cherche à côté de lui ; libopus du rootfs en statique.
-"$ROOT/server/micro/build.sh" windows "$ROOTFS" "$OVERLAY/kybernow-micro.exe"
+"$ROOT/server/micro/build.sh" windows "$ROOTFS" "$NEW/kybernow-micro.exe"
 # La caméra de l'appareil (docs/webcam.md) : l'outil que kycontroller lance
 # pendant que l'appareil l'envoie (0085), la caméra de Windows 11 et le filtre
 # de Windows 10, inscrits par l'installateur (kybernow-camera --install).
-"$ROOT/server/camera/build.sh" windows "$ROOTFS" "$OVERLAY"
+"$ROOT/server/camera/build.sh" windows "$ROOTFS" "$NEW"
 # Runtime MinGW (UCRT) de la chaîne kyavserver : aucun autre binaire de Kyber
 # n'utilise ces DLL, on peut remplacer celles de la version officielle.
-cp "$MINGW/lib/libstdc++-6.dll" "$MINGW/lib/libgcc_s_seh-1.dll" "$MINGW/bin/libwinpthread-1.dll" "$OVERLAY/"
-x86_64-w64-mingw32-strip --strip-debug "$OVERLAY"/*.exe "$OVERLAY"/*.dll
+cp "$MINGW/lib/libstdc++-6.dll" "$MINGW/lib/libgcc_s_seh-1.dll" "$MINGW/bin/libwinpthread-1.dll" "$NEW/"
+x86_64-w64-mingw32-strip --strip-debug "$NEW"/*.exe "$NEW"/*.dll
 # Moteur du client web (servi par kycontroller depuis kyber\webclient, relayé
 # par Admin sur /link).
-mkdir -p "$OVERLAY/webclient"
-cp "$WEB_OUT/kyclient_wasm.js" "$WEB_OUT/kyclient_wasm_bg.wasm" "$OVERLAY/webclient/"
-ls -lhR "$OVERLAY"
+mkdir -p "$NEW/webclient"
+cp "$WEB_OUT/kyclient_wasm.js" "$WEB_OUT/kyclient_wasm_bg.wasm" "$NEW/webclient/"
+ls -lhR "$NEW"
 # Empreinte de ce qui est compilé (correctifs, scripts, sources des aides), vérifiée
 # par scripts/release.sh (à côté de la surcouche : pas livrée) ; calculée par stamp.sh,
 # que release.sh appelle aussi.
-"$HERE/stamp.sh" > "$OVERLAY.stamp"
+"$HERE/stamp.sh" > "$NEW.stamp"
+rm -rf "$OVERLAY.old" "$OVERLAY.stamp"
+[ ! -e "$OVERLAY" ] || mv "$OVERLAY" "$OVERLAY.old"
+mv "$NEW" "$OVERLAY"
+mv "$NEW.stamp" "$OVERLAY.stamp"
+rm -rf "$OVERLAY.old"

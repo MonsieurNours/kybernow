@@ -1,4 +1,5 @@
 diff --git a/kyclient/src/enums.rs b/kyclient/src/enums.rs
+index 4f9715a..b97e548 100644
 --- a/kyclient/src/enums.rs
 +++ b/kyclient/src/enums.rs
 @@ -123,6 +123,11 @@ pub(crate) enum Message {
@@ -14,6 +15,7 @@ diff --git a/kyclient/src/enums.rs b/kyclient/src/enums.rs
          bitrate: u32,
      },
 diff --git a/kyclient/src/host_service.rs b/kyclient/src/host_service.rs
+index bf28881..ca52b73 100644
 --- a/kyclient/src/host_service.rs
 +++ b/kyclient/src/host_service.rs
 @@ -249,6 +249,25 @@ pub(crate) async fn force_idr(http_client: &HttpClient) -> Result<()> {
@@ -43,37 +45,44 @@ diff --git a/kyclient/src/host_service.rs b/kyclient/src/host_service.rs
      let url = format!("{base_url}/set_bitrate", base_url = http_client.base_url());
  
 diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
+index 3ff5ab7..92c7e0b 100644
 --- a/kyclient/src/lib.rs
 +++ b/kyclient/src/lib.rs
-@@ -204,6 +204,8 @@ struct Handler {
+@@ -208,6 +208,11 @@ struct Handler {
      metrics: Option<MetricsProducer>,
      /// KyberNow: a keyframe request is being sent (see `Message::RequestKeyframe`).
      keyframe_in_flight: Arc<std::sync::atomic::AtomicBool>,
 +    /// KyberNow (0060): the host has no `/recover` (an older Station).
 +    recover_unsupported: Arc<std::sync::atomic::AtomicBool>,
++    /// KyberNow (0060): a repair request is being sent; apart from
++    /// `keyframe_in_flight`, so that a keyframe asked meanwhile still goes.
++    recover_in_flight: Arc<std::sync::atomic::AtomicBool>,
  
      state: Arc<Mutex<State>>,
      reconnection_state: ReconnectionState,
-@@ -252,6 +254,7 @@ impl Handler {
+@@ -261,6 +266,8 @@ impl Handler {
              message_sender,
              metrics,
              keyframe_in_flight: Arc::new(std::sync::atomic::AtomicBool::new(false)),
 +            recover_unsupported: Arc::new(std::sync::atomic::AtomicBool::new(false)),
++            recover_in_flight: Arc::new(std::sync::atomic::AtomicBool::new(false)),
              state,
              reconnection_state: ReconnectionState::new(auto_reconnection),
  
-@@ -703,6 +706,41 @@ impl Handler {
+@@ -716,6 +723,43 @@ impl Handler {
                      });
                  }
              }
 +            Message::Recover { last_pts } => {
 +                // KyberNow (0060): as RequestKeyframe (off the main loop,
-+                // bounded, one request at a time with keyframes); a host
-+                // without /recover gets /force_idr, now and from then on.
++                // bounded, one repair at a time); a host without /recover
++                // gets /force_idr, now and from then on.
 +                use std::sync::atomic::Ordering::SeqCst;
-+                if !self.keyframe_in_flight.swap(true, SeqCst) {
++                if self.recover_in_flight.swap(true, SeqCst) {
++                    debug!("Repair request dropped: one is on its way");
++                } else {
 +                    let http_client = self.http_client.clone();
-+                    let in_flight = self.keyframe_in_flight.clone();
++                    let in_flight = self.recover_in_flight.clone();
 +                    let unsupported = self.recover_unsupported.clone();
 +                    runtime::spawn(async move {
 +                        let request = async {
@@ -104,7 +113,7 @@ diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
              Message::BitrateChanged { bitrate } => self.bitrate_changed(bitrate)?,
              Message::PlayerStarted => {
                  info!("Player started");
-@@ -1211,6 +1249,16 @@ impl Client {
+@@ -1244,6 +1288,16 @@ impl Client {
          Ok(())
      }
  

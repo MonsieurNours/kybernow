@@ -1,17 +1,19 @@
+diff --git a/subprojects/txproto/src/iosys_screencapturekit.m b/subprojects/txproto/src/iosys_screencapturekit.m
+index d10a99c..ab1596e 100644
 --- a/subprojects/txproto/src/iosys_screencapturekit.m
 +++ b/subprojects/txproto/src/iosys_screencapturekit.m
-@@ -108,6 +108,10 @@
- 
+@@ -109,6 +109,10 @@
      AVBufferPool *audio_pool;
      int audio_pool_entry_size;
-+
+ 
 +    /* KyberNow (0008): a share guest's own image at a capped rate
 +     * ("max_framerate", frames per second), 0 = the display's. */
 +    int max_framerate;
- 
++
      /* KyberNow (0006): sound read from the KyberNow output's loopback input. */
      AudioObjectID kn_device;
-@@ -782,6 +786,10 @@
+     AudioDeviceIOProcID kn_proc;
+@@ -782,6 +786,10 @@ static int sck_startVideoCapture(IOSysEntry *entry)
      [capture->streamConfiguration setShowsCursor:NO];
      [capture->streamConfiguration setQueueDepth:3];
      [capture->streamConfiguration setCapturesAudio:NO];
@@ -22,15 +24,29 @@
  
      CGDisplayModeRef mode = CGDisplayCopyDisplayMode(entry->api_id);
      if (mode) {
-@@ -1035,6 +1043,11 @@
-         return AVERROR(ENOMEM);
+@@ -1036,6 +1044,11 @@ static int sck_init_io(AVBufferRef *ctx_ref, AVBufferRef *entry_ref,
  
      capture->quit = ATOMIC_VAR_INIT(0);
-+
+ 
 +    /* KyberNow (0008): "max_framerate" option of kyavservice (0007). */
 +    AVDictionaryEntry *max_fr = av_dict_get(opts, "max_framerate", NULL, 0);
 +    if (max_fr)
 +        capture->max_framerate = (int)strtol(max_fr->value, NULL, 10);
- 
++
      if (entry->type == SP_IO_TYPE_VIDEO_DISPLAY) {
          capture->hw_device_context =
+             av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_VIDEOTOOLBOX);
+@@ -1060,6 +1073,13 @@ static int sck_init_io(AVBufferRef *ctx_ref, AVBufferRef *entry_ref,
+             capture->framerate = av_d2q(CGDisplayModeGetRefreshRate(mode), 10000);
+             CGDisplayModeRelease(mode);
+         }
++        /* KyberNow (0008): the encoder sizes each frame's share on this
++         * rate (VBV of one frame, PyroWave's budget): a guest's capped one,
++         * not the display's. */
++        if (capture->max_framerate > 0 &&
++            (capture->framerate.num <= 0 || capture->framerate.den <= 0 ||
++             av_cmp_q(capture->framerate, av_make_q(capture->max_framerate, 1)) > 0))
++            capture->framerate = av_make_q(capture->max_framerate, 1);
+         capture->rotation = convert_rotation(entry->api_id);
+ 
+         sp_log(entry, SP_LOG_VERBOSE,

@@ -100,7 +100,7 @@ index ad0605c..3e29388 100644
  
      let video_source = ctx.create_io(video_config.display_id, grab_options)?;
 diff --git a/subprojects/txproto/src/dxgi_cursor.c b/subprojects/txproto/src/dxgi_cursor.c
-index 999ebf7..ba0d3c7 100644
+index 049eeca..ae7a7d6 100644
 --- a/subprojects/txproto/src/dxgi_cursor.c
 +++ b/subprojects/txproto/src/dxgi_cursor.c
 @@ -87,6 +87,14 @@ struct DxgiCursorHandler {
@@ -229,7 +229,7 @@ index 999ebf7..ba0d3c7 100644
 +
              case WAIT_ABANDONED:
              default:
-                 sp_log(ctx, SP_LOG_ERROR, "WaitForSingleObject() returned an unexpected value: %d\n", err);
+                 sp_log(ctx, SP_LOG_ERROR, "WaitForSingleObject() returned an unexpected value: %lu\n", (unsigned long)wait_err);
 @@ -615,11 +676,13 @@ static void *sender_thread(void *arg)
      return NULL;
  }

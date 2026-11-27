@@ -1,60 +1,9 @@
---- a/kynput/src/macos/mod.rs
-+++ b/kynput/src/macos/mod.rs
-@@ -19,11 +19,13 @@
- // along with this program.  If not, see <http://www.gnu.org/licenses/>.
- 
- mod client_keyboard_mouse;
-+mod clipboard;
- mod host_cursor;
- mod host_keyboard_mouse;
- mod pipeline_config;
- 
- pub use client_keyboard_mouse::ClientKeyboardMouseHandler;
-+pub use clipboard::ClipboardHandler;
- pub use host_cursor::HostCursorHandler;
- pub use host_keyboard_mouse::HostKeyboardMouseHandler;
- pub use pipeline_config::PipelineConfigBuilder;
---- a/kynput/src/macos/pipeline_config.rs
-+++ b/kynput/src/macos/pipeline_config.rs
-@@ -20,7 +20,7 @@
- 
- use std::sync::Arc;
- 
--use crate::macos::{ClientKeyboardMouseHandler, HostCursorHandler, HostKeyboardMouseHandler};
-+use crate::macos::{ClientKeyboardMouseHandler, ClipboardHandler, HostCursorHandler, HostKeyboardMouseHandler};
- #[cfg(feature = "sdl2")]
- use crate::sdl2::ClientGamepadHandler;
- use crate::{
-@@ -38,13 +38,22 @@
-         // KyberNow (0003) : le pointeur du Mac annoncé aux clients, au format
-         // qu'ils demandent (comme sous Windows).
-         let cursor_config = host_config.clone();
-+        let mut builders: Vec<InputHandlerBuilder> = vec![
-+            Box::new(move |router| Ok(Arc::new(HostCursorHandler::new(router, cursor_config)?))),
-+            Box::new(move |_router| Ok(Arc::new(HostKeyboardMouseHandler::new(host_config)?))),
-+        ];
-+        // KyberNow (0004) : le presse-papiers, avec les droits du service
-+        // (copier depuis le Mac, coller dessus), comme sous Windows.
-+        let (allow_copy, allow_paste) = (service_config.clipboard_allow_copy, service_config.clipboard_allow_paste);
-+        if allow_copy || allow_paste {
-+            builders.push(Box::new(move |router| {
-+                Ok(Arc::new(ClipboardHandler::new(InputTarget::Client, router, allow_copy, allow_paste)?))
-+            }));
-+        }
-         Some(InputPipelineConfig {
-             target: InputTarget::Host,
-             cursor_format: service_config.cursor_format,
--            builders: vec![
--                Box::new(move |router| Ok(Arc::new(HostCursorHandler::new(router, cursor_config)?))),
--                Box::new(move |_router| Ok(Arc::new(HostKeyboardMouseHandler::new(host_config)?))),
--            ],
-+            builders,
-         })
-     }
- 
+diff --git a/kynput/src/macos/clipboard.rs b/kynput/src/macos/clipboard.rs
+new file mode 100644
+index 0000000..93158df
 --- /dev/null
 +++ b/kynput/src/macos/clipboard.rs
-@@ -0,0 +1,458 @@
+@@ -0,0 +1,481 @@
 +// Project Kyber: clipboard.rs (macOS)
 +// SPDX-License-Identifier: AGPL-3.0-or-later
 +//
@@ -231,6 +180,9 @@
 +    /// Compteur du presse-papiers après notre dernière écriture : ce
 +    /// changement-là n'est pas annoncé à l'appareil.
 +    own: AtomicIsize,
++    /// Un changement de l'appareil est annoncé : le presse-papiers du Mac
++    /// n'est vidé qu'au premier `Data` (un refus de l'appareil le laisse).
++    clear_on_data: AtomicBool,
 +}
 +
 +impl Shared {
@@ -264,9 +216,13 @@
 +        let (can_read, can_write) = self.caps.rw();
 +        match event {
 +            ClipboardEvent::Change { formats } if can_write => {
-+                self.own.store(self.board.clear(), Ordering::Relaxed);
++                self.clear_on_data.store(true, Ordering::Relaxed);
++                let mut asked = Vec::new();
 +                for format in formats {
-+                    self.send(ClipboardEvent::DataRequest { format });
++                    if !asked.contains(&format) {
++                        asked.push(format);
++                        self.send(ClipboardEvent::DataRequest { format });
++                    }
 +                }
 +            }
 +            ClipboardEvent::Data(data) if can_write => {
@@ -274,6 +230,9 @@
 +                    ClipboardData::Text(s) => (ClipboardFormat::Text, s),
 +                    ClipboardData::Html(s) => (ClipboardFormat::Html, s),
 +                };
++                if self.clear_on_data.swap(false, Ordering::Relaxed) {
++                    self.board.clear();
++                }
 +                self.own.store(self.board.write(format, text), Ordering::Relaxed);
 +            }
 +            ClipboardEvent::DataRequest { format } if can_read => match self.board.read(format) {
@@ -318,7 +277,7 @@
 +    }
 +
 +    fn with_board(board: Arc<dyn Board>, target: InputTarget, remote: Weak<dyn InputConsumer>, allow_read: bool, allow_write: bool) -> Self {
-+        let shared = Arc::new(Shared { board, target, remote, caps: ClipboardCaps::new(allow_read, allow_write), own: AtomicIsize::new(isize::MIN) });
++        let shared = Arc::new(Shared { board, target, remote, caps: ClipboardCaps::new(allow_read, allow_write), own: AtomicIsize::new(isize::MIN), clear_on_data: AtomicBool::new(false) });
 +        let backend = shared.clone();
 +        Self {
 +            shared,
@@ -429,7 +388,20 @@
 +            remote: Arc::downgrade(&remote),
 +            caps: ClipboardCaps::new(read, write),
 +            own: AtomicIsize::new(isize::MIN),
++            clear_on_data: AtomicBool::new(false),
 +        }
++    }
++
++    #[test]
++    fn a_refused_paste_keeps_the_mac_clipboard() {
++        let (board, sink) = (Arc::new(FakeBoard::default()), Arc::new(Sink::default()));
++        let s = shared(&board, &sink, true, true);
++        board.copy(&[(ClipboardFormat::Text, "à garder")]);
++        // Formats répétés : une demande chacun.
++        s.on_event(ClipboardEvent::Change { formats: vec![ClipboardFormat::Text, ClipboardFormat::Text] });
++        s.on_event(ClipboardEvent::DataUnavailable { format: ClipboardFormat::Text });
++        assert_eq!(board.read(ClipboardFormat::Text).as_deref(), Some("à garder"));
++        assert_eq!(*sink.0.lock().unwrap(), [ClipboardEvent::DataRequest { format: ClipboardFormat::Text }]);
 +    }
 +
 +    #[test]
@@ -513,3 +485,61 @@
 +        .unwrap();
 +    }
 +}
+diff --git a/kynput/src/macos/mod.rs b/kynput/src/macos/mod.rs
+index e68a417..636413e 100644
+--- a/kynput/src/macos/mod.rs
++++ b/kynput/src/macos/mod.rs
+@@ -19,11 +19,13 @@
+ // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ 
+ mod client_keyboard_mouse;
++mod clipboard;
+ mod host_cursor;
+ mod host_keyboard_mouse;
+ mod pipeline_config;
+ 
+ pub use client_keyboard_mouse::ClientKeyboardMouseHandler;
++pub use clipboard::ClipboardHandler;
+ pub use host_cursor::HostCursorHandler;
+ pub use host_keyboard_mouse::HostKeyboardMouseHandler;
+ pub use pipeline_config::PipelineConfigBuilder;
+diff --git a/kynput/src/macos/pipeline_config.rs b/kynput/src/macos/pipeline_config.rs
+index a4b120a..460a776 100644
+--- a/kynput/src/macos/pipeline_config.rs
++++ b/kynput/src/macos/pipeline_config.rs
+@@ -20,7 +20,7 @@
+ 
+ use std::sync::Arc;
+ 
+-use crate::macos::{ClientKeyboardMouseHandler, HostCursorHandler, HostKeyboardMouseHandler};
++use crate::macos::{ClientKeyboardMouseHandler, ClipboardHandler, HostCursorHandler, HostKeyboardMouseHandler};
+ #[cfg(feature = "sdl2")]
+ use crate::sdl2::ClientGamepadHandler;
+ use crate::{
+@@ -38,13 +38,22 @@ impl InputPipelineConfigBuilder for PipelineConfigBuilder {
+         // KyberNow (0003) : le pointeur du Mac annoncé aux clients, au format
+         // qu'ils demandent (comme sous Windows).
+         let cursor_config = host_config.clone();
++        let mut builders: Vec<InputHandlerBuilder> = vec![
++            Box::new(move |router| Ok(Arc::new(HostCursorHandler::new(router, cursor_config)?))),
++            Box::new(move |_router| Ok(Arc::new(HostKeyboardMouseHandler::new(host_config)?))),
++        ];
++        // KyberNow (0004) : le presse-papiers, avec les droits du service
++        // (copier depuis le Mac, coller dessus), comme sous Windows.
++        let (allow_copy, allow_paste) = (service_config.clipboard_allow_copy, service_config.clipboard_allow_paste);
++        if allow_copy || allow_paste {
++            builders.push(Box::new(move |router| {
++                Ok(Arc::new(ClipboardHandler::new(InputTarget::Client, router, allow_copy, allow_paste)?))
++            }));
++        }
+         Some(InputPipelineConfig {
+             target: InputTarget::Host,
+             cursor_format: service_config.cursor_format,
+-            builders: vec![
+-                Box::new(move |router| Ok(Arc::new(HostCursorHandler::new(router, cursor_config)?))),
+-                Box::new(move |_router| Ok(Arc::new(HostKeyboardMouseHandler::new(host_config)?))),
+-            ],
++            builders,
+         })
+     }
+ 

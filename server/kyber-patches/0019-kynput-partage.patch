@@ -56,7 +56,7 @@ index 4f04ce8..4d1362d 100644
  }
  
 diff --git a/kynputservice/src/lib.rs b/kynputservice/src/lib.rs
-index 1b7ac4e..a36f0d1 100644
+index 1b7ac4e..2c8b5ed 100644
 --- a/kynputservice/src/lib.rs
 +++ b/kynputservice/src/lib.rs
 @@ -28,7 +28,7 @@ use log::{debug, info, warn};
@@ -68,16 +68,21 @@ index 1b7ac4e..a36f0d1 100644
  use libkypc::Worker;
  
  pub use config::{Config, from_table, parse};
-@@ -53,6 +53,8 @@ impl NetworkStreamObserver for NetworkSink {
+@@ -53,6 +53,13 @@ impl NetworkStreamObserver for NetworkSink {
  struct Service {
      pipeline: Pipeline,
      host_network: NetworkStream,
 +    /// KyberNow: the hook's state, to change the client's rights.
 +    state: ServerPipelineState,
++}
++
++/// KyberNow: the displays of a host configuration.
++fn display_ids(host_config: &HostConfig) -> std::collections::HashSet<u32> {
++    host_config.display_list.iter().map(|d| d.id).collect()
  }
  
  impl Service {
-@@ -62,6 +64,11 @@ impl Service {
+@@ -62,6 +69,11 @@ impl Service {
          host_network: NetworkStream,
          config: &config::Config,
      ) -> Result<Service> {
@@ -89,7 +94,7 @@ index 1b7ac4e..a36f0d1 100644
          let pipeline_config = kynput_rs::Config::default_host(
              host_config.convert(),
              kynput_rs::ServiceConfig::new(
-@@ -69,8 +76,8 @@ impl Service {
+@@ -69,8 +81,8 @@ impl Service {
                  service_config
                      .gamepad_force_xbox360
                      .unwrap_or_else(|| config.gamepad_force_xbox360()),
@@ -100,13 +105,18 @@ index 1b7ac4e..a36f0d1 100644
                  config.keyboard_key_repeat(),
              ),
          );
-@@ -82,15 +89,26 @@ impl Service {
+@@ -82,15 +94,31 @@ impl Service {
  
          pipeline.plug_network(&host_network.clone_consumer())?;
  
 -        let state = Box::new(ServerPipelineState::new());
 -        pipeline.set_hook(state)?;
 +        let state = ServerPipelineState::new(rights);
++        // KyberNow: a share guest's pointer positions only on the displays
++        // it is given (kycontroller gives it its own).
++        if service_config.rights.is_some() {
++            state.set_displays(Some(display_ids(&host_config)));
++        }
 +        pipeline.set_hook(Box::new(state.clone()))?;
  
          Ok(Self {
@@ -129,8 +139,11 @@ index 1b7ac4e..a36f0d1 100644
      fn start(&self) -> Result<()> {
          // Start pipeline
          self.pipeline.start()?;
-@@ -161,6 +179,16 @@ pub async fn run(mut worker: Worker<IpcApi>, config: Config) -> Result<()> {
+@@ -159,8 +187,19 @@ pub async fn run(mut worker: Worker<IpcApi>, config: Config) -> Result<()> {
+                 };
+ 
                  info!("Update host configuration");
++                service.state.update_displays(display_ids(&host_config));
                  service.pipeline.update_host_config(host_config.convert())?;
              }
 +            Command::SetRights { rights } => {
@@ -147,10 +160,10 @@ index 1b7ac4e..a36f0d1 100644
                  info!("Stop received. Reason: {reason}");
                  response.send(Ok(Response::None))?;
 diff --git a/kynputservice/src/pipeline_state.rs b/kynputservice/src/pipeline_state.rs
-index ec0db34..232a3d3 100644
+index ec0db34..08e0c42 100644
 --- a/kynputservice/src/pipeline_state.rs
 +++ b/kynputservice/src/pipeline_state.rs
-@@ -20,25 +20,127 @@
+@@ -20,25 +20,166 @@
  
  use std::collections::{HashMap, HashSet};
  use std::mem;
@@ -165,6 +178,9 @@ index ec0db34..232a3d3 100644
 +/// all of it plugged at once when given the gamepads.
 +const MAX_PLUGS: usize = 8;
 +
++/// KyberNow: how long a packet injected by `set_rights` waits for the hook.
++const INJECTED_FOR: std::time::Duration = std::time::Duration::from_secs(1);
++
  pub struct State {
      keys: HashSet<u16>,
      mouse_btns: HashSet<kynput_rs::MouseButtonType>,
@@ -176,8 +192,14 @@ index ec0db34..232a3d3 100644
 +    /// on the computer or refused, to plug it again when gamepads are given.
 +    plugs: HashMap<kynput_rs::GamepadId, kynput_rs::Packet>,
 +    /// KyberNow: packets injected by `set_rights`, let through once whatever
-+    /// the rights (releases sent after a right was withdrawn).
-+    injected: Vec<kynput_rs::Packet>,
++    /// the rights (releases sent after a right was withdrawn), for
++    /// `INJECTED_FOR` at most: one dropped before the hook (router policy)
++    /// must not let an identical packet of the client through later.
++    injected: Vec<(kynput_rs::Packet, std::time::Instant)>,
++    /// KyberNow: a share guest's displays (its own): pointer positions on
++    /// another are refused, and the pointer there is not sent to it. `None`
++    /// for the host (every display).
++    displays: Option<HashSet<u32>>,
  }
  
  impl State {
@@ -191,6 +213,34 @@ index ec0db34..232a3d3 100644
 +            rights,
 +            plugs: HashMap::new(),
 +            injected: Vec::new(),
++            displays: None,
++        }
++    }
++
++    /// KyberNow: whether a pointer position (from the client) or the pointer
++    /// (to it) is on a display it is given.
++    fn on_its_display(&self, pkt: &kynput_rs::Packet) -> bool {
++        let Some(displays) = &self.displays else {
++            return true;
++        };
++        match pkt.get_type() {
++            kynput_rs::InputType::MousePosition => kynput_rs::MousePosition::from_packet(pkt.clone())
++                .is_some_and(|p| displays.contains(&p.display_id)),
++            kynput_rs::InputType::Cursor => {
++                kynput_rs::Cursor::from_packet(pkt).is_none_or(|c| displays.contains(&c.display_id))
++            }
++            _ => true,
++        }
++    }
++
++    /// KyberNow: a Plug the computer refuses: more than `MAX_PLUGS`
++    /// gamepads at once (each is a virtual device, uhid or CoreHID).
++    fn too_many_gamepads(&self, pkt: &kynput_rs::Packet) -> bool {
++        match kynput_rs::GamepadControl::from_packet(pkt) {
++            Some(kynput_rs::GamepadControl::Plug { id, .. }) => {
++                self.gamepads.len() >= MAX_PLUGS && !self.gamepads.contains(&id)
++            }
++            _ => false,
 +        }
 +    }
 +
@@ -232,7 +282,8 @@ index ec0db34..232a3d3 100644
 +
 +    /// KyberNow: `true` once for a packet injected by `set_rights`.
 +    fn take_injected(&mut self, pkt: &kynput_rs::Packet) -> bool {
-+        match self.injected.iter().position(|injected| injected == pkt) {
++        self.injected.retain(|(_, at)| at.elapsed() < INJECTED_FOR);
++        match self.injected.iter().position(|(injected, _)| injected == pkt) {
 +            Some(index) => {
 +                self.injected.remove(index);
 +                true
@@ -251,7 +302,7 @@ index ec0db34..232a3d3 100644
 +
 +        if old.keyboard_mouse && !rights.keyboard_mouse {
 +            packets.append(&mut self.release_keys_and_buttons());
-+        }
+         }
 +
 +        if old.gamepads && !rights.gamepads {
 +            let ids: Vec<_> = self.gamepads.drain().collect();
@@ -269,18 +320,19 @@ index ec0db34..232a3d3 100644
 +                    .filter(|(id, _)| !self.gamepads.contains(*id))
 +                    .map(|(_, plug)| plug.clone()),
 +            );
-         }
++        }
 +
 +        info!(
 +            "Input rights {rights:?}: {} packets to inject",
 +            packets.len()
 +        );
-+        self.injected.extend(packets.iter().cloned());
++        let now = std::time::Instant::now();
++        self.injected.extend(packets.iter().map(|pkt| (pkt.clone(), now)));
 +        packets
      }
  
      fn on_keyboard_key(&mut self, key: &kynput_rs::KeyboardKey) {
-@@ -110,6 +212,20 @@ impl State {
+@@ -110,6 +251,26 @@ impl State {
      }
  
      fn on_packet(&mut self, pkt: &kynput_rs::Packet) -> kynput_rs::RouterHookPacketResult {
@@ -291,7 +343,13 @@ index ec0db34..232a3d3 100644
 +            if pkt.get_type() == kynput_rs::InputType::GamepadControl {
 +                self.remember_plug(pkt);
 +            }
-+            if !self.allows(pkt.get_type()) {
++            if !self.allows(pkt.get_type()) || !self.on_its_display(pkt) {
++                return kynput_rs::RouterHookPacketResult {
++                    process_event: false,
++                };
++            }
++            if pkt.get_type() == kynput_rs::InputType::GamepadControl && self.too_many_gamepads(pkt) {
++                debug!("Gamepad refused: {MAX_PLUGS} plugged already");
 +                return kynput_rs::RouterHookPacketResult {
 +                    process_event: false,
 +                };
@@ -301,7 +359,7 @@ index ec0db34..232a3d3 100644
          let ret: Result<(), ()> = match pkt.get_type() {
              kynput_rs::InputType::Keyboard => {
                  if let Some(key) = kynput_rs::KeyboardKey::from_packet(pkt) {
-@@ -174,10 +290,23 @@ impl State {
+@@ -174,10 +335,23 @@ impl State {
      }
  
      fn on_flush_keys(&mut self) -> Option<Vec<kynput_rs::Packet>> {
@@ -327,7 +385,7 @@ index ec0db34..232a3d3 100644
          // Flush keyboard
          for scancode in self.get_keypresses() {
              let key = kynput_rs::KeyboardKey {
-@@ -198,8 +327,14 @@ impl State {
+@@ -198,8 +372,14 @@ impl State {
              generated_events.push(button.to_packet(kynput_rs::InputTarget::Host));
          }
  
@@ -344,7 +402,7 @@ index ec0db34..232a3d3 100644
              for button in kynput_rs::GamepadButton::values() {
                  let button = kynput_rs::GamepadEvent::Button {
                      id: *id,
-@@ -221,11 +356,7 @@ impl State {
+@@ -221,11 +401,7 @@ impl State {
              }
          }
  
@@ -357,7 +415,7 @@ index ec0db34..232a3d3 100644
      }
  
      fn on_ctrl_msg(
-@@ -242,14 +373,33 @@ impl State {
+@@ -242,14 +418,50 @@ impl State {
      }
  }
  
@@ -378,6 +436,23 @@ index ec0db34..232a3d3 100644
 +        }
 +    }
 +
++    /// KyberNow: the displays of a share guest (`None`: every display).
++    pub fn set_displays(&self, displays: Option<HashSet<u32>>) {
++        if let Ok(mut state) = self.state.lock() {
++            state.displays = displays;
++        }
++    }
++
++    /// KyberNow: new displays from the host configuration, for a share
++    /// guest only (the host keeps every display).
++    pub fn update_displays(&self, displays: HashSet<u32>) {
++        if let Ok(mut state) = self.state.lock()
++            && state.displays.is_some()
++        {
++            state.displays = Some(displays);
++        }
++    }
++
 +    /// KyberNow: applies new rights. The returned packets must be injected
 +    /// into the pipeline (its input sink) by the caller: the hook sees them
 +    /// and takes the state lock again.
@@ -394,7 +469,7 @@ index ec0db34..232a3d3 100644
          }
      }
  }
-@@ -298,15 +448,15 @@ impl kynput_rs::RouterHook for ServerPipelineState {
+@@ -298,15 +510,15 @@ impl kynput_rs::RouterHook for ServerPipelineState {
  mod tests {
      use kynput_rs::{
          CmpStruct, ControlEvent, Cursor, CursorData, GamepadAxis, GamepadButton, GamepadControl,
@@ -413,7 +488,7 @@ index ec0db34..232a3d3 100644
  
          let ret_process_true = RouterHookPacketResult {
              process_event: true,
-@@ -401,7 +551,7 @@ mod tests {
+@@ -401,7 +613,7 @@ mod tests {
  
      #[test]
      fn cursor_sync() {
@@ -422,7 +497,7 @@ index ec0db34..232a3d3 100644
  
          let ret_process_true = RouterHookPacketResult {
              process_event: true,
-@@ -430,7 +580,7 @@ mod tests {
+@@ -430,7 +642,7 @@ mod tests {
  
      #[test]
      fn cursor_sync_keeps_shape_on_move() {
@@ -431,7 +506,7 @@ index ec0db34..232a3d3 100644
  
          let shape = Cursor {
              display_id: 43,
-@@ -465,4 +615,211 @@ mod tests {
+@@ -465,4 +677,264 @@ mod tests {
              Some(vec![expected.to_packet(InputTarget::Client)])
          );
      }
@@ -613,6 +688,59 @@ index ec0db34..232a3d3 100644
 +
 +        // Same rights again: nothing to inject.
 +        assert_eq!(state.set_rights(PLAYER), vec![]);
++    }
++
++    #[test]
++    fn a_guest_points_only_at_its_display() {
++        let state = ServerPipelineState::new(InputRights::ALL);
++        state.set_displays(Some(HashSet::from([2])));
++        let at = |display_id| {
++            MousePosition {
++                display_id,
++                x: 3,
++                y: 4,
++            }
++            .to_packet(InputTarget::Host)
++        };
++        assert!(passes(&state, &at(2)));
++        assert!(!passes(&state, &at(1)));
++
++        let cursor = |display_id| {
++            Cursor {
++                display_id,
++                visible: true,
++                x: 1,
++                y: 2,
++                xhot: 0,
++                yhot: 0,
++                width: 1,
++                height: 1,
++                data: CursorData::None,
++            }
++            .to_packet(InputTarget::Client)
++        };
++        assert!(passes(&state, &cursor(2)));
++        assert!(!passes(&state, &cursor(1)), "the host's pointer elsewhere");
++
++        // Displays changed: only a guest's follow.
++        state.update_displays(HashSet::from([1]));
++        assert!(passes(&state, &at(1)));
++        let host = ServerPipelineState::new(InputRights::ALL);
++        host.update_displays(HashSet::from([1]));
++        assert!(passes(&host, &at(5)));
++    }
++
++    #[test]
++    fn plugged_gamepads_are_capped() {
++        let state = ServerPipelineState::new(InputRights::ALL);
++        for id in 0..MAX_PLUGS as u32 {
++            assert!(passes(&state, &plug(id)));
++        }
++        assert!(!passes(&state, &plug(100)), "one more virtual gamepad");
++        // Plugged again, the same one is not counted twice.
++        assert!(passes(&state, &plug(0)));
++        assert!(passes(&state, &unplug(0)));
++        assert!(passes(&state, &plug(100)));
 +    }
 +
 +    #[test]

@@ -45,7 +45,7 @@ index 0bef4a80e7..cac6d591f7 100644
  
  int avgrabi_capture_send_frame(GrabCapture *c, unsigned stream_idx,
 diff --git a/subprojects/libavconv/libavgrab/wasapi.c b/subprojects/libavconv/libavgrab/wasapi.c
-index 0d16aa4c14..0cf015659b 100644
+index 0d16aa4c14..06dbc088cb 100644
 --- a/subprojects/libavconv/libavgrab/wasapi.c
 +++ b/subprojects/libavconv/libavgrab/wasapi.c
 @@ -9,6 +9,7 @@
@@ -94,7 +94,7 @@ index 0d16aa4c14..0cf015659b 100644
          if (hr == AUDCLNT_S_BUFFER_EMPTY) {
              // XXX make this interruptible
              DWORD wait = WaitForSingleObject(priv->event, INFINITE);
-@@ -275,11 +288,33 @@ static int wasapi_capture_thread(GrabCapture *c)
+@@ -275,11 +288,35 @@ static int wasapi_capture_thread(GrabCapture *c)
              goto finish;
          }
  
@@ -111,8 +111,10 @@ index 0d16aa4c14..0cf015659b 100644
 +        {
 +            /* u64QPCPosition is in 100 ns units, on the same clock as
 +             * av_gettime_relative() (QueryPerformanceCounter). */
-+            int64_t captured = qpc ? (int64_t)(qpc / 10) - c->params.epoch
-+                                   : av_gettime_relative() - c->params.epoch;
++            /* A position flagged in error is not used (device change, resume). */
++            int qpc_valid = qpc && !(flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR);
++            int64_t captured = qpc_valid ? (int64_t)(qpc / 10) - c->params.epoch
++                                         : av_gettime_relative() - c->params.epoch;
 +            int64_t expected = priv->sync_pts +
 +                               av_rescale(priv->sync_samples, 1000000, priv->sample_rate);
 +            if (!priv->synced || (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) ||
@@ -130,7 +132,7 @@ index 0d16aa4c14..0cf015659b 100644
          if (ret < 0) {
              if (ret != AVERROR_EOF && ret != AVERROR_EXIT)
                  av_log(c, AV_LOG_ERROR, "Unable to send a frame downstream: %s\n",
-@@ -398,6 +433,20 @@ static int wasapi_source(GrabProviderContext *gp, GrabSourceSet *ss,
+@@ -398,6 +435,20 @@ static int wasapi_source(GrabProviderContext *gp, GrabSourceSet *ss,
      priv_src->dev = dev;
      IMMDevice_AddRef(dev);
  

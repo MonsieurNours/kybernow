@@ -521,10 +521,10 @@ index 0000000..093a90e
 +}
 diff --git a/kyproto/src/feedback/mod.rs b/kyproto/src/feedback/mod.rs
 new file mode 100644
-index 0000000..3c707b8
+index 0000000..93f5d9b
 --- /dev/null
 +++ b/kyproto/src/feedback/mod.rs
-@@ -0,0 +1,802 @@
+@@ -0,0 +1,879 @@
 +// KyberNow: feedback channel from the viewer to the Station, and what uses
 +// it: the RaptorQ repair share, the missing-frame wait and the sound's
 +// redundancy. Contract: docs/canal-de-retour.md (KyberNow repository).
@@ -896,22 +896,52 @@ index 0000000..3c707b8
 +    first_report: Option<Instant>,
 +    last_report: Option<Instant>,
 +    last_n: Option<u32>,
-+    last_loss_id: Option<u32>,
++    /// The loss ids already handled, newest last (`LOSS_IDS_KEPT`).
++    loss_ids: VecDeque<u32>,
++    /// New losses still handled in this period (`LOSSES_PER_PERIOD`).
++    losses_left: u32,
 +    /// Cumulative source and repair bytes, once per period, over 1 s.
 +    counters: VecDeque<(Instant, u64, u64)>,
 +    lost_frames: u64,
 +}
 +
++/// Loss ids remembered as handled: a loss repeated in the next reports (8
++/// of them) is handled once, and one reported out of order is still handled
++/// (a threshold on the newest id skipped it: losses 3 and 4, `Lost(3)` lost
++/// or late, 3 was never repaired).
++const LOSS_IDS_KEPT: usize = 64;
++/// New losses handled per period at most (a misbehaving player must not
++/// make the Station repair without end).
++const LOSSES_PER_PERIOD: u32 = 32;
++
 +impl HostState {
-+    /// Whether a loss with this id is new (ids grow, wrapping).
++    /// Whether a loss with this id is new (ids grow, wrapping): not handled
++    /// yet, and not older than the ids kept.
 +    fn new_loss(&mut self, id: u32) -> bool {
-+        let new = self
-+            .last_loss_id
-+            .is_none_or(|last| (id.wrapping_sub(last) as i32) > 0);
-+        if new {
-+            self.last_loss_id = Some(id);
++        if self.loss_ids.contains(&id) {
++            return false;
 +        }
-+        new
++        if let Some(&newest) = self.loss_ids.back()
++            && self.loss_ids.len() >= LOSS_IDS_KEPT
++            && (id.wrapping_sub(newest) as i32) < -(LOSS_IDS_KEPT as i32)
++        {
++            return false; // older than what is remembered
++        }
++        if self.losses_left == 0 {
++            return false;
++        }
++        self.losses_left -= 1;
++        // Kept in id order, the newest last.
++        let at = self
++            .loss_ids
++            .iter()
++            .rposition(|&kept| (id.wrapping_sub(kept) as i32) > 0)
++            .map_or(0, |i| i + 1);
++        self.loss_ids.insert(at, id);
++        if self.loss_ids.len() > LOSS_IDS_KEPT {
++            self.loss_ids.pop_front();
++        }
++        true
 +    }
 +}
 +
@@ -942,7 +972,8 @@ index 0000000..3c707b8
 +        first_report: None,
 +        last_report: None,
 +        last_n: None,
-+        last_loss_id: None,
++        loss_ids: VecDeque::new(),
++        losses_left: LOSSES_PER_PERIOD,
 +        counters: VecDeque::new(),
 +        lost_frames: 0,
 +    };
@@ -988,6 +1019,7 @@ index 0000000..3c707b8
 +            _ = runtime::sleep_until(next_tick) => {
 +                let now = Instant::now();
 +                next_tick = now + PERIOD;
++                st.losses_left = LOSSES_PER_PERIOD;
 +                // Repair rule.
 +                let trusted = st.first_report.is_some_and(|t| now.saturating_duration_since(t) >= TRUST_AFTER)
 +                    && st.last_report.is_some_and(|t| now.saturating_duration_since(t) < SILENCE);
@@ -1221,6 +1253,51 @@ index 0000000..3c707b8
 +mod tests {
 +    use super::*;
 +
++    fn host_state() -> HostState {
++        HostState {
++            window: LossWindow::default(),
++            first_report: None,
++            last_report: None,
++            last_n: None,
++            loss_ids: VecDeque::new(),
++            losses_left: LOSSES_PER_PERIOD,
++            counters: VecDeque::new(),
++            lost_frames: 0,
++        }
++    }
++
++    #[test]
++    fn losses_out_of_order_are_all_handled_once() {
++        let mut st = host_state();
++        // Lost(3) lost: the report repeats [3, 4] after Lost(4).
++        assert!(st.new_loss(4));
++        assert!(st.new_loss(3), "an older loss not handled yet");
++        assert!(!st.new_loss(3));
++        assert!(!st.new_loss(4));
++        assert!(st.new_loss(5));
++        // Ids wrap.
++        let mut st = host_state();
++        assert!(st.new_loss(u32::MAX));
++        assert!(st.new_loss(0));
++        assert!(!st.new_loss(u32::MAX));
++    }
++
++    #[test]
++    fn old_and_too_many_losses_are_dropped() {
++        let mut st = host_state();
++        for id in 100..100 + LOSSES_PER_PERIOD {
++            assert!(st.new_loss(id));
++        }
++        assert!(!st.new_loss(1000), "past the period's budget");
++        st.losses_left = LOSSES_PER_PERIOD;
++        assert!(st.new_loss(1000));
++        for id in 2000..2000 + LOSS_IDS_KEPT as u32 {
++            st.losses_left = LOSSES_PER_PERIOD;
++            st.new_loss(id);
++        }
++        assert!(!st.new_loss(100), "older than the ids kept");
++    }
++
 +    #[test]
 +    fn messages_keep_their_fields_and_ignore_new_ones() {
 +        let report = Report {
@@ -1329,10 +1406,10 @@ index 0000000..3c707b8
 +}
 diff --git a/kyproto/src/feedback/repair.rs b/kyproto/src/feedback/repair.rs
 new file mode 100644
-index 0000000..2d7d91c
+index 0000000..be947e6
 --- /dev/null
 +++ b/kyproto/src/feedback/repair.rs
-@@ -0,0 +1,278 @@
+@@ -0,0 +1,295 @@
 +// KyberNow: RaptorQ repair share from the raw loss the viewer reports
 +// (docs/canal-de-retour.md, "Picture repair").
 +
@@ -1465,6 +1542,11 @@ index 0000000..2d7d91c
 +    samples: VecDeque<(Instant, f64)>,
 +}
 +
++/// Samples kept at most: a report every 100 ms makes about 50 in the
++/// window; a player sending reports without end must not make the Station
++/// sort thousands of them every 100 ms.
++const MAX_SAMPLES: usize = 100;
++
 +impl LossWindow {
 +    pub(crate) fn push(&mut self, at: Instant, settled: u32, lost: u32) {
 +        if settled < MIN_SETTLED {
@@ -1476,6 +1558,7 @@ index 0000000..2d7d91c
 +            .samples
 +            .front()
 +            .is_some_and(|(t, _)| at.saturating_duration_since(*t) > LOSS_WINDOW)
++            || self.samples.len() > MAX_SAMPLES
 +        {
 +            self.samples.pop_front();
 +        }
@@ -1580,6 +1663,17 @@ index 0000000..2d7d91c
 +        }
 +        assert_eq!(w.len(), 51);
 +        assert!((w.p95() - 0.1).abs() < 1e-9);
++    }
++
++    #[test]
++    fn the_window_is_capped() {
++        let t0 = Instant::now();
++        let mut w = LossWindow::default();
++        // Ten thousand reports in the same second.
++        for _ in 0..10_000 {
++            w.push(t0, 100, 1);
++        }
++        assert_eq!(w.len(), MAX_SAMPLES);
 +    }
 +
 +    /// A simulated frame stream through Bernoulli losses: the residual loss
@@ -1687,10 +1781,10 @@ index f547efb..e2fdc18 100644
          self.conn.close(0, "Closed by Kyproto user");
      }
 diff --git a/kyproto/src/protocol/driver/av/audio_unreliable.rs b/kyproto/src/protocol/driver/av/audio_unreliable.rs
-index d300bf2..1b7747b 100644
+index d300bf2..dab9426 100644
 --- a/kyproto/src/protocol/driver/av/audio_unreliable.rs
 +++ b/kyproto/src/protocol/driver/av/audio_unreliable.rs
-@@ -48,10 +48,21 @@ const KYPACKET_HEADER_SIZE: usize = AVPacketHeader::SERIALIZED_SIZE;
+@@ -48,10 +48,26 @@ const KYPACKET_HEADER_SIZE: usize = AVPacketHeader::SERIALIZED_SIZE;
  //  - datagram number: 31 bits
  const DATAGRAM_HEADER_SIZE: usize = 10;
  
@@ -1698,7 +1792,10 @@ index d300bf2..1b7747b 100644
 +// Bit 30 of the datagram number set: a u16 length of this datagram's
 +// segment follows the header, then the segment, then the whole previous
 +// kypacket (kypacket_seq - 1, one segment). Older senders never set it
-+// (datagram numbers stay small), so every receiver can read both.
++// (datagram numbers stay small). A receiver without this patch would read
++// it as datagram 2^30: the Station only sends it to an application that
++// asked for the feedback channel (patch 0052), and a receiver with it drops
++// an impossible datagram number (`MAX_SEGMENTS`).
 +const REDUNDANCY_BIT: u32 = 1 << 30;
 +const REDUNDANCY_LEN_SIZE: usize = 2;
 +
@@ -1707,12 +1804,14 @@ index d300bf2..1b7747b 100644
      stream: SendStream,
      kypacket_seq: u32,
 +    /// KyberNow: the last media kypacket sent (seq, header + payload), for
-+    /// the next datagram to carry it again.
++    /// the next datagram to carry it again; only one sent in a single
++    /// datagram (the copy is always one segment: a kypacket sent in two
++    /// would be announced twice with different segments).
 +    previous: Option<(u32, Bytes)>,
  }
  
  impl AudioUnreliableProtocolSendDriver {
-@@ -64,10 +75,90 @@ impl AudioUnreliableProtocolSendDriver {
+@@ -64,10 +80,97 @@ impl AudioUnreliableProtocolSendDriver {
              ky_channel,
              stream,
              kypacket_seq: 0,
@@ -1741,7 +1840,9 @@ index d300bf2..1b7747b 100644
 +            .previous
 +            .take()
 +            .filter(|(seq, _)| *seq == kypacket_seq.wrapping_sub(1));
-+        self.previous = Some((kypacket_seq, data.clone()));
++        // Sent in one datagram (alone, or with the previous one).
++        let single = DATAGRAM_HEADER_SIZE + data.len() <= max_datagram_size;
++        self.previous = single.then(|| (kypacket_seq, data.clone()));
 +        match previous {
 +            Some((_, prev))
 +                if DATAGRAM_HEADER_SIZE + REDUNDANCY_LEN_SIZE + data.len() + prev.len()
@@ -1764,7 +1865,12 @@ index d300bf2..1b7747b 100644
 +            }
 +            Some((prev_seq, prev)) => {
 +                self.send_segments(kypacket_seq, &data, max_datagram_size).await?;
-+                self.send_segments(prev_seq, &prev, max_datagram_size).await
++                // Again in one datagram only (the datagram size may have
++                // shrunk since): never cut where the first copy was not.
++                if DATAGRAM_HEADER_SIZE + prev.len() <= max_datagram_size {
++                    self.send_segments(prev_seq, &prev, max_datagram_size).await?;
++                }
++                Ok(())
 +            }
 +            None => self.send_segments(kypacket_seq, &data, max_datagram_size).await,
 +        }
@@ -1803,7 +1909,7 @@ index d300bf2..1b7747b 100644
          let max_datagram_size = self
              .ky_channel
              .max_datagram_size()
-@@ -285,9 +376,32 @@ impl AudioUnreliableProtocolRecvDriver {
+@@ -285,9 +388,32 @@ impl AudioUnreliableProtocolRecvDriver {
              let raw_kypacket_seq = datagram.get_u32();
  
              let datagram_number_and_end = datagram.get_u32();
@@ -1837,6 +1943,63 @@ index d300bf2..1b7747b 100644
              tx.send(RecvMsg::Datagram(DatagramMsg {
                  data: datagram,
                  raw_kypacket_seq,
+@@ -645,6 +771,9 @@ impl PendingGroup {
+     }
+ }
+ 
++/// KyberNow: most datagrams in one sound kypacket (a few kB at most).
++const MAX_SEGMENTS: usize = 64;
++
+ #[derive(Debug)]
+ struct DatagramSegments {
+     kypacket_seq: u64,
+@@ -680,6 +809,16 @@ impl DatagramSegments {
+     }
+ 
+     fn set_segment(&mut self, index: usize, segment: Bytes, end: bool) {
++        // KyberNow: a segment that does not fit what is known (a copy of the
++        // sound's redundancy announcing another end, a datagram number past
++        // any kypacket's size) is dropped, never an assert or a huge vector.
++        let consistent = index < MAX_SEGMENTS
++            && self.total_segments.is_none_or(|total| index < total && !end)
++            && (!end || self.segments.len() <= index + 1);
++        if !consistent {
++            debug!("Discarding inconsistent datagram {}:{index}", self.kypacket_seq);
++            return;
++        }
+         if index >= self.segments.len() {
+             self.segments.resize(index + 1, None);
+         }
+@@ -720,6 +859,29 @@ impl DatagramSegments {
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn inconsistent_segments_are_dropped() {
++        // Sent in two, then its copy in one (the datagram size grew).
++        let mut segments = DatagramSegments::new(7);
++        segments.set_segment(1, Bytes::from_static(b"cd"), true);
++        segments.set_segment(0, Bytes::from_static(b"abcd"), true);
++        assert!(!segments.is_complete());
++        segments.set_segment(0, Bytes::from_static(b"ab"), false);
++        assert!(segments.is_complete());
++
++        // The copy first: the later halves no longer fit.
++        let mut segments = DatagramSegments::new(8);
++        segments.set_segment(0, Bytes::from_static(b"abcd"), true);
++        segments.set_segment(1, Bytes::from_static(b"cd"), true);
++        assert_eq!(segments.segments_count, 1);
++        assert!(segments.is_complete());
++
++        // A datagram number from a sender that does not know the redundancy.
++        let mut segments = DatagramSegments::new(9);
++        segments.set_segment(1 << 30, Bytes::from_static(b"x"), true);
++        assert!(segments.segments.is_empty());
++    }
++
+     #[test]
+     fn test() {
+         let d0 = {
 diff --git a/kyproto/src/protocol/driver/av/video_unreliable_fec.rs b/kyproto/src/protocol/driver/av/video_unreliable_fec.rs
 index 5d3d8da..a904340 100644
 --- a/kyproto/src/protocol/driver/av/video_unreliable_fec.rs

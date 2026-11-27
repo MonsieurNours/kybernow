@@ -1,7 +1,8 @@
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
+index 65d3dbf..af9a756 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
-@@ -1025,6 +1025,36 @@ pub(crate) async fn guest_force_idr(ctrl: Arc<Controller>, uid: Uuid) {
+@@ -1061,6 +1061,36 @@ pub(crate) async fn guest_force_idr(ctrl: Arc<Controller>, uid: Uuid) {
      }
  }
  
@@ -35,13 +36,14 @@ diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
 +    }
 +}
 +
- /// KyberNow (0060): `/recover` from a share guest: on the images it gets
- /// (its own, or the host's: a repair without a keyframe costs the others
- /// next to nothing, and the encoder falls back to a keyframe by itself).
+ /// KyberNow (0060): `/recover` from a share guest (and the repairs of its
+ /// feedback channel, patch 0061), on the images it gets. Most encoders
+ /// (H.264, AMF, QSV, x264, VideoToolbox) answer a repair with a keyframe:
 diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/kymux_controller/requests.rs
+index 3c0e6e5..01f4a5c 100644
 --- a/kycontroller/src/kymux_controller/requests.rs
 +++ b/kycontroller/src/kymux_controller/requests.rs
-@@ -191,6 +191,9 @@ pub(crate) async fn start_session(
+@@ -198,6 +198,9 @@ pub(crate) async fn start_session(
                  None
              };
  
@@ -51,10 +53,10 @@ diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/ky
              // KyberNow (0052)
              let feedback = response.feedback.map(|host| {
                  let answer = StartSessionFeedbackResponse {
-@@ -210,6 +213,14 @@ pub(crate) async fn start_session(
-             };
-             let guest = !services.guest_outputs.is_empty();
-             *session_services.lock().await = services;
+@@ -224,6 +227,14 @@ pub(crate) async fn start_session(
+                 crate::kybernow::release_inputs(&session_services).await;
+                 return HttpResponse::Forbidden().finish();
+             }
 +            // KyberNow (0061)
 +            if let Some(lost) = lost {
 +                tokio::spawn(crate::kybernow::repair_on_loss(

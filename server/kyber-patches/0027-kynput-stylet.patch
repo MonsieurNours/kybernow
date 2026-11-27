@@ -47,7 +47,7 @@ index ca128ee..d701d06 100644
  pub extern "C" fn kynput_mouse_wheel_unref(mouse_wheel: Option<Box<MouseWheel>>) {
      drop(mouse_wheel);
 diff --git a/kynput/src/windows/host_keyboard_mouse.rs b/kynput/src/windows/host_keyboard_mouse.rs
-index f392367..2b8c7ef 100644
+index f392367..046612b 100644
 --- a/kynput/src/windows/host_keyboard_mouse.rs
 +++ b/kynput/src/windows/host_keyboard_mouse.rs
 @@ -35,10 +35,11 @@ use windows_sys::Win32::{
@@ -63,7 +63,12 @@ index f392367..2b8c7ef 100644
  };
  use crate::{Error, Result};
  use crate::{HostConfig, InputConsumer, InputPacket, InputType, Modifiers, Payload};
-@@ -149,6 +150,9 @@ struct Backend {
+@@ -146,9 +147,14 @@ struct Backend {
+     virtualscreen: Display,
+     displays: HashMap<u32, Display>,
+     desktop: HDESK,
++    /// KyberNow: when the pen's repetition last switched desktop.
++    pen_desktop_switch: Option<std::time::Instant>,
      modifiers: Modifiers,
      sas_event: Option<Event>,
      key_repeat: Option<KeyRepeatManager>,
@@ -73,12 +78,13 @@ index f392367..2b8c7ef 100644
  }
  
  fn get_virtualscreen() -> Display {
-@@ -207,9 +211,55 @@ impl Backend {
+@@ -207,9 +213,56 @@ impl Backend {
              } else {
                  None
              },
 +            pen: None,
 +            pen_failed: false,
++            pen_desktop_switch: None,
          })
      }
  
@@ -129,7 +135,7 @@ index f392367..2b8c7ef 100644
      fn send_inputs(&mut self, inputs: &mut [INPUT]) -> Result<()> {
          let count = inputs.len() as u32;
          let mut ret = unsafe {
-@@ -546,6 +596,7 @@ impl Backend {
+@@ -546,6 +599,7 @@ impl Backend {
              Payload::MousePosition(ref position) => self.inject_position(position),
              Payload::MouseWheel(ref event) => self.inject_wheel(event),
              Payload::Unicode(ref unicode) => self.inject_unicode(unicode),
@@ -137,14 +143,19 @@ index f392367..2b8c7ef 100644
              _ => {
                  error!("Unexpected packet type {:?}", pkt.get_type());
                  Err(Error::InvalidType)
-@@ -573,6 +624,17 @@ impl Backend {
+@@ -573,6 +627,22 @@ impl Backend {
      }
  
      fn on_timeout(&mut self) -> Result<()> {
 +        // KyberNow: the pen near the surface is injected again.
 +        if self.pen.as_ref().and_then(|pen| pen.next_deadline()) == Some(Duration::ZERO) {
 +            let repeated = self.pen.as_mut().is_none_or(|pen| pen.repeat());
-+            if !repeated {
++            // Refused: another desktop (UAC). Switched to it once a second at
++            // most, not at every repetition (every 50 ms) while it lasts.
++            if !repeated
++                && self.pen_desktop_switch.is_none_or(|at| at.elapsed() >= Duration::from_secs(1))
++            {
++                self.pen_desktop_switch = Some(std::time::Instant::now());
 +                self.switch_desktop();
 +                if let Some(pen) = self.pen.as_mut() {
 +                    pen.repeat();
@@ -155,7 +166,7 @@ index f392367..2b8c7ef 100644
          // Process key repeats
          if let Some(scancode) = self.key_repeat.as_mut().and_then(|kr| kr.process_repeats()) {
              let key = KeyboardKey::new(scancode, true);
-@@ -636,8 +698,7 @@ impl HostKeyboardMouseHandler {
+@@ -636,8 +706,7 @@ impl HostKeyboardMouseHandler {
          let mut backend = Backend::create(host_config, key_repeat_enabled)?;
  
          loop {
@@ -165,7 +176,7 @@ index f392367..2b8c7ef 100644
                  let Ok(event) = consumer.poll_timeout(timeout) else {
                      backend.on_timeout()?;
                      continue;
-@@ -692,6 +753,7 @@ impl InputHandler for HostKeyboardMouseHandler {
+@@ -692,6 +761,7 @@ impl InputHandler for HostKeyboardMouseHandler {
                  InputType::MouseMove,
                  InputType::MouseWheel,
                  InputType::Unicode,
@@ -175,10 +186,10 @@ index f392367..2b8c7ef 100644
      }
 diff --git a/kynput/src/windows/host_pen.rs b/kynput/src/windows/host_pen.rs
 new file mode 100644
-index 0000000..10a6cec
+index 0000000..0468656
 --- /dev/null
 +++ b/kynput/src/windows/host_pen.rs
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,183 @@
 +// Project Kyber: host_pen.rs
 +// Copyright © 2022-2026 Kyber SAS
 +// SPDX-License-Identifier: LicenseRef-Kyber-Commercial OR AGPL-3.0-or-later
@@ -355,8 +366,12 @@ index 0000000..10a6cec
 +
 +/// The pen's position in virtual screen pixels, from its position on one of
 +/// the captured displays.
++/// Kept on that display: a position out of it (a client's rounding, or a
++/// client that sends anything) never lands on another one.
 +pub(crate) fn screen_position(display: &Display, pen: &Pen) -> (i32, i32) {
-+    (display.x + pen.x as i32, display.y + pen.y as i32)
++    let x = (pen.x as i32).clamp(0, (display.width - 1).max(0));
++    let y = (pen.y as i32).clamp(0, (display.height - 1).max(0));
++    (display.x + x, display.y + y)
 +}
 diff --git a/kynput/src/windows/mod.rs b/kynput/src/windows/mod.rs
 index 348d93e..35e6bef 100644
@@ -371,13 +386,13 @@ index 348d93e..35e6bef 100644
  mod utils;
  
 diff --git a/kynputservice/src/pipeline_state.rs b/kynputservice/src/pipeline_state.rs
-index 81ecd1a..f9a5366 100644
+index 11e4aa6..a0afbe2 100644
 --- a/kynputservice/src/pipeline_state.rs
 +++ b/kynputservice/src/pipeline_state.rs
-@@ -53,6 +53,12 @@ pub struct State {
-     /// KyberNow: packets injected by `set_rights`, let through once whatever
-     /// the rights (releases sent after a right was withdrawn).
-     injected: Vec<kynput_rs::Packet>,
+@@ -62,6 +62,12 @@ pub struct State {
+     /// another are refused, and the pointer there is not sent to it. `None`
+     /// for the host (every display).
+     displays: Option<HashSet<u32>>,
 +    /// KyberNow: the client's pen while it is near the surface, to lift it
 +    /// and let it go when the keys are flushed or the mouse taken back.
 +    pen: Option<kynput_rs::Pen>,
@@ -387,16 +402,26 @@ index 81ecd1a..f9a5366 100644
  }
  
  impl State {
-@@ -65,6 +71,8 @@ impl State {
-             rights,
+@@ -75,6 +81,8 @@ impl State {
              plugs: HashMap::new(),
              injected: Vec::new(),
+             displays: None,
 +            pen: None,
 +            pen_available: kynput_rs::host_pen_available(),
          }
      }
  
-@@ -80,7 +88,8 @@ impl State {
+@@ -90,6 +98,9 @@ impl State {
+             kynput_rs::InputType::Cursor => {
+                 kynput_rs::Cursor::from_packet(pkt).is_none_or(|c| displays.contains(&c.display_id))
+             }
++            kynput_rs::InputType::Pen => {
++                kynput_rs::Pen::from_packet(pkt).is_some_and(|p| displays.contains(&p.display_id))
++            }
+             _ => true,
+         }
+     }
+@@ -117,7 +128,8 @@ impl State {
              | InputType::MouseMove
              | InputType::MousePosition
              | InputType::MouseButton
@@ -406,7 +431,7 @@ index 81ecd1a..f9a5366 100644
              InputType::GamepadControl | InputType::GamepadEvent => self.rights.gamepads,
              InputType::Clipboard => self.rights.clipboard,
              InputType::Cursor | InputType::ControlEvent => true,
-@@ -288,6 +297,12 @@ impl State {
+@@ -333,6 +345,12 @@ impl State {
  
                  Ok(())
              }
@@ -419,7 +444,7 @@ index 81ecd1a..f9a5366 100644
              kynput_rs::InputType::Cursor => {
                  if let Some(cursor) = kynput_rs::Cursor::from_packet(pkt) {
                      debug!("Cache cursor");
-@@ -312,12 +327,16 @@ impl State {
+@@ -357,12 +375,16 @@ impl State {
      }
  
      fn on_client_connected(&self) -> Option<Vec<kynput_rs::Packet>> {
@@ -438,7 +463,7 @@ index 81ecd1a..f9a5366 100644
      }
  
      fn on_flush_keys(&mut self) -> Option<Vec<kynput_rs::Packet>> {
-@@ -358,6 +377,16 @@ impl State {
+@@ -403,6 +425,16 @@ impl State {
              generated_events.push(button.to_packet(kynput_rs::InputTarget::Host));
          }
  
@@ -455,16 +480,22 @@ index 81ecd1a..f9a5366 100644
          generated_events
      }
  
-@@ -398,6 +427,8 @@ impl State {
+@@ -441,8 +473,13 @@ impl State {
+     ) -> Result<kynput_rs::RouterHookControlResult, ()> {
+         let generated_events = match msg {
              kynput_rs::ControlEvent::ClientConnected => self.on_client_connected(),
-             kynput_rs::ControlEvent::ClientDisconnected => None,
+-            kynput_rs::ControlEvent::ClientDisconnected => None,
++            // KyberNow: the service may outlive its client (a reconnection
++            // through the relay): what it held is released, or the pen
++            // would go on drawing (Windows repeats its last state).
++            kynput_rs::ControlEvent::ClientDisconnected => self.on_flush_keys(),
              kynput_rs::ControlEvent::FlushKeys => self.on_flush_keys(),
 +            // KyberNow: the host's own announcement, never a client's.
 +            kynput_rs::ControlEvent::PenAvailable => None,
          };
  
          Ok(kynput_rs::RouterHookControlResult { generated_events })
-@@ -418,6 +449,16 @@ impl ServerPipelineState {
+@@ -480,6 +517,16 @@ impl ServerPipelineState {
          }
      }
  
@@ -481,7 +512,7 @@ index 81ecd1a..f9a5366 100644
      /// KyberNow: applies new rights. The returned packets must be injected
      /// into the pipeline (its input sink) by the caller: the hook sees them
      /// and takes the state lock again.
-@@ -582,7 +623,7 @@ mod tests {
+@@ -644,7 +691,7 @@ mod tests {
  
      #[test]
      fn cursor_sync() {
@@ -490,7 +521,7 @@ index 81ecd1a..f9a5366 100644
  
          let ret_process_true = RouterHookPacketResult {
              process_event: true,
-@@ -611,7 +652,7 @@ mod tests {
+@@ -673,7 +720,7 @@ mod tests {
  
      #[test]
      fn cursor_sync_keeps_shape_on_move() {
@@ -499,7 +530,7 @@ index 81ecd1a..f9a5366 100644
  
          let shape = Cursor {
              display_id: 43,
-@@ -647,6 +688,79 @@ mod tests {
+@@ -709,6 +756,96 @@ mod tests {
          );
      }
  
@@ -564,6 +595,23 @@ index 81ecd1a..f9a5366 100644
 +        state.on_packet(&pen(0));
 +        let ret = state.on_control_event(&ControlEvent::FlushKeys);
 +        assert_eq!(ret.generated_events, None);
++    }
++
++    #[test]
++    fn a_lost_client_lifts_the_pen() {
++        let state = ServerPipelineState::with_pen(InputRights::ALL, true);
++        state.on_packet(&pen(kynput_rs::Pen::IN_RANGE | kynput_rs::Pen::CONTACT));
++        let ret = state.on_control_event(&ControlEvent::ClientDisconnected);
++        assert_eq!(ret.generated_events, Some(vec![lifted()]));
++    }
++
++    #[test]
++    fn a_guest_draws_only_on_its_display() {
++        let state = ServerPipelineState::with_pen(InputRights::ALL, true);
++        state.set_displays(Some(HashSet::from([2])));
++        assert!(!state.on_packet(&pen(kynput_rs::Pen::IN_RANGE)).process_event);
++        state.set_displays(Some(HashSet::from([1])));
++        assert!(state.on_packet(&pen(kynput_rs::Pen::IN_RANGE)).process_event);
 +    }
 +
 +    #[test]

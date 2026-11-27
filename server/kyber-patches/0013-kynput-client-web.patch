@@ -197,7 +197,7 @@ index 17d4b03..9fcb18d 100644
          Ok(())
      }
 diff --git a/kynput/src/wasm/client_keyboard.rs b/kynput/src/wasm/client_keyboard.rs
-index 5b95123..349a92a 100644
+index 5b95123..eaba2ba 100644
 --- a/kynput/src/wasm/client_keyboard.rs
 +++ b/kynput/src/wasm/client_keyboard.rs
 @@ -23,17 +23,31 @@ use std::sync::{Arc, Mutex, Weak};
@@ -247,7 +247,7 @@ index 5b95123..349a92a 100644
          let webcode = event.code();
          let Ok(code) = webcode.as_str().parse::<KeyMappingCode>() else {
              warn!("Unknown Keyboard code {webcode}");
-@@ -96,10 +115,115 @@ impl KeyboardProducer {
+@@ -96,10 +115,121 @@ impl KeyboardProducer {
  
          Ok(())
      }
@@ -322,7 +322,13 @@ index 5b95123..349a92a 100644
 +    /// escape and backspace as their keys.
 +    fn send_text(&self, text: &str) -> Result<()> {
 +        let text = text.replace("\r\n", "\r").replace('\n', "\r");
-+        for character in text.chars() {
++        // A pasted book would be typed for minutes on the computer: the
++        // first `MAX_TYPED` characters only.
++        const MAX_TYPED: usize = 4096;
++        if text.chars().count() > MAX_TYPED {
++            log::warn!("Text field: {MAX_TYPED} characters typed, the rest dropped");
++        }
++        for character in text.chars().take(MAX_TYPED) {
 +            self.forward_packet(InputPacket::new(
 +                InputTarget::Host,
 +                Payload::Unicode(UnicodeInput::new(character)),
@@ -363,7 +369,7 @@ index 5b95123..349a92a 100644
          let document = dom::document()?;
  
          // keydown
-@@ -118,10 +242,59 @@ impl InputHandler for KeyboardProducer {
+@@ -118,10 +248,59 @@ impl InputHandler for KeyboardProducer {
              move |event: KeyboardEvent| self_clone.on_key(event, false),
          )?;
  
@@ -424,7 +430,7 @@ index 5b95123..349a92a 100644
          }
  
          Ok(())
-@@ -131,22 +304,27 @@ impl InputHandler for KeyboardProducer {
+@@ -131,22 +310,27 @@ impl InputHandler for KeyboardProducer {
          let mut closures = self.closures.lock()?;
          let closures = closures.take().ok_or(crate::Error::Rejected)?;
  

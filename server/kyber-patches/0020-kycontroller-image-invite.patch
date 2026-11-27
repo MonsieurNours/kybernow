@@ -181,7 +181,7 @@ index d52630a..c2deb57 100644
          )
          .await
 diff --git a/kycontroller/src/avservices_manager.rs b/kycontroller/src/avservices_manager.rs
-index 137c909..651f5a2 100644
+index 5c33105..4a304e2 100644
 --- a/kycontroller/src/avservices_manager.rs
 +++ b/kycontroller/src/avservices_manager.rs
 @@ -19,18 +19,28 @@
@@ -481,8 +481,8 @@ index 137c909..651f5a2 100644
 +
  /// KyberNow: current refresh rate (Hz) of the Windows display whose top-left
  /// corner is at `(x, y)` on the desktop.
- #[cfg(windows)]
-@@ -504,12 +664,23 @@ pub(crate) struct AVServicesManager {
+ /// Kept a second: it is read under the displays' and services' locks, for
+@@ -526,12 +686,23 @@ pub(crate) struct AVServicesManager {
      reaper_tx: tokio::sync::mpsc::UnboundedSender<AvReaperMsg>,
      /// Taken by `ensure_reaper` on first call to hand over to the spawned task.
      reaper_rx: Option<tokio::sync::mpsc::UnboundedReceiver<AvReaperMsg>>,
@@ -506,7 +506,7 @@ index 137c909..651f5a2 100644
          Self {
              video_streams: HashMap::new(),
              audio_streams: HashMap::new(),
-@@ -517,6 +688,11 @@ impl Default for AVServicesManager {
+@@ -539,6 +710,11 @@ impl Default for AVServicesManager {
              idr_rx: Some(idr_rx),
              reaper_tx,
              reaper_rx: Some(reaper_rx),
@@ -518,7 +518,7 @@ index 137c909..651f5a2 100644
          }
      }
  }
-@@ -556,7 +732,13 @@ impl AVServicesManager {
+@@ -578,7 +754,13 @@ impl AVServicesManager {
      pub(crate) fn init(&mut self, weak: std::sync::Weak<Controller>) -> AvServicesTasksHandle {
          let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
          self.spawn_idr_dispatcher(weak.clone(), cancel_rx.clone());
@@ -533,7 +533,7 @@ index 137c909..651f5a2 100644
          AvServicesTasksHandle { cancel_tx }
      }
  
-@@ -647,7 +829,13 @@ impl AVServicesManager {
+@@ -669,7 +851,13 @@ impl AVServicesManager {
                      for msg in batch {
                          match msg {
                              AvReaperMsg::VideoDropped(key) => {
@@ -548,7 +548,7 @@ index 137c909..651f5a2 100644
                              }
                              AvReaperMsg::AudioDropped(key) => {
                                  cleanup.push_audio(av_services_manager.take_audio_if_last(&key));
-@@ -699,10 +887,17 @@ impl AVServicesManager {
+@@ -721,10 +909,17 @@ impl AVServicesManager {
          //  - Exclusive: the caller already registered its client endpoint with
          //    kycom and got an URI back; no kydup in the path, and the entry must
          //    not already exist.
@@ -568,7 +568,7 @@ index 137c909..651f5a2 100644
                          warn!(
                              "Shared video stream for display {display_id} already running with \
                               {:?}; new subscriber requested {:?}; existing config is kept.",
-@@ -785,7 +980,10 @@ impl AVServicesManager {
+@@ -807,7 +1002,10 @@ impl AVServicesManager {
              (None, None, None)
          };
  
@@ -580,7 +580,7 @@ index 137c909..651f5a2 100644
          // session_id: None; the StateMachine routes events by `stream_id` to
          // every session whose `video_subscriptions` hold this exact key. For
          // `Shared` that's the multi-client fan-out; for `Exclusive` only the
-@@ -802,9 +1000,17 @@ impl AVServicesManager {
+@@ -824,9 +1022,17 @@ impl AVServicesManager {
              config.codec.clone(),
              config.yuv444,
              config.intra_refresh,
@@ -598,7 +598,7 @@ index 137c909..651f5a2 100644
          let dup_for_return = dup.clone();
          self.video_streams.insert(
              key.clone(),
-@@ -814,15 +1020,20 @@ impl AVServicesManager {
+@@ -836,15 +1042,20 @@ impl AVServicesManager {
                  _metrics,
                  config,
                  client_count: 0,
@@ -620,7 +620,7 @@ index 137c909..651f5a2 100644
          }
      }
  
-@@ -901,18 +1112,441 @@ impl AVServicesManager {
+@@ -923,18 +1134,441 @@ impl AVServicesManager {
              self.reaper_rx.is_none(),
              "AVServicesManager::init must be called before acquire_video"
          );
@@ -1064,7 +1064,7 @@ index 137c909..651f5a2 100644
      /// Acquire an audio subscription atomically. See `acquire_video`.
      pub(crate) async fn acquire_audio(
          &mut self,
-@@ -935,9 +1569,12 @@ impl AVServicesManager {
+@@ -957,9 +1591,12 @@ impl AVServicesManager {
      /// Decrement a video client count, and if it hits zero, remove and
      /// return the stream so the caller can stop it OUTSIDE the Controller
      /// lock via `AVCleanup::run`.
@@ -1078,7 +1078,7 @@ index 137c909..651f5a2 100644
          if stream.client_count != 0 {
              return None;
          }
-@@ -967,7 +1604,7 @@ impl AVServicesManager {
+@@ -989,7 +1626,7 @@ impl AVServicesManager {
          let mut cleanup = AVCleanup::default();
          for mut sub in videos {
              sub.released = true;
@@ -1087,7 +1087,7 @@ index 137c909..651f5a2 100644
          }
          if let Some(mut sub) = audio {
              sub.released = true;
-@@ -999,7 +1636,10 @@ mod tests {
+@@ -1021,7 +1658,10 @@ mod tests {
      use tokio::sync::mpsc::{error::TryRecvError, unbounded_channel};
  
      fn shared_key(display_id: u32) -> VideoStreamKey {
@@ -1099,7 +1099,7 @@ index 137c909..651f5a2 100644
      }
  
      #[test]
-@@ -1040,6 +1680,7 @@ mod tests {
+@@ -1062,6 +1702,7 @@ mod tests {
          while let Ok(msg) = rx.try_recv() {
              match msg {
                  AvReaperMsg::VideoDropped(k) => seen.push(k),
@@ -1107,7 +1107,7 @@ index 137c909..651f5a2 100644
                  AvReaperMsg::AudioDropped(_) => panic!("unexpected AudioDropped"),
              }
          }
-@@ -1126,6 +1767,10 @@ mod tests {
+@@ -1148,6 +1789,10 @@ mod tests {
                  _metrics: None,
                  config: video_config(),
                  client_count,
@@ -1118,7 +1118,7 @@ index 137c909..651f5a2 100644
              },
          );
      }
-@@ -1340,7 +1985,7 @@ mod tests {
+@@ -1362,7 +2007,7 @@ mod tests {
      fn stream_ids_on_same_display_are_distinct() {
          let s1 = Uuid::new_v4();
          let s2 = Uuid::new_v4();
@@ -1127,7 +1127,7 @@ index 137c909..651f5a2 100644
          let excl1 = StreamId::Video(VideoStreamKey::Exclusive {
              session_id: s1,
              display_id: 0,
-@@ -1360,4 +2005,324 @@ mod tests {
+@@ -1382,4 +2027,324 @@ mod tests {
          let a_excl = StreamId::Audio(AudioStreamKey::Exclusive { session_id: s1 });
          assert_ne!(a_shared, a_excl);
      }
@@ -1685,7 +1685,7 @@ index 1ad43f4..6cd2174 100644
      #[error("Tray not supported on this platform")]
 diff --git a/kycontroller/src/guest_image.rs b/kycontroller/src/guest_image.rs
 new file mode 100644
-index 0000000..4328727
+index 0000000..0680cce
 --- /dev/null
 +++ b/kycontroller/src/guest_image.rs
 @@ -0,0 +1,1288 @@
@@ -2978,7 +2978,7 @@ index 0000000..4328727
 +    }
 +}
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index 4c9696c..44d95c6 100644
+index d926ddc..182c607 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
 @@ -1,23 +1,39 @@
@@ -3073,7 +3073,7 @@ index 4c9696c..44d95c6 100644
          true
      }
  }
-@@ -195,6 +235,906 @@ pub(crate) async fn apply_input_rights(ctrl: &Controller, uid: &Uuid) {
+@@ -227,6 +267,914 @@ pub(crate) async fn apply_input_rights(ctrl: &Controller, uid: &Uuid) {
      }
  }
  
@@ -3812,7 +3812,11 @@ index 4c9696c..44d95c6 100644
 +async fn keyframe_for_guest(ctrl: &Controller, uid: &Uuid, key: &VideoStreamKey) {
 +    let (delay, idr) = {
 +        let mut manager = ctrl.av_services_manager.lock().await;
-+        let delay = if matches!(key, VideoStreamKey::Shared { .. }) {
++        // The host's image, or a guest image several guests read (`Join`):
++        // one guest that loses packets must not force a keyframe every
++        // 150 ms on the others.
++        let shared_by_others = manager.video_streams.get(key).is_some_and(|s| s.client_count > 1);
++        let delay = if matches!(key, VideoStreamKey::Shared { .. }) || shared_by_others {
 +            match manager.guest_keyframe_delay(key, Instant::now()) {
 +                Some(delay) => delay,
 +                None => {
@@ -3857,6 +3861,10 @@ index 4c9696c..44d95c6 100644
 +    }
 +}
 +
++/// A guest's bitrate when the host streams nothing to bound it (a guest
++/// "as the host" alone): what a 4K stream ever needs.
++const GUEST_WITHOUT_HOST_MAX_BITRATE: u32 = 150_000_000;
++
 +/// `/set_bitrate` from a share guest: only on images of its own that it
 +/// is alone on, within its preset's ceiling and the host's bitrate.
 +/// `false`: refused (403).
@@ -3888,7 +3896,7 @@ index 4c9696c..44d95c6 100644
 +        let host = manager
 +            .current_host_key(key.display_id())
 +            .and_then(|host| manager.video_streams.get(&host))
-+            .map_or(u32::MAX, |host| host.config.bitrate);
++            .map_or(GUEST_WITHOUT_HOST_MAX_BITRATE, |host| host.config.bitrate);
 +        let Some(stream) = manager.video_streams.get_mut(key) else {
 +            continue;
 +        };
@@ -3980,7 +3988,7 @@ index 4c9696c..44d95c6 100644
  fn from_loopback(req: &HttpRequest) -> bool {
      req.peer_addr().is_some_and(|peer| match peer.ip() {
          IpAddr::V4(v4) => v4.is_loopback(),
-@@ -245,6 +1185,24 @@ struct SessionEntry {
+@@ -277,6 +1225,24 @@ struct SessionEntry {
      display: Option<u32>,
      streaming: bool,
      inputs: bool,
@@ -4005,7 +4013,7 @@ index 4c9696c..44d95c6 100644
  }
  
  #[derive(Serialize)]
-@@ -252,6 +1210,13 @@ struct StreamEntry {
+@@ -284,6 +1250,13 @@ struct StreamEntry {
      display: u32,
      codec: &'static str,
      yuv444: bool,
@@ -4019,7 +4027,7 @@ index 4c9696c..44d95c6 100644
  }
  
  #[derive(Serialize)]
-@@ -260,15 +1225,16 @@ struct SessionsResponse {
+@@ -292,15 +1265,16 @@ struct SessionsResponse {
      streams: Vec<StreamEntry>,
  }
  
@@ -4042,7 +4050,7 @@ index 4c9696c..44d95c6 100644
  #[get("/sessions")]
  pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest) -> HttpResponse {
      if let Some(refusal) = admin_refusal(&req) {
-@@ -288,32 +1254,78 @@ pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest)
+@@ -320,32 +1294,78 @@ pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest)
                  display: s.share.as_ref().map(|share| share.display),
                  streaming: s.session.as_ref().is_some_and(|s| s.data_plane.is_some()),
                  inputs: false,
@@ -4135,7 +4143,7 @@ index 4c9696c..44d95c6 100644
  
      HttpResponse::Ok().json(SessionsResponse { sessions, streams })
  }
-@@ -363,6 +1375,59 @@ pub(crate) async fn post_role(
+@@ -395,6 +1415,59 @@ pub(crate) async fn post_role(
      HttpResponse::Ok().json(serde_json::json!({ "sessions": updated.len() }))
  }
  
@@ -4195,7 +4203,7 @@ index 4c9696c..44d95c6 100644
  #[derive(Deserialize)]
  struct CloseRequest {
      user: String,
-@@ -451,6 +1516,7 @@ mod tests {
+@@ -475,6 +1548,7 @@ mod tests {
              role,
              display: 7,
              rev,
@@ -4203,7 +4211,7 @@ index 4c9696c..44d95c6 100644
          })
      }
  
-@@ -550,6 +1616,755 @@ mod tests {
+@@ -590,6 +1664,755 @@ mod tests {
          assert!(memory.bans.is_empty());
      }
  
@@ -5747,7 +5755,7 @@ index bf79947..c010120 100644
 +    }
  }
 diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
-index 0bd8416..fd01cc4 100644
+index 211f324..bd72cf3 100644
 --- a/kycontroller/src/kymux_controller/mod.rs
 +++ b/kycontroller/src/kymux_controller/mod.rs
 @@ -348,6 +348,10 @@ async fn start_video(
@@ -5844,10 +5852,10 @@ index 0bd8416..fd01cc4 100644
  
  pub(crate) struct StartSessionAudioResponse {
 diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/kymux_controller/requests.rs
-index e67f890..d48e7db 100644
+index a6b1f9a..f69df02 100644
 --- a/kycontroller/src/kymux_controller/requests.rs
 +++ b/kycontroller/src/kymux_controller/requests.rs
-@@ -92,6 +92,18 @@ pub(crate) async fn start_session(
+@@ -99,6 +99,18 @@ pub(crate) async fn start_session(
          return HttpResponse::Forbidden().finish();
      }
  
@@ -5866,7 +5874,7 @@ index e67f890..d48e7db 100644
      // Start session
      let ret = super::start_session(&ctrl, session_id, request.into_inner()).await;
      match ret {
-@@ -111,7 +123,8 @@ pub(crate) async fn start_session(
+@@ -118,7 +130,8 @@ pub(crate) async fn start_session(
                          if let Some(m) = v.metrics_output {
                              services.tasks.push(m);
                          }
@@ -5876,12 +5884,16 @@ index e67f890..d48e7db 100644
  
                          StartSessionVideoResponse {
                              display_id: v.display_id,
-@@ -173,9 +186,29 @@ pub(crate) async fn start_session(
+@@ -180,6 +193,7 @@ pub(crate) async fn start_session(
                  error!("Session {session_id} disappeared after successful start_session",);
                  return HttpResponse::InternalServerError().finish();
              };
 +            let guest = !services.guest_outputs.is_empty();
              *session_services.lock().await = services;
+             // KyberNow: closed while it started: its input server lets go of
+             // what it holds before the session is removed (it would be
+@@ -190,6 +204,25 @@ pub(crate) async fn start_session(
+             }
              // KyberNow: a role changed while the services started applies now.
              crate::kybernow::apply_input_rights(&ctrl, &session_id).await;
 +            // KyberNow: a guest's image chosen again now that its output can
@@ -5906,7 +5918,7 @@ index e67f890..d48e7db 100644
  
              HttpResponse::Ok().json(StartSessionResponse {
                  session_id: Some(numeric_session_id),
-@@ -186,6 +219,11 @@ pub(crate) async fn start_session(
+@@ -200,6 +233,11 @@ pub(crate) async fn start_session(
                  metrics,
              })
          }
@@ -5919,7 +5931,7 @@ index e67f890..d48e7db 100644
              info!("Stream start rejected: {:?}", err);
              HttpResponse::Forbidden().finish()
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
-index 2a0cb53..a35d677 100644
+index 2a0cb53..30f232d 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
 @@ -45,6 +45,7 @@ mod cli;
@@ -5974,7 +5986,8 @@ index 2a0cb53..a35d677 100644
 +            let Some(stream) = av_services_manager.video_streams.get_mut(key) else {
                  continue;
              };
-             if let Err(err) = stream.avservice.video_set_bitrate(per_stream as i32) {
+-            if let Err(err) = stream.avservice.video_set_bitrate(per_stream as i32) {
++            if let Err(err) = stream.avservice.video_set_bitrate(per_stream.min(i32::MAX as u32) as i32) {
                  warn!("Failed to set bitrate: {err:?}");
              }
 +            // KyberNow: kept, for the share guests' images (never above).
@@ -6037,10 +6050,10 @@ index e0bcb6e..c666f0a 100644
  
      time::sleep(Duration::from_millis(100)).await;
 diff --git a/kycontroller/src/statemachine.rs b/kycontroller/src/statemachine.rs
-index 5a4d750..4bd3484 100644
+index 07fe1ff..a26b196 100644
 --- a/kycontroller/src/statemachine.rs
 +++ b/kycontroller/src/statemachine.rs
-@@ -207,6 +207,11 @@ impl StateMachine {
+@@ -224,6 +224,11 @@ impl StateMachine {
                      }
  
                      *ctrl.displays.lock().unwrap() = displays;
