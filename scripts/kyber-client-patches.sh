@@ -153,9 +153,11 @@ kyber_apply_client_patches() {
         . "$KYBER_CLIENT_PATCHES_ROOT/scripts/verrou.sh"
         kyber_verrou_sortie "$(cd "$kysdk/.." && pwd -P)" || return 1
     fi
-    local station=()
+    # Chemins absolus : git -C et patch les liraient depuis le dépôt visé.
+    local station=() given=()
+    for patch in "$@"; do case "$patch" in /*) given+=("$patch") ;; *) given+=("$PWD/$patch") ;; esac; done
     while IFS= read -r patch; do station+=("$patch"); done < <(kyber_station_patches)
-    set -- ${station[@]+"${station[@]}"} "$@"
+    set -- ${station[@]+"${station[@]}"} ${given[@]+"${given[@]}"}
     if ! git -C "$kysdk/kyctl" rev-parse -q --verify HEAD >/dev/null 2>&1; then
         kyber_apply_client_patches_sans_git "$kysdk" "$@"
         return
