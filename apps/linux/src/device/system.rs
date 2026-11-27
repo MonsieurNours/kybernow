@@ -18,6 +18,8 @@ unsafe extern "C" {
     fn kn_pw_probe(gpu: *mut c_char, gpulen: c_int, err: *mut c_char, errlen: c_int) -> c_int;
     fn kn_vrr_probe(name: *mut c_char, len: c_int, connected: *mut c_int) -> c_int;
     fn kn_modes_probe(hz_1080p: *mut c_int, w: *mut c_int, h: *mut c_int, hz: *mut c_int) -> c_int;
+    fn kn_v4l2_request_built() -> c_int;
+    fn kn_v4l2_m2m_built() -> c_int;
 }
 
 fn os_release() -> String {
@@ -117,8 +119,10 @@ pub fn pi() -> Option<Pi> {
     let compatible = ["/proc/device-tree/compatible", "/sys/firmware/devicetree/base/compatible"].iter().map(|p| read_trim(p)).find(|s| !s.is_empty()).unwrap_or_default();
     let names = v4l2_names();
     // bcm2835-codec expose plusieurs nœuds (decode, encode, isp…) ; rpivid un seul.
-    let v4l2_h264 = names.iter().any(|n| n.contains("bcm2835-codec-decode") || n == "bcm2835-codec");
-    let v4l2_hevc = names.iter().any(|n| n.contains("rpivid"));
+    // Le nœud de la puce, et le décodeur dans le FFmpeg de cette compilation (un .deb construit sans --rpi n'a
+    // pas le HEVC V4L2 request : il n'est alors pas annoncé, Auto et les capacités ne le comptent pas).
+    let v4l2_h264 = names.iter().any(|n| n.contains("bcm2835-codec-decode") || n == "bcm2835-codec") && unsafe { kn_v4l2_m2m_built() } != 0;
+    let v4l2_hevc = names.iter().any(|n| n.contains("rpivid")) && unsafe { kn_v4l2_request_built() } != 0;
     Some(Pi { model: pi_short_model(&model), generation: pi_generation(&compatible), ram_gb: ram_gb(), v4l2_h264, v4l2_hevc })
 }
 

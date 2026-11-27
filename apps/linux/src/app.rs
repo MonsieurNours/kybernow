@@ -2388,6 +2388,21 @@ impl SessionUi {
         self.guest.as_ref().is_none_or(|g| g.role.kbm())
     }
 
+    /// L'interface a la main : un menu, un panneau ou un menu déroulant de la barre est ouvert par-dessus
+    /// l'image. Clavier, manette et souris vont alors à l'interface (navigation, Échap), jamais à
+    /// l'ordinateur ; la souris des jeux est rendue et le mode immersif rend le clavier au système
+    /// (docs/link-ui.md). La seule règle de l'app : `device/mod.rs` ne teste rien d'autre.
+    pub fn ui_owns_input(&self) -> bool {
+        self.panel_open() || self.bar_menu.is_some()
+    }
+
+    /// Le menu de session, le clavier de « Touches » ou un panneau (Partager, Prêter, Écran) : l'image est
+    /// couverte. Un menu déroulant de la barre n'en est pas un : la souris garde le chemin de l'image, qui tient
+    /// la barre ouverte et referme le menu au clic à côté (rien ne part alors à l'ordinateur).
+    pub fn panel_open(&self) -> bool {
+        self.menu || self.keys || self.share_panel || self.lend_panel || self.watch_panel
+    }
+
     /// Un panneau du partage est montré par-dessus l'image.
     pub fn share_overlay(&self) -> bool {
         self.share_panel || self.bar_menu == Some(BarMenu::Share)
@@ -3219,6 +3234,22 @@ pub enum UpdateState {
     Failed(String),
 }
 
+/// La rubrique des réglages du bureau, telle que dessinée : elle défile entre `top` (sous la barre de titre) et
+/// `bottom`, à droite de `left` (la colonne des rubriques ne défile pas) ; `max` : le défilement au plus.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SettingsView {
+    pub top: f32,
+    pub bottom: f32,
+    pub left: f32,
+    pub max: f32,
+}
+
+impl Default for SettingsView {
+    fn default() -> Self {
+        Self { top: 0.0, bottom: f32::MAX, left: f32::MAX, max: f32::MAX }
+    }
+}
+
 pub struct App {
     pub store: Store,
     pub layout: Layout,
@@ -3252,6 +3283,8 @@ pub struct App {
     pub settings_global: bool,
     /// Défilement des réglages (bureau), en points.
     pub scroll: f32,
+    /// Ce que le dernier dessin des réglages (bureau) a mesuré : la zone visible et le défilement possible.
+    pub settings_view: std::cell::Cell<SettingsView>,
     pub pad_selected: usize,
     /// Les sessions en cours, dans l'ordre d'ouverture (une seule sur le Steam Deck, au salon
     /// et sur KyberNow Link OS : `multi_sessions`), et celle de la fenêtre au premier plan.
@@ -3509,6 +3542,7 @@ impl App {
             section: 0,
             settings_global: false,
             scroll: 0.0,
+            settings_view: std::cell::Cell::new(SettingsView::default()),
             pad_selected: 0,
             sessions: Vec::new(),
             active: None,
@@ -4089,7 +4123,7 @@ impl App {
         if self.layout == Layout::Desktop {
             self.keyboard_focus = false;
         }
-        if let Some((t, _)) = self.hits.iter().rev().find(|(_, r)| r.contains(x, y))
+        if let Some((t, _)) = self.hits.iter().rev().find(|(_, r)| r.contains(x, y) && !self.under_settings_title(r))
             && self.focus != *t
         {
             self.focus = *t;
@@ -4100,7 +4134,7 @@ impl App {
 
     /// Clic : choisit ce qui est dessous.
     pub fn pointer_click(&mut self, x: f32, y: f32) -> Vec<Action> {
-        if let Some((t, _)) = self.hits.iter().rev().find(|(_, r)| r.contains(x, y)).copied() {
+        if let Some((t, _)) = self.hits.iter().rev().find(|(_, r)| r.contains(x, y) && !self.under_settings_title(r)).copied() {
             self.focus = t;
             return self.activate(t);
         }
@@ -4111,15 +4145,45 @@ impl App {
         Vec::new()
     }
 
-    /// Molette (réglages du bureau).
+    /// Molette (réglages du bureau) : entre le haut de la rubrique et sa fin.
     pub fn wheel(&mut self, dy: f32) {
         if self.screen == Screen::Settings {
-            self.scroll = (self.scroll - dy * 48.0).max(0.0);
+            self.scroll = (self.scroll - dy * 48.0).min(self.settings_view.get().max).max(0.0);
         }
+    }
+
+    /// Une ligne de la rubrique passée sous la barre de titre (réglages du bureau) : ni survolée ni cliquée, le
+    /// clic va à la barre de titre (déplacer la fenêtre), pas à un réglage qu'on ne voit pas.
+    fn under_settings_title(&self, r: &Rect) -> bool {
+        let v = self.settings_view.get();
+        self.screen == Screen::Settings && self.layout == Layout::Desktop && r.x >= v.left && r.y < v.top
+    }
+
+    /// Au clavier, la rubrique défile jusqu'à l'élément qui a le focus (réglages du bureau).
+    fn scroll_to_focus(&mut self) {
+        if self.screen != Screen::Settings || self.layout != Layout::Desktop {
+            return;
+        }
+        let v = self.settings_view.get();
+        let Some(r) = self.hits.iter().find(|(t, _)| *t == self.focus).map(|(_, r)| *r).filter(|r| r.x >= v.left) else { return };
+        let margin = 16.0;
+        let mut s = self.scroll;
+        if r.y < v.top + margin {
+            s -= v.top + margin - r.y;
+        } else if r.y + r.h > v.bottom - margin {
+            s += r.y + r.h - (v.bottom - margin);
+        }
+        self.scroll = s.min(v.max).max(0.0);
     }
 
     /// Une touche de navigation.
     pub fn nav(&mut self, n: Nav) -> Vec<Action> {
+        let actions = self.nav_inner(n);
+        self.scroll_to_focus();
+        actions
+    }
+
+    fn nav_inner(&mut self, n: Nav) -> Vec<Action> {
         self.keyboard_focus = true;
         if self.screen == Screen::Launch {
             if matches!(n, Nav::Ok | Nav::Back) {
@@ -4553,6 +4617,11 @@ impl App {
                         s.menu = true;
                         self.focus = Target::Menu(MenuItem::Quality);
                     }
+                    return Vec::new();
+                }
+                // Un menu déroulant de la barre (Profil, Ordinateurs, Caméra, Touches…) se referme seul, la barre reste.
+                if s.bar_menu.is_some() {
+                    s.bar_menu = None;
                     return Vec::new();
                 }
                 s.menu = !s.menu;
@@ -8655,6 +8724,38 @@ mod tests {
         id
     }
 
+    /// « L'interface a la main » (LINAPP-04 à 06) : chaque panneau ouvert depuis le menu (Prêter, Écran,
+    /// Partager), le clavier de « Touches » et chaque menu déroulant de la barre gardent l'entrée ; Échap
+    /// (`session_back`) referme un menu déroulant sans ouvrir le menu de session.
+    #[test]
+    fn ui_owns_input_while_a_panel_is_open() {
+        let mut app = desk();
+        let a = open(&mut app, "a");
+        assert!(!app.session_by(a).unwrap().ui_owns_input(), "à l'image : l'ordinateur a la main");
+        app.session_back();
+        assert!(app.session_by(a).unwrap().menu && app.session_by(a).unwrap().ui_owns_input(), "menu de session");
+        for set in [
+            (|s: &mut SessionUi| s.lend_panel = true) as fn(&mut SessionUi),
+            |s| s.watch_panel = true,
+            |s| s.share_panel = true,
+            |s| s.keys = true,
+            |s| s.bar_menu = Some(BarMenu::Camera),
+        ] {
+            let s = app.session_by_mut(a).unwrap();
+            s.menu = false;
+            set(s);
+            assert!(s.ui_owns_input(), "panneau ouvert depuis le menu, menu refermé");
+            *s = { let mut n = SessionUi::new(a, "a", "A", Profile::Bureau, false, false, 1); n.phase = Phase::Streaming; n };
+        }
+        let s = app.session_by_mut(a).unwrap();
+        s.bar = true;
+        s.bar_menu = Some(BarMenu::Camera);
+        app.session_back();
+        let s = app.session_by(a).unwrap();
+        assert!(s.bar_menu.is_none() && !s.menu && s.bar, "Échap referme le menu déroulant, pas plus");
+        assert!(!s.ui_owns_input());
+    }
+
     /// La caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil ») : rien tant que l'ordinateur ne la
     /// propose pas ; puis le menu l'allume (sur la webcam choisie), une autre webcam se prend sans éteindre,
     /// l'ordinateur dit quand elle part (voyant), un refus l'éteint avec son avis, et la proposition retirée
@@ -9048,6 +9149,44 @@ mod tests {
         app.activate(Target::JoinCard);
         assert_eq!(app.join.quality, ShareQuality::P2160_60, "retenu pour la fois suivante");
         assert_eq!(ShareQuality::parse("2160p60"), ShareQuality::P2160_60);
+    }
+
+    /// LINAPP-21 : les réglages du bureau défilent jusqu'à leur fin, pas plus ; au clavier, le focus ne sort pas
+    /// de l'écran ; une ligne passée sous la barre de titre ne se clique pas.
+    #[test]
+    fn settings_scroll_is_bounded_and_follows_focus() {
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.open_settings(true, Screen::Home);
+        let mut cv = crate::ui::canvas::Canvas::new();
+        cv.resize(960, 400, 1.0);
+        app.hits = crate::ui::draw(&app, &mut cv);
+        let max = app.settings_view.get().max;
+        assert!(max > 0.0 && max < 10_000.0, "une rubrique plus haute que la fenêtre ({max})");
+        for _ in 0..200 {
+            app.wheel(-1.0);
+        }
+        assert_eq!(app.scroll, max, "la molette s'arrête à la fin");
+        app.hits = crate::ui::draw(&app, &mut cv);
+        let v = app.settings_view.get();
+        // Une ligne sous la barre de titre : ni survol ni clic.
+        if let Some((_, r)) = app.hits.iter().find(|(t, r)| matches!(t, Target::Setting(_)) && r.x >= v.left && r.y + r.h < v.top) {
+            let (x, y) = (r.x + 4.0, r.y + 2.0);
+            assert!(app.pointer_click(x, y).is_empty());
+        }
+        // Au clavier, de haut en bas : le focus reste dans la zone visible.
+        app.scroll = 0.0;
+        app.hits = crate::ui::draw(&app, &mut cv);
+        app.focus = app.hits.iter().find(|(t, r)| matches!(t, Target::Setting(_)) && r.x >= v.left).map(|(t, _)| *t).unwrap();
+        for _ in 0..30 {
+            app.nav(Nav::Down);
+            app.hits = crate::ui::draw(&app, &mut cv);
+            let v = app.settings_view.get();
+            if let Some((_, r)) = app.hits.iter().find(|(t, _)| *t == app.focus).filter(|(_, r)| r.x >= v.left) {
+                assert!(r.y >= v.top - 0.5 && r.y + r.h <= v.bottom + 0.5, "{:?} visible ({} à {}, vue {} à {})", app.focus, r.y, r.y + r.h, v.top, v.bottom);
+            }
+        }
+        assert!(app.scroll > 0.0, "la rubrique a défilé jusqu'au focus");
     }
 
     /// Au pavé, les flèches vont du prénom aux cinq choix de « Qualité de l'image », puis à « Rejoindre » : rien n'est

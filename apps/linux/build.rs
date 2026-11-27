@@ -34,7 +34,10 @@ fn main() {
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
     println!("cargo:rerun-if-env-changed=KYBERNOW_PREFIX");
     println!("cargo:rerun-if-env-changed=KYBERNOW_V4L2_REQUEST");
-    if env::var("CARGO_FEATURE_DEVICE").is_err() {
+    println!("cargo:rerun-if-env-changed=KYBERNOW_CHECK_ONLY");
+    // `KYBERNOW_CHECK_ONLY=1 cargo check` : le Rust de l'app entière vérifié sans FFmpeg, SDL ni Wayland (sur le
+    // Mac, par exemple) ; rien n'est compilé en C, rien ne se lie.
+    if env::var("CARGO_FEATURE_DEVICE").is_err() || env::var("KYBERNOW_CHECK_ONLY").is_ok_and(|v| v == "1") {
         return;
     }
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
@@ -60,6 +63,10 @@ fn main() {
 
     // FFmpeg (statique) : préfixe posé par scripts/build.sh.
     let prefix = PathBuf::from(env::var("KYBERNOW_PREFIX").expect("KYBERNOW_PREFIX (posé par apps/linux/scripts/build.sh)"));
+    // Ce que build.sh pose dans le préfixe après une première compilation (PyroWave, FFmpeg refait) : revu.
+    for f in ["include/pyrowave/pyrowave.h", "include/vulkan/vulkan.h", "lib/libavcodec.a", "lib/libavutil.a"] {
+        println!("cargo:rerun-if-changed={}", prefix.join(f).display());
+    }
     let va = pkg_config::Config::new().cargo_metadata(false).probe("libva").expect("libva introuvable (pkg-config libva)");
     let drm = pkg_config::Config::new().cargo_metadata(false).probe("libdrm").expect("libdrm introuvable (pkg-config libdrm)");
     let mut hdr_libs = Vec::new();

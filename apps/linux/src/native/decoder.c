@@ -317,6 +317,8 @@ int kn_decoder_is_hw(kn_decoder *d) { return d->hw_active; }
 // Images sorties du décodeur depuis son ouverture.
 int64_t kn_decoder_frames(kn_decoder *d) { return d->frames; }
 
+#define KN_SEND_AGAIN 1
+
 int kn_decoder_send(kn_decoder *d, const uint8_t *data, int len, int64_t pts) {
     av_packet_unref(d->pkt);
     int r = av_new_packet(d->pkt, len);
@@ -324,7 +326,9 @@ int kn_decoder_send(kn_decoder *d, const uint8_t *data, int len, int64_t pts) {
     memcpy(d->pkt->data, data, len);
     d->pkt->pts = pts;
     r = avcodec_send_packet(d->ctx, d->pkt);
-    if (r == AVERROR(EAGAIN)) return 0;
+    // Tampons d'entrée pleins (h264_v4l2m2m du Pi) : le paquet n'est pas pris. L'appelant sort les images
+    // prêtes (kn_decoder_receive) puis renvoie le même paquet ; il ne le compte jamais comme décodé.
+    if (r == AVERROR(EAGAIN)) return KN_SEND_AGAIN;
     return r;
 }
 
@@ -411,8 +415,6 @@ int kn_decoder_receive(kn_decoder *d, kn_frame *out) {
     }
     return 1;
 }
-
-void kn_decoder_flush(kn_decoder *d) { avcodec_flush_buffers(d->ctx); }
 
 void kn_decoder_close(kn_decoder *d) {
     if (!d) return;

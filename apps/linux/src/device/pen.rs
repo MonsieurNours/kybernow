@@ -56,6 +56,15 @@ unsafe extern "C" {
     fn kn_pen_set_wake(p: *mut c_void, kind: u32);
     fn kn_pen_watch(p: *mut c_void, window: *mut sdl::SDL_Window, on: i32);
     fn kn_pen_poll(p: *mut c_void, out: *mut PenEvent) -> i32;
+    fn kn_x_init_threads() -> i32;
+}
+
+/// Xlib sûr en plusieurs fils (stylet X11 : fil X et fil principal sur la même connexion) ; à appeler au
+/// lancement, avant SDL_Init. Sans libX11 (Wayland seul, KMS/DRM), rien.
+pub fn x_init_threads() {
+    if std::env::var_os("DISPLAY").is_some() {
+        unsafe { kn_x_init_threads() };
+    }
 }
 
 /// `which` des événements de souris rejoués pour le stylet (Wayland).

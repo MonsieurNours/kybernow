@@ -20,6 +20,7 @@ mod pyrowave;
 mod station_offer;
 mod synced;
 mod ui;
+mod video_rules;
 mod welcome;
 // Les règles de l'accueil et de la carte du compte : celles du cœur, reprises telles quelles (l'interface se compile
 // sans le cœur : captures, essais sur le Mac).

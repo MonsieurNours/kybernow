@@ -891,6 +891,8 @@ pub fn run(args: &[String]) {
         sdl::hint("SDL_VIDEO_EGL_ALLOW_TRANSPARENCY", "1");
     }
     hdr_wl::set_probe(probe);
+    // Avant tout appel de Xlib (SDL compris) : le stylet X11 partage une connexion entre deux fils.
+    pen::x_init_threads();
     unsafe {
         if sdl::SDL_Init(sdl::SDL_INIT_VIDEO | sdl::SDL_INIT_AUDIO | sdl::SDL_INIT_GAMECONTROLLER | sdl::SDL_INIT_EVENTS) != 0 {
             log::error!("SDL : {}", sdl::error());
@@ -1097,7 +1099,7 @@ pub fn run(args: &[String]) {
         // Manette en souris : déplacement continu (la session active).
         if let Some(s) = app.session()
             && s.pad_mouse
-            && !s.menu
+            && !s.ui_owns_input()
             && let Some(l) = lives.get(s.id)
             && pads.mouse_step(&l.handle.shared)
         {
@@ -1538,7 +1540,7 @@ fn sync_keyboard_grab(app: &App, lives: &Lives, wins: &mut Wins) {
         let w = &wins.list[wi];
         let Some(id) = w.session else { continue };
         let want = lives.get(id).is_some()
-            && app.session_by(id).is_some_and(|s| s.running() && s.keyboard_mouse() && s.bar_menu.is_none() && !s.share_overlay())
+            && app.session_by(id).is_some_and(|s| s.running() && s.keyboard_mouse() && !s.ui_owns_input())
             && match app.immersive_of(id) {
                 "never" => false,
                 "always" => true,
@@ -1662,7 +1664,7 @@ fn draw_frame(win: &mut Win, show_ui: bool, strip: Option<c_int>, live: Option<&
         }
         // Le pointeur de l'ordinateur, dessiné par l'app : souris des jeux
         // (menus d'un jeu), console (pavés tactiles, manette en souris).
-        let draw_cursor = s.is_some_and(|s| !s.menu && !s.keys && !s.share_panel && s.phase == Phase::Streaming && (s.relative || s.pad_mouse || app.layout.console()));
+        let draw_cursor = s.is_some_and(|s| !s.ui_owns_input() && s.phase == Phase::Streaming && (s.relative || s.pad_mouse || app.layout.console()));
         // Chaque fenêtre ne dessine que le pointeur annoncé sur son écran (multi-écrans).
         let (pointer, pointer_hidden) = live.and_then(|l| l.pointers.get(&win.screen)).copied().unwrap_or((None, true));
         if let (true, Some(l), Some(dst)) = (draw_cursor, live, win.video_rect)
@@ -1729,7 +1731,7 @@ fn session_tick(app: &mut App, l: &mut Live, wins: &mut Wins, dirty: &mut bool, 
         let (remote_hidden, visible_for) = l.handle.shared.pointer_summary();
         let s = &mut app.sessions[si];
         let current = s.relative;
-        let wanted = streaming && !s.menu && !s.keys && !s.share_panel && !s.bar_menu.is_some() && s.keyboard_mouse() && MOUSE_RULES.wants_relative(l.mouse, l.game_fullscreen, remote_hidden, visible_for, current);
+        let wanted = streaming && !s.ui_owns_input() && s.keyboard_mouse() && MOUSE_RULES.wants_relative(l.mouse, l.game_fullscreen, remote_hidden, visible_for, current);
         if wanted != current {
             s.relative = wanted;
             l.handle.shared.relative.store(wanted, Ordering::Relaxed);
@@ -1753,14 +1755,14 @@ fn session_tick(app: &mut App, l: &mut Live, wins: &mut Wins, dirty: &mut bool, 
         // Bureau, souris du bureau : toujours visible. Windows masque son pointeur
         // par intermittence (sans souris branchée, à l'arrêt) ; le suivre ferait
         // perdre le curseur au repos.
-        let show_sys = !streaming || s.menu || s.keys || s.share_panel || s.bar || (layout == Layout::Desktop && !s.relative);
+        let show_sys = !streaming || s.ui_owns_input() || s.bar || (layout == Layout::Desktop && !s.relative);
         // Le pointeur du système prend la forme que l'ordinateur a annoncée, dans la fenêtre survolée si
         // elle est de cette session (celle d'une autre session ne le change pas).
         let hovered = wins.hover.and_then(|id| wins.index_of(id)).filter(|i| wins.list[*i].session == Some(l.id));
         unsafe {
             sdl::SDL_ShowCursor(show_sys as c_int);
             match hovered {
-                Some(i) if !wins.list[i].sys_cursor.is_null() && streaming && !s.menu && !s.keys && !s.bar => sdl::SDL_SetCursor(wins.list[i].sys_cursor),
+                Some(i) if !wins.list[i].sys_cursor.is_null() && streaming && !s.ui_owns_input() && !s.bar => sdl::SDL_SetCursor(wins.list[i].sys_cursor),
                 _ => sdl::SDL_SetCursor(sdl::SDL_GetDefaultCursor()),
             }
         }
@@ -1778,7 +1780,7 @@ fn session_tick(app: &mut App, l: &mut Live, wins: &mut Wins, dirty: &mut bool, 
                 let wpts = wins.list[wi].width_points(layout);
                 let s = &app.sessions[si];
                 let here = wins.hover == Some(wid) && app.pointer.is_some_and(|(ux, uy)| ui::at_bar_edge(&mut wins.list[wi].cv, app, s, wpts, ux, uy));
-                if layout == Layout::Desktop && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }) && !s.menu && !s.keys && !s.bar && !s.relative && here && wins.any_focused() && !sdl::mouse_held() {
+                if layout == Layout::Desktop && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }) && !s.ui_owns_input() && !s.bar && !s.relative && here && wins.any_focused() && !sdl::mouse_held() {
                     app.sessions[si].bar = true;
                     l.bar_win = Some(wid);
                     l.bar_hide = None;
@@ -2150,9 +2152,7 @@ fn handle_pen(app: &App, lives: &Lives, wins: &Wins) {
         if let Some(id) = routed
             && let Some(s) = app.session_by(id)
             && app.screen == Screen::Session
-            && !s.menu
-            && !s.keys
-            && !s.share_panel
+            && !s.ui_owns_input()
             && !s.relative
             && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. })
             && let Some(l) = lives.get(id)
@@ -2191,7 +2191,7 @@ fn mouse_button(b: u8) -> MouseButtonType {
 #[allow(clippy::too_many_arguments)]
 fn forward_click(app: &App, lives: &Lives, wins: &Wins, wi: usize, id: SessionId, b: u8, x: i32, y: i32) {
     let Some(s) = app.session_by(id) else { return };
-    let streaming = s.running() && app.screen == Screen::Session && !s.menu && !s.keys && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. });
+    let streaming = s.running() && app.screen == Screen::Session && !s.ui_owns_input() && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. });
     let Some(l) = lives.get(id).filter(|_| streaming) else { return };
     let Some(p) = l.handle.shared.current_input() else { return };
     if !s.relative
@@ -2235,7 +2235,11 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
     let active = app.active_id();
     let stale = ws.is_some() && ws != active;
     let routed: Option<SessionId> = if on_window { ws.filter(|s| Some(*s) == active) } else { active };
-    let in_game = routed.and_then(|id| app.session_by(id)).is_some_and(|s| app.screen == Screen::Session && !s.menu && !s.keys && !s.share_panel && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }));
+    // L'interface a la main (`SessionUi::ui_owns_input`) : clavier, texte, molette et manettes vont à elle.
+    let at_image = |s: &SessionUi| app.screen == Screen::Session && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. });
+    let in_game = routed.and_then(|id| app.session_by(id)).is_some_and(|s| at_image(s) && !s.ui_owns_input());
+    // La souris, elle, reste sur le chemin de l'image pendant un menu déroulant de la barre (`panel_open`).
+    let pointer_in_game = routed.and_then(|id| app.session_by(id)).is_some_and(|s| at_image(s) && !s.panel_open());
     let input = routed.and_then(|id| lives.get(id)).and_then(|l| l.handle.shared.current_input());
     if kind == sdl::SDL_MOUSEMOTION {
         wins.hover = Some(wins.list[wi].id);
@@ -2490,7 +2494,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
         }
         sdl::SDL_MOUSEMOTION => {
             let (x, y, xr, yr, _) = ev.motion();
-            if in_game {
+            if pointer_in_game {
                 let Some(id) = routed else { return };
                 let Some(s) = app.session_by(id) else { return };
                 let (bar, menu_open, relative) = (s.bar, s.bar_menu.is_some(), s.relative);
@@ -2578,7 +2582,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
             let down = kind == sdl::SDL_MOUSEBUTTONDOWN;
             let (b, x, y, which) = ev.button();
             let touch = which == u32::MAX;
-            if in_game {
+            if pointer_in_game {
                 let Some(id) = routed else { return };
                 let Some(s) = app.session_by(id) else { return };
                 let (bar, menu_open, relative) = (s.bar, s.bar_menu.is_some(), s.relative);
