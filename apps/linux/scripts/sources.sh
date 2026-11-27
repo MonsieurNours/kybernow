@@ -7,14 +7,24 @@
 # Usage : apps/linux/scripts/sources.sh [--deps] DEST
 #   --deps : seulement de quoi compiler libkynput et FFmpeg (module du
 #            Flatpak qui ne change pas avec l'app, mis en cache).
+#   --media : build.sh et les correctifs de PyroWave seuls (FFmpeg et
+#            PyroWave, premier module du Flatpak : ni Kyber ni l'app).
 # KYBERNOW_KYBER_HEAD=1 : le SDK de Kyber pris dans ses dépôts git (HEAD), sans
 #            les correctifs déjà posés dans third_party/ (voir plus bas).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 DEPS=0
+MEDIA=0
 [ "${1:-}" = --deps ] && { DEPS=1; shift; }
+[ "${1:-}" = --media ] && { MEDIA=1; shift; }
 DEST="${1:?usage : sources.sh [--deps] DEST}"
+if [ "$MEDIA" = 1 ]; then
+    mkdir -p "$DEST/apps/linux/scripts" "$DEST/apps/linux/pyrowave"
+    cp "$HERE/scripts/build.sh" "$DEST/apps/linux/scripts/"
+    rm -f "$DEST/apps/linux/pyrowave/"* && cp "$HERE/pyrowave/"* "$DEST/apps/linux/pyrowave/"
+    exit 0
+fi
 mkdir -p "$DEST/apps" "$DEST/third_party/kyber-desktop" "$DEST/brand/v2"
 # Sans dist/ : apps/linux/dist garde les paquets et l'image de KyberNow Link OS
 # (plusieurs Go), que flatpak-builder recopiait et relisait à chaque construction.

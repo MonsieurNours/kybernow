@@ -48,7 +48,7 @@ apps/linux/os/release-image.sh [--check] [DIR]   # + KyberNow-Link-OS.img.xz.inf
 apps/linux/os/imager-json.sh VERSION INFO site/updates/rpi-imager.json   # the repository for Raspberry Pi Imager
 ```
 
-`build-image.sh` clones pi-gen (`arm64` branch) into `~/kybernow-os/pi-gen`, copies `stage-kybernow` and the .deb there, writes `config` (hostname `kybernow-link`, account `kybernow`, locale `fr_FR.UTF-8` by default, `STAGE_LIST="stage0 stage1 stage2 stage-kybernow"`), runs `build.sh`, then `make-ab-image.sh` on the produced image, and `xz`. The work directory is outside the shared folder (pi-gen mounts file systems).
+`build-image.sh` clones pi-gen, pinned to a Raspberry Pi OS release (`PIGEN_TAG`, currently `2026-10-06-raspios-trixie-arm64`; `KYBERNOW_PIGEN_TAG` to change it), into `~/kybernow-os/pi-gen`, keeps the rootfs of stages 0 to 2 in `~/kybernow-os/pi-gen-work` and reuses it while the tag and language are the same (only our stage is rebuilt; `KYBERNOW_OS_FRESH=1` starts from scratch), copies `stage-kybernow` and the .deb there, writes `config` (hostname `kybernow-link`, account `kybernow`, locale `fr_FR.UTF-8` by default, `STAGE_LIST="stage0 stage1 stage2 stage-kybernow"`), runs `build.sh`, then `make-ab-image.sh` on the produced image, and `xz`. The work directory is outside the shared folder (pi-gen mounts file systems).
 
 ```
 apps/linux/os/

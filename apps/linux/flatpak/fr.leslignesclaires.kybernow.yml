@@ -32,8 +32,21 @@ build-options:
   build-args:
     - --share=network
 modules:
-  # libkynput (client seul) et FFmpeg réduit au décodage, dans un préfixe
-  # retiré à la fin : un module à part, mis en cache tant que Kyber ne change pas.
+  # FFmpeg réduit au décodage et PyroWave, dans un préfixe retiré à la fin : le
+  # premier module, qui ne dépend que de build.sh et des correctifs de PyroWave
+  # (pas du SDK de Kyber) : refait seulement quand eux changent (LINAPP-38).
+  - name: kybernow-media
+    buildsystem: simple
+    build-commands:
+      - apps/linux/scripts/build.sh --media-only --prefix /app/lib/kybernow-sdk
+    cleanup:
+      - /lib/kybernow-sdk
+    sources:
+      - type: dir
+        path: src-media
+
+  # libkynput (client seul), dans le même préfixe : mis en cache tant que Kyber
+  # ne change pas ; FFmpeg et PyroWave, déjà là, ne sont pas refaits.
   - name: kybernow-deps
     buildsystem: simple
     build-commands:

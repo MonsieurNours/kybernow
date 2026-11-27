@@ -23,13 +23,15 @@ for a in "$@"; do
 done
 WORK="${KYBERNOW_FLATPAK_WORK:-$HOME/.cache/kybernow-flatpak}"
 mkdir -p "$WORK" "$HERE/dist"
+"$HERE/scripts/sources.sh" --media "$WORK/src-media" >/dev/null
 "$HERE/scripts/sources.sh" --deps "$WORK/src-deps" >/dev/null
 "$HERE/scripts/sources.sh" "$WORK/src" >/dev/null
 # --kyber-pyrowave : le module de l'app compile avec (les dépendances ne changent pas).
 sed "s|build.sh --prefix /app/lib/kybernow-sdk --install /app|build.sh$KP --prefix /app/lib/kybernow-sdk --install /app|" \
     "$HERE/flatpak/fr.leslignesclaires.kybernow.yml" > "$WORK/fr.leslignesclaires.kybernow.yml"
 cd "$WORK"
-flatpak-builder --arch="$ARCH" --user --force-clean --disable-rofiles-fuse --state-dir="$WORK/state-$ARCH" \
+# --ccache : /run/ccache garde aussi les crates de cargo d'une construction à l'autre (build.sh).
+flatpak-builder --arch="$ARCH" --user --force-clean --disable-rofiles-fuse --ccache --state-dir="$WORK/state-$ARCH" \
     --repo="$WORK/repo" "$WORK/build-$ARCH" fr.leslignesclaires.kybernow.yml
 OUT="$HERE/dist/KyberNow-Link-Linux-$ARCH.flatpak"
 flatpak build-bundle --arch="$ARCH" --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \

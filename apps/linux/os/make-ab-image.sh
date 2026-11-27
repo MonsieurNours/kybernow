@@ -30,6 +30,7 @@ DATA_MB=256
 
 cleanup() {
     set +e
+    [ -n "${SRC:-}" ] && { umount -q "$SRC" 2>/dev/null; rmdir "$SRC" 2>/dev/null; }
     [ -n "${MNT:-}" ] && { umount -q "$MNT/boot/firmware" 2>/dev/null; umount -q "$MNT" 2>/dev/null; umount -q "$MNT" 2>/dev/null; rmdir "$MNT" 2>/dev/null; }
     [ -n "${LB:-}" ] && losetup -d "$LB" 2>/dev/null
     [ -n "${LO:-}" ] && losetup -d "$LO" 2>/dev/null
@@ -50,7 +51,7 @@ ROOT_MB=3200
 SRC="$(mktemp -d)"
 mount -o ro "${LB}p2" "$SRC"
 USED_MB=$(du -sm -x "$SRC" | cut -f1)
-umount "$SRC"; rmdir "$SRC"
+umount "$SRC"; rmdir "$SRC"; SRC=""
 [ "$USED_MB" -le $((ROOT_MB - 512)) ] || { echo "le système ($USED_MB Mo) ne laisse plus 512 Mo libres dans un emplacement de $ROOT_MB Mo" >&2; exit 1; }
 
 # La sortie : partitions alignées sur 8 Mo.
@@ -97,7 +98,7 @@ mkdir -p "$MNT/boot/firmware"
 mount "${LO}p1" "$MNT/boot/firmware"
 mount -o ro "${LB}p1" "$SRC"
 rsync -rt "$SRC/" "$MNT/boot/firmware/"
-umount "$SRC"; rmdir "$SRC"
+umount "$SRC"; rmdir "$SRC"; SRC=""
 
 # cmdline.txt : la racine A ; fstab : A, et les données.
 sed -i -E "s#root=[^ ]+#root=PARTUUID=$DISK_ID-02#" "$MNT/boot/firmware/cmdline.txt"

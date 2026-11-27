@@ -43,8 +43,13 @@ ENV=""
 if [ -n "${KYBERNOW_FLATPAK_WORK:-}" ]; then
     ENV+="KYBERNOW_FLATPAK_WORK=$KYBERNOW_FLATPAK_WORK "
     # Un dossier de travail neuf part du cache de flatpak-builder des
-    # constructions à la main (modules déjà compilés, repérés par leur empreinte).
-    vm "[ -d $KYBERNOW_FLATPAK_WORK ] || [ ! -d ~/.cache/kybernow-flatpak ] || { mkdir -p $KYBERNOW_FLATPAK_WORK && cp -a ~/.cache/kybernow-flatpak/. $KYBERNOW_FLATPAK_WORK/; }"
+    # constructions à la main (modules déjà compilés, repérés par leur empreinte),
+    # seulement si un Flatpak est demandé (pas pour --seulement deb) ; la copie va
+    # dans un dossier à part puis est renommée : deux voies lancées ensemble ne
+    # voient jamais un cache à moitié copié (audit TRANS-15).
+    if [[ ",$PARTS," == *",aarch64,"* || ",$PARTS," == *",x86_64,"* ]]; then
+        vm "[ -d $KYBERNOW_FLATPAK_WORK ] || [ ! -d ~/.cache/kybernow-flatpak ] || { t=\$(mktemp -d $KYBERNOW_FLATPAK_WORK.amorce.XXXXXX) && cp -a ~/.cache/kybernow-flatpak/. \$t/ && { mv -T \$t $KYBERNOW_FLATPAK_WORK 2>/dev/null || rm -rf \$t; }; }"
+    fi
 fi
 [ -n "${KYBERNOW_KYBER_HEAD:-}" ] && ENV+="KYBERNOW_KYBER_HEAD=$KYBERNOW_KYBER_HEAD "
 
