@@ -113,12 +113,7 @@ impl MicState {
 // ---------------------------------------------------------------------------
 // libopus
 
-unsafe extern "C" {
-    fn opus_encoder_create(fs: i32, channels: i32, application: i32, error: *mut i32) -> *mut c_void;
-    fn opus_encode_float(st: *mut c_void, pcm: *const f32, frame_size: i32, data: *mut u8, max_bytes: i32) -> i32;
-    fn opus_encoder_ctl(st: *mut c_void, request: i32, ...) -> i32;
-    fn opus_encoder_destroy(st: *mut c_void);
-}
+use crate::audio::opus::{opus_encode_float, opus_encoder_create, opus_encoder_ctl, opus_encoder_destroy};
 
 const OPUS_APPLICATION_VOIP: i32 = 2048;
 const OPUS_SET_BITRATE_REQUEST: i32 = 4002;
@@ -252,11 +247,9 @@ impl Resampler {
 /// Le type du flux montant du micro (kyclient `Client::uplink`).
 pub const KIND: &str = "microphone";
 
-/// Paquets du flux montant (correctif 0085, docs/webcam.md « Le flux montant »).
-const START: u8 = 0x01;
-const MEDIA: u8 = 0x02;
-const PAUSE: u8 = 0x04;
-const STATUS: u8 = 0x10;
+// Paquets du flux montant (correctif 0085, docs/webcam.md « Le flux montant ») :
+// les mêmes que la caméra, un seul protocole.
+use crate::camera::{MEDIA, PAUSE, START, STATUS};
 
 struct Pipe {
     encoder: Option<Encoder>,

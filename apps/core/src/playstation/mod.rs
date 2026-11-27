@@ -37,20 +37,7 @@ pub mod takion;
 #[cfg(test)]
 mod test_vectors;
 
-/// Un chiffre hexadécimal (octet ASCII).
-pub(crate) fn hex_digit(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        b'A'..=b'F' => Some(b - b'A' + 10),
-        _ => None,
-    }
-}
-
-/// Deux chiffres hexadécimaux en un octet.
-pub(crate) fn hex_pair(hi: u8, lo: u8) -> Option<u8> {
-    Some(hex_digit(hi)? << 4 | hex_digit(lo)?)
-}
+use crate::url::hex_pair;
 
 /// Texte hexadécimal (espaces autour ignorés), lu octet par octet : un texte
 /// non ASCII est refusé au lieu de faire paniquer une découpe de `&str` au

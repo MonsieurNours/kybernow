@@ -1345,48 +1345,7 @@ pub(crate) fn split_authority(authority: &str) -> Option<(String, u16)> {
     (!host.is_empty()).then(|| (host.to_string(), port))
 }
 
-pub(crate) fn query_pairs(query: &str) -> Vec<(String, String)> {
-    query
-        .split('&')
-        .filter(|p| !p.is_empty())
-        .map(|p| {
-            let (k, v) = p.split_once('=').unwrap_or((p, ""));
-            (percent_decode(k), percent_decode(v))
-        })
-        .collect()
-}
-
-fn percent_decode(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'%' if i + 2 < bytes.len() => {
-                let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok());
-                match hex {
-                    Some(b) => {
-                        out.push(b);
-                        i += 3;
-                    }
-                    None => {
-                        out.push(b'%');
-                        i += 1;
-                    }
-                }
-            }
-            b'+' => {
-                out.push(b' ');
-                i += 1;
-            }
-            b => {
-                out.push(b);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
+pub(crate) use crate::url::query_pairs;
 
 // MARK: - Rejoindre
 
@@ -2227,8 +2186,8 @@ mod tests {
         ] {
             assert_eq!(parse_link(bad), None, "{bad}");
         }
-        assert_eq!(percent_decode("a%2"), "a%2");
-        assert_eq!(percent_decode("%zz"), "%zz");
+        assert_eq!(crate::url::percent_decode("a%2"), "a%2");
+        assert_eq!(crate::url::percent_decode("%zz"), "%zz");
     }
 
     fn target(host: &str) -> ShareTarget {

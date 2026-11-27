@@ -411,8 +411,7 @@ const UHD: f64 = 3840.0 * 2160.0;
 /// La règle des profils (`StreamSettings::bitrate_for_pixel_rate`) : un débit
 /// calé sur la 4K à 60 Hz, mis à l'échelle des pixels par seconde.
 fn scale(m: Mode) -> f64 {
-    let ratio = (f64::from(m.width) * f64::from(m.height) * f64::from(m.refresh.max(1))) / (UHD * 60.0);
-    ratio.powf(0.75).clamp(0.4, 3.0)
+    crate::profile::pixel_rate_scale(f64::from(m.width) * f64::from(m.height) * f64::from(m.refresh.max(1)))
 }
 
 /// Images par seconde d'un format à une définition, d'après l'extrait en 4K
@@ -495,13 +494,7 @@ pub fn decide(m: &Measures, d: &Device, st: &Station, now: u64) -> AutoResult {
     let pyrowave = pw_possible && pyrowave_reason.is_none();
 
     // Le format de repli (et celui de la session sans PyroWave).
-    let fallback = if d.caps.hevc {
-        Codec::Hevc
-    } else if d.caps.av1 {
-        Codec::Av1
-    } else {
-        Codec::H264
-    };
+    let fallback = crate::profile::pyrowave_fallback(d.caps);
     let codec_reason = if pyrowave { Reason::PyroWaveCarried } else { pyrowave_reason.unwrap_or(Reason::BestFormat) };
 
     // Définition et fréquence : le premier mode que le décodage tient.

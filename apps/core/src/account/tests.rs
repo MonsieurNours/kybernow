@@ -152,9 +152,9 @@ fn nom_de_l_appareil() {
 #[test]
 fn encodage_des_adresses() {
     assert_eq!(encode("a b/é"), "a%20b%2F%C3%A9");
-    assert_eq!(decode("a%20b%2F%C3%A9+c"), "a b/é c");
-    assert_eq!(decode("100%"), "100%", "pourcent seul gardé");
-    assert_eq!(decode("%zz%4"), "%zz%4");
+    assert_eq!(crate::url::percent_decode("a%20b%2F%C3%A9+c"), "a b/é c");
+    assert_eq!(crate::url::percent_decode("100%"), "100%", "pourcent seul gardé");
+    assert_eq!(crate::url::percent_decode("%zz%4"), "%zz%4");
 }
 
 fn tv_body() -> Value {

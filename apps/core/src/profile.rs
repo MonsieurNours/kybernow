@@ -315,9 +315,7 @@ impl StreamSettings {
     /// plafonds (multi-écrans : la somme des écrans de la session).
     pub fn bitrate_for_pixel_rate(&self, pixel_rate: f64) -> u32 {
         let mbps = if self.profile.is_some() {
-            let ratio = pixel_rate.max(1.0) / (3840.0 * 2160.0 * 60.0);
-            let scale = ratio.powf(0.75).clamp(0.4, 3.0);
-            (self.mbps as f64 * scale).round() as u32
+            (self.mbps as f64 * pixel_rate_scale(pixel_rate)).round() as u32
         } else {
             self.mbps
         };
@@ -483,6 +481,14 @@ pub fn hdr_format(settings: &StreamSettings, caps: Capabilities) -> StreamSettin
         s.codec = if !caps.hevc && caps.av1 { Codec::Av1 } else { Codec::Hevc };
     }
     s
+}
+
+/// La règle des profils : un débit calé sur la 4K à 60 Hz, mis à l'échelle
+/// des pixels par seconde (puissance 0,75, entre 0,4 et 3 fois). Aussi celle
+/// du test Auto ([`crate::autotest`]).
+pub fn pixel_rate_scale(pixel_rate: f64) -> f64 {
+    let ratio = pixel_rate.max(1.0) / (3840.0 * 2160.0 * 60.0);
+    ratio.powf(0.75).clamp(0.4, 3.0)
 }
 
 /// Le format à la place de PyroWave : HEVC, sinon AV1, sinon H.264. C'est

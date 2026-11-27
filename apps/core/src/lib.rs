@@ -34,6 +34,7 @@ pub mod share;
 pub mod station_offer;
 pub mod session;
 pub mod update;
+mod url;
 pub mod wake;
 pub mod welcome;
 

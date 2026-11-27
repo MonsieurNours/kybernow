@@ -68,26 +68,7 @@ pub fn code_from_redirect(url: &str) -> Option<String> {
     })
 }
 
-fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        // Sur les octets (un `%` suivi d'un caractère non ASCII faisait
-        // paniquer la découpe du texte, COEUR-07) ; un `%xx` final compte.
-        if bytes[i] == b'%'
-            && i + 3 <= bytes.len()
-            && let Some(b) = super::hex_pair(bytes[i + 1], bytes[i + 2])
-        {
-            out.push(b);
-            i += 3;
-            continue;
-        }
-        out.push(if bytes[i] == b'+' { b' ' } else { bytes[i] });
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
+use crate::url::percent_decode;
 
 fn basic_auth() -> String {
     let raw = format!("{CLIENT_ID}:{CLIENT_SECRET}");

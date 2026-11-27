@@ -450,16 +450,7 @@ fn callback_query(url: &str) -> Option<Vec<(String, String)>> {
         return None;
     }
     let query = query.split('#').next().unwrap_or_default();
-    Some(
-        query
-            .split('&')
-            .filter(|kv| !kv.is_empty())
-            .map(|kv| {
-                let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
-                (decode(k), decode(v))
-            })
-            .collect(),
-    )
+    Some(crate::url::query_pairs(query))
 }
 
 /// `etat` : 16 octets au hasard, en hexadécimal (le relais garde 128 signes
@@ -485,28 +476,6 @@ fn encode(s: &str) -> String {
         }
     }
     out
-}
-
-fn decode(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'%' if i + 2 < bytes.len() => match std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
-                Some(v) => {
-                    out.push(v);
-                    i += 3;
-                    continue;
-                }
-                None => out.push(b'%'),
-            },
-            b'+' => out.push(b' '),
-            c => out.push(c),
-        }
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 // MARK: - Code de téléviseur
