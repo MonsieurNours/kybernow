@@ -10,8 +10,8 @@ func check(_ ok: Bool, _ what: String, line: Int = #line) {
     }
 }
 
-let alive: [SessionStage] = [.preparing, .connecting, .starting, .streaming, .reconnecting]
-let over: [SessionStage] = [.ending, .ended, .failed]
+let alive: [SessionStep] = [.preparing, .connecting, .starting, .streaming, .reconnecting]
+let over: [SessionStep] = [.ending, .ended, .failed]
 
 // Veille : retenue de la préparation à la fin, reconnexion comprise (IOS-04).
 for s in alive { check(SessionRules.keepsAwake(s), "veille retenue en \(s)") }
@@ -24,7 +24,7 @@ for s in over { check(!SessionRules.reactsToBackground(s), "arrière-plan ignor�
 // Apple TV : le menu s'ouvre pendant l'image et pendant la reconnexion (TVOS-02).
 check(SessionRules.opensMenu(.streaming), "menu pendant l'image")
 check(SessionRules.opensMenu(.reconnecting), "menu pendant la reconnexion")
-for s: SessionStage in [.preparing, .connecting, .starting, .ending, .ended, .failed] {
+for s: SessionStep in [.preparing, .connecting, .starting, .ending, .ended, .failed] {
     check(!SessionRules.opensMenu(s), "pas de menu en \(s)")
 }
 // … et Retour revient à l'app pendant la reconnexion (la télécommande n'est au jeu que pendant l'image).

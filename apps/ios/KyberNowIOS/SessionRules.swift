@@ -10,7 +10,7 @@ import UIKit
 
 /// Les étapes d'une session d'ordinateur, vues par ces règles (le `Phase`
 /// de chaque `SessionController` s'y ramène).
-enum SessionStage: Equatable {
+enum SessionStep: Equatable {
     case preparing, connecting, starting, streaming, reconnecting, ending, ended, failed
 }
 
@@ -18,7 +18,7 @@ enum SessionRules {
     /// L'appareil ne se met pas en veille de la préparation à la fin, reconnexion
     /// comprise : l'image ne passe ni par `AVPlayer` ni par une vidéo du système,
     /// rien d'autre ne retient la veille (spectateur, manette, vidéo sur le PC).
-    static func keepsAwake(_ stage: SessionStage) -> Bool {
+    static func keepsAwake(_ stage: SessionStep) -> Bool {
         switch stage {
         case .preparing, .connecting, .starting, .streaming, .reconnecting: true
         case .ending, .ended, .failed: false
@@ -28,20 +28,20 @@ enum SessionRules {
     /// Perdre le premier plan relâche tout sur l'ordinateur et plafonne le débit
     /// à toute étape vivante, pas seulement pendant l'image (verrouillage pendant
     /// « Reconnexion… » ou juste avant la première image).
-    static func reactsToBackground(_ stage: SessionStage) -> Bool {
+    static func reactsToBackground(_ stage: SessionStep) -> Bool {
         keepsAwake(stage)
     }
 
     /// Apple TV : Retour et la combinaison de la manette ouvrent le menu pendant
     /// l'image et pendant la reconnexion (le menu a « Se déconnecter » : sans lui,
     /// rien ne sortait d'une reconnexion à un PC éteint).
-    static func opensMenu(_ stage: SessionStage) -> Bool {
+    static func opensMenu(_ stage: SessionStep) -> Bool {
         stage == .streaming || stage == .reconnecting
     }
 
     /// La manette et la télécommande vont au jeu (Retour compris) seulement
     /// pendant l'image ; pendant la reconnexion, Retour revient à l'app.
-    static func gameOwnsRemote(_ stage: SessionStage) -> Bool {
+    static func gameOwnsRemote(_ stage: SessionStep) -> Bool {
         stage == .streaming
     }
 }

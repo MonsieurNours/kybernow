@@ -24,7 +24,7 @@ final class SessionController: ObservableObject {
         case ended
         case failed(String)
 
-        var stage: SessionStage {
+        var stage: SessionStep {
             switch self {
             case .preparing: .preparing
             case .connecting: .connecting
