@@ -859,6 +859,9 @@ public final class SessionEngine: @unchecked Sendable {
         guard cameraOffered else { return }
         cameraID = id
         cameraResolution1080 = resolution1080
+        cameraRequest += 1
+        let request = cameraRequest
+        cameraStartTimeout?.cancel()
         setCameraState(.starting)
         camera.send = { [weak self] bytes, pts, key in
             guard let self, let s = self.live, let base = bytes.baseAddress else { return Int32(KN_CAMERA_OFF) }
@@ -877,14 +880,34 @@ public final class SessionEngine: @unchecked Sendable {
             DispatchQueue.main.async { self?.setCameraState(interrupted ? .paused : .sending) }
         }
         Task { @MainActor in
-            switch await camera.open(id: id, resolution1080: resolution1080) {
+            let opened = await camera.open(id: id, resolution1080: resolution1080)
+            // Éteinte pendant l'ouverture (demande d'accès du premier usage,
+            // fin de session) : la capture ne repart pas (MAC-15, IOS-11). Une
+            // autre caméra demandée entre-temps : c'est son ouverture qui compte.
+            guard request == cameraRequest else { return }
+            guard cameraState != .off, live != nil else {
+                camera.close()
+                return
+            }
+            switch opened {
             case let .success((w, h)):
                 guard let s = live, kn_camera_start(s, false, UInt32(w), UInt32(h), resolution1080, ConsoleClient.thisDevice["name"] as? String ?? "") else {
+                    // Refusée par le cœur (session qui finit, ordinateur qui ne la
+                    // propose plus) : on le dit, au lieu de repasser muet à « éteinte ».
                     camera.close()
                     setCameraState(.off)
+                    onCameraNotice?(CameraText.notStarted)
                     return
                 }
                 startCameraPolling()
+                // Ni « started » ni « failed » de la Station en 10 s : éteinte, et dit.
+                let timeout = DispatchWorkItem { [weak self] in
+                    guard let self, request == self.cameraRequest, self.cameraState == .starting else { return }
+                    self.cameraOff()
+                    self.onCameraNotice?(CameraText.noAnswer)
+                }
+                cameraStartTimeout = timeout
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.cameraStartLimit, execute: timeout)
             case let .failure(problem):
                 cameraProblem(problem)
             }
@@ -893,6 +916,9 @@ public final class SessionEngine: @unchecked Sendable {
 
     /// « Éteindre la caméra » (et fin de session).
     public func cameraOff() {
+        cameraRequest += 1
+        cameraStartTimeout?.cancel()
+        cameraStartTimeout = nil
         camera.close()
         cameraTimer?.cancel()
         cameraTimer = nil
@@ -906,6 +932,13 @@ public final class SessionEngine: @unchecked Sendable {
         guard cameraState != .off, resolution1080 != cameraResolution1080 else { return }
         cameraOn(id: cameraID, resolution1080: resolution1080)
     }
+
+    /// Numéro de la dernière demande (allumer, éteindre) : une ouverture
+    /// dépassée par une autre demande ne fait plus rien.
+    private var cameraRequest = 0
+    /// « Caméra… » sans réponse de la Station : éteinte au bout de ce délai.
+    private var cameraStartTimeout: DispatchWorkItem?
+    static let cameraStartLimit: TimeInterval = 10
 
     /// La ligne « Caméra » des statistiques (nil : éteinte).
     public var cameraStatsLine: String? {

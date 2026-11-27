@@ -29,6 +29,18 @@ public enum CameraState: Equatable, Sendable {
 }
 
 /// Pourquoi la caméra ne part pas (avis de docs/link-ui.md).
+/// Avis de la caméra qui ne viennent pas du cœur (docs/webcam.md).
+public enum CameraText {
+    /// `kn_camera_start` refusé.
+    public static var notStarted: String {
+        String(localized: "La caméra n'a pas pu démarrer sur l'ordinateur.", bundle: .kyberKit)
+    }
+    /// Ni « started » ni « failed » de la Station dans le délai.
+    public static var noAnswer: String {
+        String(localized: "L'ordinateur ne répond pas : la caméra est éteinte.", bundle: .kyberKit)
+    }
+}
+
 public enum CameraProblem: Error, Equatable, Sendable {
     case denied
     case inUse

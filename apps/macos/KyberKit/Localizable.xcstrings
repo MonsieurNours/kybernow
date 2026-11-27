@@ -81,6 +81,38 @@
         }
       }
     },
+    "L'ordinateur ne répond pas : la caméra est éteinte." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer isn't answering: the camera is off."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'ordinateur ne répond pas : la caméra est éteinte."
+          }
+        }
+      }
+    },
+    "La caméra n'a pas pu démarrer sur l'ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The camera couldn't start on the computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La caméra n'a pas pu démarrer sur l'ordinateur."
+          }
+        }
+      }
+    },
     "Manette" : {
       "localizations" : {
         "en" : {
