@@ -287,8 +287,20 @@ mkdir -p "$NG/kyctl" "$NG/kymux" "$NG/kynput"
 printf 'a\nb\n' > "$NG/kyctl/f.txt"
 kyber_apply_client_patches "$NG" "$P" > /dev/null
 MSG="sans git : correctif posé" vrai test "$(cat "$NG/kyctl/f.txt")" = "$(printf 'a\nc')" -a -f "$NG/kyctl/n.rs"
-SORTIE="$(kyber_apply_client_patches "$NG" "$P")"
-MSG="sans git : déjà posé, passé" vrai test -z "$SORTIE"
+# Un second correctif sur le même fichier : le premier n'est plus « posé en
+# entier » ; la seconde pose ne doit pas le reprendre (LINAPP-43).
+cat > "$T/0002-kyclient-suite.patch" << 'FIN'
+--- a/f.txt
++++ b/f.txt
+@@ -1,2 +1,2 @@
+ a
+-c
++d
+FIN
+kyber_apply_client_patches "$NG" "$P" "$T/0002-kyclient-suite.patch" > /dev/null
+SORTIE="$(kyber_apply_client_patches "$NG" "$P" "$T/0002-kyclient-suite.patch")"
+MSG="sans git : seconde pose de la même liste, rien à faire" vrai grep -q "déjà posés" <<< "$SORTIE"
+MSG="… et le fichier est celui des deux correctifs" vrai test "$(cat "$NG/kyctl/f.txt")" = "$(printf 'a\nd')"
 
 echo "== empreintes de Kyber des Stations (STCOM-11, TRANS-03)"
 . "$ROOT/server/kyber-patches/apply.sh"

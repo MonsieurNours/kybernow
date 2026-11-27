@@ -129,18 +129,32 @@ kyber_apply_app_patches() {
 }
 
 # Sources sans git (copie du Flatpak, apps/linux/scripts/sources.sh, prise
-# dans third_party/ telle quelle) : ni remise à l'origine ni état noté
-# possibles. Chaque correctif, Station d'abord, est passé s'il est déjà posé en
-# entier, sinon posé (kyber_patch_put : sans décalage du contexte).
+# par défaut dans les dépôts git de Kyber, à l'origine) : pas de remise à
+# l'origine possible. Les correctifs, Station d'abord, sont posés dans l'ordre
+# (kyber_patch_put : sans décalage du contexte), un correctif déjà posé en
+# entier passé ; un marqueur dans kysdk/ dit la liste posée, et une seconde
+# pose de la même liste ne fait rien (LINAPP-43 : un correctif recouvert par un
+# suivant n'était ni reconnu ni posable).
 kyber_apply_client_patches_sans_git() {
-    local kysdk=$1 patch repo
+    local kysdk=$1 patch repo want mark
     shift
+    mark="$kysdk/.kybernow-correctifs-apps"
+    want="$(for patch in "$@"; do basename "$patch"; cat "$patch"; done | kyber_sha256)"
+    if [ "$(cat "$mark" 2>/dev/null)" = "$want" ]; then
+        echo "==> correctifs déjà posés ($# correctifs, sources sans git)"
+        return 0
+    fi
+    rm -f "$mark"
     for patch in "$@"; do
         repo="$(kyber_client_repo "$kysdk" "$patch")" || return 1
         kyber_patch_posed "$patch" "$repo" && continue
         echo "==> $(basename "$patch")"
-        kyber_patch_put "$patch" "$repo" || return 1
+        kyber_patch_put "$patch" "$repo" || {
+            echo "Sources de Kyber sans git, corrigées autrement : les reprendre à l'origine (sources.sh de l'app Linux avec KYBERNOW_KYBER_HEAD=1)" >&2
+            return 1
+        }
     done
+    echo "$want" > "$mark"
 }
 
 kyber_apply_client_patches() {

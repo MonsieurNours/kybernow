@@ -23,6 +23,10 @@ for a in "$@"; do
     esac
 done
 WORK="${KYBERNOW_FLATPAK_WORK:-$HOME/.cache/kybernow-flatpak}"
+# Le SDK de Kyber pris dans ses dépôts git, à l'origine (sources.sh) : build.sh
+# y pose les correctifs sans rien deviner de ce que portait third_party/
+# (LINAPP-43). KYBERNOW_KYBER_HEAD=0 : la copie de third_party/ telle quelle.
+export KYBERNOW_KYBER_HEAD="${KYBERNOW_KYBER_HEAD:-1}"
 mkdir -p "$WORK" "$HERE/dist"
 "$HERE/scripts/sources.sh" --media "$WORK/src-media" >/dev/null
 "$HERE/scripts/sources.sh" --deps "$WORK/src-deps" >/dev/null
