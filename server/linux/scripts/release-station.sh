@@ -86,6 +86,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 for arch in aarch64 x86_64; do
     if [ "$arch" = aarch64 ]; then host="$ARM_HOST" repo="$ARM_REPO" name=arm64; else host="$X86_HOST" repo="$X86_REPO" name=x86_64; fi
+    # shellcheck disable=SC2088  # ~ de la machine qui construit, développé là-bas
     dist="~/kn-station/release-$name"
     # Sources de Kyber de la machine remises à l'origine dans kyctl, kymux et
     # kynput, comme les arbres de release.sh : après les correctifs des apps
@@ -100,6 +101,7 @@ for arch in aarch64 x86_64; do
         build="${build//$KYBER/~/kyber-desktop}"
         remote "$host" "$repo/server/linux/scripts/x86-chroot.sh run '$build'" \
             || { echo "échec ; journaux sur $host : ~/kn-amd64-home/kn-station/release-$name*.log" >&2; remote "$host" "tail -20 ~/kn-amd64-home/kn-station/release-$name.log" >&2 || true; exit 1; }
+        # shellcheck disable=SC2088  # ~ de la VM, développé là-bas
         dist="~/kn-amd64-home/kn-station/release-$name"
     else
         echo "==> Station Linux $name ($host)"

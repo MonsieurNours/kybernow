@@ -71,7 +71,9 @@ cp -a "$RT_SRC/bin" "$RT_SRC/lib" "$LIB/runtime/"
 # Fedora range les bibliothèques dans lib64, Debian et Ubuntu dans lib/<triplet>.
 [ -d "$RT_SRC/lib64" ] && cp -a "$RT_SRC/lib64" "$LIB/runtime/"
 # Ce qui ne sert qu'à compiler (en-têtes, .a, pkg-config) reste dehors.
-find "$LIB/runtime/lib" $([ -d "$LIB/runtime/lib64" ] && echo "$LIB/runtime/lib64") \( -name '*.a' -o -name '*.la' -o -name pkgconfig -o -name cmake \) -prune -exec rm -rf {} +
+RT_LIBS=("$LIB/runtime/lib")
+[ -d "$LIB/runtime/lib64" ] && RT_LIBS+=("$LIB/runtime/lib64")
+find "${RT_LIBS[@]}" \( -name '*.a' -o -name '*.la' -o -name pkgconfig -o -name cmake \) -prune -exec rm -rf {} +
 rm -rf "$LIB/runtime/include"
 install -m 644 "$KYBER_DIR/kyber_config.toml" "$LIB/runtime/share/kyber_config.toml"
 install -m 644 "$ROOT/server/linux/packaging/kybernow-admin.service" "$ROOT/server/linux/packaging/kybernow-kyber.service" \
