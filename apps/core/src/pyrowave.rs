@@ -118,7 +118,7 @@ impl Lowered {
 ///   4:4:4) | couleur (0 : SDR BT.709, 1 : HDR10 BT.2020 PQ) | plage (0 :
 ///   pleine, 1 : réduite) | largeur u32 | hauteur u32 ;
 /// - version 2, 48 octets : la même tête, puis les métadonnées HDR10 de la
-///   capture ([`Hdr10`]) ;
+///   capture ([`ContentHdr`]) ;
 /// - une version plus récente garde ces 48 octets en tête : les octets en
 ///   trop sont ignorés.
 ///
@@ -134,14 +134,14 @@ pub struct Config {
     pub height: u32,
     /// Les métadonnées HDR10 de la version 2 (vides en version 1, en SDR, ou
     /// sans paquet).
-    pub hdr10: Hdr10,
+    pub hdr10: ContentHdr,
 }
 
 /// Les métadonnées HDR10 statiques du contenu (en-tête `KNPW` version 2) :
 /// l'écran de mastering et les niveaux de lumière, chacun seulement si son
 /// drapeau est levé (octet 16 : bit 0, bit 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Hdr10 {
+pub struct ContentHdr {
     pub mastering: Option<Mastering>,
     pub light: Option<LightLevel>,
 }
@@ -215,7 +215,7 @@ impl LightLevel {
     }
 }
 
-impl Hdr10 {
+impl ContentHdr {
     pub fn is_empty(&self) -> bool {
         self.mastering.is_none() && self.light.is_none()
     }
@@ -278,7 +278,7 @@ impl Config {
 
     /// Un format sans métadonnées HDR10.
     pub fn new(chroma444: bool, hdr: bool, full_range: bool, width: u32, height: u32) -> Self {
-        Self { chroma444, hdr, full_range, width, height, hdr10: Hdr10::default() }
+        Self { chroma444, hdr, full_range, width, height, hdr10: ContentHdr::default() }
     }
 
     /// Lit un paquet de configuration ; `None` s'il n'en est pas un, s'il
@@ -293,7 +293,7 @@ impl Config {
             return None;
         }
         let u32le = |o: usize| u32::from_le_bytes([d[o], d[o + 1], d[o + 2], d[o + 3]]);
-        let hdr10 = if d[4] >= 2 { Hdr10::read(d) } else { Hdr10::default() };
+        let hdr10 = if d[4] >= 2 { ContentHdr::read(d) } else { ContentHdr::default() };
         let c = Self { chroma444: d[5] == 1, hdr: d[6] == 1, full_range: d[7] == 0, width: u32le(8), height: u32le(12), hdr10 };
         c.valid().then_some(c)
     }
@@ -341,7 +341,7 @@ impl Config {
     /// que soient les métadonnées : un décodeur ouvert pour l'un sert à
     /// l'autre (seules les métadonnées changent).
     pub fn same_format(&self, other: &Config) -> bool {
-        Self { hdr10: Hdr10::default(), ..*self } == Self { hdr10: Hdr10::default(), ..*other }
+        Self { hdr10: ContentHdr::default(), ..*self } == Self { hdr10: ContentHdr::default(), ..*other }
     }
 
     /// La taille des plans de chrominance.
