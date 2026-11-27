@@ -182,8 +182,51 @@ The added fields (`browser_tls`, `tls_ready`) and the `tls_zone` message are ign
 
 - It sees the presented name (so the Station's identifier), addresses, volumes and times, nothing of the content any more.
 - To pass itself off as the Station, the domain's operator would have to get another certificate issued for `<id>.station…` (they hold the DNS, they can): that certificate would be published in the Certificate Transparency logs, the Station would see it and suspend “Remote Admin”. Browsers do not allow pinning a certificate: this is the best guarantee possible for a site opened in a browser.
-- **Account tokens**: it is still the relay that signs the `via: "relay"` token that opens a remote session (after the passkey, which it checks). A compromised relay could forge one and open Admin itself, going through the encrypted path like a browser. Closing that needs a proof the Station checks itself (“Later”).
+- **Account tokens**: it is still the relay that signs the `via: "relay"` token (after the account's passkey, which it checks). End to end, it is no longer enough: the Station also asks for its remote Admin key, which it checks itself (“Remote Admin key”); a compromised relay can no longer open Admin on its own.
 - The Certificate Transparency logs are public: every Station that got a certificate appears there, under its identifier (already present in its share links). The relay's `/privacy` page says so.
+
+### Remote Admin key: the proof the relay cannot make (STWIN-17)
+
+Implemented on 27/11/2026 (phase 2b of the audit), for Station 0.11.8: `server/admin/src/remote_keys.rs`, WebAuthn verification shared with the relay (`kybernow_tunnel::webauthn`).
+
+**The problem.** End to end, the relay no longer sees Admin, but it alone signs the `via: "relay"` token that opens a remote session. A compromised relay (its signing key stolen, or its operator) could forge one: it would ask the Station for the start like a browser (`/api/login/kybernow/start`, through the encrypted path), sign a token for that `nonce`, and the session would open.
+
+**The choice: a passkey registered on site with the Station.** The Station itself keeps the public key of passkeys created **for its end-to-end name** (`rp.id` = `<id>.station.share.kybernow.app`) and asks for one of them at every remote opening, **on top of** the relay's token. Both proofs remain needed: the token says the account and its rights (removed in the console, they no longer count); the key says it is the host, and the relay cannot produce it:
+
+- the private key never leaves the host's authenticator (phone, computer, synced keychain);
+- the public key reaches the Station during the **adding**, over a connection encrypted end to end all the way to it, authorised by a one-time code drawn **on site** (Admin opened on the network, never through the relay) and passed in the address fragment;
+- what the authenticator signs carries the origin (`https://<id>.station…`) and the name's hash: a signature made for another site (the relay, `share.kybernow.app`) does not count, and the relay has no certificate for that name (getting one issued shows in the public logs, which the Station watches every day).
+
+Set aside: the account's passkey, checked by the Station (its public key would come from the relay, which could hand over its own); a secret set on site in the browser (a cookie can't be set on the end-to-end name from the network, is wiped with the browser's data and doesn't follow the host from one device to another, whereas a passkey syncs); a confirmation on the computer (the host is away, nobody to confirm).
+
+**Adding (on site).**
+
+| Route | Content |
+|---|---|
+| `POST /api/relay/keys` | Admin session, on the network only (`403 network_only` through the relay, even with a remote session); `409 not_ready` without an end-to-end certificate. → `{"url":"https://<name>/api/login/key/add#code=<code>","expires":600}`: a 128-bit code, once, 10 minutes. The interface shows this link as a QR code (“Add a key”) |
+| `GET /api/login/key/add` | The adding page, served by the Station **end to end only** (`browser_tls`, `Host` = its name); it removes the code from the address |
+| `POST /api/login/key/add/options` | `{code}` → the options for `navigator.credentials.create()`: `rp.id` = the name, user “Admin · {computer}” (one identifier for the whole Station: adding again on the same authenticator replaces the key), ES256, Ed25519, RS256, user verification required, `residentKey: preferred`, no attestation, existing keys excluded |
+| `POST /api/login/key/add` | `{code, client_data, attestation}` (base64url) → `{"ok":true,"name":"iPhone"}`; the key's name comes from the browser that adds it (iPhone, iPad, Android, Mac, Windows, Linux, Chromebook, otherwise “Browser”). Refusals: `410 expired`, `403 invalid`, `409 full` (10 keys), `403 wrong_path` |
+| `DELETE /api/relay/keys/{id}` | Removes a key (Admin session, wherever it comes from: removing gives nothing away) → the relay view |
+| `GET /api/relay` | `remote_keys: [{"id","name","added","used","current"}]` (`current`: valid for the current end-to-end name; a key added for another relay no longer works) |
+
+**Remote opening (end to end).** The return of “Open Admin” (`/api/login/kybernow`, over `browser_tls`) checks the relay's token as before (Administer right, `via: "relay"`, `jti` = the browser's `nonce`, single use), then **does not** open the session: it returns the “Confirm with your key” page and sets `__Host-kyber_admin_key` (`Secure`, `HttpOnly`, `SameSite=Strict`, 2 minutes). `POST /api/login/key/options` → `{rpId, challenge, allowCredentials, userVerification: "required"}` (32-byte challenge drawn by the Station); `POST /api/login/key {id, client_data, authenticator, signature, user}` → the Station checks the origin, challenge, name, flags (user presence and verification), signature and counter, then opens the remote session (`__Host-kyber_admin_session`), writes the feed and tells the relay (`admin_opened`) as before. Without a key for that name: `403`, “No remote Admin key on this computer. Add one on site…”. An opening works once; 16 additions and 16 openings in progress at most.
+
+**Relay guard.** `/api/login/key` and `/api/login/key/options`: like the “Open Admin” return (“Remote Admin” on, path allowed). `/api/login/key/add*`: end to end only, switch on or not (the host can add their key before turning it on). `/api/relay/keys*`: never through the relay without a remote session, and adding never through the relay at all.
+
+**Pages.** Small pages served by Admin, in its language: an inline script, allowed by its hash only (`script-src 'sha256-…'`), requests to the Station only (`connect-src 'self'`), nothing from elsewhere.
+
+**Compatibility.**
+
+| Station | Relay | Remote opening |
+|---|---|---|
+| 0.11.7 | all | as before (relay token alone) |
+| 0.11.8 | 0.11.7 (no end-to-end zone) | decrypted path, token alone: the relay already sees the whole session, a key would protect nothing there; Admin says so under the switch |
+| 0.11.8 | 0.11.8 | end to end: token **and** key. A host who had “Remote Admin” on in 0.11.7 adds a key on site before using it from afar; the refusal page tells them |
+
+The relay has nothing to change for the proof: it signs the same token, and its “Open {computer}'s Admin?” page announces the step when the return is end to end (“Then the computer will ask for its remote Admin key, added on site: the relay can't open Admin in your place.”).
+
+**What is left to the relay.** Refusing to carry (denial of service), removing rights, seeing names, addresses and volumes. On the decrypted path (older Station or relay), everything, as before. Getting a fake certificate issued for a Station's name would let it sit in the middle of a session the host opened themselves: the public logs show it, and the Station then suspends “Remote Admin” (“What the relay still sees”).
 
 ### Deployment on the public relay (for the author to do)
 
@@ -235,7 +278,7 @@ Admin considers “local” what comes from the loopback (`/api/local/*`, `local
   - to a **paired device** (Basic account), only when “Access away from home” is on: `/api/stream/*` (except `/api/stream/station/*`) and the host routes `/api/share*`; access off: `403 {"error":…,"code":"remote_access_off"}`;
   - to an **invited device**, when an invitation is open and “Access away from home” is on: `POST /api/pair/invite` (the invitation's code and password, [invitations.en.md](invitations.en.md)); `POST /api/share/join` also passes when an invitation is open (it answers `"invite": true`);
   - **never** through the relay: restarting and updating the Station (`/api/stream/station/restart`, `/api/stream/station/update`: a heavy action, done on site or in Admin), `/api/login`, `/api/setup`, `/api/password`, `/api/web/ticket`, `/api/pair*` (except `/api/pair/invite`), `/api/pairing`, `/api/invites*`, `/api/local/*`, configuration, accounts, logs, service, display, sound, Admin's update, devices, apps, `/api/events`, Admin's interface. Pairing by code happens on the network only; an invitation adds a device from afar.
-  - **except “Remote Admin”** (docs/comptes.en.md, “Admin from KyberNow Share”): a browser (`browser_tls`, or `admin_http` as long as the Station has never been end to end with this relay: “Browser encrypted end to end”) with a session opened by `/api/login/kybernow` thanks to a `via: "relay"` token (passkey), cookie `__Host-kyber_admin_session`, switch on: all of Admin, the guard turning that cookie back into the session cookie. That sign-in's start and return (`GET /api/login/kybernow/start`, `GET /api/login/kybernow`) also pass, switch on. “Remote Admin” can't be turned on through the relay (`PUT /api/relay`, `403 network_only`).
+  - **except “Remote Admin”** (docs/comptes.en.md, “Admin from KyberNow Share”): a browser (`browser_tls`, or `admin_http` as long as the Station has never been end to end with this relay: “Browser encrypted end to end”) with a session opened by `/api/login/kybernow` thanks to a `via: "relay"` token (passkey), cookie `__Host-kyber_admin_session`, switch on: all of Admin, the guard turning that cookie back into the session cookie. That sign-in's start and return (`GET /api/login/kybernow/start`, `GET /api/login/kybernow`) also pass, switch on. “Remote Admin” can't be turned on through the relay (`PUT /api/relay`, `403 network_only`). End to end, the session only opens after the remote Admin key (`/api/login/key*`, “Remote Admin key”); a key can't be added through the relay (`POST /api/relay/keys`, `403 network_only`).
 - **Blocking**: 10 Basic account failures through the relay from the same address (a /64 in IPv6) within 10 minutes block **that address** for 10 minutes (`429 {"code":"locked"}`); the owner, from elsewhere, still gets through. Safeguard: 100 failures within 10 minutes, all addresses together, block all of the devices' access through the relay for 10 minutes (`locked_until` of `GET /api/relay`). Each block puts a line in the feed.
 - **Kyber**: the agent reaches Kyber only for an authorised client (an accepted guest, while it keeps sending signs of life; a paired device after `prepare`, for 30 s renewed by the heartbeat), and always **from and to the computer's local network address**, never through the loopback (patch 0019 keeps `/kybernow/*` for the loopback). Kyber listens on all addresses.
 - Admin authorises a **relay client** (its identifier): the one that made the successful `wait`, `beat` or `prepare`/`heartbeat`. A client that reconnects keeps its identifier.
@@ -350,7 +393,7 @@ Checked by `journal::tests::vecteur_d_essai_knj1` (ring's AES-GCM, both ways), b
 - **Link and QR code**: `fp` and `sid` come from the Station; the exchange is end to end, the relay cannot get in the middle.
 - **Paired devices**: fingerprints pinned at pairing (on the network). Through the relay, never trust on first use, except the invitation: with a typed code the fingerprint comes from the relay (as for a share), hence the extra password; with its link or QR code it comes from the Station ([invitations.en.md](invitations.en.md)).
 - **Browser**: since 0.11.8, encrypted end to end to the Station (`<id>.station.share.kybernow.app`, the Station's certificate and key); the relay can only pass itself off as the Station by getting another certificate issued, which the public logs show and the Station watches (“Browser encrypted end to end”). With an older Station or relay, the relay decrypts (real `*.share.kybernow.app` certificate). The apps stay encrypted end to end.
-- **“Remote Admin” and KyberNow accounts**: it is the relay that signs KyberNow account tokens (Session, Administer rights…, and the `via: "relay"` token that opens Admin remotely). It no longer reads the Admin session opened remotely (0.11.8, end to end), but a compromised relay could forge a token and open a session itself. Whoever controls it therefore still has a hand on the attached Stations that have “Remote Admin” or accept accounts: a personal relay is only as safe as it is well kept. Without “Remote Admin” or accounts, the relay only carries encrypted streams.
+- **“Remote Admin” and KyberNow accounts**: it is the relay that signs KyberNow account tokens (Session, Administer rights…, and the `via: "relay"` token that opens Admin remotely). It no longer reads the Admin session opened remotely (0.11.8, end to end), and that token alone no longer opens it: the Station also asks for its remote Admin key, added on site (“Remote Admin key”). Whoever controls the relay keeps a hand on the accounts' rights (devices' session tokens, restart and update through the Administer right) and, on the decrypted path (older Station or relay), on “Remote Admin”: a personal relay is only as safe as it is well kept. Without “Remote Admin” or accounts, the relay only carries encrypted streams.
 - The public relay is in France; it keeps IP addresses in its logs for a few days (logs rotated by size), never codes. Privacy page on the relay (`/privacy`).
 
 ## Relay limits and protections

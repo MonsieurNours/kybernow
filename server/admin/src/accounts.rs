@@ -191,6 +191,8 @@ pub struct Accounts {
     verifier: Mutex<Option<Arc<Verifier>>>,
     /// Lot 4 : « Se connecter avec KyberNow » en cours, par `nonce` (et leur échéance).
     web_logins: Mutex<HashMap<String, Instant>>,
+    /// Les clés d'Admin à distance de la Station (STWIN-17, docs/relais.md).
+    pub remote_keys: crate::remote_keys::RemoteKeys,
 }
 
 impl Accounts {
@@ -204,6 +206,7 @@ impl Accounts {
             relay_marks: Mutex::new(HashMap::new()),
             verifier: Mutex::new(None),
             web_logins: Mutex::new(HashMap::new()),
+            remote_keys: crate::remote_keys::RemoteKeys::load(data_dir),
         }
     }
 
@@ -1182,12 +1185,19 @@ fn web_login_finish(s: &AppState, via: Option<kybernow_tunnel::StreamKind>, head
         Ok(_) => return web_login_page(&Msg::new("accounts.webLoginExpired").text(), false, vec![clear]),
         Err(d) => return web_login_page(&d.msg().text(), false, vec![clear]),
     };
+    let name = if grant.claims.name.account.is_empty() { grant.label() } else { grant.claims.name.account.clone() };
+    // De bout en bout, le jeton du relais ne suffit pas : la Station demande aussi sa clé d'Admin à
+    // distance, qu'elle vérifie elle-même (STWIN-17, docs/relais.md, « Clé d'Admin à distance »).
+    if via == Some(kybernow_tunnel::StreamKind::BrowserTls) {
+        tracing::info!("comptes : jeton d'Admin à distance accepté ({}), clé demandée", grant.label());
+        return crate::remote_keys::login_page(&s, &grant.claims.account, &name, clear);
+    }
     if remote {
-        let name = if grant.claims.name.account.is_empty() { grant.label() } else { grant.claims.name.account.clone() };
         tracing::info!("comptes : Admin ouvert à distance avec KyberNow ({})", grant.label());
         s.activity.event("warn", Msg::new("events.accountAdminRemote").with("name", name.clone()));
         s.relay.admin_opened(&grant.claims.account, &name);
-        let session = s.auth.open_remote_session(&name, via == Some(kybernow_tunnel::StreamKind::BrowserTls));
+        // Ici, seulement le chemin déchiffré par le relais (`admin_http`) : la clé ne protégerait rien.
+        let session = s.auth.open_remote_session(&name, false);
         return web_login_page("…", true, vec![crate::auth::remote_session_cookie(&session), clear]);
     }
     tracing::info!("comptes : Admin ouvert avec KyberNow ({})", grant.label());

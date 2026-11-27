@@ -61,6 +61,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Devices
 
 [dev-dependencies]
 # Relais simulé (connexion de contrôle) pour les essais de l'enrôlement.
-kybernow-tunnel = { path = "../relay/tunnel", default-features = false, features = ["station", "test-relay"] }
+kybernow-tunnel = { path = "../relay/tunnel", default-features = false, features = ["station", "test-relay", "test-webauthn"] }
 minisign = "0.10.0"
 http-body-util = "0.1"

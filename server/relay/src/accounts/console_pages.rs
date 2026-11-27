@@ -2365,7 +2365,8 @@ pub fn welcome(v: &View<'_>, step: u8, w: &Welcome) -> String {
 
 /// « Ouvrir Admin de {ordinateur} ? » : Admin s'ouvrira à `host`, sur le réseau ; `remote` : de n'importe
 /// où, par le relais, confirmé par une passkey (`Some(passkeys du compte)`, vide : il n'en a pas).
-pub fn open_admin(v: &View<'_>, computer: &str, host: &str, fields: &[(&str, &str)], remote: Option<&[String]>) -> String {
+/// `station_key` : l'ordinateur demandera ensuite sa clé d'Admin à distance (de bout en bout, Station 0.11.8).
+pub fn open_admin(v: &View<'_>, computer: &str, host: &str, fields: &[(&str, &str)], remote: Option<&[String]>, station_key: bool) -> String {
     let title = match v.lang {
         Lang::Fr => t(v.lang, &format!("Ouvrir Admin de {} ?", esc(computer)), ""),
         Lang::En => format!("Open {}'s Admin?", esc(computer)),
@@ -2413,8 +2414,19 @@ pub fn open_admin(v: &View<'_>, computer: &str, host: &str, fields: &[(&str, &st
             ),
         ),
     };
+    let then = if station_key {
+        format!(
+            "<p class=\"hint\">{}</p>\n",
+            v.tr(
+                "Ensuite, l'ordinateur vous demandera sa clé d'Admin à distance, ajoutée sur place : le relais ne peut pas ouvrir Admin à votre place.",
+                "Then the computer will ask for its remote Admin key, added on site: the relay can't open Admin in your place.",
+            )
+        )
+    } else {
+        String::new()
+    };
     let card = format!(
-        "<h1>{title}</h1>\n<p class=\"help\">{where_}</p>\n<p class=\"help\"><b>{host}</b></p>\n<p class=\"hint\">{check}</p>\n{form}",
+        "<h1>{title}</h1>\n<p class=\"help\">{where_}</p>\n<p class=\"help\"><b>{host}</b></p>\n{then}<p class=\"hint\">{check}</p>\n{form}",
         host = esc(host),
         check = v.tr("Vous n'avez pas demandé à ouvrir Admin à l'instant ? Annulez.", "You didn't just ask to open Admin? Cancel."),
     );
@@ -2941,9 +2953,9 @@ pub(super) mod tests {
             ("bienvenue/2-rattache", welcome(v, 2, &Welcome { computer: Some("PC du <salon>".into()), ..welcome_view.clone() })),
             ("bienvenue/3", welcome(v, 3, &welcome_view)),
             ("deployer", deploy(v, &deploy_view, Some(Notice::TokenRevoked))),
-            ("ouvrir-admin", open_admin(v, "PC du salon", "192.168.1.20:8443", &[("station", "st1"), ("nonce", "n"), ("retour", "x")], None)),
-            ("ouvrir-admin/distance", open_admin(v, "PC du salon", "st1.share.test", &[("station", "st1"), ("nonce", "n"), ("retour", "x")], Some(&["Y3JlZA".to_string()]))),
-            ("ouvrir-admin/sans-passkey", open_admin(v, "PC du salon", "st1.share.test", &[("station", "st1"), ("nonce", "n"), ("retour", "x")], Some(&[]))),
+            ("ouvrir-admin", open_admin(v, "PC du salon", "192.168.1.20:8443", &[("station", "st1"), ("nonce", "n"), ("retour", "x")], None, false)),
+            ("ouvrir-admin/distance", open_admin(v, "PC du salon", "st1.share.test", &[("station", "st1"), ("nonce", "n"), ("retour", "x")], Some(&["Y3JlZA".to_string()]), true)),
+            ("ouvrir-admin/sans-passkey", open_admin(v, "PC du salon", "st1.share.test", &[("station", "st1"), ("nonce", "n"), ("retour", "x")], Some(&[]), false)),
             ("admin-reseau", admin_lan_only(v, "PC du salon", Some("https://192.168.1.20:8443/api/login/kybernow/start"))),
         ]
     }

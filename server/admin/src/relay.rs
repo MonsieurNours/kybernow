@@ -734,6 +734,8 @@ impl Relay {
         out["remote_admin"] = json!(settings.remote_admin);
         out["remote_admin_ready"] = json!(crate::accounts::web_login_available(s));
         out["remote_admin_sessions"] = json!(s.auth.remote_names());
+        // Les clés d'Admin à distance (STWIN-17) ; `current` : valable pour le nom de bout en bout du moment.
+        out["remote_keys"] = s.accounts.remote_keys.view(crate::remote_keys::e2e_name(s).as_deref());
         // Navigateur chiffré de bout en bout : le certificat de la Station, et la suspension.
         let mut tls = self.tls.status();
         if settings.e2e_suspended.as_deref() == Some("lost") {
@@ -1294,6 +1296,8 @@ enum Class {
     /// La connexion à distance avec KyberNow (`/api/login/kybernow/start` et son retour), seulement avec
     /// « Admin à distance » (docs/comptes.md, « Admin depuis KyberNow Share »).
     RemoteLogin,
+    /// L'ajout d'une clé d'Admin à distance (le code tiré sur place), de bout en bout seulement.
+    RemoteKey,
     /// Jamais par le relais.
     Never,
 }
@@ -1305,6 +1309,10 @@ fn class_of(method: &Method, path: &str) -> Class {
         "/api/login/kybernow/start" | "/api/login/kybernow" if read => return Class::RemoteLogin,
         // Le même retour, jeton en formulaire (jamais dans l'adresse).
         "/api/login/kybernow/return" if method == Method::POST => return Class::RemoteLogin,
+        // La clé d'Admin à distance (STWIN-17) : demandée à l'ouverture, ajoutée avec un code tiré sur place.
+        "/api/login/key" | "/api/login/key/options" if method == Method::POST => return Class::RemoteLogin,
+        "/api/login/key/add" if read || method == Method::POST => return Class::RemoteKey,
+        "/api/login/key/add/options" if method == Method::POST => return Class::RemoteKey,
         "/api/share/join" | "/api/share/wait" | "/api/share/beat" | "/api/share/quality" | "/api/share/leave" => return Class::Guest,
         // « Écran » de qui regarde : le secret de l'invité, comme `quality`
         // (`/api/share/watch` lui-même demande le jeton d'un compte : `Device`).
@@ -1497,6 +1505,12 @@ pub async fn guard(State(s): State<AppState>, mut req: Request, next: Next) -> R
                 return refusal(StatusCode::FORBIDDEN, code, msg);
             }
         }
+        Class::RemoteKey => {
+            // Seulement de bout en bout : la page et la cérémonie, servies par la Station elle-même.
+            if kind != Some(StreamKind::BrowserTls) {
+                return refusal(StatusCode::FORBIDDEN, "relay_forbidden", Msg::new("relay.forbidden"));
+            }
+        }
         Class::Never => return refusal(StatusCode::FORBIDDEN, "relay_forbidden", Msg::new("relay.forbidden")),
     }
     next.run(req).await
@@ -1660,8 +1674,15 @@ mod tests {
             (&post, "/api/local/account/attach"),
             (&post, "/api/local/account/enroll"),
             (&post, "/api/stream/station/other"),
+            (&post, "/api/relay/keys"), (&Method::DELETE, "/api/relay/keys/x"), (&get, "/api/login/key"), (&get, "/api/login/key/add/options"),
         ] {
             assert_eq!(class_of(m, p), Class::Never, "{m} {p}");
+        }
+        for (m, p) in [(&post, "/api/login/key"), (&post, "/api/login/key/options")] {
+            assert_eq!(class_of(m, p), Class::RemoteLogin, "{m} {p}");
+        }
+        for (m, p) in [(&get, "/api/login/key/add"), (&post, "/api/login/key/add"), (&post, "/api/login/key/add/options")] {
+            assert_eq!(class_of(m, p), Class::RemoteKey, "{m} {p}");
         }
         // Redémarrer et mettre à jour : un compte KyberNow qui a le droit Administrer.
         for p in ["/api/stream/station/restart", "/api/stream/station/update"] {
