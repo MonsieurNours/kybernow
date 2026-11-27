@@ -449,7 +449,7 @@ pub(super) fn sign_in(mut cx: Cx<'_>) -> Reply {
     // Les échecs comptent par adresse IP (le compte n'est connu qu'après la signature) :
     // une clé par adresse, pour qu'un tiers ne bloque pas les passkeys de tout le monde.
     let key = format!("passkey:{}", super::super::ip_key(cx.req.ip));
-    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &key);
+    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &key, false);
     if let Err(wait) = limit {
         return cx.limited(wait, |cx, n| pages::sign_in(&cx.view(), "", Some(n), mail_on, mail_on));
     }

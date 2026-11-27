@@ -198,6 +198,9 @@ const WINDOW: Duration = Duration::from_secs(15 * 60);
 /// vers une même adresse. Un essai réussi est rendu : seuls les échecs comptent.
 pub struct Limiter {
     sign_in_ip: Buckets<IpAddr>,
+    /// Par compte et par réseau (/24, /48) : un tiers ne bloque pas le titulaire depuis ailleurs (REL-08).
+    sign_in_account_net: Buckets<(String, IpAddr)>,
+    /// Par compte, tous réseaux : un plafond plus haut contre les essais répartis.
     sign_in_account: Buckets<String>,
     code_ip: Buckets<IpAddr>,
     code_account: Buckets<String>,
@@ -207,6 +210,9 @@ pub struct Limiter {
     invites_hour: Buckets<i64>,
     invites_day: Buckets<i64>,
 }
+
+/// Les essais de mot de passe d'un compte en 15 minutes, tous réseaux confondus (REL-08).
+pub const SIGN_IN_ACCOUNT_ALL: u32 = 30;
 
 /// Les invitations et ajouts qu'un compte envoie (REL-13) : par heure, et par jour.
 pub const INVITES_PER_HOUR: u32 = 20;
@@ -222,7 +228,8 @@ impl Default for Limiter {
     fn default() -> Self {
         Limiter {
             sign_in_ip: Buckets::new(10, WINDOW),
-            sign_in_account: Buckets::new(5, WINDOW),
+            sign_in_account_net: Buckets::new(5, WINDOW),
+            sign_in_account: Buckets::new(SIGN_IN_ACCOUNT_ALL, WINDOW),
             code_ip: Buckets::new(10, WINDOW),
             code_account: Buckets::new(5, WINDOW),
             forgot_ip: Buckets::new(10, WINDOW),
@@ -235,10 +242,20 @@ impl Default for Limiter {
 }
 
 impl Limiter {
-    pub fn sign_in(&mut self, ip: IpAddr, account: &str) -> Result<(), Limited> {
+    /// Un essai de mot de passe. `trusted` : ce navigateur présente un cookie de confiance de ce
+    /// compte (REL-08) ; il ne compte alors que par adresse, pas pour le compte.
+    pub fn sign_in(&mut self, ip: IpAddr, account: &str, trusted: bool) -> Result<(), Limited> {
         let now = Instant::now();
         self.sign_in_ip.take(&ip_key(ip), now).map_err(Limited)?;
-        self.sign_in_account.take(&account.to_string(), now).map_err(Limited)
+        if trusted {
+            return Ok(());
+        }
+        let net = (account.to_string(), crate::limits::subnet(ip));
+        self.sign_in_account_net.take(&net, now).map_err(Limited)?;
+        self.sign_in_account.take(&account.to_string(), now).map_err(|wait| {
+            self.sign_in_account_net.refund(&net, now);
+            Limited(wait)
+        })
     }
 
     pub fn code(&mut self, ip: IpAddr, account: &str) -> Result<(), Limited> {
@@ -251,6 +268,7 @@ impl Limiter {
     pub fn sign_in_ok(&mut self, ip: IpAddr, account: &str) {
         let now = Instant::now();
         self.sign_in_ip.refund(&ip_key(ip), now);
+        self.sign_in_account_net.refund(&(account.to_string(), crate::limits::subnet(ip)), now);
         self.sign_in_account.refund(&account.to_string(), now);
     }
 
@@ -287,6 +305,7 @@ impl Limiter {
     fn sweep(&mut self) {
         let now = Instant::now();
         self.sign_in_ip.sweep(now);
+        self.sign_in_account_net.sweep(now);
         self.sign_in_account.sweep(now);
         self.code_ip.sweep(now);
         self.code_account.sweep(now);

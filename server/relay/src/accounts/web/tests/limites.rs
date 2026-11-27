@@ -52,3 +52,24 @@ fn pas_d_equipes_a_la_chaine() {
     assert_eq!(r.status, 429);
     assert_eq!(w.acc.db().orgs_of(1).unwrap().len(), MAX_OWNED_ORGS);
 }
+
+#[test]
+fn un_tiers_ne_bloque_pas_la_connexion_du_titulaire() {
+    // REL-08 : des essais répartis sur plusieurs réseaux remplissent le plafond du compte ;
+    // le navigateur de confiance du titulaire passe quand même.
+    let w = world(true);
+    let mut ana = person(&w, "ana@exemple.org", "Ana", "192.0.2.10");
+    with_totp(&w, &mut ana, "ana@exemple.org");
+    ana.post("/compte/deconnexion?lang=fr", &[]);
+    ana.sign_in("ana@exemple.org", PASSWORD);
+    w.advance(30);
+    ana.post("/compte/code?lang=fr", &[("code", &w.totp_code("ana@exemple.org", 0)), ("confiance", "1")]);
+    ana.post("/compte/deconnexion?lang=fr", &[]);
+    let all = crate::accounts::SIGN_IN_ACCOUNT_ALL;
+    for i in 0..all {
+        let mut b = w.browser_at(&format!("203.0.{}.9", i / 5));
+        assert_eq!(b.sign_in("ana@exemple.org", "mauvais mot de passe").status, 200, "essai {i}");
+    }
+    assert_eq!(w.browser_at("198.18.0.1").sign_in("ana@exemple.org", PASSWORD).status, 429, "plafond du compte");
+    assert_eq!(location(&ana.sign_in("ana@exemple.org", PASSWORD)), "/compte/ordinateurs?lang=fr", "navigateur de confiance");
+}

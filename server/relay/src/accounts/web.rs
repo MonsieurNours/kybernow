@@ -645,11 +645,15 @@ fn sign_in(mut cx: Cx<'_>) -> Reply {
     let typed = cx.req.form("email").trim().to_string();
     let email = normalize_email(&typed).unwrap_or_else(|| typed.to_lowercase());
     let password = cx.req.form("password").to_string();
-    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &email);
+    let account = acc.db().account_by_email(&email).ok().flatten();
+    // Un navigateur de confiance de ce compte ne se laisse pas bloquer par les essais des autres (REL-08).
+    let trusted = account.as_ref().is_some_and(|a| {
+        cx.req.cookie(TRUST_COOKIE).is_some_and(|tok| acc.db().is_trusted(&token_hash(tok), a.id, cx.now).unwrap_or(false))
+    });
+    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &email, trusted);
     if let Err(wait) = limit {
         return cx.limited(wait, |cx, n| pages::sign_in(&cx.view(), &typed, Some(n), mail_on, mail_on));
     }
-    let account = acc.db().account_by_email(&email).ok().flatten();
     // Toujours un calcul d'Argon2 : le temps ne dit pas si le compte existe.
     let ok = acc.hasher.verify(&password, account.as_ref().map(|a| a.password.as_str()));
     if ok {
@@ -1127,7 +1131,7 @@ fn totp_off(cx: Cx<'_>, codes: bool) -> Reply {
         let q = cx.q();
         return cx.redirect(format!("/compte{q}"));
     }
-    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &account.email);
+    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &account.email, false);
     if let Err(wait) = limit {
         let minutes = wait.0.as_secs().div_ceil(60);
         let mut r = account_page(cx, Some(Notice::TooMany(minutes)));

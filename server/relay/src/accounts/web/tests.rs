@@ -410,8 +410,9 @@ fn limites_d_essais() {
     let r = b.sign_in("ana@exemple.org", PASSWORD);
     assert_eq!(r.status, 429);
     assert!(r.retry_after.is_some() && html(&r).contains("Trop d'essais"));
-    // D'une autre adresse IP aussi : la limite est celle du compte.
-    assert_eq!(w.browser_at("198.51.100.1").sign_in("ana@exemple.org", PASSWORD).status, 429);
+    // Du même réseau aussi ; d'un autre réseau, le titulaire passe (REL-08).
+    assert_eq!(w.browser_at("192.0.2.77").sign_in("ana@exemple.org", PASSWORD).status, 429);
+    assert_eq!(location(&w.browser_at("198.51.100.1").sign_in("ana@exemple.org", PASSWORD)), "/compte/ordinateurs?lang=fr");
     // Une adresse e-mail sans compte se comporte de même.
     let mut c = w.browser_at("198.51.100.2");
     for _ in 0..5 {
