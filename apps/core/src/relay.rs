@@ -496,10 +496,22 @@ pub(crate) fn open_with(route: &RelayRoute, roots: Option<Arc<rustls::RootCertSt
                 let admin = tunnel.listen_admin().await.map_err(|e| TunnelError::Io(e.to_string()))?;
                 Ok::<_, TunnelError>((tunnel, admin))
             })?;
-            log::info!("relais {relay} : tunnel vers {station} ({}), Admin sur {}", tunnel.client_id(), admin.addr());
             let entry = Arc::new(Entry { tunnel, admin, kyber: Mutex::new(None), consoles: Mutex::new(HashMap::new()), route: route.clone() });
-            cache().lock().unwrap().insert(key, Cached { entry: entry.clone(), idle_since: None });
-            entry
+            // Un autre fil a pu ouvrir le même tunnel pendant ce temps : le
+            // sien est gardé, celui-ci fermé (un seul tunnel par Station et
+            // par relais, COEUR-25).
+            let mut cache = cache().lock().unwrap();
+            match cache.get(&key) {
+                Some(c) if c.entry.route.admin_fp == route.admin_fp => {
+                    log::info!("relais {relay} : tunnel vers {station} déjà ouvert par un autre appel, le doublon est fermé");
+                    c.entry.clone()
+                }
+                _ => {
+                    log::info!("relais {relay} : tunnel vers {station} ({}), Admin sur {}", entry.tunnel.client_id(), entry.admin.addr());
+                    cache.insert(key, Cached { entry: entry.clone(), idle_since: None });
+                    entry
+                }
+            }
         }
     };
     let handle = RelayTunnel(entry);

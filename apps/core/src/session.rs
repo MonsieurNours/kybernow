@@ -1531,13 +1531,26 @@ impl Session {
     }
 
     fn send(&self, msg: Msg) {
-        let _ = self.tx.lock().unwrap().send(msg);
+        let _ = self.tx.lock().unwrap_or_else(|e| e.into_inner()).send(msg);
     }
 
     /// Demande la fin de la session (sans attendre).
     pub fn stop(&self) {
         self.send(Msg::Stop);
     }
+}
+
+/// Le dernier `Arc<Session>` lâché sans `stop()` : la session s'arrête quand
+/// même (le fil de session tient son propre émetteur du canal, il ne voyait
+/// jamais la fin du canal, COEUR-29). Un second `Stop` après `stop()` est
+/// sans effet.
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.send(Msg::Stop);
+    }
+}
+
+impl Session {
 
     /// Une image clé est demandée une fois (plateforme qui tient sa propre veille).
     pub fn request_keyframe(&self) {
@@ -3675,7 +3688,13 @@ impl Worker {
                     if !alive.load(Ordering::Relaxed) {
                         return;
                     }
-                    if let Ok(f) = console.foreground() {
+                    let answer = console.foreground();
+                    // L'appel a pu durer (jeton renouvelé) : pas de rappel à
+                    // l'app après la fin de la session (COEUR-22).
+                    if !alive.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    if let Ok(f) = answer {
                         let game = f.known && f.game;
                         if last != Some(game) {
                             info!(
@@ -4177,7 +4196,9 @@ impl Worker {
                 self.platform.on_microphone(state);
             }
             if now >= next_second {
-                next_second += Duration::from_secs(1);
+                // Après un appel bloquant (retour du mode, jusqu'à 45 s) : une
+                // seule « seconde », pas une rafale pour le temps perdu (COEUR-23).
+                next_second = (next_second + Duration::from_secs(1)).max(now);
                 let mut second = self.latency.drain();
                 second.hdr = self.streaming.is_some() && self.stream_hdr.iter().any(|h| *h);
                 second.lowered = self.lowered;
@@ -5925,6 +5946,36 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let w = Worker::new(params, Some(screens), recorder.clone(), tx, rx, Arc::new(LatencyTracker::new()), Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)), FocusState::new());
         (w, recorder)
+    }
+
+    /// COEUR-29 : lâcher la session sans `stop()` l'arrête quand même.
+    #[test]
+    fn session_lachee_s_arrete() {
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = silent.local_addr().unwrap().port();
+        let held = Arc::new(Mutex::new(Vec::new()));
+        let h = held.clone();
+        std::thread::spawn(move || {
+            for c in silent.incoming().flatten() {
+                h.lock().unwrap().push(c);
+            }
+        });
+        let (w, rec) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        let mut params = w.params.clone();
+        drop(w);
+        params.console_host = "127.0.0.1".into();
+        params.console_port = port;
+        let session = Session::start(params, rec.clone());
+        std::thread::sleep(Duration::from_millis(200));
+        drop(session);
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_secs(5) {
+            if rec.events.lock().unwrap().iter().any(|e| e.starts_with("terminée")) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        panic!("pas de fin : {:?}", rec.events.lock().unwrap());
     }
 
     /// COEUR-14 : HDR, écrans et mode changés pendant l'attente de la

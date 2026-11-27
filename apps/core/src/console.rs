@@ -766,12 +766,6 @@ pub struct Console {
     base: String,
     host: String,
     authorization: Auth,
-    /// Le jeton d'accès qui n'a pas pu être demandé au relais (rendu par
-    /// l'appel qui échoue, comme l'erreur du tunnel).
-    account_error: Mutex<Option<crate::account::AccountError>>,
-    /// Admin vient de refuser le jeton d'accès (`token_expired`, `bad_token`) :
-    /// l'appel est refait une fois avec un jeton neuf.
-    token_refused: std::sync::atomic::AtomicBool,
     agent: ureq::Agent,
     seen: Arc<Mutex<Option<String>>>,
     /// Par le relais ([`Self::with_relay`]) : Admin par le tunnel.
@@ -783,7 +777,38 @@ pub struct Console {
 struct RelayLink {
     route: crate::relay::RelayRoute,
     tunnel: Mutex<Option<crate::relay::RelayTunnel>>,
-    error: Mutex<Option<crate::relay::RelayError>>,
+}
+
+/// Ce qu'un appel a appris avant de partir ou en échouant, rangé pour le
+/// fil qui le fait et pour cette console seulement : le jeton d'accès qui
+/// n'a pas pu être demandé, le tunnel qui ne s'ouvre pas, le jeton refusé
+/// par Admin. Repris par la lecture de ce même appel (`read`,
+/// `with_fresh_token`). Rangé dans la console, un autre fil le reprenait
+/// (signe de vie, premier plan… partagent la console de la session) : une
+/// raison fausse, et un réessai fait ou manqué à tort (COEUR-21).
+#[derive(Default)]
+struct CallNotes {
+    account: Option<(usize, crate::account::AccountError)>,
+    relay: Option<(usize, crate::relay::RelayError)>,
+    token_refused: Option<usize>,
+}
+
+thread_local! {
+    static CALL_NOTES: std::cell::RefCell<CallNotes> = std::cell::RefCell::new(CallNotes::default());
+}
+
+fn take_note<T>(console: usize, slot: impl FnOnce(&mut CallNotes) -> &mut Option<(usize, T)>) -> Option<T> {
+    CALL_NOTES.with(|n| {
+        let mut n = n.borrow_mut();
+        let s = slot(&mut n);
+        match s.take() {
+            Some((c, v)) if c == console => Some(v),
+            other => {
+                *s = other;
+                None
+            }
+        }
+    })
 }
 
 impl RelayLink {
@@ -852,8 +877,6 @@ impl Console {
             base: base_url(host, port),
             host: host.to_string(),
             authorization,
-            account_error: Mutex::new(None),
-            token_refused: std::sync::atomic::AtomicBool::new(false),
             agent,
             seen,
             relay: None,
@@ -869,7 +892,7 @@ impl Console {
         let Some(route) = route else { return self };
         let mut c = Self::build(&self.host, 0, self.authorization.clone(), Some(route.admin_fp.clone()));
         c.base = self.base;
-        c.relay = Some(RelayLink { route, tunnel: Mutex::new(None), error: Mutex::new(None) });
+        c.relay = Some(RelayLink { route, tunnel: Mutex::new(None) });
         c
     }
 
@@ -885,7 +908,7 @@ impl Console {
         let link = self.relay.as_ref()?;
         let mut c = Self::build(&self.host, 0, self.authorization.clone(), Some(link.route.admin_fp.clone()));
         c.base = self.base.clone();
-        c.relay = Some(RelayLink { route: link.route.clone(), tunnel: Mutex::new(None), error: Mutex::new(None) });
+        c.relay = Some(RelayLink { route: link.route.clone(), tunnel: Mutex::new(None) });
         Some(c)
     }
 
@@ -900,12 +923,13 @@ impl Console {
         let Some(link) = &self.relay else { return format!("{}/{path}", self.base) };
         match link.tunnel() {
             Ok(t) => {
-                *link.error.lock().unwrap() = None;
+                let _ = take_note(self.key(), |n| &mut n.relay);
                 format!("https://127.0.0.1:{}/{path}", t.admin_addr().port())
             }
             Err(e) => {
                 log::warn!("relais : {}", e.text(Lang::Fr, None));
-                *link.error.lock().unwrap() = Some(e);
+                let key = self.key();
+                CALL_NOTES.with(|n| n.borrow_mut().relay = Some((key, e)));
                 // Un port fermé de la boucle locale : l'appel échoue tout de
                 // suite, et rend la raison gardée (`read`).
                 format!("https://127.0.0.1:1/{path}")
@@ -949,7 +973,8 @@ impl Console {
                 match token {
                     Ok(t) => Some(format!("KyberNow {t}")),
                     Err(e) => {
-                        *self.account_error.lock().unwrap() = Some(e);
+                        let key = self.key();
+                        CALL_NOTES.with(|n| n.borrow_mut().account = Some((key, e)));
                         // Pas de jeton : l'appel échoue tout de suite (port fermé de
                         // la boucle locale) et rend la raison gardée (`read`).
                         let r = self.agent.request(method, &format!("https://127.0.0.1:1/{path}")).timeout(timeout);
@@ -980,7 +1005,8 @@ impl Console {
         {
             log::info!("comptes : jeton d'accès refusé par Admin, un neuf est demandé");
             access.invalidate();
-            self.token_refused.store(true, std::sync::atomic::Ordering::Relaxed);
+            let key = self.key();
+            CALL_NOTES.with(|n| n.borrow_mut().token_refused = Some(key));
         }
         http_error(status, body)
     }
@@ -989,12 +1015,36 @@ impl Console {
     /// (échu : l'appareil a dormi, son horloge a sauté). Rien n'a été fait
     /// sur la Station : le jeton est vérifié avant tout.
     fn with_fresh_token<T>(&self, call: impl Fn() -> Result<T>) -> Result<T> {
-        self.token_refused.store(false, std::sync::atomic::Ordering::Relaxed);
+        self.retry_on_refused_token(call)
+    }
+
+    /// Fait l'appel ; le refait une fois si Admin vient de refuser le jeton
+    /// d'accès, pendant cet appel et sur ce fil.
+    fn retry_on_refused_token<T, E>(&self, call: impl Fn() -> std::result::Result<T, E>) -> std::result::Result<T, E> {
+        self.token_refused_take();
         let r = call();
-        if r.is_err() && self.token_refused.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        if r.is_err() && self.token_refused_take() {
             return call();
         }
         r
+    }
+
+    fn token_refused_take(&self) -> bool {
+        let key = self.key();
+        CALL_NOTES.with(|n| {
+            let mut n = n.borrow_mut();
+            if n.token_refused == Some(key) {
+                n.token_refused = None;
+                true
+            } else {
+                false
+            }
+        })
+    }
+
+    /// Identité de cette console pour les notes d'appel.
+    fn key(&self) -> usize {
+        self as *const Self as usize
     }
 
     pub(crate) fn read<T: for<'de> Deserialize<'de>>(&self, r: std::result::Result<ureq::Response, ureq::Error>) -> Result<T> {
@@ -1003,10 +1053,10 @@ impl Console {
             Err(ureq::Error::Status(status, resp)) => Err(self.refused(status, resp.into_json::<serde_json::Value>().ok())),
             Err(ureq::Error::Transport(t)) => {
                 let text = t.to_string();
-                if let Some(e) = self.account_error.lock().unwrap().take() {
+                if let Some(e) = take_note(self.key(), |n| &mut n.account) {
                     return Err(ConsoleError::Account(e));
                 }
-                if let Some(e) = self.relay.as_ref().and_then(|l| l.error.lock().unwrap().take()) {
+                if let Some(e) = take_note(self.key(), |n| &mut n.relay) {
                     return Err(ConsoleError::Relay(e));
                 }
                 if text.contains("certificat de la console") {
@@ -1503,12 +1553,7 @@ impl Console {
     /// de l'ordinateur (ouvert pour lui s'il n'y en a pas). Voir
     /// [`crate::share::watch`]. Un jeton échu est redemandé une fois.
     pub fn share_watch(&self, req: &WatchRequest) -> std::result::Result<ShareJoined, ShareError> {
-        self.token_refused.store(false, std::sync::atomic::Ordering::Relaxed);
-        let first = self.share_watch_once(req);
-        if first.is_err() && self.token_refused.swap(false, std::sync::atomic::Ordering::Relaxed) {
-            return self.share_watch_once(req);
-        }
-        first
+        self.retry_on_refused_token(|| self.share_watch_once(req))
     }
 
     fn share_watch_once(&self, req: &WatchRequest) -> std::result::Result<ShareJoined, ShareError> {
@@ -1657,6 +1702,30 @@ pub(crate) fn path_segment(id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// COEUR-21 : la raison rangée par un fil (tunnel fermé) n'est reprise
+    /// que par l'appel de ce fil, sur cette console.
+    #[test]
+    fn raison_d_un_appel_gardee_pour_son_fil() {
+        use super::*;
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let c = Arc::new(Console::new("127.0.0.1", closed, "u", "p", None));
+        let other = c.clone();
+        std::thread::spawn(move || {
+            let key = other.key();
+            CALL_NOTES.with(|n| n.borrow_mut().relay = Some((key, crate::relay::RelayError::StationOffline)));
+        })
+        .join()
+        .unwrap();
+        let call = || c.read::<serde_json::Value>(c.request("GET", "api/stream/info", Duration::from_secs(2)).call());
+        assert!(matches!(call(), Err(ConsoleError::Network(_))), "pas la raison d'un autre fil");
+        let key = c.key();
+        CALL_NOTES.with(|n| n.borrow_mut().relay = Some((key, crate::relay::RelayError::StationOffline)));
+        let other_console = Console::new("127.0.0.1", closed, "u", "p", None);
+        assert!(matches!(other_console.read::<serde_json::Value>(other_console.request("GET", "x", Duration::from_secs(2)).call()), Err(ConsoleError::Network(_))), "ni d'une autre console");
+        assert!(matches!(call(), Err(ConsoleError::Relay(crate::relay::RelayError::StationOffline))));
+        assert!(matches!(call(), Err(ConsoleError::Network(_))), "reprise une fois");
+    }
+
     /// COEUR-19 : sans empreinte connue, le premier certificat vu est exigé
     /// des connexions suivantes ; avec une empreinte, elle seule passe.
     #[test]
