@@ -355,6 +355,14 @@ impl StreamLoss {
     }
 }
 
+/// En-tête `OpusHead` de famille 0 (mono ou stéréo), pour les essais.
+#[cfg(test)]
+pub(crate) fn tests_head(channels: u8) -> Vec<u8> {
+    let mut h = b"OpusHead".to_vec();
+    h.extend_from_slice(&[1, channels, 0x38, 1, 0x80, 0xbb, 0, 0, 0, 0, 0]);
+    h
+}
+
 /// En-tête Opus (`OpusHead`) envoyé en paquet de configuration du son.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpusHead {
