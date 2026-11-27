@@ -330,7 +330,11 @@ done
 
 # Ce que les arbres recompileront d'eux-mêmes (rien à faire ; dit pour la durée).
 STATION_STAMP="$(arbre_dir station-windows)/third_party/payload/kyber-overlay.stamp"
+# Empreinte de la surcouche : calculée dans l'arbre, au commit construit (le commit
+# de version change les Cargo.toml des aides, qu'elle compte) ; ici, sur main, pour
+# la note seulement.
 OVERLAY_WANT="$(server/kyber-patches/stamp.sh)"
+overlay_voulue() { "$(arbre_dir station-windows)/server/kyber-patches/stamp.sh"; }
 if [ "$(cat "$STATION_STAMP" 2>/dev/null)" = "$OVERLAY_WANT" ]; then ok "surcouche Kyber de l'arbre station-windows : correctifs actuels (empreinte)"
 else note "surcouche Kyber (Station Windows) à compiler dans son arbre : correctifs changés ou arbre neuf (automatique, long)"; fi
 mac_kyber_hash() { (cd "$1" && cat server/kyber-patches/*.patch server/kyber-patches/apply.sh apps/macos/kyber-patches/*.patch apps/webos/kyber-patches/*.patch server/macos/kyber-patches/*.patch server/macos/crates/*.patch server/macos/scripts/build-kyber.sh server/macos/pyrowave/* 2>/dev/null | shasum -a 256 | cut -d' ' -f1); }
@@ -616,7 +620,7 @@ cache_valide() {
     [ "$(cat "$c/empreinte" 2>/dev/null)" = "$key" ] || return 1
     (cd "$c/fichiers" 2>/dev/null && shasum -a 256 -s -c ../sommes) || return 1
     if [ "$id" = surcouche ]; then
-        [ "$(cat "$(arbre_dir station-windows)/third_party/payload/kyber-overlay.stamp" 2>/dev/null)" = "$OVERLAY_WANT" ] || return 1
+        [ "$(cat "$(arbre_dir station-windows)/third_party/payload/kyber-overlay.stamp" 2>/dev/null)" = "$(overlay_voulue)" ] || return 1
     fi
 }
 cache_noter() {
@@ -679,12 +683,14 @@ note_kyber() { arbre_kyber_noter "$1" > /dev/null; }
 
 construire_surcouche() {
     cd "$(arbre_dir station-windows)"
-    if [ "$(cat third_party/payload/kyber-overlay.stamp 2>/dev/null)" != "$OVERLAY_WANT" ]; then
+    local want
+    want="$(overlay_voulue)"
+    if [ "$(cat third_party/payload/kyber-overlay.stamp 2>/dev/null)" != "$want" ]; then
         # build.sh pose tous les correctifs : il part des sources d'origine.
         arbre_kyber_origine station-windows
         server/kyber-patches/build.sh
     fi
-    [ "$(cat third_party/payload/kyber-overlay.stamp)" = "$OVERLAY_WANT" ]
+    [ "$(cat third_party/payload/kyber-overlay.stamp)" = "$want" ]
     python3 -I "$ROOT/scripts/release-verifie.py" pe "$LLVM_OBJDUMP" third_party/payload/kyber-overlay third_party/payload/kyber-0.29.0
     cp third_party/payload/kyber-overlay.stamp "$E/surcouche.stamp"
     note_kyber station-windows
