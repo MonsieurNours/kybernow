@@ -221,7 +221,7 @@ fn launch_assistant(data_dir: &Path) -> Result<Option<Child>> {
         std::thread::sleep(GRACE);
         // La session de la Station (celle d'Admin), pas celle devant l'écran (STMAC-06).
         let domain = crate::mac::launchd_domain();
-        for label in [crate::mac::KYBER_LABEL, "fr.leslignesclaires.kybernow.station.admin"] {
+        for label in [crate::mac::KYBER_LABEL, crate::mac::ADMIN_LABEL] {
             log.line(format!("launchctl kickstart -k {domain}/{label}"));
             match crate::mac::launchctl(&["kickstart", "-k", &format!("{domain}/{label}")]) {
                 Ok(out) if !out.status.success() => log.line(format!("    échec : {}", String::from_utf8_lossy(&out.stderr).trim())),

@@ -96,9 +96,7 @@ fn videos_dir() -> PathBuf {
 }
 
 #[cfg(unix)]
-fn home() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
-}
+use crate::system::home;
 
 /// `XDG_VIDEOS_DIR="$HOME/Vidéos"` de `user-dirs.dirs`.
 #[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]

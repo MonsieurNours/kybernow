@@ -32,15 +32,11 @@ use serde_json::{Value, json};
 use super::apply::{Action, HEALTH_TIMEOUT, Journal, Layout};
 use super::{RESULT, valid_version};
 
-pub const BUNDLE_ID: &str = "fr.leslignesclaires.kybernow.station";
+pub const BUNDLE_ID: &str = crate::mac::STATION_ID;
 pub const APP_NAME: &str = "KyberNow Station.app";
 /// Service launchd de l'applicateur (dans la session, comme la Station).
-pub const LABEL: &str = "fr.leslignesclaires.kybernow.station.update";
-const LABELS: [&str; 3] = [
-    "fr.leslignesclaires.kybernow.station.menubar",
-    "fr.leslignesclaires.kybernow.station.admin",
-    "fr.leslignesclaires.kybernow.station.kyber",
-];
+pub const LABEL: &str = crate::mac::UPDATE_LABEL;
+const LABELS: [&str; 3] = [crate::mac::MENUBAR_LABEL, crate::mac::ADMIN_LABEL, crate::mac::KYBER_LABEL];
 
 /// L'app qui contient cet Admin (`…/KyberNow Station.app/Contents/MacOS/kyber-admin`).
 pub fn installed_app() -> PathBuf {
@@ -93,9 +89,7 @@ fn loaded_or(label: &str, unknown: bool, log: &mut Journal) -> bool {
     })
 }
 
-fn home() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
-}
+use crate::system::home;
 
 fn plist(label: &str) -> PathBuf {
     home().join("Library/LaunchAgents").join(format!("{label}.plist"))

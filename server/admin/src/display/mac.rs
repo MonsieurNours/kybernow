@@ -10,47 +10,26 @@
 //! si Admin s'arrête (fin de son entrée). C'est ce qui remplace, sur Mac, le
 //! chien de garde de SudoVDA et `recover`.
 //!
-//! Nom d'écran (`gdi_name` du reste du module) : `mac:<CGDirectDisplayID>`.
-//! Retina dès 2048 pixels de large ([`hidpi`]).
+//! Le protocole, les écrans et la veille sont communs avec la Station Linux
+//! (`agent_backend.rs`) ; ici, ce qui est propre au Mac : la reprise des
+//! écrans au démarrage et le HDR. Nom d'écran : `mac:<CGDirectDisplayID>`.
 
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Mutex;
-use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
-use super::agent_pipe::{AgentPipe, CALL_TIMEOUT, OBSERVE_TIMEOUT};
-use super::{Backend, Created, MAX_SCREENS, Mode, Observed, PhysicalDisplay, PointerRecord, Screen, hdr, slot_guid};
+use super::agent_backend::{AgentBackend, System};
+use super::hdr;
 
-/// Variable d'environnement : chemin de l'agent, s'il n'est pas à côté d'Admin.
-pub const AGENT_ENV: &str = "KYBERNOW_DISPLAY_AGENT";
-
-/// Mode Retina (la moitié en points) dès cette largeur : une interface lisible
-/// sur un téléphone, une tablette, un Mac ou un téléviseur 4K ; un écran 1080p
-/// reste en 1x.
-const HIDPI_FROM_WIDTH: u32 = 2048;
-
-pub fn hidpi(width: u32) -> bool {
-    width >= HIDPI_FROM_WIDTH
-}
-
-/// Chemin de l'agent : `KYBERNOW_DISPLAY_AGENT`, sinon à côté de kyber-admin.
-pub fn agent_path() -> Option<PathBuf> {
-    let path = std::env::var_os(AGENT_ENV)
-        .filter(|p| !p.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("kybernow-display"))))?;
-    path.is_file().then_some(path)
-}
+pub use super::agent_backend::agent_path;
 
 /// `~/Library/Application Support/KyberNow/hdr-sdr-white.json` : le blanc SDR
 /// (nits) voulu par l'appareil, par écran (`CGDirectDisplayID`), lu par la
 /// capture de Kyber au début de chaque image HDR (correctif Mac 0010).
 fn write_sdr_whites(whites: &[(u32, f32)]) {
-    let Some(home) = std::env::var_os("HOME") else { return };
-    let path = PathBuf::from(home).join("Library/Application Support/KyberNow/hdr-sdr-white.json");
+    let path = crate::system::home().join("Library/Application Support/KyberNow/hdr-sdr-white.json");
     let map: serde_json::Map<String, Value> = whites.iter().map(|(id, nits)| (id.to_string(), json!(nits))).collect();
     let _ = std::fs::create_dir_all(path.parent().unwrap());
     if let Err(e) = std::fs::write(&path, Value::Object(map).to_string()) {
@@ -58,249 +37,45 @@ fn write_sdr_whites(whites: &[(u32, f32)]) {
     }
 }
 
-fn name(id: u32) -> String {
-    format!("mac:{id}")
+/// Les écrans de la Station Mac. Écrans du Mac laissés éteints par un agent
+/// arrêté en route (Admin ou l'agent tombé pendant une session) : rallumés au
+/// démarrage (`kybernow-display recover`, fichier `display-off.json`).
+pub fn backend(path: PathBuf) -> AgentBackend {
+    let recover = path.clone();
+    std::thread::spawn(move || match Command::new(&recover).arg("recover").output() {
+        Ok(out) if out.status.success() => {}
+        Ok(out) => tracing::warn!("reprise des écrans du Mac : {}", String::from_utf8_lossy(&out.stdout).trim()),
+        Err(e) => tracing::warn!("reprise des écrans du Mac : {e}"),
+    });
+    AgentBackend::new(System::Mac, path, "CGVirtualDisplay (macOS)", Some(set_hdr))
 }
 
-fn id_of(gdi_name: &str) -> Result<u32> {
-    gdi_name.strip_prefix("mac:").and_then(|n| n.parse().ok()).with_context(|| format!("écran inconnu : {gdi_name}"))
-}
-
-/// L'agent, sans réponse, s'arrête de lui-même après `restore` : attendu ce temps au plus.
-const FINISH_WITHIN: Duration = Duration::from_secs(5);
-
-pub struct MacBackend {
-    pipe: AgentPipe,
-    /// Écrans virtuels en place, par rang.
-    created: Mutex<[Option<u32>; MAX_SCREENS]>,
-    /// Écrans suivis par la veille, le principal en premier.
-    watched: Mutex<Vec<u32>>,
-}
-
-impl MacBackend {
-    pub fn new(path: PathBuf) -> Self {
-        // Écrans du Mac laissés éteints par un agent arrêté en route (Admin
-        // ou l'agent tombé pendant une session) : rallumés au démarrage
-        // (`kybernow-display recover`, fichier `display-off.json`).
-        let recover = path.clone();
-        std::thread::spawn(move || match Command::new(&recover).arg("recover").output() {
-            Ok(out) if out.status.success() => {}
-            Ok(out) => tracing::warn!("reprise des écrans du Mac : {}", String::from_utf8_lossy(&out.stdout).trim()),
-            Err(e) => tracing::warn!("reprise des écrans du Mac : {e}"),
-        });
-        Self { pipe: AgentPipe::new(path), created: Mutex::new([None; MAX_SCREENS]), watched: Mutex::new(Vec::new()) }
+/// Écran virtuel du Mac en HDR : même mode, fonction de transfert HDR
+/// (`set_hdr` de l'agent), confirmé par macOS (2 s au plus).
+fn set_hdr(backend: &AgentBackend, asks: &[hdr::HdrAsk]) -> Result<Vec<hdr::HdrSeen>> {
+    // Blanc SDR de l'appareil pour chaque écran passé en HDR : la capture
+    // de Kyber y remonte l'image (correctif Mac 0010 ; macOS met ce blanc
+    // à 100 nits, Windows au blanc de l'appareil).
+    let whites: Vec<(u32, f32)> = asks.iter().filter(|a| a.on).map(|a| (a.created.target, a.apply.as_ref().map_or(203.0, |c| c.sdr_white))).collect();
+    if !whites.is_empty() {
+        write_sdr_whites(&whites);
     }
-
-    /// Une requête à l'agent, réponse attendue au plus [`CALL_TIMEOUT`]. `start` : le lancer s'il ne
-    /// tourne pas (sinon, sans agent, il n'y a rien à faire et la réponse est `None`).
-    fn call(&self, req: Value, start: bool) -> Result<Option<Value>> {
-        self.pipe.call(&req, start, CALL_TIMEOUT)
-    }
-
-    fn isolate_with(&self, screens: &[(Created, Screen)], keep_others: bool) -> Result<Value> {
-        let list: Vec<Value> = screens
-            .iter()
-            .map(|(c, s)| {
-                json!({ "id": c.target, "x": s.x, "y": s.y, "width": s.width, "height": s.height,
-                        "refresh": s.refresh, "hidpi": hidpi(s.width) })
+    asks.iter()
+        .map(|ask| {
+            let started = std::time::Instant::now();
+            let v = backend.call(json!({ "cmd": "set_hdr", "id": ask.created.target, "on": ask.on }), false)?.context("agent arrêté")?;
+            let supported = v["supported"] == json!(true);
+            Ok(hdr::HdrSeen {
+                read: true,
+                supported,
+                before: v["before"] == json!(true),
+                active: v["active"] == json!(true),
+                gdi_name: Some(System::Mac.name(ask.created.target)),
+                method: Some("transfer_function".into()),
+                waited_ms: Some(started.elapsed().as_millis() as u64),
+                error: (!supported).then(|| "écran virtuel inconnu de l'agent".to_string()),
+                ..Default::default()
             })
-            .collect();
-        let v = self.call(json!({ "cmd": "isolate", "screens": list, "keep_others": keep_others }), false)?.context("agent arrêté")?;
-        let placed: Vec<Value> = v["screens"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|s| {
-                if s.is_null() {
-                    return Value::Null;
-                }
-                let id = s["id"].as_u64().unwrap_or(0) as u32;
-                json!({ "gdi_name": name(id), "width": s["width"], "height": s["height"], "refresh": s["refresh"], "x": s["x"], "y": s["y"] })
-            })
-            .collect();
-        let primary = placed.first().filter(|p| !p.is_null()).context("l'écran virtuel principal n'est pas actif")?;
-        let mut applied = json!({
-            "gdi_name": primary["gdi_name"], "width": primary["width"], "height": primary["height"],
-            "refresh": primary["refresh"], "disabled_others": v["disabled_others"],
-        });
-        if screens.len() > 1 {
-            applied["screens"] = Value::Array(placed);
-            applied["scales"] = v["scales"].clone();
-        }
-        Ok(applied)
-    }
-}
-
-fn mode_of(v: &Value) -> Mode {
-    let n = |k: &str| v[k].as_u64().unwrap_or(0) as u32;
-    Mode { width: n("width"), height: n("height"), refresh: n("refresh") }
-}
-
-impl Backend for MacBackend {
-    fn driver(&self) -> Result<Value> {
-        Ok(json!({ "version": "CGVirtualDisplay (macOS)", "watchdog_seconds": 0, "agent": self.pipe.path() }))
-    }
-    fn windows_workarounds(&self) -> bool {
-        false
-    }
-    fn process_names(&self) -> Vec<String> {
-        Vec::new()
-    }
-    fn console_user(&self) -> Option<String> {
-        None
-    }
-    fn read_pointer(&self) -> Result<(String, PointerRecord)> {
-        bail!("pointeur : rien à faire sur Mac")
-    }
-    fn enlarge_pointer(&self, _: u32, _: u32) -> Result<Value> {
-        bail!("pointeur : rien à faire sur Mac")
-    }
-    fn restore_pointer(&self, _: &str, _: PointerRecord) -> Result<Value> {
-        bail!("pointeur : rien à faire sur Mac")
-    }
-    fn start_wgc(&self, _: &[(String, u32)]) -> Vec<(String, Result<Value>)> {
-        Vec::new()
-    }
-    fn stop_wgc(&self) {}
-    fn create(&self, _: [u8; 16], slot: usize, mode: Mode) -> Result<Created> {
-        let req = json!({ "cmd": "create", "slot": slot, "width": mode.width, "height": mode.height,
-                          "refresh": mode.refresh, "hidpi": hidpi(mode.width) });
-        let v = self.call(req, true)?.context("agent arrêté")?;
-        let id = v["id"].as_u64().context("identifiant d'écran absent")? as u32;
-        self.created.lock().unwrap()[slot] = Some(id);
-        tracing::info!("écran virtuel {} créé : {} × {} à {} Hz (écran {id})", slot + 1, mode.width, mode.height, mode.refresh);
-        Ok(Created { luid_low: 0, luid_high: 0, target: id })
-    }
-    fn remove(&self, guid: [u8; 16]) -> Result<()> {
-        let Some(slot) = (0..MAX_SCREENS).find(|i| slot_guid(*i) == guid) else { return Ok(()) };
-        let removed = self.call(json!({ "cmd": "remove", "slot": slot }), false);
-        // Oublié une fois retiré, ou parti avec l'agent ; un refus de l'agent le laisse en place (STMAC-08).
-        if removed.is_ok() || !self.pipe.running() {
-            self.created.lock().unwrap()[slot] = None;
-        }
-        removed.map(|_| ())
-    }
-    fn ping(&self) -> Result<()> {
-        // Pas de chien de garde : l'écran vit avec l'agent, qui vit avec Admin.
-        Ok(())
-    }
-    fn isolate(&self, screens: &[(Created, Screen)]) -> Result<Value> {
-        self.isolate_with(screens, false)
-    }
-    fn isolate_keeping_others(&self, screens: &[(Created, Screen)]) -> Result<Value> {
-        self.isolate_with(screens, true)
-    }
-    fn restore(&self) -> Result<()> {
-        // Sans écran virtuel restant, l'agent s'arrête après sa réponse.
-        let _ = self.call(json!({ "cmd": "restore" }), false)?;
-        if self.created.lock().unwrap().iter().all(Option::is_none) {
-            self.pipe.finish(FINISH_WITHIN);
-        }
-        Ok(())
-    }
-    fn watch(&self, created: &[Created]) {
-        *self.watched.lock().unwrap() = created.iter().map(|c| c.target).collect();
-    }
-    fn unwatch(&self) {
-        self.watched.lock().unwrap().clear();
-    }
-    fn observe(&self) -> Option<Observed> {
-        let ids = self.watched.lock().unwrap().clone();
-        let first = *ids.first()?;
-        // La veille (chaque seconde) n'attend pas plus de [`OBSERVE_TIMEOUT`] un agent bloqué.
-        let v = self.pipe.call(&json!({ "cmd": "state", "ids": ids }), false, OBSERVE_TIMEOUT).ok()??;
-        let modes: Vec<Mode> = v["modes"].as_array()?.iter().map(mode_of).collect();
-        let extra = ids.iter().zip(&modes).skip(1).map(|(id, m)| (*m, name(*id))).collect();
-        Some(Observed {
-            mode: *modes.first()?,
-            gdi_name: name(first),
-            displays: v["displays"].as_u64().unwrap_or(0) as u32,
-            others: v["others"].as_u64().unwrap_or(0) as u32,
-            extra,
         })
-    }
-    fn set_mode(&self, gdi_name: &str, mode: Mode) -> Result<Mode> {
-        let req = json!({ "cmd": "set_mode", "id": id_of(gdi_name)?, "width": mode.width, "height": mode.height,
-                          "refresh": mode.refresh, "hidpi": hidpi(mode.width) });
-        Ok(mode_of(&self.call(req, false)?.context("agent arrêté")?))
-    }
-    fn displays(&self) -> Result<Vec<PhysicalDisplay>> {
-        let v = self.call(json!({ "cmd": "displays" }), true)?.context("agent arrêté")?;
-        let list = v["displays"].as_array().cloned().unwrap_or_default();
-        let displays = list
-            .iter()
-            .map(|d| PhysicalDisplay {
-                name: name(d["id"].as_u64().unwrap_or(0) as u32),
-                x: d["x"].as_i64().unwrap_or(0) as i32,
-                y: d["y"].as_i64().unwrap_or(0) as i32,
-                width: d["width"].as_u64().unwrap_or(0) as u32,
-                height: d["height"].as_u64().unwrap_or(0) as u32,
-                refresh: d["refresh"].as_u64().unwrap_or(60) as u32,
-                primary: d["primary"].as_bool().unwrap_or(false),
-            })
-            .collect();
-        // Personne d'autre que nous ne demandait l'agent : il peut s'arrêter.
-        if self.created.lock().unwrap().iter().all(Option::is_none) {
-            let _ = self.call(json!({ "cmd": "restore" }), false);
-            self.pipe.finish(FINISH_WITHIN);
-        }
-        Ok(displays)
-    }
-    /// Écran virtuel du Mac en HDR : même mode, fonction de transfert HDR
-    /// (`set_hdr` de l'agent), confirmé par macOS (2 s au plus).
-    fn set_hdr(&self, asks: &[hdr::HdrAsk]) -> Result<Vec<hdr::HdrSeen>> {
-        // Blanc SDR de l'appareil pour chaque écran passé en HDR : la capture
-        // de Kyber y remonte l'image (correctif Mac 0010 ; macOS met ce blanc
-        // à 100 nits, Windows au blanc de l'appareil).
-        let whites: Vec<(u32, f32)> = asks.iter().filter(|a| a.on).map(|a| (a.created.target, a.apply.as_ref().map_or(203.0, |c| c.sdr_white))).collect();
-        if !whites.is_empty() {
-            write_sdr_whites(&whites);
-        }
-        asks.iter()
-            .map(|ask| {
-                let started = std::time::Instant::now();
-                let v = self.call(json!({ "cmd": "set_hdr", "id": ask.created.target, "on": ask.on }), false)?.context("agent arrêté")?;
-                let supported = v["supported"] == json!(true);
-                Ok(hdr::HdrSeen {
-                    read: true,
-                    supported,
-                    before: v["before"] == json!(true),
-                    active: v["active"] == json!(true),
-                    gdi_name: Some(name(ask.created.target)),
-                    method: Some("transfer_function".into()),
-                    waited_ms: Some(started.elapsed().as_millis() as u64),
-                    error: (!supported).then(|| "écran virtuel inconnu de l'agent".to_string()),
-                    ..Default::default()
-                })
-            })
-            .collect()
-    }
-    fn display_hdr(&self) -> Result<hdr::HdrSeen> {
-        Ok(hdr::HdrSeen { read: true, ..Default::default() })
-    }
-    /// Profils de couleur dans la portée du compte : propres à Windows. Sur
-    /// Mac, aucun profil n'est associé (`color` reste vide), rien à faire.
-    fn hdr_user(&self, _: &hdr::UserRequest) -> Result<Vec<hdr::UserSeen>> {
-        Ok(Vec::new())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn retina_from_2048_pixels_wide() {
-        assert!(!hidpi(1920), "1080p : 1x");
-        assert!(hidpi(2556), "iPhone : Retina");
-        assert!(hidpi(3840), "4K : Retina (1920 × 1080 points)");
-    }
-
-    #[test]
-    fn screen_names() {
-        assert_eq!(name(19), "mac:19");
-        assert_eq!(id_of("mac:19").unwrap(), 19);
-        assert!(id_of("\\\\.\\DISPLAY1").is_err());
-    }
+        .collect()
 }

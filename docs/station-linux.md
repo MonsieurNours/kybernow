@@ -33,7 +33,7 @@ Un ordinateur sous Linux devient une Station comme un PC Windows ou un Mac : mê
 
 ### Écrans (GNOME)
 
-GNOME ne laisse aucun programme lire l'écran directement : tout passe par Mutter, son compositeur. La Station a son propre agent, `kybernow-display` (`server/linux/display-agent`, Rust), lancé par Admin dès son démarrage, qui parle le même protocole que l'agent du Mac (lignes JSON : `create`, `remove`, `isolate`, `restore`, `state`, `set_mode`, `displays`…). Admin le pilote par `display/linux.rs`.
+GNOME ne laisse aucun programme lire l'écran directement : tout passe par Mutter, son compositeur. La Station a son propre agent, `kybernow-display` (`server/linux/display-agent`, Rust), lancé par Admin dès son démarrage, qui parle le même protocole que l'agent du Mac (lignes JSON : `create`, `remove`, `isolate`, `restore`, `state`, `set_mode`, `displays`…). Admin le pilote par `display/linux.rs`, sur le même `Backend` que la Station Mac (`display/agent_backend.rs` : requêtes, délais, veille).
 
 - **Écrans virtuels** : `org.gnome.Mutter.ScreenCast`, `RecordVirtual`, une session de capture par écran (Mutter ne démarre pas un flux ajouté après `Start`), pointeur hors de l'image (chaque appareil dessine le sien). Mutter crée l'écran au branchement du premier lecteur sur le flux PipeWire, à la taille que ce lecteur demande : c'est la capture de Kyber qui fixe la définition de l'appareil. Écran « de plateforme » (`is-platform`) : GNOME y met sa barre et ses fenêtres comme sur un vrai écran.
 - **Écrans de l'ordinateur** : la même API, `RecordMonitor`, sans le dialogue du partage d'écran (la Station n'est pas dans un bac à sable). Capturés seulement quand il n'y a pas d'écran virtuel (partage depuis le PC, session sans écran virtuel).

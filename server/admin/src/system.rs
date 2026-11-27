@@ -4,6 +4,20 @@
 
 use std::sync::OnceLock;
 
+/// Le dossier personnel du compte d'Admin (`$HOME`), `/tmp` s'il manque
+/// (Stations Mac et Linux ; STCOM-08 : une seule copie).
+#[cfg(unix)]
+pub fn home() -> std::path::PathBuf {
+    std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+}
+
+/// Le compte qui fait tourner Admin (`getuid`), pas celui de `$HOME`.
+#[cfg(unix)]
+pub fn uid() -> u32 {
+    // SAFETY : `getuid` ne lit que l'identité du processus, et réussit toujours.
+    unsafe { libc::getuid() }
+}
+
 /// Lu une fois : le système ne change qu'après un redémarrage.
 pub fn os_name() -> Option<String> {
     static NAME: OnceLock<Option<String>> = OnceLock::new();

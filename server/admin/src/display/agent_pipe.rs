@@ -15,7 +15,6 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::Mutex;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::Duration;
-#[cfg(any(target_os = "macos", test))]
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -130,7 +129,6 @@ impl AgentPipe {
 
     /// Laisse l'agent finir de lui-même (il s'arrête après sa réponse quand il n'a plus d'écran),
     /// au plus `within`, puis l'arrête. (Mac : l'agent Linux reste en marche tant qu'Admin tourne.)
-    #[cfg(any(target_os = "macos", test))]
     pub fn finish(&self, within: Duration) {
         let Some(mut r) = self.running.lock().unwrap().take() else { return };
         let deadline = Instant::now() + within;

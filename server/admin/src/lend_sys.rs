@@ -937,20 +937,11 @@ mod platform {
 
     /// Apps refusées pendant un prêt, même ouvertes par une app permise.
 
-    fn home() -> PathBuf {
-        std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
-    }
-
-    fn own_uid() -> u32 {
-        use std::os::unix::fs::MetadataExt;
-        std::fs::metadata(home()).map(|m| m.uid()).unwrap_or(u32::MAX)
-    }
+    use crate::system::{home, uid as own_uid};
 
     pub fn session_state() -> SessionState {
-        use std::os::unix::fs::MetadataExt;
         // Une autre session (ou la fenêtre de connexion) devant l'écran : pas la nôtre.
-        let console = std::fs::metadata("/dev/console").map(|m| m.uid()).unwrap_or(0);
-        if console != own_uid() {
+        if crate::mac::console_uid().unwrap_or(0) != own_uid() {
             return SessionState::None;
         }
         if crate::launch::platform_session_locked() { SessionState::Locked } else { SessionState::Open }
@@ -1135,14 +1126,7 @@ mod platform {
     use super::linux_rules::{desktop_apps, judge};
     use super::{Rules, SessionState, Watch, parents_first};
 
-    fn home() -> PathBuf {
-        std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
-    }
-
-    fn own_uid() -> u32 {
-        use std::os::unix::fs::MetadataExt;
-        std::fs::metadata("/proc/self").map(|m| m.uid()).unwrap_or(u32::MAX)
-    }
+    use crate::system::{home, uid as own_uid};
 
     fn output(cmd: &str, args: &[&str]) -> Option<String> {
         let out = Command::new(cmd).args(args).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
@@ -1274,7 +1258,7 @@ mod platform {
                     awake.push(child);
                 }
                 if let Ok(child) = Command::new("gnome-session-inhibit")
-                    .args(["--inhibit", "idle:suspend", "--reason", why, "--app-id", "fr.leslignesclaires.kybernow.station", "--inhibit-only"])
+                    .args(["--inhibit", "idle:suspend", "--reason", why, "--app-id", crate::mac::STATION_ID, "--inhibit-only"])
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())

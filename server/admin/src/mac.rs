@@ -14,8 +14,25 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+/// L'identifiant de KyberNow Station (app Mac, et `--app-id` sous Linux) ;
+/// ses services launchd en dérivent (STCOM-08 : une seule écriture de chaque).
+macro_rules! station_id {
+    () => {
+        "fr.leslignesclaires.kybernow.station"
+    };
+}
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const STATION_ID: &str = station_id!();
 /// Service launchd du serveur Kyber (`server/macos/scripts/run-station.sh`).
-pub const KYBER_LABEL: &str = "fr.leslignesclaires.kybernow.station.kyber";
+pub const KYBER_LABEL: &str = concat!(station_id!(), ".kyber");
+/// Service launchd d'Admin.
+pub const ADMIN_LABEL: &str = concat!(station_id!(), ".admin");
+/// Service launchd de l'icône de la barre des menus.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const MENUBAR_LABEL: &str = concat!(station_id!(), ".menubar");
+/// Service launchd de l'applicateur des mises à jour.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const UPDATE_LABEL: &str = concat!(station_id!(), ".update");
 /// Chemin du plist du LaunchAgent de Kyber, s'il n'est pas à sa place habituelle.
 pub const PLIST_ENV: &str = "KYBERNOW_KYBER_PLIST";
 
@@ -31,10 +48,7 @@ pub fn kyber_plist() -> Option<&'static Path> {
             // L'installateur Mac le pose dans les LaunchAgents de l'utilisateur
             // et le redit à Admin par `KYBERNOW_KYBER_PLIST`.
             // Les tests ne regardent pas la Station installée sur le Mac qui les lance.
-            let installed = (!cfg!(test))
-                .then(|| std::env::var_os("HOME"))
-                .flatten()
-                .map(|h| PathBuf::from(h).join(format!("Library/LaunchAgents/{KYBER_LABEL}.plist")));
+            let installed = (!cfg!(test)).then(|| crate::system::home().join(format!("Library/LaunchAgents/{KYBER_LABEL}.plist")));
             let path = std::env::var_os(PLIST_ENV)
                 .filter(|p| !p.is_empty())
                 .map(PathBuf::from)
@@ -53,8 +67,16 @@ pub fn kyber_plist() -> Option<&'static Path> {
 /// Unix (le redémarrage de la Station est commun), servi sur Mac seulement.
 #[cfg(unix)]
 pub fn launchd_domain() -> String {
-    // SAFETY : `getuid` ne lit que l'identité du processus, et réussit toujours.
-    format!("gui/{}", unsafe { libc::getuid() })
+    format!("gui/{}", crate::system::uid())
+}
+
+/// Le compte devant l'écran (propriétaire de `/dev/console`) : un autre que
+/// celui de la Station après un changement rapide d'utilisateur, root à la
+/// fenêtre de connexion. `None` s'il ne se lit pas.
+#[cfg(target_os = "macos")]
+pub fn console_uid() -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata("/dev/console").ok().map(|m| m.uid())
 }
 
 /// `launchctl` : une erreur s'il ne se lance pas (jamais compté comme un succès, STMAC-07).
