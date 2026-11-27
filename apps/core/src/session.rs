@@ -1404,6 +1404,7 @@ impl Session {
     }
 
     fn launch(params: SessionParams, screens: Option<Screens>, platform: Arc<dyn Platform>) -> Arc<Session> {
+        crate::ffi::install_panic_hook();
         let (tx, rx) = mpsc::channel();
         let latency = Arc::new(LatencyTracker::new());
         let has_image = Arc::new(AtomicBool::new(false));

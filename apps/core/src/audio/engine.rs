@@ -139,6 +139,7 @@ pub struct AudioEngine {
 
 impl AudioEngine {
     pub fn new(clock: Arc<dyn Clock>) -> Self {
+        crate::ffi::install_panic_hook();
         Self::with_order(clock, OutputOrder::Opus)
     }
 

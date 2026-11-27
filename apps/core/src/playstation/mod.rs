@@ -36,3 +36,46 @@ pub mod stream;
 pub mod takion;
 #[cfg(test)]
 mod test_vectors;
+
+/// Un chiffre hexadécimal (octet ASCII).
+pub(crate) fn hex_digit(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Deux chiffres hexadécimaux en un octet.
+pub(crate) fn hex_pair(hi: u8, lo: u8) -> Option<u8> {
+    Some(hex_digit(hi)? << 4 | hex_digit(lo)?)
+}
+
+/// Texte hexadécimal (espaces autour ignorés), lu octet par octet : un texte
+/// non ASCII est refusé au lieu de faire paniquer une découpe de `&str` au
+/// milieu d'un caractère (COEUR-07).
+pub(crate) fn hex_decode(text: &str) -> Option<Vec<u8>> {
+    let bytes = text.trim().as_bytes();
+    if bytes.len() % 2 != 0 {
+        return None;
+    }
+    bytes.chunks_exact(2).map(|p| hex_pair(p[0], p[1])).collect()
+}
+
+#[cfg(test)]
+mod hex_tests {
+    use super::*;
+
+    #[test]
+    fn hexadecimal_sur_des_octets() {
+        assert_eq!(hex_decode(" 0aFf "), Some(vec![0x0a, 0xff]));
+        assert_eq!(hex_decode("abc"), None);
+        // Non ASCII : ni panique, ni valeur.
+        assert_eq!(hex_decode("é0"), None);
+        assert_eq!(hex_decode("0\u{fffd}0"), None);
+        assert_eq!(hex_decode("ab\u{fffd}c"), None);
+        // `from_str_radix` acceptait le signe.
+        assert_eq!(hex_decode("+f"), None);
+    }
+}

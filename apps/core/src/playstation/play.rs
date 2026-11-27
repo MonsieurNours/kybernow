@@ -199,6 +199,7 @@ impl Play {
         on_state: Box<dyn Fn(PlayState) + Send>,
         on_pad: Box<dyn Fn(PadEvent) + Send + Sync>,
     ) -> Self {
+        crate::ffi::install_panic_hook();
         let at: Endpoint = at.into();
         let stop = Arc::new(AtomicBool::new(false));
         let want_key = Arc::new(AtomicBool::new(false));

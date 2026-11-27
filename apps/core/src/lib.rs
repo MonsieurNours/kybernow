@@ -13,6 +13,7 @@ pub mod autotest;
 pub mod audio;
 pub mod camera;
 pub mod console;
+pub mod ffi;
 pub mod focus;
 pub mod gamepads;
 pub mod i18n;

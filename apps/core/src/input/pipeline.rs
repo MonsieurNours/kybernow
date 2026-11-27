@@ -263,6 +263,7 @@ impl InputPipeline {
     }
 
     fn build(kynput: Pipeline, sink: Arc<dyn PacketSink>, options: Options, pointer: Arc<PointerLayer>, platform: Arc<dyn InputPlatform>, clock: Arc<dyn Clock>) -> Arc<Self> {
+        crate::ffi::install_panic_hook();
         // Créée sur le fil de session (`Platform::input_pipeline`) : ses lignes
         // portent le nom de l'ordinateur de la session.
         let label = journal::current().unwrap_or_default();
@@ -1308,6 +1309,9 @@ impl HandlerConsumerInterface for CursorHandler {
 /// livre, dédoublonnée : `None` quand elle n'a pas changé, ou qu'elle est
 /// entièrement transparente (lecteurs vidéo, certains jeux : le Mac
 /// garderait un pointeur invisible ; on garde la forme précédente).
+/// Côté le plus grand d'une forme de pointeur acceptée.
+const CURSOR_MAX: u32 = 1024;
+
 pub(crate) fn decode_cursor(c: Cursor, last_shape: &mut Option<u64>) -> RemoteCursor {
     let position = (c.x, c.y);
     let visible = c.visible;
@@ -1315,10 +1319,17 @@ pub(crate) fn decode_cursor(c: Cursor, last_shape: &mut Option<u64>) -> RemoteCu
     let CursorData::Raw(raw) = c.data else {
         return RemoteCursor { visible, image: None, position };
     };
-    if width == 0 || height == 0 || raw.len() < (width * height) as usize {
+    // Taille contrôlée sans débordement (65537 × 65537 rebouclait à 131 073
+    // et passait le contrôle, COEUR-08), et plafonnée : aucun pointeur ne
+    // dépasse 1024 × 1024, même agrandi.
+    let count = match width.checked_mul(height) {
+        Some(n) if width > 0 && height > 0 && width <= CURSOR_MAX && height <= CURSOR_MAX => n as usize,
+        _ => return RemoteCursor { visible, image: None, position },
+    };
+    if raw.len() < count {
         return RemoteCursor { visible, image: None, position };
     }
-    let pixels = &raw[..(width * height) as usize];
+    let pixels = &raw[..count];
     let mut hasher = DefaultHasher::new();
     width.hash(&mut hasher);
     height.hash(&mut hasher);
@@ -1337,8 +1348,8 @@ pub(crate) fn decode_cursor(c: Cursor, last_shape: &mut Option<u64>) -> RemoteCu
             width,
             height,
             argb: pixels.into(),
-            hot_x: c.xhot,
-            hot_y: c.yhot,
+            hot_x: c.xhot.min(width - 1),
+            hot_y: c.yhot.min(height - 1),
         }),
         position,
     }
@@ -1864,5 +1875,27 @@ mod tests {
         assert!(r.image.is_none(), "forme entièrement transparente : gardée");
         let r = decode_cursor(cursor(vec![0, 0xFF00_0000], 4), &mut last);
         assert_eq!(r.image.map(|s| (s.hot_x, s.width)), Some((1, 2)));
+    }
+
+    /// COEUR-08 : une taille qui déborderait est refusée, pas reprise à
+    /// moitié ; le point actif reste dans la forme.
+    #[test]
+    fn pointeur_trop_grand_refuse() {
+        let cursor = |width: u32, height: u32, n: usize| Cursor {
+            display_id: 1,
+            visible: true,
+            x: 0,
+            y: 0,
+            xhot: 900,
+            yhot: 900,
+            width,
+            height,
+            data: CursorData::Raw(vec![0xFF00_0000; n]),
+        };
+        let mut last = None;
+        assert!(decode_cursor(cursor(65537, 65537, 131_073), &mut last).image.is_none());
+        assert!(decode_cursor(cursor(2048, 1, 2048), &mut last).image.is_none());
+        let s = decode_cursor(cursor(32, 32, 1024), &mut last).image.unwrap();
+        assert_eq!((s.hot_x, s.hot_y, s.argb.len()), (31, 31, 1024));
     }
 }

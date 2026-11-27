@@ -166,13 +166,7 @@ impl std::fmt::Debug for Keys {
     }
 }
 
-fn hex_decode(text: &str) -> Option<Vec<u8>> {
-    let text = text.trim();
-    if text.len() % 2 != 0 {
-        return None;
-    }
-    (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).ok()).collect()
-}
+use super::hex_decode;
 
 fn session_path(target: Target) -> &'static str {
     match target {

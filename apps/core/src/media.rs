@@ -79,6 +79,11 @@ struct SinkState {
 }
 
 extern "C" fn trampoline(packet: *const MediaPacket, userdata: *mut c_void) {
+    // Appelé par Kyber (C) : une panique de l'app ou du cœur n'en sort pas.
+    crate::ffi::guard("rappel des paquets de Kyber", (), || unsafe { trampoline_inner(packet, userdata) })
+}
+
+unsafe fn trampoline_inner(packet: *const MediaPacket, userdata: *mut c_void) {
     if packet.is_null() || userdata.is_null() {
         return;
     }

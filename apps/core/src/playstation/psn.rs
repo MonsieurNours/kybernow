@@ -73,8 +73,10 @@ fn percent_decode(text: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(b) = u8::from_str_radix(&text[i + 1..i + 3], 16) {
+        // Sur les octets (un `%` suivi d'un caractère non ASCII faisait
+        // paniquer la découpe du texte, COEUR-07) ; un `%xx` final compte.
+        if bytes[i] == b'%' && i + 3 <= bytes.len() {
+            if let Some(b) = super::hex_pair(bytes[i + 1], bytes[i + 2]) {
                 out.push(b);
                 i += 3;
                 continue;
@@ -142,6 +144,16 @@ pub fn account(code: &str) -> Result<Account, PsnError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// COEUR-07 : texte non ASCII sans panique ; `%xx` final décodé.
+    #[test]
+    fn decodage_sans_panique() {
+        assert_eq!(percent_decode("%aé"), "%aé");
+        assert_eq!(percent_decode("é%41"), "éA");
+        assert_eq!(percent_decode("a%2F"), "a/");
+        assert_eq!(percent_decode("a%2"), "a%2");
+        assert_eq!(percent_decode("a+b"), "a b");
+    }
 
     #[test]
     fn code_from_redirect_url() {
