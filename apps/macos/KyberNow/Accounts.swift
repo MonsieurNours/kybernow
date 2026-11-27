@@ -599,7 +599,7 @@ final class AccountStore: ObservableObject {
         guard !changed.isEmpty else { return }
         var keys = pending[account.key]?[c.station] ?? SyncedKeys()
         if synced[account.key]?.first(where: { $0.station == c.station }) == nil,
-           let all = Accounts.allKeys(new.settings.syncedBase, immersive: new.settings.syncedImmersive) {
+           let all = Accounts.allKeys(new.settings.syncedBase, immersive: new.settings.syncedImmersive, pen: new.settings.syncedPen) {
             keys.merge(all)
         }
         keys.merge(changed)
@@ -803,11 +803,21 @@ extension ConnectionSettings {
         #endif
     }
 
+    /// « Stylet : Pression / Souris » à synchroniser : Mac, iPhone et iPad
+    /// (l'Apple TV n'a pas de stylet : elle ne l'envoie ni ne le touche).
+    var syncedPen: PenMode? {
+        #if os(tvOS)
+        return nil
+        #else
+        return pen
+        #endif
+    }
+
     /// Les clés changées de `self` à `new` (apps/core/README.md, « Réglages
     /// synchronisés », 4) : un profil → `profile` ; « Personnalisé » → le
     /// profil nul, le format, le 4:4:4 et le débit ; le format, le 4:4:4 ou
     /// le débit d'un réglage personnalisé → la clé et le profil nul ; le HDR ;
-    /// le mode immersif (Mac).
+    /// le mode immersif (Mac) ; le stylet (sauf Apple TV).
     func syncedChanges(to new: ConnectionSettings) -> SyncedKeys {
         var k = SyncedKeys()
         if new.profile != profile {
@@ -827,13 +837,16 @@ extension ConnectionSettings {
         #if os(macOS)
         if new.immersive != immersive { k.immersive = new.immersive.syncedKey }
         #endif
+        #if !os(tvOS)
+        if new.pen != pen { k.pen = new.pen.rawValue }
+        #endif
         return k
     }
 
     /// Les clés reçues du compte, ramenées à ce que cet appareil décode (le
     /// cœur, `Accounts.apply`) : un profil prend ses réglages sur cet
     /// appareil (et son transport), sinon le format, le 4:4:4 et le débit ;
-    /// le HDR ; le mode immersif sur Mac.
+    /// le HDR ; le mode immersif sur Mac ; le stylet (sauf Apple TV).
     mutating func applySynced(_ keys: SyncedKeys) {
         // Auto vient du test de chaque appareil : sans test ici, les réglages de l'image restent.
         let untestedAuto = keys.profile == Profile.auto.rawValue && auto == nil
@@ -851,6 +864,9 @@ extension ConnectionSettings {
         }
         #if os(macOS)
         if let i = keys.immersive.flatMap(ImmersiveChoice.init(syncedKey:)) { immersive = i }
+        #endif
+        #if !os(tvOS)
+        if let p = keys.pen.flatMap(PenMode.init(rawValue:)) { pen = p }
         #endif
     }
 }

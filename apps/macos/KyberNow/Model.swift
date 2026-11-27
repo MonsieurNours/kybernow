@@ -271,6 +271,13 @@ struct ConnectionSettings: Codable, Hashable {
     /// (puce de la barre, tuile, rubrique Son). À part du profil. L'Apple TV
     /// le lit et le garde sans s'en servir.
     var microphone = false
+    /// « Stylet : Pression / Souris » (docs/link-ui.md, « Stylet ») : le
+    /// stylet de cet appareil (tablette graphique, Apple Pencil) part en vrai
+    /// stylet ou en souris ; Pression par défaut, gardé pour cet ordinateur
+    /// (ligne du menu « Souris », tuile, ⌃⌥⌘P, rubrique Commandes) et
+    /// synchronisé (clé `pen`). À part du profil. L'Apple TV le lit et le
+    /// garde sans s'en servir.
+    var pen: PenMode = .pressure
     /// « Débit adaptatif » (docs/profil-auto.md) : allumé par défaut, gardé
     /// pour cet ordinateur ; le débit baisse quand le réseau sature, puis
     /// remonte. À part du profil : le changer ne fait pas passer en « Personnalisé ».
@@ -438,7 +445,7 @@ extension ConnectionSettings {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
         case autoReconnect, commandAsControl, immersive, audio, vsync, limit4K, screens, mouse, clipboard, keepLastImage, gamepad
         case screenPad, screenPadLayout, screenPadSize, screenPadOpacity, screenPadHaptics, hdr
-        case adaptive, autoResult, encoderMax, pyrowaveRateFollows, microphone, camera1080
+        case adaptive, autoResult, encoderMax, pyrowaveRateFollows, microphone, camera1080, pen
     }
 
     init(from decoder: Decoder) throws {
@@ -472,6 +479,7 @@ extension ConnectionSettings {
         hdr = (try? c.decodeIfPresent(Bool.self, forKey: .hdr)) ?? hdr
         adaptive = (try? c.decodeIfPresent(Bool.self, forKey: .adaptive)) ?? adaptive
         microphone = (try? c.decodeIfPresent(Bool.self, forKey: .microphone)) ?? microphone
+        pen = (try? c.decodeIfPresent(PenMode.self, forKey: .pen)) ?? pen
         autoResult = try? c.decodeIfPresent(String.self, forKey: .autoResult)
         encoderMax = (try? c.decodeIfPresent(Int.self, forKey: .encoderMax)).flatMap { $0 > 0 ? $0 : nil }
         pyrowaveRateFollows = (try? c.decodeIfPresent(Bool.self, forKey: .pyrowaveRateFollows)) ?? pyrowaveRateFollows

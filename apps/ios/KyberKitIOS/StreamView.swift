@@ -500,6 +500,7 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
         // Apple Pencil au-dessus de l'écran (iPad qui le permet) : le survol du stylet.
         if g.zOffset > 0 || (pencilHovering && (g.state == .ended || g.state == .cancelled)) {
             pencilHovering = g.state != .ended && g.state != .cancelled
+            if pencilHovering { pencilArrived() }
             guard imageHost == nil, let p = hostPoint(g.location(in: self)) else { return }
             let x = Int16(clamping: Int(p.x.rounded())), y = Int16(clamping: Int(p.y.rounded()))
             var pen = InputPipeline.Pen()
@@ -538,8 +539,28 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     /// Le Pencil est parti en souris (Station d'avant) : son clic est tenu.
     private var pencilMouseDown = false
 
+    /// L'Apple Pencil touche ou survole l'image (la tuile « Stylet » de la
+    /// barre a alors sa place, si l'ordinateur le reçoit) ; une fois par vue.
+    public var onPencil: (() -> Void)?
+    /// Clavier de l'iPad : ⌃⌥⌘ + une de ces lettres va à `onShortcut` au
+    /// lieu de partir à l'ordinateur.
+    public var shortcutLetters: Set<String> = [] {
+        didSet { keyboardMouse.shortcutLetters = shortcutLetters }
+    }
+    public var onShortcut: ((String) -> Void)? {
+        didSet { keyboardMouse.onShortcut = onShortcut }
+    }
+    private var pencilSeen = false
+
+    private func pencilArrived() {
+        guard !pencilSeen else { return }
+        pencilSeen = true
+        onPencil?()
+    }
+
     public override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         if pencilTouch == nil, let t = touches.first(where: { $0.type == .pencil }) {
+            pencilArrived()
             pencilTouch = t
             pencil(t, contact: true)
         }

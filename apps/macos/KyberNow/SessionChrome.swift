@@ -715,7 +715,7 @@ private struct SessionBar: View {
                 if moved.contains(.mouse) {
                     more(.mouse, moved)
                 } else {
-                    GlassMenu(items: mouseItems) {
+                    GlassMenu(items: mouseItems, onOpen: { session.refreshPen() }) {
                         chip(icon: session.mouseCaptured ? "crosshair" : "cursor", text: mouseLabel, caret: true, compact: compact)
                     }
                     .help("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
@@ -790,7 +790,7 @@ private struct SessionBar: View {
             if moved.contains(.mouse) {
                 more(.mouse, moved)
             } else {
-                GlassMenu(items: mouseItems) {
+                GlassMenu(items: mouseItems, onOpen: { session.refreshPen() }) {
                     chip(icon: session.mouseCaptured ? "crosshair" : "cursor", text: mouseLabel, caret: true, compact: compact)
                 }
                 .help("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
@@ -913,9 +913,17 @@ private struct SessionBar: View {
         }
     }
 
+    /// Les choix de la souris, puis la ligne « Stylet » (Pression, Souris)
+    /// séparée d'un trait, quand le cœur la montre (docs/link-ui.md, « Stylet »).
     private var mouseItems: [GlassMenuItem] {
-        MouseChoice.allCases.map { choice in
+        let mouse: [GlassMenuItem] = MouseChoice.allCases.map { choice in
             .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
+        }
+        guard session.penShown else { return mouse }
+        let pen = session.pen
+        return mouse + pen.choices.enumerated().map { i, choice in
+            GlassMenuItem(id: "pen-\(choice.mode.rawValue)", title: choice.label, checked: choice.mode == pen.mode,
+                          help: pen.help + " (⌃⌥⌘P)", section: i == 0 ? pen.title : nil) { session.setPenMode(choice.mode) }
         }
     }
 
@@ -973,7 +981,7 @@ private struct SessionBar: View {
             if moved.contains(.mouse) {
                 more(.mouse, moved)
             } else {
-                GlassMenu(items: mouseItems) {
+                GlassMenu(items: mouseItems, onOpen: { session.refreshPen() }) {
                     chip(icon: session.mouseCaptured ? "crosshair" : "cursor", text: mouseLabel, caret: true, compact: compact)
                 }
                 .help("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")

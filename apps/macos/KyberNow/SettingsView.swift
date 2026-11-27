@@ -545,6 +545,28 @@ private struct SettingsContent: View {
         }
     }
 
+    /// « Stylet : Pression / Souris » (docs/link-ui.md, « Stylet ») : textes
+    /// du cœur, montré même sans tablette ; en session avec cet ordinateur,
+    /// la session l'applique tout de suite.
+    private var penRow: some View {
+        let texts = PenView.settings(s.pen)
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(texts.title).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
+            Segmented(
+                options: texts.choices.map { ($0.mode, $0.label) },
+                selection: Binding(get: { s.pen }, set: { m in if let m { setPen(m) } }),
+                height: 30,
+                fill: true
+            )
+            Text(texts.help).font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func setPen(_ mode: PenMode) {
+        update { $0.pen = mode }
+        AppModel.shared.sessions.session(for: host.id)?.setPenMode(mode)
+    }
+
     private var can444: Bool { ConnectionSettings.decodes444(s.codec) }
 
     /// La puce « HDR » de cet ordinateur sur l'écran de cette fenêtre.
@@ -726,6 +748,7 @@ private struct SettingsContent: View {
                               isOn: Binding(get: { s.commandAsControl }, set: { v in update { $0.commandAsControl = v } }))
                 }
                 immersiveRow
+                penRow
                 toggleRow(String(localized: "Presse-papiers partagé"),
                           String(localized: "Le texte copié sur ce Mac se colle sur l'ordinateur, et inversement, jusqu'à 60 Ko. Admin peut l'interdire dans un sens ou dans l'autre."),
                           isOn: Binding(get: { s.clipboard }, set: { v in update { $0.clipboard = v } }))

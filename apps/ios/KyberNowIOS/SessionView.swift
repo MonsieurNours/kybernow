@@ -729,6 +729,8 @@ struct SessionBar: View {
                     if session.cameraOffered { cameraMenu }
                     // Le clavier et la souris : pas pour un invité à qui l'hôte ne les a pas donnés.
                     if keyboardAndMouse { touchAndMouse }
+                    // « Stylet » (docs/link-ui.md) : l'Apple Pencil a servi et l'ordinateur reçoit le stylet.
+                    if keyboardAndMouse, session.penShown { penItem }
                     screenAndOffer
                     if keyboardAndMouse { keysAndKeyboard }
                     // La manette à l'écran : pour un invité, seulement quand il joue.
@@ -891,6 +893,22 @@ struct SessionBar: View {
         .accessibilityLabel(Text(verbatim: "\(MicText.label), \(session.micSubtitle)"))
         .accessibilityHint(Text(session.mic.reason ?? ""))
         .accessibilityAddTraits(.isToggle)
+    }
+
+    /// « Stylet » : sous-titre « Pression » ou « Souris » (textes du cœur) ;
+    /// un toucher bascule, retenu pour l'ordinateur.
+    private var penItem: some View {
+        let pen = session.pen
+        return Button { session.togglePenMode() } label: {
+            VStack(spacing: 2) {
+                Icon(pen.mode == .mouse ? "cursor" : "pen-nib", size: 18).foregroundStyle(Theme.accentLight)
+                Text(pen.label).font(Theme.sans(9.5)).foregroundStyle(Theme.text2).lineLimit(1)
+            }
+            .frame(minWidth: 48, minHeight: 44)
+            .padding(.horizontal, 4)
+        }
+        .accessibilityLabel(Text(verbatim: "\(pen.title), \(pen.label)"))
+        .accessibilityHint(Text(pen.help))
     }
 
     /// « HDR » cochable : le changer relance l'image ; inactif, il dit sa raison.
