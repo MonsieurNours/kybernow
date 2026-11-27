@@ -827,6 +827,13 @@ final class HostStore: ObservableObject {
         return host
     }
 
+    /// Même règle, l'une ou l'autre absente : jamais la même (MAC-20 : une seule
+    /// règle pour toutes les comparaisons de l'app, au lieu de `==`).
+    static func sameFingerprint(_ a: String?, _ b: String?) -> Bool {
+        guard let a, let b else { return false }
+        return sameFingerprint(a, b)
+    }
+
     /// Deux empreintes d'Admin sont la même : sans `sha256:`, sans deux-points, sans casse.
     static func sameFingerprint(_ a: String, _ b: String) -> Bool {
         func normal(_ s: String) -> String {

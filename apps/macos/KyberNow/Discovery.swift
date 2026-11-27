@@ -4,6 +4,7 @@
 
 import Combine
 import Foundation
+import KyberKit
 import Network
 
 /// Un ordinateur trouvé, pas encore ajouté.
@@ -59,14 +60,41 @@ final class Discovery: ObservableObject {
             }
             Task { @MainActor in self?.found = list.sorted { $0.name < $1.name } }
         }
+        // Échec (accès au réseau local refusé puis accordé, mDNS relancé) :
+        // relancé 3 s plus tard au lieu de rester muet jusqu'au prochain
+        // lancement (MAC-21).
+        browser.stateUpdateHandler = { [weak self, weak browser] state in
+            guard case let .failed(error) = state else { return }
+            Task { @MainActor in
+                guard let self, let browser, self.browser === browser else { return }
+                KyberLog.app.error("découverte : \(String(describing: error), privacy: .public), relancée dans 3 s")
+                browser.cancel()
+                self.browser = nil
+                self.restart?.cancel()
+                let again = DispatchWorkItem { [weak self] in
+                    guard let self, self.wanted else { return }
+                    self.start()
+                }
+                self.restart = again
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: again)
+            }
+        }
         browser.start(queue: .main)
         self.browser = browser
+        wanted = true
     }
 
     func stop() {
+        wanted = false
+        restart?.cancel()
+        restart = nil
         browser?.cancel()
         browser = nil
     }
+
+    /// Démarrée par l'app (et pas arrêtée depuis) : une relance après échec a lieu.
+    private var wanted = false
+    private var restart: DispatchWorkItem?
 
     /// Adresse IPv4 et port d'un service annoncé.
     static func resolve(_ found: Found) async -> Candidate? {

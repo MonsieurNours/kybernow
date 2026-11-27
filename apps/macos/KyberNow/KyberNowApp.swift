@@ -282,7 +282,7 @@ final class AppModel: ObservableObject {
     }
 
     private func known(_ c: Candidate) -> Bool {
-        store.hosts.contains { ($0.consoleFingerprint != nil && $0.consoleFingerprint == c.expected) || ($0.address == c.address && $0.consolePort == c.port) }
+        store.hosts.contains { HostStore.sameFingerprint($0.consoleFingerprint, c.expected) || ($0.address == c.address && $0.consolePort == c.port) }
     }
 
     /// « Se connecter » : la session de cet ordinateur dans sa fenêtre. Déjà

@@ -183,7 +183,7 @@ private struct NetworkTab: View {
             ForEach(discovery.found.filter { resolved[$0.id] != nil }) { f in
                 let c = resolved[f.id]!
                 let announced = f.fingerprint == nil ? String(localized: "annonce sans empreinte") : String(localized: "empreinte annoncée")
-                let known = app.store.hosts.contains { ($0.consoleFingerprint != nil && $0.consoleFingerprint == f.fingerprint) || ($0.address == c.address && $0.consolePort == c.port) }
+                let known = app.store.hosts.contains { HostStore.sameFingerprint($0.consoleFingerprint, f.fingerprint) || ($0.address == c.address && $0.consolePort == c.port) }
                 HStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(f.name).font(Theme.sans(16, .semibold)).foregroundStyle(Theme.text)
