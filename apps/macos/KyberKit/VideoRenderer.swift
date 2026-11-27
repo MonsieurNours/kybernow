@@ -250,7 +250,8 @@ final class VideoRenderer {
 
     /// Branche la couche vidéo de la surface (nil : tout passe par Metal).
     func attachVideo(_ layer: HDRVideoLayer?) {
-        renderQueue.sync {
+        // Sans attendre la file de rendu, comme `attach(to:)` (MAC-27).
+        renderQueue.async { [self] in
             if video !== layer { video?.clear() }
             video = layer
             apply(chain, edr: appliedEDR, to: self.layer)
@@ -449,9 +450,13 @@ final class VideoRenderer {
 
     /// Dessine dans `layer` à partir de cet appel (nil : dans une couche à soi, hors écran).
     func attach(to layer: CAMetalLayer?) {
-        renderQueue.sync {
-            self.layer = layer ?? CAMetalLayer()
-            configure(self.layer)
+        // Sans attendre : la file de rendu peut être dans `nextDrawable`
+        // jusqu'à 1 s (fenêtre cachée, transition plein écran) ; le fil
+        // principal ne s'y bloque plus (MAC-27). La couche change à l'image suivante.
+        let next = layer ?? CAMetalLayer()
+        renderQueue.async { [self] in
+            self.layer = next
+            configure(next)
         }
     }
 
