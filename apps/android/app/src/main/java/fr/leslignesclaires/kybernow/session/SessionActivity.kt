@@ -170,6 +170,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private var hdrScreen = HdrScreen.SDR
     private var hdrInfo: HostInfo? = null
     private var hdrWatch: AutoCloseable? = null
+    /** L'écran où se trouve la fenêtre (AND-12) : déplacée sur un autre, mode, fréquence et HDR sont refaits pour lui. */
+    private var displayId = -1
+    private var displayWatch: android.hardware.display.DisplayManager.DisplayListener? = null
 
     /**
      * Micro (docs/micro.md) : la capture (tant que le cœur dit `waiting` ou `on`), l'avis « Micro envoyé à {nom}. » dû
@@ -425,6 +428,46 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         }
     }
 
+    /**
+     * Mode bureau : la fenêtre passe sur un autre écran sans recréer l'activité (`density`, `screenSize` déclarés). Le
+     * mode préféré visait l'ancien écran, la fréquence et le suivi du HDR aussi : tout est refait pour le nouveau, et la
+     * surface redonnée au cœur avec sa fréquence (AND-12).
+     */
+    private fun watchDisplay() {
+        displayId = display?.displayId ?: -1
+        val dm = getSystemService(android.hardware.display.DisplayManager::class.java) ?: return
+        val l = object : android.hardware.display.DisplayManager.DisplayListener {
+            override fun onDisplayAdded(id: Int) = checkDisplay()
+            override fun onDisplayRemoved(id: Int) = checkDisplay()
+            override fun onDisplayChanged(id: Int) = checkDisplay()
+        }
+        dm.registerDisplayListener(l, main)
+        displayWatch = l
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        checkDisplay()
+    }
+
+    private fun checkDisplay() {
+        if (!::state.isInitialized || handle == 0L) return
+        val d = display ?: return
+        if (d.displayId == displayId) return
+        displayId = d.displayId
+        android.util.Log.i("KyberNow", "écran : fenêtre passée sur l'écran ${d.displayId}")
+        applyDisplay()
+        val now = HdrScreen.of(d)
+        if (now != hdrScreen) {
+            hdrScreen = now
+            Native.sessionScreenHdrChanged(handle, now.hdr, now.luminance?.json()?.toString())
+            updateHdrState()
+        }
+        watchHdr()
+        val holder = surfaceView.holder
+        if (holder.surface?.isValid == true) surfaceCreated(holder)
+    }
+
     private fun audioChannels(): Int = when (host.settings.audio) {
         "computer" -> 0
         "stereo" -> 2
@@ -532,6 +575,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         updateHdrState()
         refreshHdr()
         watchHdr()
+        watchDisplay()
         // Micro retenu allumé pour cet ordinateur : dit au cœur juste après le départ ; l'autorisation perdue entre-temps
         // (« Seulement cette fois ») est redemandée, sans avis à l'arrivée.
         if (ui.micChoice) {
@@ -765,6 +809,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (::haptics.isInitialized) haptics.stop()
         hdrWatch?.close()
         hdrWatch = null
+        displayWatch?.let { getSystemService(android.hardware.display.DisplayManager::class.java)?.unregisterDisplayListener(it) }
+        displayWatch = null
         if (::ui.isInitialized && ui.micShown) micCapture.stop()
         linkWatch?.let { runCatching { getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         linkWatch = null
