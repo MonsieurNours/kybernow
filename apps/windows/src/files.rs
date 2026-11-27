@@ -44,6 +44,51 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
     done
 }
 
+/// Une écriture préparée sous le verrou de son état (`serialize`), faite
+/// après l'avoir lâché (`write_versioned`) : les lectures de l'état
+/// n'attendent plus le disque (`sync_all`).
+#[derive(Debug)]
+pub struct Pending {
+    path: PathBuf,
+    version: u64,
+    data: Vec<u8>,
+}
+
+/// Prépare l'écriture de `value` dans `path` ; son numéro suit l'ordre des
+/// appels (pris sous le verrou de l'état, il dit quel contenu est le plus récent).
+pub fn serialize<T: Serialize + ?Sized>(path: &Path, value: &T) -> Option<Pending> {
+    static VERSION: AtomicU64 = AtomicU64::new(1);
+    match serde_json::to_vec_pretty(value) {
+        Ok(data) => Some(Pending { path: path.to_path_buf(), version: VERSION.fetch_add(1, Ordering::SeqCst), data }),
+        Err(e) => {
+            log::error!("{} : {e}", path.display());
+            None
+        }
+    }
+}
+
+/// Écrit une écriture préparée, sauf si une plus récente du même fichier est
+/// déjà sur le disque (deux fils qui écrivent dans le désordre).
+pub fn write_versioned(p: Pending) -> bool {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    static WRITTEN: Mutex<Option<HashMap<PathBuf, u64>>> = Mutex::new(None);
+    let mut written = WRITTEN.lock().unwrap_or_else(|e| e.into_inner());
+    let last = written.get_or_insert_with(HashMap::new).entry(p.path.clone()).or_insert(0);
+    if *last > p.version {
+        return false;
+    }
+    *last = p.version;
+    let name = p.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    match write_atomic(&p.path, &p.data) {
+        Ok(()) => true,
+        Err(e) => {
+            log::error!("{name} : enregistrement impossible ({e})");
+            false
+        }
+    }
+}
+
 /// `value` en JSON lisible dans `path` ; une erreur est notée au journal.
 pub fn save_json<T: Serialize + ?Sized>(path: &Path, value: &T) -> bool {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -123,6 +168,19 @@ mod tests {
         assert!(!p.exists(), "le fichier abîmé est mis de côté");
         let aside: Vec<_> = std::fs::read_dir(&d).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         assert!(aside.iter().any(|n| n.starts_with("app.json.") && n.ends_with(".illisible")), "{aside:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn ecriture_la_plus_recente_gagne() {
+        let d = dir("versions");
+        let p = d.join("computers.json");
+        let old = serialize(&p, &vec![1]).unwrap();
+        let new = serialize(&p, &vec![2]).unwrap();
+        assert!(write_versioned(new));
+        // Préparée avant, arrivée après : pas écrite.
+        assert!(!write_versioned(old));
+        assert_eq!(load_json::<Vec<i32>>(&p), Some(vec![2]));
         let _ = std::fs::remove_dir_all(&d);
     }
 

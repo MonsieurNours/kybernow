@@ -552,9 +552,20 @@ pub(crate) fn write_prefs(prefs: &Prefs) {
 const INSTALLER: &[&str] = &["KyberNow-Link-Setup.exe", "KyberNow-Client-Setup.exe"];
 
 impl UiState {
+    /// `f` sur les ordinateurs ; ce qu'elle a enregistré (`Store::save`) est
+    /// écrit après avoir lâché le verrou : `views()`, le menu de l'icône et le
+    /// relevé n'attendent plus le disque.
     fn with_store<T>(&self, f: impl FnOnce(&mut Store) -> T) -> T {
-        let mut s = self.store.locked();
-        f(s.get_or_insert_with(Store::load))
+        let (out, pending) = {
+            let mut s = self.store.locked();
+            let s = s.get_or_insert_with(Store::load);
+            let out = f(s);
+            (out, s.take_pending())
+        };
+        for p in pending {
+            crate::files::write_versioned(p);
+        }
+        out
     }
 
     fn views(&self) -> Vec<ComputerView> {

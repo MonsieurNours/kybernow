@@ -238,6 +238,9 @@ struct AccountsFile {
 
 pub struct Store {
     path: PathBuf,
+    /// Écritures préparées par `save` sous le verrou de l'app, faites après
+    /// (`take_pending`, `files::write_versioned`).
+    pending: std::cell::RefCell<Vec<crate::files::Pending>>,
     pub computers: Vec<Computer>,
     /// La dernière liste des ordinateurs des comptes connectés (`accounts.json`).
     pub account_computers: Vec<AccountComputer>,
@@ -250,17 +253,22 @@ impl Store {
         let computers = crate::files::load_json(&path).unwrap_or_default();
         // Illisible : la liste revient de toute façon au prochain relevé des comptes.
         let account_computers = crate::files::load_json::<AccountsFile>(&accounts_path(&path)).map(|f| f.computers).unwrap_or_default();
-        Self { path, computers, account_computers }
+        Self { path, pending: Default::default(), computers, account_computers }
     }
 
     /// Garde la dernière liste des ordinateurs des comptes (`accounts.json`).
     pub fn save_account_computers(&self) {
         let file = AccountsFile { computers: self.account_computers.clone() };
-        crate::files::save_json(&accounts_path(&self.path), &file);
+        self.pending.borrow_mut().extend(crate::files::serialize(&accounts_path(&self.path), &file));
     }
 
     pub fn save(&self) {
-        crate::files::save_json(&self.path, &self.computers);
+        self.pending.borrow_mut().extend(crate::files::serialize(&self.path, &self.computers));
+    }
+
+    /// Les écritures préparées par `save`, à faire hors du verrou.
+    pub fn take_pending(&self) -> Vec<crate::files::Pending> {
+        std::mem::take(&mut self.pending.borrow_mut())
     }
 
     pub fn get(&self, id: &str) -> Option<&Computer> {
