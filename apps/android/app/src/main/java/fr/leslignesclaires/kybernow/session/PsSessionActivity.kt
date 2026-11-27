@@ -228,17 +228,7 @@ class PsSessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionAc
         app.gamepads.start()
     }
 
-    private fun fitSurface(vw: Int, vh: Int) {
-        val root = surfaceView.parent as View
-        val (W, H) = root.width to root.height
-        if (W == 0 || H == 0 || vw == 0 || vh == 0) return
-        val k = min(W.toDouble() / vw, H.toDouble() / vh)
-        val lp = surfaceView.layoutParams as FrameLayout.LayoutParams
-        lp.width = (vw * k).roundToInt()
-        lp.height = (vh * k).roundToInt()
-        lp.gravity = Gravity.CENTER
-        surfaceView.layoutParams = lp
-    }
+    private fun fitSurface(vw: Int, vh: Int) = SessionSurface.fit(surfaceView, vw, vh)
 
     // MARK: - Rappels de la partie (fils du cœur)
 
@@ -311,11 +301,7 @@ class PsSessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionAc
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         val s = holder.surface
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            s.setFrameRate(refresh.toFloat(), Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, Surface.CHANGE_FRAME_RATE_ALWAYS)
-        } else {
-            s.setFrameRate(refresh.toFloat(), Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
-        }
+        SessionSurface.frameRate(s, refresh)
         PsNative.setSurface(handle, s, refresh)
         surfaceView.requestFocus()
     }

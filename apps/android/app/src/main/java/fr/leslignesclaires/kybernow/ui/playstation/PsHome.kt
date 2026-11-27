@@ -1,5 +1,6 @@
 package fr.leslignesclaires.kybernow.ui.playstation
 
+import androidx.compose.material3.PlainTooltip
 import android.content.Context
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
@@ -198,7 +199,7 @@ private fun HdrChip(c: PsConsole, state: PsHomeState, actions: PsHomeActions) {
     val help = reason ?: stringResource(R.string.ps_hdr_help)
     androidx.compose.material3.TooltipBox(
         positionProvider = androidx.compose.material3.TooltipDefaults.rememberTooltipPositionProvider(androidx.compose.material3.TooltipAnchorPosition.Below),
-        tooltip = { androidx.compose.material3.PlainTooltip(containerColor = Kn.panel, contentColor = Kn.frost) { Body(help, size = 13f) } },
+        tooltip = { PlainTooltip(containerColor = Kn.panel, contentColor = Kn.frost) { Body(help, size = 13f) } },
         state = androidx.compose.material3.rememberTooltipState(),
     ) {
         GlassButton(stringResource(R.string.ps_hdr), { actions.setHdr(c, !c.hdr) }, Modifier.semantics { stateDescription = desc }, selected = on, enabled = reason == null)

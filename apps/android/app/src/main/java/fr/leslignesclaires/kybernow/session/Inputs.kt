@@ -867,7 +867,7 @@ class PadTouchpad(
     private var clicked = false
 
     fun motion(e: MotionEvent): Boolean {
-        if (!e.isFromSource(InputDevice.SOURCE_TOUCHPAD)) return false
+        if (!e.isFromSource(android.view.InputDevice.SOURCE_TOUCHPAD)) return false
         val d = e.device ?: return false
         val slot = gamepads.pads.value.filter { it.vendorId == d.vendorId && it.productId == d.productId && it.slot >= 0 }.singleOrNull()?.slot ?: return false
         val rx = d.getMotionRange(MotionEvent.AXIS_X, e.source)
