@@ -178,7 +178,7 @@ sed 's/^/    /' "$T/couv"
 MSG="tous les fichiers lus par les recettes sont dans leur empreinte" vrai test "$R" = 0
 MSG="chaque étape a un libellé" vrai test -z "$(for id in $(release_etapes); do [ -n "$(release_libelle "$id")" ] || echo "$id"; done)"
 # L'essai voit bien un manque : chemins retirés exprès.
-for manque in "station_mac	apps/macos/PyroWave" "ios	apps/tvos" "station_linux	apps/macos/kyber-patches" "station	scripts/verrou.sh"; do
+for manque in "station_mac	apps/macos/PyroWave" "ios	apps/tvos" "station_linux	apps/macos/kyber-patches" "station	scripts/verrou.sh" "station_linux	LICENSE"; do
     grep -vxF "$manque" "$T/chemins.tsv" > "$T/manque.tsv"
     MSG="sans « ${manque/	/ : } », le manque est vu" faux couvertes_muet "$T/manque.tsv"
 done
