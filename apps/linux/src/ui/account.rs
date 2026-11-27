@@ -61,17 +61,6 @@ fn heading(cv: &mut Canvas, x0: f32, y: f32, u: f32, eyebrow_text: &str, title: 
 }
 
 /// Le cercle d'attente, à gauche de `x`, centré sur `cy`.
-fn spinner(app: &App, cv: &mut Canvas, x: f32, cy: f32, u: f32) {
-    let t = app.screen_since.elapsed().as_secs_f32();
-    let a0 = if app.reduce_motion { 0.0 } else { t * 4.0 };
-    let pts: Vec<(f32, f32)> = (0..=16)
-        .map(|i| {
-            let a = a0 + i as f32 * 0.28;
-            (x + 9.0 * u + 8.0 * u * a.cos(), cy + 8.0 * u * a.sin())
-        })
-        .collect();
-    cv.polyline(&pts, 2.0 * u, SPECTRE);
-}
 
 /// Le code de téléviseur : les trois étapes, le code, l'attente, le relais ; le QR code à droite.
 fn code(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
@@ -96,7 +85,7 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
         (Some(c), false) => {
             cv.text(x0 - 2.0, y + 60.0 * u, code_style, &c.code);
             y += 84.0 * u;
-            spinner(app, cv, x0, y + 10.0 * u, u);
+            super::widgets::spinner(app, cv, x0 + 9.0 * u, y + 10.0 * u, 8.0 * u, u);
             let n = c.minutes_left(crate::model::now_secs());
             cv.text_fit(x0 + 30.0 * u, y + 16.0 * u, Text::new(Font::Regular, 16.0 * u, MUTED), &waiting_line(n.max(1)), left_w - 30.0 * u);
             y += 40.0 * u;
@@ -105,7 +94,7 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
             // Le code se demande.
             cv.text(x0 - 2.0, y + 60.0 * u, code_style.color(GHOST), "····-····");
             y += 84.0 * u;
-            spinner(app, cv, x0, y + 10.0 * u, u);
+            super::widgets::spinner(app, cv, x0 + 9.0 * u, y + 10.0 * u, 8.0 * u, u);
             y += 40.0 * u;
         }
         (_, true) => {
@@ -144,7 +133,7 @@ fn browser(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) 
             y += cv.paragraph(x0, y + 22.0 * u, Text::new(Font::Regular, 16.0 * u, WARN), m, max, 24.0 * u) + 12.0 * u;
         }
         None => {
-            spinner(app, cv, x0, y + 18.0 * u, u);
+            super::widgets::spinner(app, cv, x0 + 9.0 * u, y + 18.0 * u, 8.0 * u, u);
             cv.text(x0 + 30.0 * u, y + 24.0 * u, Text::new(Font::Regular, 17.0 * u, FROST), tr("Connexion au compte…", "Signing in…"));
             y += 48.0 * u;
         }

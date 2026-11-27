@@ -103,15 +103,15 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
                     }
                 }
                 if let Phase::Reconnecting { attempt, max } = s.phase {
-                    capsule(app, cv, &format!("{} ({attempt}/{max})", tr("Reconnexion…", "Reconnecting…")), true, drop);
+                    capsule(app, cv, &format!("{} ({attempt}/{max})", tr("Reconnexion…", "Reconnecting…")), widgets::Mark::Dot(WARN), drop);
                 } else if let Some((n, t)) = &s.notice
                     && t.elapsed().as_secs_f32() < 4.0
                 {
                     // Les manettes indisponibles : avec l'icône de manette.
                     if n == crate::app::pads_unavailable_notice() {
-                        capsule_icon(app, cv, n, Icon::Gamepad, drop);
+                        capsule(app, cv, n, widgets::Mark::Icon(Icon::Gamepad), drop);
                     } else {
-                        capsule(app, cv, n, false, drop);
+                        capsule(app, cv, n, widgets::Mark::Dot(SPECTRE), drop);
                     }
                 }
             }
@@ -124,10 +124,6 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
 /// Durée de la fermeture, celle de l'app Mac (apps/macos/KyberNow/Passage.swift).
 const CLOSE: f32 = 0.6;
 
-fn ease(p: f32) -> f32 {
-    // cubic-bezier(.2, .9, .1, 1) approché : départ vif, arrivée douce.
-    1.0 - (1.0 - p.clamp(0.0, 1.0)).powi(4)
-}
 
 /// La couture à 45° : son point haut (elle descend vers la gauche) et les deux moitiés.
 fn halves(w: f32, h: f32) -> ([(f32, f32); 4], [(f32, f32); 4], f32) {
@@ -192,7 +188,7 @@ fn ignite(t: f32, reduced: bool) -> (f32, f32) {
         let p = if phase < 1.0 { phase } else { 2.0 - phase };
         1.0 - 0.3 * p
     };
-    (ease(t / 0.45), alpha)
+    (widgets::ease(t / 0.45), alpha)
 }
 
 /// La connexion : le fond de l'ordinateur (son image ou sa signature),
@@ -205,8 +201,8 @@ fn passage(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         None => home::backdrop(app, cv, app.store.host(&s.host)),
     }
     let t = s.started.elapsed().as_secs_f32();
-    cv.rect(0.0, 0.0, w, h, Rgba(5, 7, 10, (110.0 + 60.0 * ease(t / 0.4)) as u8));
-    band(cv, u, 0.75 * ease(t / 0.6));
+    cv.rect(0.0, 0.0, w, h, Rgba(5, 7, 10, (110.0 + 60.0 * widgets::ease(t / 0.4)) as u8));
+    band(cv, u, 0.75 * widgets::ease(t / 0.6));
     let (scale, alpha) = ignite(t, app.reduce_motion);
     tube(cv, u, scale, alpha);
     capsule_steps(app, cv, f, s, t);
@@ -312,7 +308,7 @@ fn ending(app: &App, cv: &mut Canvas, s: &SessionUi) {
     let (w, h) = (cv.w, cv.h);
     let t = s.ending_since.map(|t| t.elapsed().as_secs_f32()).unwrap_or(10.0);
     let dur = if app.reduce_motion { 0.2 } else { CLOSE };
-    let p = ease(t / dur);
+    let p = widgets::ease(t / dur);
     let mut under = Frame { hits: Vec::new(), focus: Target::Back, show_focus: false, pointer: None };
     home::draw_body(app, cv, &mut under, true);
     if p < 1.0 {
@@ -1224,32 +1220,11 @@ fn dropdown_titled(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f32, title
     }
 }
 
-/// Capsule en haut (bureau) ou en bas (manette).
-fn capsule(app: &App, cv: &mut Canvas, msg: &str, busy: bool, drop: f32) {
+/// Capsule en haut (bureau) ou en bas (manette) : un point (ambre pendant une attente) ou une icône avant le texte.
+fn capsule(app: &App, cv: &mut Canvas, msg: &str, mark: widgets::Mark, drop: f32) {
     let u = unit(app.layout);
-    let style = Text::new(Font::Regular, 13.0 * u, MUTED);
-    let h = 34.0 * u;
-    let w = cv.text_width(style, msg) + 46.0 * u;
-    let x = (cv.w - w) / 2.0;
     let y = if app.layout == Layout::Desktop { 70.0 + drop } else { cv.h - 90.0 * u };
-    cv.rrect(x, y, w, h, h / 2.0, Rgba(9, 13, 18, 220));
-    cv.rrect_stroke(x, y, w, h, h / 2.0, 1.0, LINE_2);
-    widgets::dot(cv, x + 18.0 * u, y + h / 2.0, 3.5 * u, if busy { WARN } else { SPECTRE }, true);
-    cv.text(x + 32.0 * u, y + h / 2.0 + 5.0 * u, style, msg);
-}
-
-/// La même capsule, avec une icône à la place du point.
-fn capsule_icon(app: &App, cv: &mut Canvas, msg: &str, icon: Icon, drop: f32) {
-    let u = unit(app.layout);
-    let style = Text::new(Font::Regular, 13.0 * u, MUTED);
-    let h = 34.0 * u;
-    let w = cv.text_width(style, msg) + 54.0 * u;
-    let x = (cv.w - w) / 2.0;
-    let y = if app.layout == Layout::Desktop { 70.0 + drop } else { cv.h - 90.0 * u };
-    cv.rrect(x, y, w, h, h / 2.0, Rgba(9, 13, 18, 220));
-    cv.rrect_stroke(x, y, w, h, h / 2.0, 1.0, LINE_2);
-    cv.icon(&icon, x + 14.0 * u, y + (h - 16.0 * u) / 2.0, 16.0 * u, 1.6, SPECTRE);
-    cv.text(x + 40.0 * u, y + h / 2.0 + 5.0 * u, style, msg);
+    widgets::capsule(cv, y, 34.0 * u, Text::new(Font::Regular, 13.0 * u, MUTED), msg, mark, 1.0);
 }
 
 // MARK: - PyroWave

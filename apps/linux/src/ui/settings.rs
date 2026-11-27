@@ -295,7 +295,7 @@ fn field(cv: &mut Canvas, f: &mut Frame, r: &Row, x: f32, y: f32, w: f32, last: 
         other => {
             let cw = match other {
                 RowKind::Toggle(_) => 44.0,
-                RowKind::Action(s) => ghost_w(cv, s),
+                RowKind::Action(s) => widgets::ghost_width(cv, 13.0, false, s),
                 RowKind::Info(s) => cv.text_width(Text::new(Font::Mono, 12.0, MUTED), s),
                 _ => 0.0,
             };
@@ -353,9 +353,6 @@ fn hint_block(cv: &mut Canvas, r: &Row, style: Text, x: f32, y: f32, w: f32) -> 
     }
 }
 
-fn ghost_w(cv: &mut Canvas, s: &str) -> f32 {
-    cv.text_width(Text::new(Font::Regular, 13.0, MUTED), s) + 26.0
-}
 
 // MARK: - Manette (Deck, salon)
 

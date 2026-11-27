@@ -450,7 +450,7 @@ fn usage(app: &App, cv: &mut Canvas, f: &mut Frame) {
     );
     let cards: [(&str, &str, &str, &str); 2] = [
         ("GAMEPAD", tr("Au salon", "In the living room"), tr("Branché au téléviseur, piloté à la manette. Tout au focus, texte lisible à trois mètres, colonne « Prêt à jouer ».", "Plugged into the TV, driven with a controller. Everything by focus, text readable from ten feet, “Ready to play” column."), tr("Manettes Bluetooth ou USB · HDMI-CEC : la télécommande allume et réveille", "Bluetooth or USB controllers · HDMI-CEC: the remote turns on and wakes")),
-        ("MONITOR", tr("Au bureau", "At the desk"), tr("Sur un écran de bureau, au clavier et à la souris. L'interface Bureau de Link, en plein écran : votre ordinateur Windows comme si vous y étiez.", "On a desktop screen, with keyboard and mouse. Link's Desktop interface, full screen: your Windows computer as if you were there."), tr("Profil Bureau d'office · presse-papiers · souris du bureau", "Desktop profile by default · clipboard · desktop mouse")),
+        ("MONITOR", tr("Au bureau", "At the desk"), tr("Sur un écran de bureau, au clavier et à la souris. L'interface Bureau de Link, en plein écran : votre ordinateur comme si vous y étiez.", "On a desktop screen, with keyboard and mouse. Link's Desktop interface, full screen: your computer as if you were there."), tr("Profil Bureau d'office · presse-papiers · souris du bureau", "Desktop profile by default · clipboard · desktop mouse")),
     ];
     let mut x = 96.0;
     for (i, (badge, name, desc, note)) in cards.iter().enumerate() {

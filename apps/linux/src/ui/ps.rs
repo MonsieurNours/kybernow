@@ -139,17 +139,6 @@ pub fn cards(app: &App, cv: &mut Canvas, f: &mut Frame, x: &mut f32, y: f32, cw:
 
 // MARK: - Onglet PlayStation
 
-fn spinner(app: &App, cv: &mut Canvas, cx: f32, cy: f32, r: f32, u: f32) {
-    let t = app.screen_since.elapsed().as_secs_f32();
-    let a0 = if app.reduce_motion { 0.0 } else { t * 4.0 };
-    let pts: Vec<(f32, f32)> = (0..=16)
-        .map(|i| {
-            let a = a0 + i as f32 * 0.28;
-            (cx + r * a.cos(), cy + r * a.sin())
-        })
-        .collect();
-    cv.polyline(&pts, 2.0 * u, SPECTRE);
-}
 
 /// L'onglet PlayStation et ses étapes.
 pub fn add(app: &App, cv: &mut Canvas, f: &mut Frame, step: &PsStep, x0: f32, y0: f32, u: f32, footer: f32) {
@@ -220,7 +209,7 @@ fn tab(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, foot
     eyebrow(cv, x0, y + 12.0 * u, 11.5 * u, FAINT, tr("Consoles sur ce réseau", "Consoles on this network"));
     y += 24.0 * u;
     if app.ps.found.is_empty() {
-        spinner(app, cv, x0 + 9.0 * u, y + 12.0 * u, 8.0 * u, u);
+        super::widgets::spinner(app, cv, x0 + 9.0 * u, y + 12.0 * u, 8.0 * u, u);
         let msg = tr(
             "Aucune console trouvée. Allumez-la ou mettez-la en veille, ou saisissez son adresse dans « Par adresse ».",
             "No console found. Turn it on or put it in rest mode, or enter its address in “By address”.",
@@ -280,7 +269,7 @@ fn tab(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, foot
         eyebrow(cv, ix, yy, 11.5 * u, FAINT, tr("Envoyer à un appareil", "Send to a device"));
         yy += 18.0 * u;
         if app.ps.add.devices.is_empty() {
-            spinner(app, cv, ix + 9.0 * u, yy + 12.0 * u, 7.0 * u, u);
+            super::widgets::spinner(app, cv, ix + 9.0 * u, yy + 12.0 * u, 7.0 * u, u);
             let msg = tr(
                 "Aucun appareil en attente. Sur la télé ou l'autre appareil : Ajouter une console › Recevoir d'un autre appareil.",
                 "No device waiting. On the TV or the other device: Add a console › Receive from another device.",
@@ -406,7 +395,7 @@ fn go_row(app: &App, cv: &mut Canvas, f: &mut Frame, label: &str, enabled: bool,
     let bw = widgets::primary_state(cv, f, Target::PsGo, x0, y, bh, label, false, enabled && !app.ps.add.busy);
     let (mx, mid) = (x0 + bw + 24.0 * u, y + bh / 2.0);
     if app.ps.add.busy {
-        spinner(app, cv, mx + 9.0 * u, mid, 8.0 * u, u);
+        super::widgets::spinner(app, cv, mx + 9.0 * u, mid, 8.0 * u, u);
     } else if let Some(m) = &app.ps.add.message {
         cv.paragraph(mx, mid + 5.0 * u, Text::new(Font::Regular, 15.0 * u, WARN), m, (x0 + w - mx).max(220.0 * u), 22.0 * u);
     }
@@ -543,7 +532,7 @@ fn receive(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) 
             y += 130.0 * u;
         }
         None => {
-            spinner(app, cv, x0 + 12.0 * u, y + 30.0 * u, 10.0 * u, u);
+            super::widgets::spinner(app, cv, x0 + 12.0 * u, y + 30.0 * u, 10.0 * u, u);
             y += 70.0 * u;
         }
     }

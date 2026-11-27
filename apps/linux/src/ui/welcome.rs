@@ -43,7 +43,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     // « Passer » (écran 3 : « Plus tard »), en haut à droite.
     let skip = if step == 3 { tr("Plus tard", "Later") } else { tr("Passer", "Skip") };
     let (sh, ss) = if console { (40.0 * u, 15.0 * u) } else { (34.0, 14.0) };
-    let sw = ghost_w(cv, ss, skip);
+    let sw = widgets::ghost_width(cv, ss, false, skip);
     let sy = if console { (top - sh) / 2.0 } else { top + 16.0 };
     widgets::ghost(cv, f, Target::WelcomeSkip, wd - x0 - sw, sy, sh, ss, None, skip, MUTED);
     let footer = if console { 56.0 * u + if tv { 4.0 } else { 0.0 } } else { 0.0 };
@@ -75,9 +75,6 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     }
 }
 
-fn ghost_w(cv: &mut Canvas, size: f32, s: &str) -> f32 {
-    cv.text_width(Text::new(Font::Regular, size, MUTED), s) + size * 2.0
-}
 
 /// L'étiquette « BIENVENUE · n / 3 » et le grand titre en capitales ; rend la hauteur prise.
 fn heading(cv: &mut Canvas, x: f32, y: f32, size: f32, step: u8, max: f32, u: f32) -> f32 {
@@ -455,7 +452,7 @@ pub fn paired_banner(app: &App, cv: &mut Canvas, f: &mut Frame, id: &str, x: f32
     let size = if desktop { 13.5 } else { 15.0 * u };
     let pad = 16.0 * u;
     let later = tr("Plus tard", "Later");
-    let buttons = small_primary_w(cv, size, false, connect_label()) + 8.0 * u + ghost_w(cv, size, later);
+    let buttons = small_primary_w(cv, size, false, connect_label()) + 8.0 * u + widgets::ghost_width(cv, size, false, later);
     let width = width.min(820.0 * u);
     let text_w = (width - pad - 26.0 * u - 14.0 * u - buttons - 2.0 * pad).max(160.0 * u);
     let style = Text::new(Font::Regular, size, Rgba::hex(0xDAD6F2));
@@ -473,7 +470,7 @@ pub fn paired_banner(app: &App, cv: &mut Canvas, f: &mut Frame, id: &str, x: f32
     cv.paragraph(tx, cy - lines * lh / 2.0 + size * 1.0, style, w::paired_text(), text_w, lh);
     let mut bx = x + width - pad;
     let by = cy - bh / 2.0;
-    bx -= ghost_w(cv, size, later);
+    bx -= widgets::ghost_width(cv, size, false, later);
     widgets::ghost(cv, f, Target::PairedLater, bx, by, bh, size, None, later, Rgba::hex(0xC9C5E2));
     bx -= 8.0 * u + small_primary_w(cv, size, false, connect_label());
     small_primary(cv, f, Target::PairedSignIn, bx, by, bh, size, None, connect_label());
@@ -516,10 +513,10 @@ pub fn away(app: &App, cv: &mut Canvas, f: &mut Frame) {
     bx -= main_w;
     primary(cv, f, Target::AwaySignIn, bx, by, bh, connect_label(), false);
     if !app.sign_in_by_code() {
-        bx -= 12.0 * u + ghost_w(cv, size, create_label());
+        bx -= 12.0 * u + widgets::ghost_width(cv, size, false, create_label());
         widgets::ghost(cv, f, Target::AwaySignUp, bx, by + (bh - 44.0 * u.min(1.2)) / 2.0, 44.0 * u.min(1.2), size, None, create_label(), FROST);
     }
     let later = tr("Pas maintenant", "Not now");
-    bx -= 12.0 * u + ghost_w(cv, size, later);
+    bx -= 12.0 * u + widgets::ghost_width(cv, size, false, later);
     widgets::ghost(cv, f, Target::AwayLater, bx, by + (bh - 44.0 * u.min(1.2)) / 2.0, 44.0 * u.min(1.2), size, None, later, MUTED);
 }

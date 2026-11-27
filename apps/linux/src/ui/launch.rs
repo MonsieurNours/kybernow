@@ -38,10 +38,6 @@ fn neon_at(t: f32) -> (f32, f32) {
     (1.0, 0.0)
 }
 
-fn ease(p: f32) -> f32 {
-    // cubic-bezier(.2, .9, .1, 1) approché : départ vif, arrivée douce.
-    1.0 - (1.0 - p.clamp(0.0, 1.0)).powi(4)
-}
 
 /// Où se pose le logo signé de l'en-tête : (x, y, hauteur), en points.
 pub fn header_logo(layout: Layout) -> (f32, f32, f32) {
@@ -64,7 +60,7 @@ pub fn draw(app: &App, cv: &mut Canvas) {
     if loading.is_some() {
         t = t.min(handover_start - 0.01);
     }
-    let p = ease((t - handover_start) / (total - handover_start));
+    let p = super::widgets::ease((t - handover_start) / (total - handover_start));
 
     // L'accueil arrive dessous, en fondu.
     if t > handover_start {
