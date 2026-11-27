@@ -1,3 +1,4 @@
 # KyberNow Station : la Station (session de l'utilisateur) écrit dans la
 # caméra « KyberNow Camera » sans être du groupe video (docs/webcam.md).
+# Installé par le paquet dans /usr/lib/udev/rules.d/.
 SUBSYSTEM=="video4linux", ATTR{name}=="KyberNow Camera", TAG+="uaccess"
