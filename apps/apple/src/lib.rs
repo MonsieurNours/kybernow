@@ -822,7 +822,7 @@ pub const KN_TARGET_LOWERED: u32 = 1;
 pub const KN_TARGET_MANUAL: u32 = 2;
 /// PyroWave, débit adaptatif en pause (« 320 Mbit/s · PyroWave, adaptatif en pause »).
 pub const KN_TARGET_PYROWAVE_PAUSED: u32 = 3;
-/// Plafonné par l'app, `kn_session_set_bitrate_cap` (« 20 Mbit/s · fenêtre cachée »).
+/// Plafonné par l'app, `kn_session_set_background` (« 20 Mbit/s · fenêtre cachée »).
 pub const KN_TARGET_APP_CAPPED: u32 = 4;
 /// Flux allégé après un repli (« 15 Mbit/s · flux allégé »).
 pub const KN_TARGET_FALLBACK: u32 = 5;
@@ -1579,14 +1579,6 @@ pub unsafe extern "C" fn kn_session_set_settings(s: *const KnSession, settings_j
     })
 }
 
-/// Plafond de débit (bit/s) le temps que la fenêtre est occultée ; 0 le retire.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_set_bitrate_cap(s: *const KnSession, cap: u32) {
-    kybernow_core::ffi_guard!({
-        with(s, |s| s.set_bitrate_cap((cap > 0).then_some(cap)));
-    })
-}
-
 /// PyroWave (docs/pyrowave.md, « Définition ramenée ») : le débit que
 /// l'appareil sait tenir vers l'ordinateur, en Mbit/s (vitesse du lien ou
 /// débit mesuré ; 0 : inconnu). À donner juste après le démarrage, puis à
@@ -1595,15 +1587,6 @@ pub unsafe extern "C" fn kn_session_set_bitrate_cap(s: *const KnSession, cap: u3
 pub unsafe extern "C" fn kn_session_set_link_mbps(s: *const KnSession, mbps: u32) {
     kybernow_core::ffi_guard!({
         with(s, |s| s.set_link_mbps((mbps > 0).then_some(mbps)));
-    })
-}
-
-/// L'app fige l'image (arrière-plan, fenêtre cachée) ou la reprend : la
-/// veille « aucune image » attend le retour.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_set_hidden(s: *const KnSession, hidden: bool) {
-    kybernow_core::ffi_guard!({
-        with(s, |s| s.set_hidden(hidden));
     })
 }
 

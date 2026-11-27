@@ -308,6 +308,36 @@ pub unsafe extern "C" fn kn_pyrowave_config_bytes(chroma444: bool, hdr: bool, fu
     })
 }
 
+// MARK: - Courbes du HDR
+
+/// `rules::hdr::pq_to_nits` : la luminance (nits) d'un signal PQ de 0 à 1,
+/// pour l'essai croisé des shaders Metal (tests/hdr).
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_hdr_pq_to_nits(e: f64) -> f64 {
+    kybernow_core::ffi_guard!({ kybernow_core::rules::hdr::pq_to_nits(e) })
+}
+
+/// `rules::hdr::sdr_curve` : la courbe vers le SDR de la Station, sur la plus
+/// grande composante en unités du blanc SDR (essai croisé des shaders).
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_hdr_sdr_curve(m: f64) -> f64 {
+    kybernow_core::ffi_guard!({ kybernow_core::rules::hdr::sdr_curve(m) })
+}
+
+/// `rules::hdr::BT2020_TO_709`, ligne par ligne, dans `out` (9 nombres).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_hdr_bt2020_to_709(out: *mut f64) {
+    kybernow_core::ffi_guard!({
+        if out.is_null() {
+            return;
+        }
+        let m = kybernow_core::rules::hdr::BT2020_TO_709;
+        for (i, v) in m.iter().flatten().enumerate() {
+            unsafe { *out.add(i) = *v };
+        }
+    })
+}
+
 // MARK: - Lien d'invitation
 
 /// Le texte a la forme d'un lien d'invitation (`kybernow://borrow…`,
