@@ -16,24 +16,16 @@ Ce qui est prévu ou à essayer, et seulement ici : les autres documents décriv
 - **Multi-écrans** : sur un PC Windows et sur un Linux à plusieurs écrans (validé sur Mac le 26/10/2026) ; une session à plusieurs écrans juste après l'installation ou le redémarrage de la Station.
 - **Plusieurs ordinateurs à la fois** : deux sessions qui tournent en même temps sur Windows et sur Linux (validé sur Mac le 27/10/2026) ; sous Windows, une fin de session qui en a coupé une autre une fois dans la VM (chaque chemin de fin est maintenant au journal).
 - **KyberNow Share et relais** : les images à part d'un invité sur les cartes AMD (AMF) et Intel (QSV) ; le reste des vérifications des correctifs 0019 et 0020 est dans [docs/kyber-changes.md](docs/kyber-changes.md). Les deux sessions à la fois sous Windows et Linux sont sur la ligne « Plusieurs ordinateurs à la fois ».
-- **Mesures de l'audit** décrites dans [docs/archives/mesures.md](docs/archives/mesures.md) : latence d'affichage de l'app Mac, droits Windows, Wi-Fi saturé, modes de l'écran virtuel SudoVDA.
-
-## HDR
-
-Cadré le 02/11/2026, contrat : [docs/hdr.md](docs/hdr.md).
-
-- **Première version** : Station (correctifs Kyber 0022 : capture FP16 des deux moteurs et de WGC, conversion PQ/BT.2020 en P010, HEVC Main 10 et AV1 10 bits, image à part SDR des invités ; Admin : HDR de l'écran virtuel, profil de couleur et blanc du bureau pour l'écran de l'appareil, réglage, annonce), réglage du HDR à l'œil dans les apps, cœur, apps Apple et téléviseurs LG ; essais sur l'écran XDR du Mac, l'Apple TV, la LG G2.
-- **Version suivante** : Android, Windows, Linux (Raspberry Pi après).
-
-## KyberNow Station pour Mac
-
-Cadrée le 03/11/2026, contrat : [docs/station-macos.md](docs/station-macos.md). Puce Apple, macOS 15 et plus ; tout ce que fait la Station Windows, sauf les manettes.
-
-- **Jalons** : Kyber sur ce Mac, Admin sur Mac, écran virtuel (`CGVirtualDisplay`), périphérique audio KyberNow, entrées, icône et `.pkg`, fonctions avancées (Share, Prêt du PC, HDR, app au début), apps Link (`gamepads`, Ctrl/⌘).
-- **Demandes à Apple** : HID virtuel (manettes) et `persistent-content-capture` (pas de rappel mensuel d'enregistrement de l'écran).
+- **HDR** : les apps Windows, Android et Linux sur un vrai écran HDR (écrites, jamais essayées sur un écran HDR).
+- **Consoles PlayStation** : une PS4 ; une partie hors de chez soi par le vrai relais et une vraie Station (essayée seulement sur la boucle locale du Mac, vers la PS5 Pro) ; les apps autres que celle du Mac.
+- **KyberNow Station pour Linux** (bêta) : sur une vraie machine x86_64, avec une carte NVIDIA (NVENC) ou Intel/AMD (VA-API) : une session de bout en bout depuis une app (image, son, latence), la mise à jour depuis Admin (apt et dnf, retour arrière), l'icône, le prêt, les manettes, le stylet, le presse-papiers sous Wayland ; Bazzite, Fedora Atomic et SteamOS.
+- **Stylet** : une vraie tablette graphique (Mac, Windows, Linux), un Apple Pencil et un stylet Android, face à une Station.
+- **Mesures de l'audit du 20/10/2026** (mode opératoire : [docs/archives/mesures.md](docs/archives/mesures.md)) : latence d'affichage de l'app Mac (garde « une image en vol », plein écran présenté directement ou composé) ; droits Windows (droits de `ProgramData`, niveau d'intégrité de l'icône) ; Wi-Fi saturé (file d'envoi profonde ou courte par défaut) ; modes de l'écran virtuel SudoVDA (politique « suivre / remettre »).
 
 ## KyberNow Station et Admin
 
+- **Station Mac, demandes à Apple** ([docs/station-macos.md](docs/station-macos.md)) : le droit HID virtuel (`com.apple.developer.hid.virtual.device`), qui donnera les manettes (CoreHID, prêt) ; `persistent-content-capture`, pour ne plus avoir le rappel mensuel d'enregistrement de l'écran.
+- **Station Linux, HDR** : quand GNOME ou KDE sauront créer un écran virtuel en BT.2100 ([docs/station-linux.md](docs/station-linux.md), « HDR »).
 - **H.264 muet sur une carte Intel** : PC-ATELIER (Intel UHD) envoie bien du HEVC mais aucune image en H.264 (« son encodeur ne répond pas »), déjà en 0.5 ; à comprendre côté Station (encodeur de Kyber, QSV).
 - **Écran virtuel sans contournement** : un pilote qui gère vraiment plusieurs écrans (SudoVDA corrigé et recompilé, ou Kidd), pour retirer l'agrandissement du pointeur et la capture des écrans secondaires par Windows Graphics Capture (voir `server/README.md`).
 - **Écran virtuel Kidd** quand Kyber le publiera, derrière l'interface déjà en place.
@@ -47,12 +39,13 @@ Cadrée le 03/11/2026, contrat : [docs/station-macos.md](docs/station-macos.md).
 
 - **Android** : mise en page des pliables ; écran externe en pupitre (image sur l'écran branché, appareil en pupitre) ; Play Store en test interne.
 - **Android TV + Station** : envoi des ordinateurs du téléphone au téléviseur (code affiché au téléviseur, relais par Admin).
-- **iPhone et iPad** : Apple Pencil ; TestFlight pour testeurs internes (profil App Store, archive Release, `xcodebuild -exportArchive`), puis l'App Store.
+- **iPhone et iPad** : TestFlight pour testeurs internes (profil App Store, archive Release, `xcodebuild -exportArchive`), puis l'App Store.
 - **Apple TV** : TestFlight, puis l'App Store.
 - **App Store (iPhone, iPad, Apple TV)** : ce qui reste avant la soumission, voir [docs/app-store.md](docs/app-store.md) : Station de démonstration joignable par le relais pour l'App Review, vidéo, fiche et captures, étiquettes de confidentialité, questionnaire du chiffrement (déclaration à l'ANSSI), licence de Kyber à confirmer.
 - **Téléviseurs LG** : dépôt Homebrew Channel, pour des mises à jour installées depuis le téléviseur ; vibrations et gâchettes adaptatives de la DualSense par le service Bluetooth de webOS.
 - **Linux** : import DMA-BUF sans copie des images VA-API (4K à 120 Hz) ; décodage NVDEC pour les cartes NVIDIA ; dépôt Flatpak ou Flathub, pour des mises à jour installées seules.
-- **Raspberry Pi** : publier le dépôt apt (clé GPG, hébergement, appel dans `release.sh`) ; voie sans copie (images SAND posées sur un plan DRM).
+- **Raspberry Pi** : publier le dépôt apt (clé GPG, hébergement, appel dans `release.sh`) ; voie sans copie (images SAND posées sur un plan DRM) ; le HDR (un plan 10 bits en KMS/DRM, que SDL2 ne donne pas).
+- **Client web** : le stylet (Pointer Events vers kynput) et le micro (flux montant dans le moteur wasm ; la page est prête).
 - **KyberNow Link OS** : installer la mise à jour pendant la veille ; une bande sonore composée pour l'allumage, à la place de la synthèse de `chime.rs`.
 
 ## KyberNow Share
@@ -67,14 +60,6 @@ Tout ce qui fait entrer quelqu'un d'autre sur votre ordinateur. Nom choisi le 26
 - **Lien montant de la maison** : le partager équitablement entre plusieurs invités.
 - **Prêt de l'ordinateur** (publié en 0.9.0, contrat : [docs/pret.md](docs/pret.md)), suite : réveiller l'ordinateur endormi pour un ami hors de chez vous ; manettes et écran tactile branchés au PC bloqués pendant un prêt ; fenêtres des apps lancées en administrateur.
 - **Piste** : prêter l'ordinateur pendant que vous l'utilisez, par une machine virtuelle qui partage la carte graphique (Hyper-V) ; demande Windows Pro et une 2e licence, se heurte aux anti-triche, encodeur à vérifier.
-
-## Consoles PlayStation
-
-Cadré le 03/11/2026, contrat : [docs/playstation.md](docs/playstation.md).
-
-- **Première version, app Mac** : PS5 et PS4 dans le cœur Rust (découverte, réveil, association par code, session, image, son, DualSense complète), d'après chiaki-ng ; essais sur une PS5 Pro, la PS4 reste à essayer.
-- **Par le relais** : une Station du même réseau fait suivre les paquets ; écrit (relais, Admin, cœur, app Mac) et essayé sur la boucle locale vers la PS5 Pro le 03/11/2026 ; reste à essayer avec le vrai relais et une vraie Station.
-- **Ensuite** : les autres apps Link.
 
 ## Manettes Sony en mode « Fidèle »
 
