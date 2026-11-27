@@ -4513,7 +4513,6 @@ pub fn run(args: Vec<String>) {
             lend::lend_invite,
             lend::lend_add,
             lend::lend_remove,
-            lend::lend_refresh,
             lend::lend_borrow,
             lend::lend_wait,
             lend::lend_cancel,

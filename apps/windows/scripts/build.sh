@@ -5,11 +5,14 @@
 #   apps/windows/scripts/build.sh                 x64 (x86_64-pc-windows-gnu)
 #   apps/windows/scripts/build.sh --arch arm64    ARM64 (aarch64-pc-windows-gnullvm)
 #   apps/windows/scripts/build.sh --debug         sans optimisation
-#   apps/windows/scripts/build.sh --kyber-pyrowave
-#                                                 Kyber demande PyroWave
-#                                                 (correctif kyclient 0025 et
-#                                                 fonctionnalité pyrowave du
-#                                                 cœur, comme Android et Apple)
+#   apps/windows/scripts/build.sh --sans-pyrowave
+#                                                 sans PyroWave côté Kyber
+#                                                 (par défaut, Kyber demande
+#                                                 PyroWave : correctif kyclient
+#                                                 0025 et fonctionnalité
+#                                                 pyrowave du cœur, comme
+#                                                 Android et Apple ;
+#                                                 --kyber-pyrowave le redit)
 #
 # Prérequis (docs/build-notes.md) : third_party/ en place, les correctifs
 # client appliqués par ce script ; pour x64, third_party/rootfs-win64 (FFmpeg,

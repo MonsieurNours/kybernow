@@ -259,7 +259,12 @@ impl Consoles {
     }
 
     pub fn save(&self, path: &Path) {
-        crate::files::save_json(path, &self.file);
+        Self::save_file(path, &self.file);
+    }
+
+    /// Écrit `file` dans `path` (atomique, `files::save_json`).
+    pub fn save_file(path: &Path, file: &PsFile) {
+        crate::files::save_json(path, file);
     }
 
     /// Au lancement : les associations dont le secret a disparu (gestionnaire

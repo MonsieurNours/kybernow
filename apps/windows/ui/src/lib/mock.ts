@@ -849,10 +849,6 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     emitFriends()
     return null
   },
-  lend_refresh: () => {
-    emitFriends()
-    return null
-  },
   // « Emprunter » : la Station passe en mode console (l'imitation : 2,5 s), ou l'hôte doit accepter.
   lend_borrow: async (a) => {
     if (a.ticket != null) {

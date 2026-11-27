@@ -35,7 +35,7 @@ use kybernow_core::playstation::settings::PlaySettings;
 use kybernow_core::relay::RouteInfo;
 
 use super::{UiState, console_via, emit_sessions, show_action, show_home_if_idle};
-use crate::consoles::{self, Bundle, BundleStation, Consoles, Found, Secrets, StateView, Status};
+use crate::consoles::{self, Bundle, BundleStation, Consoles, Found, Secrets, StateView};
 use crate::i18n::t;
 use crate::ps_session::{self, BarState, Command, PsSession};
 use crate::{i18n, relais, store};
@@ -110,8 +110,11 @@ fn with<T>(app: &AppHandle, f: impl FnOnce(&mut Consoles) -> T) -> T {
     f(&mut ps(app).consoles.lock().unwrap())
 }
 
+/// `playstation.json` : copié sous le verrou des consoles, écrit hors de lui
+/// (la recherche et l'état des consoles n'attendent pas le disque).
 fn save(app: &AppHandle) {
-    with(app, |c| c.save(&file_path()));
+    let file = with(app, |c| c.file.clone());
+    Consoles::save_file(&file_path(), &file);
 }
 
 impl PsState {
@@ -326,13 +329,13 @@ pub fn ps_login(app: AppHandle) -> Result<Option<KeptAccount>, String> {
 }
 
 /// « Saisir l'identifiant à la main ».
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_account_manual(app: AppHandle, psn_id: String, name: String) -> Result<KeptAccount, String> {
     let Some(id) = consoles::valid_psn_id(&psn_id) else { return Err(t("ps.bad_account_id", &[])) };
     kept_account(&app, &id, Some(&name))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_account_rename(app: AppHandle, account: String, name: String) {
     if with(&app, |c| c.rename_account(&account, &name)) {
         save(&app);
@@ -340,7 +343,7 @@ pub fn ps_account_rename(app: AppHandle, account: String, name: String) {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_account_remove(app: AppHandle, account: String) {
     with(&app, |c| c.remove_account(&mut WinSecrets, &account));
     log::info!("PlayStation : compte retiré");
@@ -349,7 +352,7 @@ pub fn ps_account_remove(app: AppHandle, account: String) {
 }
 
 /// La puce « HDR » de la console, à l'accueil.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_set_hdr(app: AppHandle, id: String, on: bool) {
     let Some(host) = consoles::host_of(&id).map(str::to_string) else { return };
     with(&app, |c| {
@@ -361,7 +364,7 @@ pub fn ps_set_hdr(app: AppHandle, id: String, on: bool) {
     emit_state(&app);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_choose_account(app: AppHandle, id: String, account: String) {
     let Some(host) = consoles::host_of(&id).map(str::to_string) else { return };
     with(&app, |c| {
@@ -476,7 +479,7 @@ pub fn ps_settings(app: AppHandle, id: String) -> Result<SettingsView, String> {
     Ok(SettingsView { id, name: k.name.clone(), model: k.model.clone(), settings: k.settings(), layout: k.layout(), key_names })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_save_settings(app: AppHandle, id: String, settings: PlaySettings) {
     let Some(host) = consoles::host_of(&id) else { return };
     let (rumble, triggers) = settings.intensities();
@@ -493,7 +496,7 @@ pub fn ps_save_settings(app: AppHandle, id: String, settings: PlaySettings) {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_save_layout(app: AppHandle, id: String, layout: Layout) {
     let Some(host) = consoles::host_of(&id) else { return };
     with(&app, |c| {
@@ -507,7 +510,7 @@ pub fn ps_save_layout(app: AppHandle, id: String, layout: Layout) {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_default_layout(app: AppHandle, id: String) -> Layout {
     if let Some(host) = consoles::host_of(&id) {
         with(&app, |c| {
@@ -523,7 +526,7 @@ pub fn ps_default_layout(app: AppHandle, id: String) -> Layout {
     Layout::default()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_remove(app: AppHandle, id: String) {
     let Some(host) = consoles::host_of(&id) else { return };
     with(&app, |c| c.remove(&mut WinSecrets, host));
@@ -1212,8 +1215,3 @@ fn merge(app: &AppHandle, bundle: &Bundle) -> (usize, usize) {
     counts
 }
 
-/// Pour le menu de l'icône et la fermeture : l'état d'une console en partie.
-#[allow(dead_code)]
-pub fn status_of(app: &AppHandle, id: &str) -> Option<Status> {
-    view(app).consoles.into_iter().find(|c| c.id == id).map(|c| c.status)
-}

@@ -23,7 +23,6 @@
     "unknown_profile": "profil inconnu",
     "session_not_ready": "session pas encore prête",
     "session_window": "fenêtre de session : {error}",
-    "video_thread": "le fil de l'image s'est arrêté",
     "open_admin": "Admin n'a pas pu s'ouvrir dans le navigateur (code {code})",
     "share_link": "Ce lien de partage est illisible.",
     "share_code": "Le code a six chiffres.",

@@ -316,16 +316,6 @@ pub fn lend_remove(app: AppHandle, id: String) {
     emit_friends(&app);
 }
 
-/// L'état de l'ordinateur d'un ami tout de suite (carte choisie sur l'accueil).
-#[tauri::command(async)]
-pub fn lend_refresh(app: AppHandle, id: String) {
-    let state = app.state::<UiState>();
-    if let Some(f) = state.lend.friend(&id) {
-        refresh_friend(&state, &f);
-    }
-    emit_friends(&app);
-}
-
 // MARK: - Emprunter
 
 /// « Rejoindre avec un code » est tombé sur un code de prêt : le code, la Station
