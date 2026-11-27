@@ -89,8 +89,16 @@ for (const p of files(join(app, 'src'), /\.rs$/)) {
   }
 }
 
+// Français : une espace fine insécable (U+202F) avant « : ; ! ? » (docs/i18n.md, TRANS-32), dans les catalogues
+// de l'app (interface, imitation, côté Rust) ; celui du cœur se vérifie de son côté.
+for (const f of [join(uiDir, 'fr.json'), join(uiDir, 'mock.fr.json'), join(app, 'src/i18n/fr.json')]) {
+  for (const [k, v] of flatten(JSON.parse(readFileSync(f, 'utf8')))) {
+    if (/[ \u00a0][:;!?]/.test(v)) problems.push(`${relative(join(app, '..', '..'), f)} : espace avant la ponctuation double, à remplacer par l'espace fine (U+202F) : ${k}`)
+  }
+}
+
 if (problems.length) {
   console.error(`Catalogues de langue : ${problems.length} problème(s)\n  ${problems.join('\n  ')}`)
   process.exit(1)
 }
-console.log('Catalogues de langue : fr et en alignés, clés employées présentes, aucune inutilisée.')
+console.log('Catalogues de langue : fr et en alignés, clés employées présentes, aucune inutilisée, espaces fines en français.')

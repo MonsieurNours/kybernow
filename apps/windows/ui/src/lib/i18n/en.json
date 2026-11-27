@@ -339,6 +339,7 @@
     "slow": "{name} is connected but not sending a picture. Its log often says why: in Admin, System › Logs."
   },
   "bar": {
+    "labelled": "{name}: {value}",
     "more": "More",
     "more_help": "More controls",
     "toolbar": "Session bar",
@@ -562,7 +563,7 @@
     "another_relay": "Another relay…",
     "another_relay_title": "Another relay",
     "relay": "Relay",
-    "relay_example": "relais.exemple.org:9443",
+    "relay_example": "relay.example.org:9443",
     "relay_help": "Your account's relay address, if it isn't share.kybernow.app."
   },
   "ps": {

@@ -1569,7 +1569,7 @@
       class:open={menu === 'mouse'}
       aria-haspopup="menu"
       aria-expanded={menu === 'mouse'}
-      aria-label={t('bar.mouse') + ' : ' + mouseLabel}
+      aria-label={t('bar.labelled', { name: t('bar.mouse'), value: mouseLabel })}
       title={t('bar.mouse_help')}
       onclick={() => toggle('mouse')}
     >
@@ -1780,7 +1780,7 @@
         class:open={menu === 'quality'}
         aria-haspopup="menu"
         aria-expanded={menu === 'quality'}
-        aria-label={t('share.quality') + ' : ' + shownQuality}
+        aria-label={t('bar.labelled', { name: t('share.quality'), value: shownQuality })}
         title={t('share.quality')}
         onclick={() => toggle('quality')}
       >
