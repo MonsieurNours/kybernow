@@ -303,6 +303,7 @@ kybernow <adresse>[:port] [--user <compte>] [--profile jeu|bureau|max] [options]
 | `apps/core/src/audio/` | Moteur de son : libopus, tampon adaptatif, ordre des voies |
 | `apps/windows/src/audio.rs` | Sortie WASAPI qui tire le son du moteur du cœur |
 | `apps/windows/src/micro.rs` | Micro : capture WASAPI vers le cœur, liste des micros, traitement voix ou mode brut |
+| `apps/windows/src/wasapi.rs` | Commun au son et au micro : fil en COM multithread et priorité MMCSS « Pro Audio », format flottant, événement fermé quoi qu'il arrive, suivi du périphérique par défaut de Windows (relu chaque seconde : « Casque » choisi dans le menu son de Windows en pleine session est suivi par le son, et par le micro quand c'est celui du système), réouverture après une erreur ; un seul envoi d'échantillons du micro à la fois (une capture arrêtée n'en pousse plus) |
 | `apps/windows/src/ui/micro.rs` | Micro : puce de la barre, choix par ordinateur, avis, Réglages de l'app |
 | `apps/windows/src/system.rs` | Journal, écran, identité de l'appareil, empreintes d'Admin connues |
 | `apps/windows/src/i18n.rs` | Langue de Windows, textes du côté Rust de l'app (`src/i18n/`) |

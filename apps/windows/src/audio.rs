@@ -4,19 +4,19 @@
 //! son fil. Les voies sont celles du flux, dans l'ordre de Windows
 //! (WAVEFORMATEXTENSIBLE) ; Windows convertit fréquence et voies vers la
 //! sortie si besoin. La sortie est rouverte quand le flux change de nombre de
-//! voies ou qu'elle tombe en erreur (sortie du système changée).
+//! voies, que la sortie par défaut de Windows change (« Casque » choisi dans
+//! le menu son) ou qu'elle tombe en erreur (`wasapi.rs`).
 
 use std::ffi::c_void;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
-use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
+use windows::Win32::Foundation::WAIT_OBJECT_0;
 use windows::Win32::Media::Audio::*;
-use windows::Win32::Media::KernelStreaming::WAVE_FORMAT_EXTENSIBLE;
-use windows::Win32::Media::Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
 use windows::Win32::System::Com::{CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree};
-use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+use windows::Win32::System::Threading::WaitForSingleObject;
+
+use crate::wasapi::{self, AudioThread, DefaultWatch, Event};
 
 use kybernow_core::audio::{AudioEngine, Clock, OutputOrder, SAMPLE_RATE};
 
@@ -81,25 +81,9 @@ pub fn spawn(clock: Arc<dyn Clock>) -> AudioOutput {
     std::thread::Builder::new()
         .name("kybernow-audio".into())
         .spawn(move || {
-            unsafe {
-                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            }
-            // Sans sortie, l'ouverture échoue toutes les 500 ms : la même
-            // erreur n'est notée qu'une fois de suite.
-            let mut last = String::new();
-            while !s.load(Ordering::Relaxed) {
-                match unsafe { play(&e, &s) } {
-                    Ok(()) => last.clear(),
-                    Err(e) => {
-                        let msg = e.to_string();
-                        if msg != last {
-                            log::warn!("son : {msg}");
-                            last = msg;
-                        }
-                        std::thread::sleep(Duration::from_millis(500));
-                    }
-                }
-            }
+            let _thread = AudioThread::enter("son");
+            // Sans sortie, l'ouverture échoue toutes les 500 ms.
+            let _ = wasapi::keep_open("son", &s, |_| false, || unsafe { play(&e, &s) });
         })
         .expect("fil du son");
     AudioOutput { engine, stop }
@@ -120,20 +104,7 @@ unsafe fn play(engine: &AudioEngine, stop: &AtomicBool) -> windows::core::Result
         let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
         let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
         let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
-        let fmt = WAVEFORMATEXTENSIBLE {
-            Format: WAVEFORMATEX {
-                wFormatTag: WAVE_FORMAT_EXTENSIBLE as u16,
-                nChannels: channels as u16,
-                nSamplesPerSec: RATE,
-                nAvgBytesPerSec: RATE * 4 * channels,
-                nBlockAlign: (4 * channels) as u16,
-                wBitsPerSample: 32,
-                cbSize: 22,
-            },
-            Samples: WAVEFORMATEXTENSIBLE_0 { wValidBitsPerSample: 32 },
-            dwChannelMask: channel_mask(channels),
-            SubFormat: KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
-        };
+        let fmt = wasapi::float_format(channels, RATE, channel_mask(channels));
         // Windows convertit fréquence et voies vers la sortie si besoin.
         client.Initialize(
             AUDCLNT_SHAREMODE_SHARED,
@@ -143,8 +114,8 @@ unsafe fn play(engine: &AudioEngine, stop: &AtomicBool) -> windows::core::Result
             &fmt as *const _ as *const WAVEFORMATEX,
             None,
         )?;
-        let event: HANDLE = CreateEventW(None, false, false, None)?;
-        client.SetEventHandle(event)?;
+        let event = Event::new()?;
+        client.SetEventHandle(event.handle())?;
         let render: IAudioRenderClient = client.GetService()?;
         let size = client.GetBufferSize()?;
         // Latence de la sortie pour l'écart son-image : son tampon plus ce
@@ -153,12 +124,17 @@ unsafe fn play(engine: &AudioEngine, stop: &AtomicBool) -> windows::core::Result
         let stream_ms = client.GetStreamLatency().map(|l| l as f64 / 10_000.0).unwrap_or(0.0);
         engine.set_output_latency_ms(buffer_ms + stream_ms);
         log::info!("son : WASAPI, {channels} voies, tampon de {buffer_ms:.0} ms, latence annoncée {stream_ms:.1} ms");
+        let mut default = DefaultWatch::new(eRender, eConsole, &device);
         client.Start()?;
         let result = loop {
             if stop.load(Ordering::Relaxed) || wanted_channels(engine) != channels {
                 break Ok(());
             }
-            if WaitForSingleObject(event, 200) != WAIT_OBJECT_0 {
+            if default.changed(&enumerator) {
+                log::info!("son : la sortie de Windows a changé, réouverture");
+                break Ok(());
+            }
+            if WaitForSingleObject(event.handle(), 200) != WAIT_OBJECT_0 {
                 continue;
             }
             let padding = match client.GetCurrentPadding() {
@@ -181,7 +157,6 @@ unsafe fn play(engine: &AudioEngine, stop: &AtomicBool) -> windows::core::Result
             }
         };
         let _ = client.Stop();
-        let _ = CloseHandle(event);
         result
     }
 }

@@ -140,6 +140,9 @@ mod tray;
 mod ui;
 #[cfg(windows)]
 mod video;
+// WASAPI commun au son et au micro.
+#[cfg(windows)]
+mod wasapi;
 #[cfg(windows)]
 mod window;
 // Accueil au premier lancement et carte du compte KyberNow : ce que

@@ -303,6 +303,7 @@ kybernow <address>[:port] [--user <account>] [--profile jeu|bureau|max] [options
 | `apps/core/src/audio/` | Sound engine: libopus, adaptive buffer, channel order |
 | `apps/windows/src/audio.rs` | WASAPI output pulling sound from the core's engine |
 | `apps/windows/src/micro.rs` | Microphone: WASAPI capture to the core, microphone list, voice processing or raw mode |
+| `apps/windows/src/wasapi.rs` | Shared by sound and microphone: thread with multithreaded COM and MMCSS “Pro Audio” priority, float format, event always closed, tracking of Windows' default device (read every second: “Headphones” chosen in Windows' sound menu mid-session is followed by the sound, and by the microphone when it is the system one), reopening after an error; one microphone push at a time (a stopped capture no longer pushes) |
 | `apps/windows/src/ui/micro.rs` | Microphone: bar chip, per-computer choice, notices, app settings |
 | `apps/windows/src/system.rs` | Log, display, device identity, known Admin fingerprints |
 | `apps/windows/src/i18n.rs` | Windows language, texts of the app's Rust side (`src/i18n/`) |

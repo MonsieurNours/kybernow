@@ -23,14 +23,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use windows::Win32::Foundation::{CloseHandle, E_ACCESSDENIED, HANDLE, PROPERTYKEY, WAIT_OBJECT_0};
+use windows::Win32::Foundation::{E_ACCESSDENIED, PROPERTYKEY, WAIT_OBJECT_0};
 use windows::Win32::Media::Audio::*;
-use windows::Win32::Media::KernelStreaming::WAVE_FORMAT_EXTENSIBLE;
-use windows::Win32::Media::Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
 use windows::Win32::System::Com::StructuredStorage::{PropVariantClear, PropVariantToStringAlloc};
 use windows::Win32::System::Com::{CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree, STGM_READ};
-use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+use windows::Win32::System::Threading::WaitForSingleObject;
 use windows::core::{GUID, HSTRING, PCWSTR};
+
+use crate::wasapi::{self, AudioThread, DefaultWatch, Event, device_id};
 
 /// `PKEY_Device_FriendlyName` (« Microphone (Realtek Audio) »).
 const FRIENDLY_NAME: PROPERTYKEY = PROPERTYKEY { fmtid: GUID::from_u128(0xa45c254e_df1c_4efd_8020_67d146a850e0), pid: 14 };
@@ -101,15 +101,6 @@ pub fn has_microphone() -> bool {
     !devices().is_empty()
 }
 
-unsafe fn device_id(device: &IMMDevice) -> Option<String> {
-    unsafe {
-        let id = device.GetId().ok()?;
-        let s = id.to_string().ok();
-        CoTaskMemFree(Some(id.0 as *const c_void));
-        s
-    }
-}
-
 unsafe fn friendly_name(device: &IMMDevice) -> Option<String> {
     unsafe {
         let store = device.OpenPropertyStore(STGM_READ).ok()?;
@@ -131,6 +122,12 @@ pub struct Capture {
     stop: Arc<AtomicBool>,
 }
 
+/// Tenu pendant chaque envoi d'échantillons : une capture lâchée attend la
+/// fin d'un envoi en cours, et son fil vérifie `stop` sous ce verrou avant
+/// d'envoyer ; deux captures (Ctrl+Alt+Maj+V deux fois de suite) ne poussent
+/// donc jamais en même temps vers le cœur.
+static PUSH: Mutex<()> = Mutex::new(());
+
 impl Capture {
     /// Capte jusqu'à l'arrêt. `denied` : Windows refuse l'accès au micro
     /// (confidentialité) ; le fil s'arrête juste après.
@@ -138,29 +135,12 @@ impl Capture {
         let stop = Arc::new(AtomicBool::new(false));
         let s = stop.clone();
         let spawned = std::thread::Builder::new().name("kybernow-micro".into()).spawn(move || {
-            unsafe {
-                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            }
-            // Sans micro, l'ouverture échoue toutes les 500 ms : la même erreur
-            // n'est notée qu'une fois de suite.
-            let mut last = String::new();
-            while !s.load(Ordering::Relaxed) {
-                match unsafe { capture(&sink, &s) } {
-                    Ok(()) => last.clear(),
-                    Err(e) if e.code() == E_ACCESSDENIED => {
-                        log::warn!("micro : accès refusé par Windows (confidentialité)");
-                        denied();
-                        return;
-                    }
-                    Err(e) => {
-                        let msg = e.to_string();
-                        if msg != last {
-                            log::warn!("micro : {msg}");
-                            last = msg;
-                        }
-                        std::thread::sleep(Duration::from_millis(500));
-                    }
-                }
+            let _thread = AudioThread::enter("micro");
+            // Sans micro, l'ouverture échoue toutes les 500 ms.
+            let ended = wasapi::keep_open("micro", &s, |e| e.code() == E_ACCESSDENIED, || unsafe { capture(&sink, &s) });
+            if ended.is_err() {
+                log::warn!("micro : accès refusé par Windows (confidentialité)");
+                denied();
             }
         });
         if let Err(e) = spawned {
@@ -173,6 +153,8 @@ impl Capture {
 impl Drop for Capture {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        // Un envoi en cours finit ; le fil n'en fera plus.
+        drop(PUSH.lock().unwrap_or_else(|e| e.into_inner()));
     }
 }
 
@@ -236,20 +218,7 @@ unsafe fn capture(sink: &Sink, stop: &AtomicBool) -> windows::core::Result<()> {
         let mix = client.GetMixFormat()?;
         let rate = (*mix).nSamplesPerSec;
         CoTaskMemFree(Some(mix as *const c_void));
-        let fmt = WAVEFORMATEXTENSIBLE {
-            Format: WAVEFORMATEX {
-                wFormatTag: WAVE_FORMAT_EXTENSIBLE as u16,
-                nChannels: 1,
-                nSamplesPerSec: rate,
-                nAvgBytesPerSec: rate * 4,
-                nBlockAlign: 4,
-                wBitsPerSample: 32,
-                cbSize: 22,
-            },
-            Samples: WAVEFORMATEXTENSIBLE_0 { wValidBitsPerSample: 32 },
-            dwChannelMask: 0x4,
-            SubFormat: KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
-        };
+        let fmt = wasapi::float_format(1, rate, 0x4);
         client.Initialize(
             AUDCLNT_SHAREMODE_SHARED,
             AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
@@ -258,8 +227,8 @@ unsafe fn capture(sink: &Sink, stop: &AtomicBool) -> windows::core::Result<()> {
             &fmt as *const _ as *const WAVEFORMATEX,
             None,
         )?;
-        let event: HANDLE = CreateEventW(None, false, false, None)?;
-        client.SetEventHandle(event)?;
+        let event = Event::new()?;
+        client.SetEventHandle(event.handle())?;
         let capture: IAudioCaptureClient = client.GetService()?;
         let name = friendly_name(&device).unwrap_or_default();
         log::info!(
@@ -267,6 +236,9 @@ unsafe fn capture(sink: &Sink, stop: &AtomicBool) -> windows::core::Result<()> {
             if fallback { " (celui du système, le micro choisi est débranché)" } else { "" },
             if prefs.voice { "traitement voix du système" } else if raw { "mode brut" } else { "sans traitement voix" }
         );
+        // Le micro du système (aucun choisi, ou le choisi débranché) : un autre
+        // micro de communication choisi dans Windows est suivi.
+        let mut default = (prefs.device.is_none() || fallback).then(|| DefaultWatch::new(eCapture, eCommunications, &device));
         client.Start()?;
         let mut samples: Vec<f32> = Vec::with_capacity(rate as usize / 50);
         let mut checked = Instant::now();
@@ -282,7 +254,11 @@ unsafe fn capture(sink: &Sink, stop: &AtomicBool) -> windows::core::Result<()> {
                     break Ok(());
                 }
             }
-            if WaitForSingleObject(event, 200) != WAIT_OBJECT_0 {
+            if default.as_mut().is_some_and(|d| d.changed(&enumerator)) {
+                log::info!("micro : le micro de Windows a changé, réouverture");
+                break Ok(());
+            }
+            if WaitForSingleObject(event.handle(), 200) != WAIT_OBJECT_0 {
                 continue;
             }
             loop {
@@ -305,6 +281,10 @@ unsafe fn capture(sink: &Sink, stop: &AtomicBool) -> windows::core::Result<()> {
                     } else {
                         samples.extend_from_slice(std::slice::from_raw_parts(data as *const f32, frames as usize));
                     }
+                    let _push = PUSH.lock().unwrap_or_else(|e| e.into_inner());
+                    if stop.load(Ordering::Relaxed) {
+                        break 'outer Ok(());
+                    }
                     sink(&samples, rate);
                 }
                 if let Err(e) = capture.ReleaseBuffer(frames) {
@@ -313,7 +293,6 @@ unsafe fn capture(sink: &Sink, stop: &AtomicBool) -> windows::core::Result<()> {
             }
         };
         let _ = client.Stop();
-        let _ = CloseHandle(event);
         result
     }
 }
