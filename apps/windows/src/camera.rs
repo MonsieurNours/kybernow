@@ -10,7 +10,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use kybernow_core::camera::{CameraCodec, CameraLink, CameraResolution, CameraSettings, FPS, FrameOutcome};
 use log::{info, warn};
@@ -29,9 +29,41 @@ pub struct CameraChoice {
 /// Pourquoi la caméra ne part pas (avis de docs/link-ui.md).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Problem {
+    /// Accès refusé par la confidentialité de Windows.
+    Denied,
     InUse,
     Unplugged,
+    /// Pas d'encodeur, ou la webcam refuse toute définition proposée.
     NoEncoder,
+}
+
+/// Ce que dit l'échec de l'ouverture de la webcam (`ActivateObject`, lecteur).
+fn open_problem(code: windows::core::HRESULT) -> Problem {
+    use windows::Win32::Foundation::{E_ACCESSDENIED, ERROR_SHARING_VIOLATION};
+    if code == E_ACCESSDENIED {
+        Problem::Denied
+    } else if code == MF_E_HW_MFT_FAILED_START_STREAMING
+        || code == MF_E_VIDEO_RECORDING_DEVICE_PREEMPTED
+        || code == ERROR_SHARING_VIOLATION.to_hresult()
+    {
+        Problem::InUse
+    } else if code == MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED {
+        Problem::Unplugged
+    } else {
+        // Inconnu : comme avant, le cas le plus fréquent.
+        Problem::InUse
+    }
+}
+
+/// Ferme l'objet activé (webcam, encodeur) quand il est lâché : sans
+/// `ShutdownObject`, l'encodeur de la carte (sessions NVENC comptées) et la
+/// webcam restent pris.
+struct Activated(IMFActivate);
+
+impl Drop for Activated {
+    fn drop(&mut self) {
+        let _ = unsafe { self.0.ShutdownObject() };
+    }
 }
 
 fn mf_started() -> bool {
@@ -94,6 +126,11 @@ pub fn available() -> bool {
 }
 
 /// L'envoi en cours : un fil qui lit, encode et donne au cœur.
+/// Au plus ce temps pour que le fil de la caméra finisse quand on l'arrête :
+/// une webcam qui ne rend plus d'image (obturateur, pilote) bloque
+/// `ReadSample` ; le fil est alors laissé finir seul (il n'envoie plus rien).
+const STOP_WITHIN: Duration = Duration::from_secs(1);
+
 pub struct CameraSender {
     stop: Arc<AtomicBool>,
     key: Arc<AtomicBool>,
@@ -138,7 +175,15 @@ impl Drop for CameraSender {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(t) = self.thread.take() {
-            let _ = t.join();
+            let started = Instant::now();
+            while !t.is_finished() && started.elapsed() < STOP_WITHIN {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            if t.is_finished() {
+                let _ = t.join();
+            } else {
+                warn!("caméra : la webcam ne répond plus, son fil finira seul");
+            }
         }
     }
 }
@@ -161,37 +206,65 @@ fn video_type(subtype: &GUID, w: u32, h: u32) -> windows::core::Result<IMFMediaT
 }
 
 /// Le lecteur de la webcam, en NV12 à la définition voulue (Windows convertit
-/// et réduit si la webcam ne la sait pas telle quelle).
-fn reader(id: Option<&str>, w: u32, h: u32, name: &Mutex<String>) -> Result<IMFSourceReader, Problem> {
+/// et réduit si la webcam ne la sait pas telle quelle) ; refusée en 1080p, en
+/// 720p. Rend aussi la webcam activée (fermée quand elle est lâchée) et la
+/// définition obtenue.
+fn reader(id: Option<&str>, wanted: CameraResolution, name: &Mutex<String>) -> Result<(IMFSourceReader, Activated, CameraResolution), Problem> {
     let list = devices();
-    let wanted = list.iter().find(|d| unsafe {
+    let chosen = list.iter().find(|d| unsafe {
         let mut link = PWSTR::null();
         let mut n = 0;
         id.is_some_and(|id| d.GetAllocatedString(&MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, &mut link, &mut n).is_ok() && pwstr(link) == id)
     });
-    let device = wanted.or(list.first()).ok_or(Problem::Unplugged)?;
+    let device = chosen.or(list.first()).ok_or(Problem::Unplugged)?;
     unsafe {
         let mut n = 0;
         let mut p = PWSTR::null();
         if device.GetAllocatedString(&MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &mut p, &mut n).is_ok() {
             *name.lock().unwrap() = pwstr(p);
         }
-        let source: IMFMediaSource = device.ActivateObject().map_err(|_| Problem::InUse)?;
+        let fail = |what: &str, e: windows::core::Error| {
+            warn!("caméra : {what} ({e})");
+            open_problem(e.code())
+        };
+        let source: IMFMediaSource = device.ActivateObject().map_err(|e| fail("ouverture refusée", e))?;
+        let activated = Activated(device.clone());
         let mut attrs: Option<IMFAttributes> = None;
-        MFCreateAttributes(&mut attrs, 2).map_err(|_| Problem::InUse)?;
-        let attrs = attrs.ok_or(Problem::InUse)?;
+        MFCreateAttributes(&mut attrs, 2).map_err(|e| fail("attributs", e))?;
+        let attrs = attrs.ok_or(Problem::NoEncoder)?;
         let _ = attrs.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1);
         let _ = attrs.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1);
-        let reader = MFCreateSourceReaderFromMediaSource(&source, &attrs).map_err(|_| Problem::InUse)?;
+        let reader = MFCreateSourceReaderFromMediaSource(&source, &attrs).map_err(|e| fail("lecteur refusé", e))?;
         let stream = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
-        let t = video_type(&MFVideoFormat_NV12, w, h).map_err(|_| Problem::InUse)?;
-        reader.SetCurrentMediaType(stream, None, &t).map_err(|_| Problem::InUse)?;
-        Ok(reader)
+        let mut last = None;
+        for resolution in resolutions(wanted) {
+            let (w, h) = resolution.size();
+            let t = video_type(&MFVideoFormat_NV12, w, h).map_err(|e| fail("type", e))?;
+            match reader.SetCurrentMediaType(stream, None, &t) {
+                Ok(()) => return Ok((reader, activated, resolution)),
+                Err(e) => {
+                    warn!("caméra : {} refusé ({e})", resolution.label());
+                    last = Some(e);
+                }
+            }
+        }
+        // Aucune définition : ni occupée, ni refusée, elle ne sait pas faire.
+        let _ = last;
+        Err(Problem::NoEncoder)
     }
 }
 
-/// Un encodeur H.264 : matériel d'abord (asynchrone), sinon logiciel.
-fn encoder(w: u32, h: u32, bitrate: u32) -> Result<(IMFTransform, bool), Problem> {
+/// Les définitions à essayer, de la voulue à la plus petite.
+fn resolutions(wanted: CameraResolution) -> Vec<CameraResolution> {
+    match wanted {
+        CameraResolution::P1080 => vec![CameraResolution::P1080, CameraResolution::P720],
+        CameraResolution::P720 => vec![CameraResolution::P720],
+    }
+}
+
+/// Un encodeur H.264 : matériel d'abord (asynchrone), sinon logiciel ; rend
+/// aussi son objet activé (fermé quand il est lâché, comme chaque candidat écarté).
+fn encoder(w: u32, h: u32, bitrate: u32) -> Result<(IMFTransform, bool, Activated), Problem> {
     let input = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: MFVideoFormat_NV12 };
     let output = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: MFVideoFormat_H264 };
     for flags in [MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER, MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_SORTANDFILTER] {
@@ -205,13 +278,15 @@ fn encoder(w: u32, h: u32, bitrate: u32) -> Result<(IMFTransform, bool), Problem
             CoTaskMemFree(Some(list as *const _));
             for a in all {
                 let Ok(t) = a.ActivateObject::<IMFTransform>() else { continue };
+                // Écarté (configuration refusée) : fermé en sortant de ce tour.
+                let activated = Activated(a);
                 let asynchronous = t.GetAttributes().ok().and_then(|at| at.GetUINT32(&MF_TRANSFORM_ASYNC).ok()).unwrap_or(0) != 0;
                 if asynchronous && let Ok(at) = t.GetAttributes() {
                     let _ = at.SetUINT32(&MF_TRANSFORM_ASYNC_UNLOCK, 1);
                 }
                 if configure(&t, w, h, bitrate).is_ok() {
                     info!("caméra : encodeur H.264 {}", if asynchronous { "matériel" } else { "logiciel" });
-                    return Ok((t, asynchronous));
+                    return Ok((t, asynchronous, activated));
                 }
             }
         }
@@ -281,12 +356,17 @@ struct Encoded<'a> {
     link: &'a CameraLink,
     header: Vec<u8>,
     key: &'a AtomicBool,
+    stop: &'a AtomicBool,
     started: Instant,
 }
 
 impl Encoded<'_> {
-    /// Une sortie de l'encodeur vers le cœur.
+    /// Une sortie de l'encodeur vers le cœur (rien après l'arrêt : un fil
+    /// laissé finir seul n'envoie plus d'image).
     fn deliver(&mut self, t: &IMFTransform, sample: &IMFSample) {
+        if self.stop.load(Ordering::Relaxed) {
+            return;
+        }
         let Some(mut data) = sample_bytes(sample) else { return };
         let key = unsafe { sample.GetUINT32(&MFSampleExtension_CleanPoint) }.unwrap_or(0) != 0;
         if key && !starts_with_sps(&data) {
@@ -364,14 +444,15 @@ fn run(
     if !mf_started() {
         return Err(Problem::NoEncoder);
     }
+    // La webcam et l'encodeur sont fermés (`ShutdownObject`) à toute sortie.
+    let (reader, _webcam, resolution) = reader(id.as_deref(), resolution, name)?;
     let (w, h) = resolution.size();
-    let reader = reader(id.as_deref(), w, h, name)?;
     let mut bitrate = link.target_bitrate();
-    let (t, asynchronous) = encoder(w, h, bitrate)?;
+    let (t, asynchronous, _encoder) = encoder(w, h, bitrate)?;
     if !link.start(CameraSettings { codec: CameraCodec::H264, width: w, height: h, fps: FPS, resolution, device: device.to_owned() }) {
         return Ok(());
     }
-    let mut enc = Encoded { link, header: Vec::new(), key, started: Instant::now() };
+    let mut enc = Encoded { link, header: Vec::new(), key, stop, started: Instant::now() };
     let events = if asynchronous { t.cast::<IMFMediaEventGenerator>().ok() } else { None };
     let mut last_rate = Instant::now();
     while !stop.load(Ordering::Relaxed) {
@@ -425,6 +506,15 @@ fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn echecs_d_ouverture() {
+        use windows::Win32::Foundation::E_ACCESSDENIED;
+        assert_eq!(open_problem(E_ACCESSDENIED), Problem::Denied);
+        assert_eq!(open_problem(MF_E_HW_MFT_FAILED_START_STREAMING), Problem::InUse);
+        assert_eq!(open_problem(MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED), Problem::Unplugged);
+        assert_eq!(resolutions(CameraResolution::P1080), vec![CameraResolution::P1080, CameraResolution::P720]);
+    }
 
     #[test]
     fn sps_first() {

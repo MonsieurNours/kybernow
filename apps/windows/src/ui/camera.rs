@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use kybernow_core::camera::{self as core_camera, CameraEvent, CameraLink, CameraResolution, DeviceNotice};
 use kybernow_core::i18n;
@@ -59,9 +59,31 @@ fn link(app: &AppHandle, id: &str) -> Option<Arc<CameraLink>> {
     app.state::<UiState>().with_session(id, |r| r.host.camera_link()).flatten()
 }
 
+/// La liste des webcams, relue au plus toutes les 10 s : `MFEnumDeviceSources`
+/// coûte des centaines de millisecondes avec des caméras USB ou virtuelles,
+/// et la barre la demande à chaque fois qu'elle se montre.
+static CAMERAS: Mutex<Option<(Instant, Vec<CameraChoice>)>> = Mutex::new(None);
+const CAMERAS_FOR: Duration = Duration::from_secs(10);
+
+fn cameras(fresh: bool) -> Vec<CameraChoice> {
+    {
+        let cached = CAMERAS.lock().unwrap();
+        if let Some((at, list)) = cached.as_ref()
+            && !fresh
+            && at.elapsed() < CAMERAS_FOR
+        {
+            return list.clone();
+        }
+    }
+    // Relue hors du verrou.
+    let list = camera::cameras();
+    *CAMERAS.lock().unwrap() = Some((Instant::now(), list.clone()));
+    list
+}
+
 fn snapshot(app: &AppHandle, id: &str) -> BarCamera {
     let (offered, state) = with(id, |c| (c.offered, c.state));
-    let cameras = if offered { camera::cameras() } else { Vec::new() };
+    let cameras = if offered { cameras(false) } else { Vec::new() };
     let current = chosen().filter(|c| cameras.iter().any(|x| &x.id == c)).or_else(|| cameras.first().map(|c| c.id.clone()));
     let line = link(app, id).and_then(|l| core_camera::stats_line(&l.stats(), i18n::current()));
     BarCamera { id: id.to_owned(), offered, state, cameras, current, line }
@@ -98,8 +120,9 @@ pub fn offer(app: &AppHandle, id: &str, offered: bool) {
 
 /// La session finit : la caméra s'éteint.
 pub fn ended(id: &str) {
-    let mut all = SESSIONS.lock().unwrap();
-    if let Some(c) = all.get_or_insert_with(HashMap::new).remove(id) {
+    let removed = SESSIONS.lock().unwrap().get_or_insert_with(HashMap::new).remove(id);
+    // Hors du verrou : l'arrêt de la webcam peut attendre (`CameraSender`).
+    if let Some(c) = removed {
         if let Some(stop) = c.stop {
             stop.store(true, Ordering::Relaxed);
         }
@@ -190,12 +213,13 @@ fn turn_on(app: &AppHandle, id: &str, camera_id: Option<String>) {
 /// prend la relève, sinon la caméra s'éteint.
 fn handle_problem(app: &AppHandle, id: &str, p: Problem, name: String) {
     let which = match p {
+        Problem::Denied => DeviceNotice::Denied,
         Problem::InUse => DeviceNotice::InUse,
         Problem::Unplugged => DeviceNotice::Unplugged,
         Problem::NoEncoder => DeviceNotice::NoEncoder,
     };
     notice(app, id, &core_camera::device_notice(which, &name, i18n::current()));
-    let next = camera::cameras().into_iter().find(|c| c.name != name);
+    let next = cameras(true).into_iter().find(|c| c.name != name);
     match (p, next) {
         (Problem::Unplugged, Some(next)) if with(id, |c| c.state != 0) => turn_on(app, id, Some(next.id)),
         _ => turn_off(app, id),
@@ -211,7 +235,9 @@ pub fn toggle(app: &AppHandle, id: &str) {
     if state == 0 { turn_on(app, id, chosen()) } else { turn_off(app, id) }
 }
 
-#[tauri::command]
+/// Sur un fil de Tauri, jamais celui des fenêtres : la liste des webcams peut
+/// être relue.
+#[tauri::command(async)]
 pub fn session_camera_state(app: AppHandle, id: String) -> BarCamera {
     snapshot(&app, &id)
 }
