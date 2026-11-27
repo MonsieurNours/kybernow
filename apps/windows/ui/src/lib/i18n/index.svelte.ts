@@ -13,6 +13,14 @@ export type Lang = 'fr' | 'en'
 type Catalogue = { [key: string]: string | Catalogue }
 const catalogues: Record<Lang, Catalogue> = { fr, en }
 
+/**
+ * Ajoute une rubrique aux catalogues : celle de l'imitation (`mock`), chargée
+ * avec elle en développement seulement, jamais livrée dans l'app.
+ */
+export function addSection(name: string, texts: Record<Lang, Catalogue>) {
+  for (const lang of ['fr', 'en'] as const) catalogues[lang][name] = texts[lang]
+}
+
 /** `fr`, `fr-FR`, `fr-CA`… : français ; toute autre langue : anglais. */
 export function langFromTag(tag: string | null | undefined): Lang {
   const t = (tag ?? '').trim().toLowerCase()

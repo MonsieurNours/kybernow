@@ -1,14 +1,20 @@
 // Imitation de l'app pour travailler l'interface dans un navigateur
-// (`npm run dev`) : jamais incluse dans l'app (seulement en développement).
+// (`npm run dev`) : jamais incluse dans l'app (chargée par `api.ts` seulement en
+// développement, avec ses textes, `i18n/mock.*.json`).
 // Langue : celle du navigateur, `?lang=en` ou `?lang=fr` pour forcer, ou le
 // réglage Langue de l'app (comme dans l'app, sans recharger).
 
-import { i18n, langFromTag, t } from './i18n/index.svelte'
+import { addSection, i18n, langFromTag, t } from './i18n/index.svelte'
+import mockEn from './i18n/mock.en.json'
+import mockFr from './i18n/mock.fr.json'
 import type { PsAccount, PsBar, PsConsole, PsFound, PsHandoffEvent, PsKept, PsLayout, PsSettings, PsSettingsView, PsState, PsWaiting } from './api'
 import type { InviteAdded, InviteRefusal } from './api'
 import type { AutoChoice, AutoResult, AutoStep, StationOffer } from './api'
 import type { AccountComputer, AccountSignIn, AccountView } from './api'
 import type { BarComputer, BorrowBar, BorrowOutcome, Friend, HomeLend, LendEnd, LendPanel, LendRequest, LendWaitOutcome, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, GuestBar, Info, KeepSound, LastSession, RouteEvent, RouteView, ScreensEvent, Settings, Share, ShareGuest, ShareImageEvent, ShareJoinOutcome, ShareJoined, ShareQuality, ShareRole, ShareRoleEvent, ShareWaitOutcome, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
+
+// Les textes de l'imitation, à part des catalogues de l'app.
+addSection('mock', { fr: mockFr, en: mockEn })
 
 const listeners = new Map<string, ((e: { payload: unknown }) => void)[]>()
 const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((cb) => cb({ payload }))
@@ -2004,7 +2010,7 @@ export function mockTauri() {
           // `?pyrowave=wifi` (ou `&relais`) : le bandeau du début de session, « Passer en HEVC ».
           if (host && pyroFlag && (pyroFlag === 'wifi' || relayJoined)) {
             const kind = relayJoined ? 'pyrowave_relay' : 'pyrowave_wifi'
-            setTimeout(() => cb({ payload: { ...shown, wired: pyroFlag !== 'wifi', pinned: true, notice: t('pyrowave.banner_text'), notice_kind: kind } }), 2000)
+            setTimeout(() => cb({ payload: { ...shown, wired: pyroFlag !== 'wifi', pinned: true, notice: t('mock.pyrowave_notice'), notice_kind: kind } }), 2000)
           }
           // `?auto=reseau` : profil Auto sur un autre réseau que celui du test, son bandeau discret.
           if (host && autoFlag === 'reseau') {
@@ -2012,7 +2018,7 @@ export function mockTauri() {
           }
           // `?pyrowave=sature` : le réseau sature depuis 5 s, le même bandeau titré « Le réseau sature ».
           if (host && pyroFlag === 'sature' && !relayJoined) {
-            setTimeout(() => cb({ payload: { ...shown, wired: true, pinned: true, notice: t('pyrowave.banner_text'), notice_kind: 'pyrowave_strained' } }), 2000)
+            setTimeout(() => cb({ payload: { ...shown, wired: true, pinned: true, notice: t('mock.pyrowave_notice'), notice_kind: 'pyrowave_strained' } }), 2000)
           }
           // `&avis` : le changement de rôle d'un invité, montré à la place des statistiques.
           if (guest && flags.has('avis')) {
