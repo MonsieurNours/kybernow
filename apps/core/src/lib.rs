@@ -24,6 +24,7 @@ pub mod latency;
 pub mod lend;
 pub mod media;
 pub mod micro;
+pub mod plan;
 pub mod playstation;
 pub mod profile;
 pub mod pyrowave;
@@ -37,6 +38,11 @@ pub mod update;
 mod url;
 pub mod wake;
 pub mod welcome;
+
+/// Règles pures communes aux apps (adresses, empreintes, codes, relais,
+/// bornes et valeurs partagées, courbes HDR) : la caisse `kybernow-rules`,
+/// reprise telle quelle pour les ponts.
+pub use kybernow_rules as rules;
 
 pub use kyclient::Display;
 pub use kynput_rs;

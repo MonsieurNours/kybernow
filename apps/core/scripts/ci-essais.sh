@@ -21,7 +21,8 @@
 #    système ne fournit et que les essais n'appellent jamais. Chaque fonction
 #    déclarée par vlc-rs et kyvlcplayer y est une fonction qui arrête le
 #    processus : un essai qui ouvrirait vraiment VLC échouerait bruyamment.
-# 5. cargo test -p kybernow-core --features pyrowave --lib.
+# 5. cargo test -p kybernow-core --features pyrowave --lib, puis les règles
+#    pures (cargo test -p kybernow-rules).
 #
 # À fournir par la machine : git, Rust 1.89 ou plus, cargo-c, pkg-config,
 # un compilateur C, libclang (bindgen), libopus ; sous Linux en plus libudev
@@ -139,3 +140,6 @@ esac
 cd "$ROOT/apps"
 echo "==> cargo test -p kybernow-core --features pyrowave --lib ${TARGET_ARGS[*]+"${TARGET_ARGS[*]}"}"
 cargo test --locked -p kybernow-core --features pyrowave --lib ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} -- "$@"
+# Les règles pures communes aux apps (apps/core/rules), sans dépendance.
+echo "==> cargo test -p kybernow-rules ${TARGET_ARGS[*]+"${TARGET_ARGS[*]}"}"
+cargo test --locked -p kybernow-rules ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} -- "$@"

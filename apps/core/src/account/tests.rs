@@ -323,6 +323,12 @@ fn un_ordinateur_une_seule_fois() {
     assert_eq!(m.added.iter().map(|c| (c.station.as_str(), c.account.as_str())).collect::<Vec<_>>(), vec![("station-atelier", "a"), ("station-cave", "b")]);
     // Sans appairé, rien n'est relié : quatre ordinateurs, l'atelier une fois.
     assert_eq!(merge(&[], &list).added.len(), 4);
+    // MAC-20 : la même règle que les apps, une empreinte écrite sans préfixe
+    // ni deux-points (invitation, ancien appairage) est la même.
+    let paired = vec![Paired { id: "salon".into(), fingerprint: Some("aabb".into()), station: None }];
+    assert_eq!(merge(&paired, &list).linked.first().map(|(id, c)| (id.as_str(), c.station.as_str())), Some(("salon", "station-salon")));
+    let paired = vec![Paired { id: "vide".into(), fingerprint: Some(" ".into()), station: None }];
+    assert!(merge(&paired, &[c("x", Some(" "), "a")]).linked.is_empty(), "vide : jamais la même");
 }
 
 fn access(renew: Duration, fake: &Arc<Fake>) -> Arc<StationAccess> {
@@ -584,4 +590,11 @@ fn reglages_synchronises_appliques() {
     assert_eq!(sync_settings_texts(Lang::En).0, "Sync computer settings");
     assert_eq!(sync_settings_texts(Lang::En).1, "Each computer's profile, format, bitrate, HDR and immersive mode follow you on your devices.");
     assert_eq!(SyncedValues::default().with_immersive(Some("parfois")).immersive, None);
+    // TRANS-41 : un débit à la main reçu hors des bornes communes y est ramené.
+    let high = SyncedValues { profile: Some(None), codec: Some("hevc".into()), mbps: Some(4294), ..Default::default() };
+    assert_eq!(high.apply_to(&base, caps).mbps, 500);
+    let pyro = SyncedValues { profile: Some(None), codec: Some("pyrowave".into()), mbps: Some(4294), ..Default::default() };
+    assert_eq!(pyro.apply_to(&base, Capabilities { pyrowave: true, ..caps }).mbps, 1500);
+    let low = SyncedValues { profile: Some(None), mbps: Some(1), ..Default::default() };
+    assert_eq!(low.apply_to(&base, caps).mbps, 5);
 }

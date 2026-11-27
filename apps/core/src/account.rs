@@ -837,11 +837,11 @@ pub struct Merged {
     pub added: Vec<AccountComputer>,
 }
 
-/// Même empreinte d'Admin (sans égard à la casse ni aux espaces), ou même
-/// Station chez le même relais.
+/// Même empreinte d'Admin (la règle commune, MAC-20 : sans égard au préfixe
+/// `sha256:`, aux deux-points, aux espaces ni à la casse), ou même Station
+/// chez le même relais.
 fn same(fp: Option<&str>, station: Option<&str>, c: &AccountComputer) -> bool {
-    let norm = |s: &str| s.trim().to_ascii_lowercase();
-    let by_fp = matches!((fp, c.admin_fp.as_deref()), (Some(a), Some(b)) if !a.trim().is_empty() && norm(a) == norm(b));
+    let by_fp = kybernow_rules::fingerprint::same_opt(fp, c.admin_fp.as_deref());
     let by_station = matches!(station, Some(s) if !s.is_empty() && s == c.station);
     by_fp || by_station
 }

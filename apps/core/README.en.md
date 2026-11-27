@@ -40,6 +40,8 @@ The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core 
 | `src/input/` | Shared input module (below) |
 | `src/audio/` | Sound engine (below) |
 | `src/micro.rs` | The device's microphone, sent to the computer ([docs/micro.en.md](../../docs/micro.en.md)): resampling to 48 kHz, 10 ms frames, Opus voice (32 kbit/s, error correction), state for the apps (below) |
+| `rules/` | The `kybernow-rules` crate (`kybernow_core::rules`): the pure rules shared by the apps, with no dependency at all (below, “Rules shared by the apps”) |
+| `src/plan.rs` | A session's plan: settings and mode asked of the computer from the user's choices, and the shared values for the interfaces (below) |
 | `build.rs` | libopus through pkg-config when it knows it; otherwise the executable links it itself |
 
 ## The Station in a computer's settings
@@ -510,6 +512,21 @@ Buffer: 8 ms margin at the start, growing by 5 ms after an empty buffer (60 ms a
 - The output itself: its thread, the number of channels it accepts (or mixes), its channel order (`AudioEngine::with_order`), its latency; recreating it when the system's output changes.
 - The clock (`Clock`, the input module's).
 - libopus at link time: `build.rs` asks pkg-config for it (`PKG_CONFIG_PATH` towards Kyber's rootfs on the Mac) and settles for a warning otherwise (the Windows app links it statically, `apps/windows/build.rs`).
+
+## Rules shared by the apps (`rules/`, `src/plan.rs`)
+
+Wave 2 of the 27/11 audit: what each app redid on its own side is written once. The `kybernow-rules` crate (`apps/core/rules`, with no dependency at all, taken up by the core as `kybernow_core::rules`) holds the pure rules; the interfaces that build without the core (Linux and LG, for their screenshots) can depend on it directly. Each module only names `super::` and std: `welcome.rs` takes `relay.rs` and `fingerprint.rs` through `#[path]`, because it is itself included as is by the Linux and LG interfaces. Guide for the apps: [docs/audit-2026-11-27/migration-coeur-2b.md](../../docs/audit-2026-11-27/migration-coeur-2b.md).
+
+- **Admin's fingerprint** (`rules::fingerprint`, also `console::short_fingerprint`, `same_fingerprint`, `same_fingerprint_opt`, `normalize_fingerprint`): `short` gives Admin's and every app's display, the first sixteen digits in four groups of four (`7C41 E09B AABB CCDD`); `same` says “the same” regardless of the `sha256:` prefix, colons, spaces or case (empty: never), also the rule for merging the accounts' computers (`account::merge`), Admin's pinned fingerprint and a relay route's.
+- **Addresses** (`rules::address`, also `console::parse_address`, `admin_url`, `host_for_url`, `ADMIN_PORT`, `ADDRESS_EXAMPLE`): `parse_address(text, default_port)` reads `host:port`, an IPv6 in brackets with or without a port, a bare IPv6 as the whole host (`fe80::1` is never the host `fe80:` on port 1); without a port, the default port or a refusal. `admin_url` adds brackets only once. Admin's default port: 9443; the add screen's example: `192.168.1.20:9443`.
+- **Relay** (`rules::relay`): normal form and label, the same as the tunnel's and `account::relay_label` (test `forme_du_relais_comme_le_tunnel`).
+- **Codes and time** (`rules::format`, also `share::format_code`, `normalize_code`, `recording::clock`); **invitation link recognised** (`rules::links::looks_like_invite`, also `lend::looks_like_invite`): an unreadable invitation says so instead of being ignored.
+- **Shared values** (`rules::limits`): `BACKGROUND_BITRATE` (20 Mbit/s, also `session::BACKGROUND_BITRATE` and `background_bitrate()`), bounds of the bitrate set by hand (`manual_mbps`, `clamp_manual_mbps`: 5 to 500 Mbit/s, 1,500 with PyroWave, 95 on an LG TV, steps of 5; also `profile::manual_mbps(device, codec)`; synced settings received are brought back within them), `PYROWAVE_MBPS` and `PYROWAVE_MBPS_444` (also in `profile`), `MAX_GUESTS`, `MAX_SESSIONS`, `RELAY_LINK_WAIT_SECS`, `STATION_NOTICE_WAIT_SECS`, `STATION_NOTICE_BEFORE` (taken up by `share`, `focus`, `station_offer`).
+- **HDR curves** (`rules::hdr`): PQ (`pq_to_nits`, `nits_to_pq`), `BT2020_TO_709`, BT.2390's EETF with the black-level lift, the Station's curve to SDR (knee at 0.75, 4 times white brought to 1, `SDR_SLOPE` = the shaders' and patches 0022's 3.6923077), `frame_is_pq`, `content_peak`, `Output`, `tone`, `yuv_matrix`. The apps' shaders copy them; each app checks its own with a cross test.
+- **Background**: `Session::set_background(bool)` caps the bitrate at `BACKGROUND_BITRATE` and says the picture is frozen (`set_hidden`); on return, both are given back. Held keys are still for the app to release.
+- **A session's plan** (`plan`): `plan(&Choices, caps, screen)` returns the settings (`StreamSettings`) and the mode asked of the computer (profile, format, 4:4:4, bitrate, transport, “Up to 4K”, custom resolution, “Lighten”, Auto and its test, adaptive bitrate, encoder cap; a touched setting makes it “Custom” with the profile's bitrate for that mode); `plan_json(choices, caps, screen)` for the bridges, with the session's bitrate for that mode and the name (“Jeu · HEVC”); `values_json(caps)`: the profiles on this device (60, 90, 300 Mbit/s, +1/3 without 4:4:4, +1/2 in H.264), PyroWave, bounds, background bitrate, maxima, delays, Admin's port and address example, the public relay. `profile::pyrowave_mbps(width, height, refresh, 4:4:4)`: a profile's PyroWave bitrate for a mode.
+
+Tested: `cargo test -p kybernow-rules` (the rules alone) and, through the core, `cargo test -p kybernow-core rules`, `… plan`, `… empreinte_et_adresse`, `… forme_du_relais`, `… arriere_plan`.
 
 ## Testing
 

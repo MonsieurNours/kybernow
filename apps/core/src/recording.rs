@@ -175,10 +175,7 @@ impl RecordingState {
 }
 
 /// « 02:14 », « 59:59 », « 1:02:14 ».
-pub fn clock(seconds: u64) -> String {
-    let (h, m, s) = (seconds / 3600, (seconds / 60) % 60, seconds % 60);
-    if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m:02}:{s:02}") }
-}
+pub use kybernow_rules::format::recording_clock as clock;
 
 /// `recording` d'un signe de vie : absent (Station qui n'enregistre pas) ou
 /// illisible → `None`.

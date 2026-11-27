@@ -132,7 +132,7 @@ impl ServerCertVerifier for PinVerifier {
             }
         };
         match expected {
-            Some(pinned) if !pinned.eq_ignore_ascii_case(&fp) => Err(rustls::Error::General(
+            Some(pinned) if !kybernow_rules::fingerprint::same(&pinned, &fp) => Err(rustls::Error::General(
                 "certificat de la console changé".into(),
             )),
             _ => Ok(ServerCertVerified::assertion()),
@@ -334,13 +334,10 @@ pub struct AccountInfo {
     pub own_device: bool,
 }
 
-/// `https://adresse:port` d'Admin, une adresse IPv6 entre crochets.
+/// `https://adresse:port` d'Admin, une adresse IPv6 entre crochets (une
+/// seule fois, même donnée avec les siens).
 fn base_url(host: &str, port: u16) -> String {
-    if host.contains(':') && !host.starts_with('[') {
-        format!("https://[{host}]:{port}")
-    } else {
-        format!("https://{host}:{port}")
-    }
+    format!("https://{}:{port}", host_for_url(host))
 }
 
 /// Une console PlayStation que voit une Station (`GET /api/consoles`) :
@@ -369,11 +366,16 @@ struct ConsoleList {
 }
 
 /// Adresse d'Admin à ouvrir dans le navigateur ou à mettre dans un QR code
-/// (`https://adresse:port/`), sans créer de [`Console`] : pour les écrans qui
-/// la montrent hors de toute connexion.
-pub fn admin_url(host: &str, port: u16) -> String {
-    format!("{}/", base_url(host, port))
-}
+/// (`https://adresse:port/`, crochets IPv6 compris, jamais doublés), sans
+/// créer de [`Console`] : pour les écrans qui la montrent hors de toute
+/// connexion (TRANS-36). Lire une adresse tapée : [`parse_address`].
+pub use kybernow_rules::address::admin_url;
+pub use kybernow_rules::address::{ADDRESS_EXAMPLE, ADMIN_PORT, host_for_url, parse_address};
+/// Empreinte du certificat d'Admin (TRANS-34, MAC-20) : l'affichage court
+/// d'Admin et de toutes les apps (`7C41 E09B AABB CCDD`), la règle « même
+/// empreinte » (préfixe, deux-points, espaces et casse ignorés), la forme
+/// `sha256:aa:bb:…`.
+pub use kybernow_rules::fingerprint::{normalize as normalize_fingerprint, same as same_fingerprint, same_opt as same_fingerprint_opt, short as short_fingerprint};
 
 /// La Station, pour la rubrique « Station » des réglages d'un ordinateur.
 #[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq, Eq)]
@@ -2152,6 +2154,29 @@ mod tests {
             }
         });
         (port, seen)
+    }
+
+    /// TRANS-34, 35, 36 : l'empreinte courte, la règle « même empreinte »,
+    /// l'adresse tapée et l'adresse d'Admin, données par le cœur.
+    #[test]
+    fn empreinte_et_adresse_communes() {
+        let fp = fingerprint(b"certificat");
+        let short = short_fingerprint(&fp);
+        assert_eq!(short.len(), 19);
+        assert_eq!(short, short.to_uppercase());
+        assert!(same_fingerprint(&fp, &fp.to_uppercase().replace("SHA256:", "")));
+        assert_eq!(normalize_fingerprint(&fp.to_uppercase()).as_deref(), Some(fp.as_str()));
+        assert_eq!(parse_address("fe80::1", Some(ADMIN_PORT)), Some(("fe80::1".into(), 9443)));
+        assert_eq!(parse_address("fe80::1", None), None);
+        assert_eq!(admin_url("[fe80::1]", 9443), "https://[fe80::1]:9443/");
+        let c = Console::guest("[fe80::1]", 9443, None);
+        assert_eq!(c.admin_url(), "https://[fe80::1]:9443/", "crochets jamais doublés");
+        // Le certificat épinglé dans une autre écriture reste le même.
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let seen = Arc::new(Mutex::new(None));
+        let v = PinVerifier { pinned: Some(fp.trim_start_matches("sha256:").replace(':', "")), first: Mutex::new(None), seen, provider };
+        let cert = CertificateDer::from(b"certificat".to_vec());
+        assert!(v.verify_server_cert(&cert, &[], &ServerName::try_from("localhost").unwrap(), &[], UnixTime::now()).is_ok());
     }
 
     /// COEUR-38 : une réponse refusée est lue une fois (statut, corps,

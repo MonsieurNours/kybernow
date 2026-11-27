@@ -192,6 +192,20 @@ pub enum Route {
 }
 
 
+/// Débit quand l'image n'est plus regardée, en bit/s (TRANS-40) :
+/// [`Session::set_background`].
+pub use kybernow_rules::limits::BACKGROUND_BITRATE;
+
+/// [`BACKGROUND_BITRATE`], pour les ponts.
+pub fn background_bitrate() -> u32 {
+    BACKGROUND_BITRATE
+}
+
+/// Le plafond de [`Session::set_background`].
+fn background_cap(background: bool) -> Option<u32> {
+    background.then_some(BACKGROUND_BITRATE)
+}
+
 impl SessionParams {
     /// Les paramètres d'une session d'invité, d'après la Station trouvée par
     /// [`share::join`] : `settings` (le profil de l'app : transport ; format
@@ -1113,7 +1127,7 @@ fn check_relay_fingerprint(known: Option<&str>, route: &crate::relay::RelayRoute
         return Err(t("relay.no_fingerprint", &[]).into());
     }
     match known {
-        Some(k) if !k.trim().is_empty() && !k.trim().eq_ignore_ascii_case(route.admin_fp.trim()) => Err(t("relay.fingerprint_mismatch", &[]).into()),
+        Some(k) if !k.trim().is_empty() && !kybernow_rules::fingerprint::same(k, &route.admin_fp) => Err(t("relay.fingerprint_mismatch", &[]).into()),
         _ => Ok(()),
     }
 }
@@ -1671,6 +1685,18 @@ impl Session {
     /// 4 s » attend le retour au lieu de relancer le flux puis de couper.
     pub fn set_hidden(&self, hidden: bool) {
         self.hidden.store(hidden, Ordering::Relaxed);
+    }
+
+    /// L'image n'est plus regardée (fenêtre cachée ou réduite, app en
+    /// arrière-plan), puis l'est de nouveau (TRANS-40) : le débit est
+    /// plafonné à [`BACKGROUND_BITRATE`], le même sur tous les appareils, et
+    /// l'image figée n'est pas une panne ([`Self::set_hidden`]) ; au retour,
+    /// les deux sont rendus. Les touches tenues restent à relâcher par l'app
+    /// (sa chaîne d'entrées). Une image encore montrée ailleurs (écran
+    /// externe d'un iPhone) n'est pas en arrière-plan.
+    pub fn set_background(&self, background: bool) {
+        self.set_hidden(background);
+        self.set_bitrate_cap(background_cap(background));
     }
 
     /// Taille des images décodées par l'app : un changement en cours de flux
@@ -5930,6 +5956,30 @@ mod tests {
     }
 
     /// COEUR-29 : lâcher la session sans `stop()` l'arrête quand même.
+    /// TRANS-40 : un seul débit en arrière-plan, et l'image figée n'est pas
+    /// une panne ; au retour, plus de plafond.
+    #[test]
+    fn arriere_plan_un_seul_debit() {
+        assert_eq!(background_bitrate(), 20_000_000);
+        assert_eq!(background_cap(true), Some(BACKGROUND_BITRATE));
+        assert_eq!(background_cap(false), None);
+        // Le texte des Statistiques (docs/link-ui.md).
+        let target = TargetBitrate { bitrate: BACKGROUND_BITRATE, profile: 60_000_000, reason: crate::adaptive::TargetReason::AppCapped };
+        assert_eq!(target.text(Lang::Fr), "20 Mbit/s · fenêtre cachée");
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let (w, rec) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        let mut params = w.params.clone();
+        drop(w);
+        params.console_host = "127.0.0.1".into();
+        params.console_port = silent.local_addr().unwrap().port();
+        let session = Session::start(params, rec);
+        session.set_background(true);
+        assert!(session.hidden.load(Ordering::Relaxed));
+        session.set_background(false);
+        assert!(!session.hidden.load(Ordering::Relaxed));
+        session.stop();
+    }
+
     #[test]
     fn session_lachee_s_arrete() {
         let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

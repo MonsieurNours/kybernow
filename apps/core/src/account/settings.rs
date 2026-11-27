@@ -207,8 +207,10 @@ impl SyncedValues {
                 _ => false,
             };
             s.yuv444 &= can444;
+            // Ramené aux bornes du débit à la main (un autre appareil a pu en
+            // garder un plus haut, d'avant les bornes communes : TRANS-41).
             if let Some(m) = self.mbps {
-                s.mbps = m;
+                s.mbps = kybernow_rules::limits::clamp_manual_mbps(m, kybernow_rules::limits::BitrateDevice::Any, s.codec == Codec::PyroWave);
             }
         }
         if let Some(h) = self.hdr {

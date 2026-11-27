@@ -22,8 +22,7 @@ pub const PYROWAVE_KYBER: bool = cfg!(feature = "pyrowave");
 /// les autres (même règle des pixels par seconde : ≈ 280 Mbit/s en 1080p60,
 /// docs/link-ui.md) ; 4:4:4 : moitié plus. Provisoire, à régler sur des
 /// flux de la Station ; le plafond de l'ordinateur passe avant.
-pub const PYROWAVE_MBPS: u32 = 800;
-pub const PYROWAVE_MBPS_444: u32 = 1200;
+pub use kybernow_rules::limits::{PYROWAVE_MBPS, PYROWAVE_MBPS_444};
 
 impl Codec {
     /// Code du format dans les paquets de Kyber (`media::FOURCC_*`).
@@ -489,6 +488,23 @@ pub fn hdr_format(settings: &StreamSettings, caps: Capabilities) -> StreamSettin
 pub fn pixel_rate_scale(pixel_rate: f64) -> f64 {
     let ratio = pixel_rate.max(1.0) / (3840.0 * 2160.0 * 60.0);
     ratio.powf(0.75).clamp(0.4, 3.0)
+}
+
+/// Le débit de PyroWave d'un profil pour un mode (Mbit/s) : [`PYROWAVE_MBPS`]
+/// ou [`PYROWAVE_MBPS_444`], suivant les pixels par seconde comme un profil
+/// (TRANS-42 ; avant, recopié par les apps Apple et Windows).
+pub fn pyrowave_mbps(width: u32, height: u32, refresh: u32, yuv444: bool) -> u32 {
+    let base = if yuv444 { PYROWAVE_MBPS_444 } else { PYROWAVE_MBPS };
+    (base as f64 * pixel_rate_scale(width as f64 * height as f64 * refresh.max(1) as f64)).round() as u32
+}
+
+/// Bornes du débit réglé à la main (« Personnalisé »), TRANS-41.
+pub use kybernow_rules::limits::{BitrateDevice, LG_TV_MBPS_MAX, MANUAL_MBPS_MAX, MANUAL_MBPS_MAX_PYROWAVE, MANUAL_MBPS_MIN, MANUAL_MBPS_STEP};
+
+/// Les bornes du débit réglé à la main sur cet appareil dans ce format
+/// (Mbit/s) : 5 à 500, 5 à 1 500 en PyroWave, 5 à 95 sur un téléviseur LG.
+pub fn manual_mbps(device: BitrateDevice, codec: Codec) -> (u32, u32) {
+    kybernow_rules::limits::manual_mbps(device, codec == Codec::PyroWave)
 }
 
 /// Le format à la place de PyroWave : HEVC, sinon AV1, sinon H.264. C'est

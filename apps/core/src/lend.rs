@@ -810,6 +810,11 @@ impl Invite {
     }
 }
 
+/// Le texte a la forme d'un lien d'invitation (COEUR-41) : s'il ne se lit
+/// pas ([`parse_invite`]), l'app dit « Ce lien d'invitation est illisible. »
+/// au lieu de l'ignorer.
+pub use kybernow_rules::links::looks_like_invite;
+
 /// Lit un lien d'invitation (voir [`Invite`]) ; `None` s'il n'en est pas un.
 pub fn parse_invite(url: &str) -> Option<Invite> {
     use crate::share::{query_pairs, split_authority, strip_brackets};
@@ -1225,6 +1230,10 @@ mod tests {
         assert_eq!((i.host.as_str(), i.fingerprint.clone(), i.relay_route()), ("fe80::1", None, None), "sans empreinte : jamais par le relais");
         let i = parse_invite("https://192.168.1.20:24811/link/?borrow=lea").unwrap();
         assert_eq!((i.host.as_str(), i.port, i.login.as_str(), i.fingerprint), ("192.168.1.20", 24811, "lea", None));
+        // COEUR-41 : la forme d'une invitation, même illisible, se reconnaît.
+        assert!(looks_like_invite("https://192.168.1.20:24811/link/?borrow=lea") && looks_like_invite("kybernow://borrow?login=lea"));
+        assert!(looks_like_invite("https://192.168.1.20:0/link/?borrow=lea") && parse_invite("https://192.168.1.20:0/link/?borrow=lea").is_none(), "illisible, mais une invitation");
+        assert!(!looks_like_invite("https://192.168.1.20:24811/link/?join=123456"));
         assert_eq!(parse_invite("kybernow://borrow?host=h&port=1"), None, "sans identifiant");
         // Le prénom de l'hôte, s'il est dit (encodé), dans les deux formes.
         assert_eq!(parse_invite("kybernow://borrow?host=h&port=1&login=lea&name=Ma%C3%ABl%20Dupont").unwrap().name.as_deref(), Some("Maël Dupont"));

@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use crate::session::{FocusState, Session};
 
 /// Sessions au plus dans une app (« Quatre ordinateurs au plus en même temps. »).
-pub const MAX_SESSIONS: usize = 4;
+pub use kybernow_rules::limits::MAX_SESSIONS;
 
 /// Une session inscrite.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

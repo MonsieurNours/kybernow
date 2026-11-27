@@ -652,6 +652,39 @@ pub fn presence(relay: &RelayAddr, stations: &[String]) -> Result<Vec<bool>, Rel
 mod tests {
     use super::*;
 
+    /// La forme d'un relais de kybernow-rules (interfaces sans le cœur,
+    /// welcome.rs) est celle du tunnel, et son libellé celui des comptes.
+    #[test]
+    fn forme_du_relais_comme_le_tunnel() {
+        let fp = format!("sha256:{}", ["ab"; 32].join(":"));
+        let bare_fp = fp.trim_start_matches("sha256:").replace(':', "").to_uppercase();
+        let inputs = [
+            "share.kybernow.app".to_string(),
+            " SHARE.kybernow.app:443 ".into(),
+            "https://share.kybernow.app/".into(),
+            "relais.exemple.org:9443".into(),
+            format!("relais.exemple.org:9443#{fp}"),
+            format!("relais.exemple.org#SHA256:{bare_fp}"),
+            format!("relais.exemple.org#{bare_fp}"),
+            "[2001:db8::1]:8443".into(),
+            "[2001:db8::1]".into(),
+            "2001:db8::2".into(),
+            "[::1]x".into(),
+            "relais:0".into(),
+            "relais:port".into(),
+            "re lais".into(),
+            "u@relais".into(),
+            "relais#sha256:12".into(),
+            String::new(),
+        ];
+        for i in &inputs {
+            assert_eq!(kybernow_rules::relay::normalize(i), normalize(i), "{i:?}");
+            assert_eq!(kybernow_rules::relay::label(i), crate::account::relay_label(i), "{i:?}");
+        }
+        assert_eq!(kybernow_rules::relay::DEFAULT_RELAY, DEFAULT_RELAY);
+        assert_eq!(kybernow_rules::relay::DEFAULT_PORT, kybernow_tunnel::DEFAULT_PORT);
+    }
+
     /// COEUR-39 : une seule règle « le réseau en 1,5 s, sinon le relais ».
     #[test]
     fn un_seul_choix_du_chemin() {

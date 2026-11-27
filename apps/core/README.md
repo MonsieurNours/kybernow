@@ -40,6 +40,8 @@ Le cœur ne dépend d'aucun système : rien n'y appelle AppKit, UIKit, Win32 ni 
 | `src/input/` | Module d'entrées partagé (ci-dessous) |
 | `src/audio/` | Moteur de son (ci-dessous) |
 | `src/micro.rs` | Micro de l'appareil vers l'ordinateur ([docs/micro.md](../../docs/micro.md)) : rééchantillonnage à 48 kHz, trames de 10 ms, Opus voix (32 kbit/s, correction d'erreurs), état pour les apps (ci-dessous) |
+| `rules/` | Caisse `kybernow-rules` (`kybernow_core::rules`) : les règles pures communes aux apps, sans aucune dépendance (ci-dessous, « Règles communes des apps ») |
+| `src/plan.rs` | Plan d'une session : réglages et mode demandés à l'ordinateur d'après les choix de l'utilisateur, et les valeurs communes pour les interfaces (ci-dessous) |
 | `build.rs` | libopus par pkg-config quand il la connaît ; sinon l'exécutable la lie lui-même |
 
 ## La Station dans les réglages d'un ordinateur
@@ -510,6 +512,21 @@ Tampon : marge de 8 ms au départ, qui grandit de 5 ms après un tampon vide (60
 - La sortie elle-même : son fil, le nombre de voies qu'elle accepte (ou mixe), son ordre des voies (`AudioEngine::with_order`), sa latence ; sa recréation quand la sortie du système change.
 - L'horloge (`Clock`, celle du module d'entrées).
 - libopus à l'édition de liens : `build.rs` la demande à pkg-config (`PKG_CONFIG_PATH` vers le rootfs de Kyber sur le Mac) et se contente d'un avertissement sinon (l'app Windows la lie en statique, `apps/windows/build.rs`).
+
+## Règles communes des apps (`rules/`, `src/plan.rs`)
+
+Vague 2 de l'audit du 27/11 : ce que chaque app refaisait de son côté est écrit une fois. La caisse `kybernow-rules` (`apps/core/rules`, sans aucune dépendance, reprise par le cœur sous `kybernow_core::rules`) porte les règles pures ; les interfaces qui se compilent sans le cœur (Linux et LG, pour leurs captures) peuvent en dépendre directement. Chaque module ne nomme que `super::` et std : `welcome.rs` reprend `relay.rs` et `fingerprint.rs` par `#[path]`, parce qu'il est lui-même inclus tel quel par les interfaces Linux et LG. Guide pour les apps : [docs/audit-2026-11-27/migration-coeur-2b.md](../../docs/audit-2026-11-27/migration-coeur-2b.md).
+
+- **Empreinte d'Admin** (`rules::fingerprint`, aussi `console::short_fingerprint`, `same_fingerprint`, `same_fingerprint_opt`, `normalize_fingerprint`) : `short` donne l'affichage d'Admin et de toutes les apps, les seize premiers chiffres en quatre groupes de quatre (`7C41 E09B AABB CCDD`) ; `same` dit « la même » sans égard au préfixe `sha256:`, aux deux-points, aux espaces ni à la casse (vide : jamais), règle aussi de la fusion des ordinateurs des comptes (`account::merge`), de l'empreinte épinglée d'Admin et de celle d'une route du relais.
+- **Adresses** (`rules::address`, aussi `console::parse_address`, `admin_url`, `host_for_url`, `ADMIN_PORT`, `ADDRESS_EXAMPLE`) : `parse_address(texte, port_par_défaut)` lit `hôte:port`, une IPv6 entre crochets avec ou sans port, une IPv6 nue comme hôte entier (`fe80::1` n'est jamais l'hôte `fe80:` sur le port 1) ; sans port, le port par défaut ou un refus. `admin_url` met les crochets une seule fois. Port d'Admin par défaut : 9443 ; exemple de l'écran d'ajout : `192.168.1.20:9443`.
+- **Relais** (`rules::relay`) : forme normale et libellé, les mêmes que le tunnel et que `account::relay_label` (essai `forme_du_relais_comme_le_tunnel`).
+- **Codes et temps** (`rules::format`, aussi `share::format_code`, `normalize_code`, `recording::clock`) ; **lien d'invitation reconnu** (`rules::links::looks_like_invite`, aussi `lend::looks_like_invite`) : une invitation illisible se dit illisible au lieu d'être ignorée.
+- **Valeurs communes** (`rules::limits`) : `BACKGROUND_BITRATE` (20 Mbit/s, aussi `session::BACKGROUND_BITRATE` et `background_bitrate()`), bornes du débit réglé à la main (`manual_mbps`, `clamp_manual_mbps` : 5 à 500 Mbit/s, 1 500 en PyroWave, 95 sur un téléviseur LG, pas de 5 ; aussi `profile::manual_mbps(device, codec)` ; les réglages synchronisés reçus y sont ramenés), `PYROWAVE_MBPS` et `PYROWAVE_MBPS_444` (aussi dans `profile`), `MAX_GUESTS`, `MAX_SESSIONS`, `RELAY_LINK_WAIT_SECS`, `STATION_NOTICE_WAIT_SECS`, `STATION_NOTICE_BEFORE` (repris par `share`, `focus`, `station_offer`).
+- **Courbes HDR** (`rules::hdr`) : PQ (`pq_to_nits`, `nits_to_pq`), `BT2020_TO_709`, l'EETF de BT.2390 avec le relèvement du noir, la courbe vers le SDR de la Station (genou à 0,75, 4 fois le blanc ramené à 1, `SDR_SLOPE` = 3,6923077 des shaders et des correctifs 0022), `frame_is_pq`, `content_peak`, `Output`, `tone`, `yuv_matrix`. Les shaders des apps les recopient ; chaque app les vérifie par un essai croisé.
+- **Arrière-plan** : `Session::set_background(bool)` plafonne le débit à `BACKGROUND_BITRATE` et dit l'image figée (`set_hidden`) ; au retour, les deux sont rendus. Les touches tenues restent à relâcher par l'app.
+- **Plan d'une session** (`plan`) : `plan(&Choices, caps, écran)` rend les réglages (`StreamSettings`) et le mode demandés à l'ordinateur (profil, format, 4:4:4, débit, transport, « Au plus 4K », définition sur mesure, « Alléger », Auto et son test, débit adaptatif, plafond de l'encodeur ; un réglage retouché rend « Personnalisé » avec le débit du profil pour ce mode) ; `plan_json(choix, caps, écran)` pour les ponts, avec le débit de la session pour ce mode et le nom (« Jeu · HEVC ») ; `values_json(caps)` : les profils sur cet appareil (60, 90, 300 Mbit/s, +1/3 sans 4:4:4, +1/2 en H.264), PyroWave, bornes, débit en arrière-plan, maxima, délais, port et exemple d'adresse d'Admin, relais public. `profile::pyrowave_mbps(largeur, hauteur, fréquence, 4:4:4)` : le débit de PyroWave d'un profil pour un mode.
+
+Testé : `cargo test -p kybernow-rules` (règles seules) et, par le cœur, `cargo test -p kybernow-core rules`, `… plan`, `… empreinte_et_adresse`, `… forme_du_relais`, `… arriere_plan`.
 
 ## Tester
 
