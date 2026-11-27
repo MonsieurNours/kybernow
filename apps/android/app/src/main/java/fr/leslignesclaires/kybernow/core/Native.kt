@@ -25,9 +25,6 @@ object Native {
      */
     @JvmStatic external fun pyrowaveProbe(): String
 
-    /** Horloge des mesures de Kyber (µs, CLOCK_MONOTONIC). */
-    @JvmStatic external fun nowMicros(): Long
-
     // Profil Auto (docs/profil-auto.md ; apps/android/jni/src/autotest.rs).
     /**
      * Lance le test des conditions sur un fil du cœur : [console] est une poignée de `consoleNew…` que le test prend
@@ -36,8 +33,6 @@ object Native {
      * l'avancement puis la fin, depuis ce fil. 0 si rien n'a pu partir. À rendre par [autotestFree].
      */
     @JvmStatic external fun autotestStart(console: Long, deviceJson: String, name: String, listener: AutotestListener): Long
-    /** « Annuler » : le test s'arrête entre deux mesures (`onDone` : `{"cancelled": true}`). */
-    @JvmStatic external fun autotestCancel(handle: Long)
     /** Rend la poignée : le test s'arrête et ne dit plus rien. */
     @JvmStatic external fun autotestFree(handle: Long)
     /** Le résumé d'un résultat gardé, dans la langue de l'app : `[{key, title, value, reason}]` ; nul s'il est illisible. */
@@ -101,12 +96,6 @@ object Native {
     // d'essais (`error` : le texte à montrer ; 23, format illisible, seulement si l'appareil ne lit aucun format :
     // jamais, H.264 compte comme toujours lu). Hors du fil principal.
     /**
-     * `targets` `[{host, port, fingerprint}]`, `request` `{code, name, device, app, quality}` (et `auto` pour « Auto »),
-     * `capabilities` `{hevc, hevc444, av1}` ou `null` (le format que le cœur demande à Kyber : celui de l'hôte s'il est
-     * lu, sinon un format lu, dans une image à part) ; `value` : `{target, joined}`, `joined.image` : l'image reçue.
-     */
-    @JvmStatic external fun shareJoin(targetsJson: String, requestJson: String, capabilitiesJson: String?): String
-    /**
      * « Rejoindre » sur le réseau et hors de chez soi (docs/relais.md) : `relays` `["relais.exemple.org:9443", …]`, les relais
      * des ordinateurs connus (le relais public, `share.kybernow.app`, est toujours interrogé en plus) ; `value` : `{"joined": {target, joined}}` ou `{"pending": {route, guest, secret, expires}}` ;
      * refus en plus : 24 refusé, 25 sans réponse de l'hôte, 26 trop de demandes en attente, 30 relais muet, 31 ordinateur absent ;
@@ -124,21 +113,10 @@ object Native {
     @JvmStatic external fun shareLeave(foundJson: String): Int
     /** `{host, port, fingerprint, code}`, ou `null` si ce n'est pas un lien de partage. */
     @JvmStatic external fun shareParseLink(url: String): String?
-    @JvmStatic external fun shareNormalizeCode(code: String): String?
     @JvmStatic external fun shareFormatCode(code: String): String
     /** 0 Station trop ancienne, 1 partage coupé sur l'ordinateur, 2 disponible ; `infoJson` : celui de [consoleInfo]. */
     @JvmStatic external fun shareAvailability(infoJson: String): Int
     @JvmStatic external fun shareAvailabilityText(availability: Int): String?
-    // Rôle d'un invité : deux droits indépendants. 0 spectateur (aucun), 1 manettes, 2 manettes avec clavier
-    // et souris, 3 clavier et souris seuls ; « Joueur » dans la barre : un droit au moins.
-    /** Le rôle avec les manettes données ou reprises, le clavier et la souris tels quels (−1 : code inconnu). */
-    @JvmStatic external fun shareRoleWithPads(role: Int, pads: Boolean): Int
-    /** Le rôle avec le clavier et la souris donnés ou repris, les manettes telles quelles (−1 : code inconnu). */
-    @JvmStatic external fun shareRoleWithKbm(role: Int, kbm: Boolean): Int
-    // « Qualité de l'image » d'un invité : 0 Auto, 1 comme l'hôte, 2 1080p · 60 Hz, 3 720p · 30 Hz, 4 4K · 60 Hz
-    // (menus : Auto, comme l'hôte, 4K, 1080p, 720p ; dans `requestJson` de [shareJoin] : `quality`
-    // `auto|host|2160p60|1080p60|720p30`, et `auto`).
-    @JvmStatic external fun shareQualityLabel(quality: Int): String?
     /** `screen` `{pixel_width, pixel_height, refresh}`, `decoder` `{hevc, hevc444, av1, max_width, max_height, max_fps}`, `host` l'écran partagé ou `null` ; rend `auto`. */
     @JvmStatic external fun shareAutoQuality(screenJson: String, decoderJson: String, hostJson: String?): String?
     /** « 1080p · 60 Hz » d'une image ([SessionListener.onShareImage], `guests[].image`) ; `null` tant que la taille n'est pas sue (Kyber ne dit rien). */
@@ -168,8 +146,6 @@ object Native {
      * `value` : `{target, joined}`, `joined.watch` `{screens, switch, display}`.
      */
     @JvmStatic external fun shareWatch(accessJson: String, lanJson: String?, routeJson: String?, requestJson: String, capabilitiesJson: String?): String?
-    /** Comme [shareWatch], par une console de compte déjà ouverte ([consoleNewAccount]). */
-    @JvmStatic external fun consoleShareWatch(handle: Long, requestJson: String, capabilitiesJson: String?): String?
     /** « Regarder {nom} » : le titre des étapes de la connexion. */
     @JvmStatic external fun shareWatchTitle(computer: String): String
     /** `action` « Regarder », `stop` « Arrêter de regarder », `screen` « Écran ». */
@@ -339,8 +315,6 @@ object Native {
     /** PyroWave : débit du lien vers l'ordinateur en Mbit/s, 0 inconnu (docs/pyrowave.md, « Définition ramenée »). */
     @JvmStatic external fun sessionSetLinkMbps(handle: Long, mbps: Int)
 
-    // Caméra de l'appareil vers l'ordinateur (docs/webcam.md) : `CameraSender` capture et encode, le cœur fait le reste.
-    @JvmStatic external fun cameraOffered(handle: Long): Boolean
     /** Allume la caméra, ou change de caméra ou de définition sans l'éteindre ; faux si l'ordinateur ne la propose pas. */
     @JvmStatic external fun cameraStart(handle: Long, hevc: Boolean, width: Int, height: Int, resolution1080: Boolean, device: String): Boolean
     /** Une image encodée (Annex B) d'un `ByteBuffer` direct : 0 partie, 1 lâchée (image clé ensuite), 2 éteinte. */
@@ -355,7 +329,6 @@ object Native {
     /** L'avis d'un problème de l'appareil (0 refusé, 1 prise, 2 débranchée, 3 pas d'encodeur). */
     @JvmStatic external fun cameraDeviceNotice(which: Int, camera: String): String
     @JvmStatic external fun sessionPickDisplay(handle: Long, id: Int)
-    @JvmStatic external fun sessionSetMode(handle: Long, width: Int, height: Int, refresh: Int)
     @JvmStatic external fun sessionRestoreMode(handle: Long)
     /** [médiane, p95] en ms, ou nul sans mesure. */
     @JvmStatic external fun sessionLatency(handle: Long): DoubleArray?
@@ -425,7 +398,6 @@ object Native {
     @JvmStatic external fun padButton(handle: Long, pad: Int, button: Int, pressed: Boolean)
     @JvmStatic external fun padAxis(handle: Long, pad: Int, axis: Int, value: Int)
     @JvmStatic external fun padAxesRest(handle: Long, pad: Int)
-    @JvmStatic external fun padSetComboEnabled(handle: Long, enabled: Boolean)
 }
 
 /** Boutons et axes des manettes, dans l'ordre du cœur (`PadButton::ALL`, `PadAxis::ALL`). */

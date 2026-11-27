@@ -33,11 +33,6 @@ object PyroWave {
         Log.i("KyberNow", "PyroWave : ${if (decodes) "disponible" else "indisponible"} ($report)")
     }
 
-    /** Pour les essais (captures, tests de l'interface). */
-    internal fun setForTests(decodes: Boolean) {
-        this.decodes = decodes
-    }
-
     /** L'appareil est relié par câble (Ethernet) au réseau, en ce moment. */
     fun wired(context: Context): Boolean = runCatching {
         val cm = context.getSystemService(ConnectivityManager::class.java)

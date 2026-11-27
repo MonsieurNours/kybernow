@@ -499,8 +499,9 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             var address = c.address
             var remote: PsRemote? = null
+            var woken = false
             when (ps.status(c)) {
-                PsStatus.STANDBY -> if (!ps.wake(c)) return@launch
+                PsStatus.STANDBY -> if (ps.wake(c)) woken = true else return@launch
                 PsStatus.AWAY -> {
                     remote = ps.reach(c) ?: return@launch
                     address = remote.address
@@ -513,6 +514,7 @@ class MainActivity : AppCompatActivity() {
                 return@launch
             }
             val i = Intent(this@MainActivity, PsSessionActivity::class.java).putExtra(PsSessionActivity.EXTRA_CONSOLE, c.id).putExtra(PsSessionActivity.EXTRA_ADDRESS, address)
+                .putExtra(PsSessionActivity.EXTRA_WOKEN, woken)
             remote?.let { KyberNowApp.instance.handOverRemote(it); i.putExtra(PsSessionActivity.EXTRA_REMOTE, true) }
             startActivity(i)
         }

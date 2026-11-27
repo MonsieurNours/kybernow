@@ -17,15 +17,6 @@ const SENT: jint = 0;
 const WANT_KEYFRAME: jint = 1;
 const OFF: jint = 2;
 
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_cameraOffered(_: Env, _: JClass, h: jlong) -> jboolean {
-    match handle(h) {
-        Some(h) if h.session.camera().offered() => JNI_TRUE,
-        _ => JNI_FALSE,
-    }
-}
-
 /// Allume la caméra, ou change de caméra ou de définition sans l'éteindre.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_cameraStart(

@@ -74,7 +74,7 @@ object TvChannel {
                 put(PreviewPrograms.COLUMN_CHANNEL_ID, channelId)
                 put(PreviewPrograms.COLUMN_TYPE, TYPE_GAME)
                 put(PreviewPrograms.COLUMN_TITLE, h.name)
-                put(PreviewPrograms.COLUMN_SHORT_DESCRIPTION, listOfNotNull(h.os, h.gpu).joinToString(" · "))
+                // Rien de technique sur l'accueil (docs/link-ui.md, « Principes ») : le nom seul, plus le système ni la carte graphique.
                 put(PreviewPrograms.COLUMN_POSTER_ART_URI, poster.toString())
                 put(PreviewPrograms.COLUMN_POSTER_ART_ASPECT_RATIO, ASPECT_RATIO_16_9)
                 put(PreviewPrograms.COLUMN_INTENT_URI, "kybernow://connect/${h.id}")

@@ -239,16 +239,6 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_remoteAdd
     }
 }
 
-/// L'état vu par la Station au dernier signe de vie (`ready`, `standby`,
-/// `unknown`) ; nul si elle ne la voit plus.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_remoteState(mut env: Env, _: JClass, h: jlong) -> jstring {
-    match remote(h).and_then(|r| r.seen()) {
-        Some(c) => give(&mut env, &c.state),
-        None => std::ptr::null_mut(),
-    }
-}
-
 /// Le chemin (JSON de `onRoute` des sessions : `transport`, `relay`, `rtt_client`, `rtt_station`).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_remoteRoute(mut env: Env, _: JClass, h: jlong) -> jstring {

@@ -831,7 +831,6 @@ S = [
 ("ps_stats_losses", "Images perdues : %1$d · réparées : %2$d", "Pictures lost: %1$d · repaired: %2$d"),
 ("ps_keyboard_banner", "Tapez votre texte · Entrée pour valider · Échap pour annuler", "Type your text · Return to accept · Escape to cancel"),
 ("ps_keyboard_banner_touch", "Tapez votre texte · ✓ pour valider · ✕ pour annuler", "Type your text · ✓ to accept · ✕ to cancel"),
-("ps_touchpad", "Pavé tactile", "Touchpad"),
 ("ps_hint_tv", "Le bouton Retour ouvre le menu, comme Options + Create + L1 + R1.", "The Back button opens the menu, as does Options + Create + L1 + R1."),
 ("ps_pad_bar", "La manette pilote la barre, la console ne reçoit rien ; Rond la ferme.", "The controller drives the bar and the console receives nothing; Circle closes it."),
 ("ps_sign_in_title", "PlayStation Network", "PlayStation Network"),

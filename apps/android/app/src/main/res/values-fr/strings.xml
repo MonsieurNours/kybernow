@@ -743,7 +743,6 @@
     <string name="ps_stats_losses" formatted="true">Images perdues : %1$d · réparées : %2$d</string>
     <string name="ps_keyboard_banner">Tapez votre texte · Entrée pour valider · Échap pour annuler</string>
     <string name="ps_keyboard_banner_touch">Tapez votre texte · ✓ pour valider · ✕ pour annuler</string>
-    <string name="ps_touchpad">Pavé tactile</string>
     <string name="ps_hint_tv">Le bouton Retour ouvre le menu, comme Options + Create + L1 + R1.</string>
     <string name="ps_pad_bar">La manette pilote la barre, la console ne reçoit rien ; Rond la ferme.</string>
     <string name="ps_sign_in_title">PlayStation Network</string>

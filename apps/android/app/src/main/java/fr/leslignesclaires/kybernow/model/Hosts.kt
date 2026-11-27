@@ -289,7 +289,7 @@ data class Host(
     val wakeTargets: List<WakeTarget>
         get() {
             val manual = mac?.takeIf { m -> wake.none { it.mac.equals(m, ignoreCase = true) } }
-                ?.let { WakeTarget(it, ipv4 = address.takeIf { a -> a.split('.').size == 4 && a.all { c -> c.isDigit() || c == '.' } }) }
+                ?.let { WakeTarget(it, ipv4 = address.takeIf(::isIpv4)) }
             return wake + listOfNotNull(manual)
         }
 
@@ -433,7 +433,6 @@ class HostStore(private val context: Context) {
         _borrowed.value = list
     }
 
-    fun borrowedComputer(id: String): BorrowedComputer? = _borrowed.value.firstOrNull { it.id == id }
 
     /**
      * Ajoute ou remplace (même Station et même identifiant : même carte) ; [password] retenu s'il est donné, oublié sinon

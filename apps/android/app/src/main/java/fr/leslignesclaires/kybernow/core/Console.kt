@@ -96,7 +96,7 @@ data class HostRelay(val server: String, val station: String, val remoteAccess: 
  * [mac] (`AA:BB:CC:DD:EE:FF`), sa dernière adresse IPv4 [ipv4], la diffusion de son sous-réseau
  * [broadcast], [kind] (`ethernet` ou `wifi`), [armed] (Windows la laisse réveiller l'ordinateur ; nul :
  * inconnu) et son nom [name]. L'app garde la liste de chaque ordinateur quand un `info` en donne une
- * ([toJson], [listFromJson]) et la rend à [Native.wake] ; une adresse saisie à la main tient dans
+ * ([toJson]) et la rend à [Native.wake] ; une adresse saisie à la main tient dans
  * `WakeTarget(mac, ipv4)`.
  */
 data class WakeTarget(
@@ -136,10 +136,6 @@ data class WakeTarget(
 
         /** La liste en JSON, pour la garder avec l'ordinateur et pour [Native.wake]. */
         fun toJson(list: List<WakeTarget>): String = JSONArray().apply { list.forEach { put(it.json()) } }.toString()
-
-        /** La liste gardée par [toJson] ; vide si le texte est absent ou illisible. */
-        fun listFromJson(text: String?): List<WakeTarget> =
-            if (text.isNullOrEmpty()) emptyList() else runCatching { parseList(JSONArray(text)) }.getOrDefault(emptyList())
     }
 }
 
@@ -201,8 +197,6 @@ sealed class Reply<out T> {
         val inSession get() = code == 10
         /** Trop tôt (un redémarrage par minute, ou trop d'essais ratés) : attendre [seconds]. */
         val tooSoon get() = code == 11
-        /** Rien à installer depuis l'app : Station à jour, ou version refusée. */
-        val nothingToInstall get() = code == 12
         /** La version s'installe avec l'installateur, sur l'ordinateur. */
         val requiresSetup get() = code == 13
         /** Une installation ou un redémarrage est déjà en cours. */
@@ -224,8 +218,6 @@ sealed class Reply<out T> {
         /** Un ordinateur d'un compte KyberNow : il n'est plus sur le compte (71) : il quitte l'accueil. */
         val accountComputerGone get() = code == AccountCode.UNKNOWN_COMPUTER
     }
-
-    fun valueOrNull(): T? = (this as? Ok<T>)?.value
 }
 
 enum class PairState { PENDING, ACCEPTED, REFUSED, EXPIRED }

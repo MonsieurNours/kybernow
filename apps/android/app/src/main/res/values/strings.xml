@@ -743,7 +743,6 @@
     <string name="ps_stats_losses" formatted="true">Pictures lost: %1$d · repaired: %2$d</string>
     <string name="ps_keyboard_banner">Type your text · Return to accept · Escape to cancel</string>
     <string name="ps_keyboard_banner_touch">Type your text · ✓ to accept · ✕ to cancel</string>
-    <string name="ps_touchpad">Touchpad</string>
     <string name="ps_hint_tv">The Back button opens the menu, as does Options + Create + L1 + R1.</string>
     <string name="ps_pad_bar">The controller drives the bar and the console receives nothing; Circle closes it.</string>
     <string name="ps_sign_in_title">PlayStation Network</string>

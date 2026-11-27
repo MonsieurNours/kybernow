@@ -184,14 +184,6 @@ mod android {
         (h != 0).then(|| unsafe { &*(h as *const Job) })
     }
 
-    /// « Annuler » : le test s'arrête entre deux mesures, `onDone` dit `cancelled`.
-    #[unsafe(no_mangle)]
-    pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_autotestCancel(_: Env, _: JClass, h: jlong) {
-        if let Some(j) = job(h) {
-            j.cancel.store(true, Ordering::Release);
-        }
-    }
-
     /// Rend la poignée : le test s'arrête et ne dit plus rien.
     #[unsafe(no_mangle)]
     pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_autotestFree(_: Env, _: JClass, h: jlong) {

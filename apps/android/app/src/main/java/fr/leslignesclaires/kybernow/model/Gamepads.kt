@@ -124,6 +124,28 @@ class Gamepads(private val context: Context) : InputManager.InputDeviceListener 
 
     fun byDevice(deviceId: Int): Gamepad? = _pads.value.firstOrNull { it.deviceId == deviceId }
 
+    /**
+     * La place de la manette de [deviceId] (−1 : aucune). Un appareil sans place (souris qui se dit joystick,
+     * télécommande) n'est relu qu'une fois par changement d'appareils, pas à chaque mouvement (AND-25 : une
+     * énumération des périphériques sur le fil principal à chaque événement). Sessions d'ordinateur et parties.
+     */
+    fun slotOf(deviceId: Int): Int {
+        byDevice(deviceId)?.let { return it.slot }
+        if (refusedAt != generation) {
+            refused.clear()
+            refusedAt = generation
+        }
+        if (deviceId in refused) return -1
+        refresh()
+        byDevice(deviceId)?.let { return it.slot }
+        refusedAt = generation
+        refused += deviceId
+        return -1
+    }
+
+    private val refused = HashSet<Int>()
+    private var refusedAt = -1
+
     // MARK: - Vibrations
 
     /** Manettes dont la première vibration est déjà dans le journal. */

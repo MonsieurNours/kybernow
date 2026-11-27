@@ -64,6 +64,8 @@ class PsSessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionAc
         const val EXTRA_ADDRESS = "address"
         /** Hors de chez soi : la console jointe par une Station est remise en mémoire par `KyberNowApp.handOverRemote`. */
         const val EXTRA_REMOTE = "remote"
+        /** La console était en veille et vient d'être réveillée : l'étape « Réveil de la console » de la connexion. */
+        const val EXTRA_WOKEN = "woken"
         private const val PAD_PREFS = "playstation_session"
     }
 
@@ -90,6 +92,8 @@ class PsSessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionAc
     private val plugged = HashMap<Int, String>()
     private var mouseCaptured = false
     private val wifi by lazy { LowLatencyWifi(this) }
+    /** Le pavé tactile de la DualSense, vers la console. */
+    private val touchpad by lazy { PadTouchpad(app.gamepads, { s, f, d, x, y -> PsNative.padTouch(s, f, d, x, y) }, { s, p -> PsNative.padTouchClick(s, p) }) }
 
     /** La manette à l'écran vers la console, à sa place de joueur. */
     private val onScreenOut = object : PadOut {
@@ -127,7 +131,7 @@ class PsSessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionAc
             onRestMode = { PsNative.gotoBed(handle) },
             onKeyboardText = { t -> PsNative.keyboardText(handle, t) },
             onKeyboardDone = { ok -> keyboardDone(ok) },
-        )
+        ).apply { woken = intent.getBooleanExtra(EXTRA_WOKEN, false) }
         ui = SessionUi(console.name, tv, state, this, OnScreenPad(onScreenOut), console = cui).apply {
             combo = true
             backOpensMenu = true
@@ -141,7 +145,7 @@ class PsSessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionAc
             holder.addCallback(this@PsSessionActivity)
             isFocusable = true
             isFocusableInTouchMode = true
-            setOnCapturedPointerListener { _, e -> capturedMouse(e) }
+            setOnCapturedPointerListener { _, e -> touchpad.motion(e) || capturedMouse(e) }
         }
         root.addView(surfaceView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
         overlay = ComposeView(this).apply { setContent { KnTheme(app.form) { SessionOverlay(ui) } } }
@@ -461,7 +465,7 @@ class PsSessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionAc
         }
     }
 
-    private fun slot(deviceId: Int): Int = app.gamepads.byDevice(deviceId)?.slot ?: run { app.gamepads.refresh(); app.gamepads.byDevice(deviceId)?.slot ?: -1 }
+    private fun slot(deviceId: Int): Int = app.gamepads.slotOf(deviceId)
 
     private fun padKey(e: KeyEvent): Boolean {
         if (e.repeatCount > 0) return true
@@ -482,7 +486,7 @@ class PsSessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionAc
     private fun padMotion(e: MotionEvent): Boolean {
         if (captured) return false
         val s = slot(e.deviceId)
-        if (s < 0) return true
+        if (s < 0) return app.gamepads.byDevice(e.deviceId) != null
         val now = PadAxes.read(e)
         val before = lastAxes[e.deviceId] ?: PadAxes.REST
         lastAxes[e.deviceId] = now
@@ -607,6 +611,7 @@ class PsSessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionAc
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (!ui.menuOpen && touchpad.motion(event)) return true
         if (event.isFromSource(InputDevice.SOURCE_JOYSTICK) && event.action == MotionEvent.ACTION_MOVE) {
             if (!ui.menuOpen && padMotion(event)) return true
             return super.dispatchGenericMotionEvent(event)

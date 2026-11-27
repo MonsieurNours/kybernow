@@ -1176,11 +1176,6 @@ const char *kn_pw_describe(kn_pw_session *s)
 	return s ? s->description.c_str() : "";
 }
 
-int kn_pw_hdr_output(kn_pw_session *s)
-{
-	return s && s->hdr_output ? 1 : 0;
-}
-
 void kn_pw_close(kn_pw_session *s)
 {
 	std::lock_guard<std::mutex> holder(lock);

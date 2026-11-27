@@ -87,11 +87,6 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_pyrowavePro
     give(&mut env, &serde_json::json!({ "available": available, "report": report }).to_string())
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_nowMicros(_: Env, _: JClass) -> jlong {
-    latency::now_micros()
-}
-
 // MARK: - Admin
 
 pub(crate) fn envelope<T: serde::Serialize>(r: Result<T, ConsoleError>) -> String {
@@ -467,13 +462,6 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetL
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionPickDisplay(_: Env, _: JClass, h: jlong, id: jint) {
     if let Some(h) = handle(h) {
         h.session.pick_display(id as u32);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetMode(_: Env, _: JClass, h: jlong, w: jint, hh: jint, refresh: jint) {
-    if let Some(h) = handle(h) {
-        h.session.set_mode(Mode { width: w as u32, height: hh as u32, refresh: refresh as u32 });
     }
 }
 
@@ -860,15 +848,6 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padAxis(_: 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padAxesRest(_: Env, _: JClass, h: jlong, pad: jint) {
     input(h, |p| p.gamepad_axes_rest(pad as u32));
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padSetComboEnabled(_: Env, _: JClass, h: jlong, enabled: jboolean) {
-    let Some(h) = handle(h) else { return };
-    h.shared.combo_enabled.store(enabled != 0, std::sync::atomic::Ordering::Relaxed);
-    if let Some(p) = h.shared.current_input() {
-        p.combo().set_enabled(enabled != 0);
-    }
 }
 
 // MARK: - Profils
