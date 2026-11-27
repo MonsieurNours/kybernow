@@ -554,9 +554,6 @@ struct SettingsView: View {
         seg("order", String(localized: "Ordre des joueurs"), String(localized: "Fixe : chaque modèle garde sa place ; deux manettes identiques ne se distinguent pas"), [("power", String(localized: "Allumage")), ("fixed", String(localized: "Fixe"))], prefs.padOrderFixed ? "fixed" : "power") { v in
             prefs.padOrderFixed = v == "fixed"
         }
-        toggle("iso", String(localized: "Clavier Apple ISO"), String(localized: "Clavier Apple européen (touche @# ou §± sous Échap) : la touche sous Échap et celle près de Maj retrouvent leur place sur l'ordinateur"), prefs.appleISOKeyboard) {
-            prefs.appleISOKeyboard.toggle()
-        }
     }
 
     // MARK: Réseau

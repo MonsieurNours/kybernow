@@ -64,6 +64,8 @@
 		8816AB8EC3BBEA07B9756A6D /* LendCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 189BCD69D071C000182BA243 /* LendCore.swift */; };
 		8A35461AFBB86EA42CA41F69 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 63D40A4F73C24372966564C8 /* Assets.xcassets */; };
 		8DDD546D33BAEA2180996AE9 /* LatencyReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D0FAABB1D481B0A0B691B9 /* LatencyReporting.swift */; };
+		8E0AB9ABE2A956F67E65F1DD /* AppJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F70D5C8E034699F51D25E7C8 /* AppJournal.swift */; };
+		917B08DED10AAA8BAC6C4344 /* HDRShader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 363D04298BEDB7D45E320BC9 /* HDRShader.swift */; };
 		9201B232977D7D58B017F714 /* KyberKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C060A812A5011BB6AEC276EC /* KyberKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		947F773BEDBD9F48DB91E96D /* PyroWaveConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5ED2F31CB6BDBF6BF0C27BA /* PyroWaveConfig.swift */; };
 		9657F885E3A51C59AA2836C9 /* KyberNowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */; };
@@ -154,6 +156,7 @@
 		2F30B29F401DF269013F5B54 /* MartianMono-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "MartianMono-wdth-wght.ttf"; sourceTree = "<group>"; };
 		3210FD450E18DC92F261D207 /* LinkUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkUI.swift; sourceTree = "<group>"; };
 		323EA304E0762094819E42DC /* VideoRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRenderer.swift; sourceTree = "<group>"; };
+		363D04298BEDB7D45E320BC9 /* HDRShader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRShader.swift; sourceTree = "<group>"; };
 		376C853A2208FC82714BAC81 /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
 		37C6A76299D9E197C2FE1162 /* Accounts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Accounts.swift; sourceTree = "<group>"; };
 		3C1E162A6B7ECA42BAB04CAE /* MicUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicUI.swift; sourceTree = "<group>"; };
@@ -230,6 +233,7 @@
 		F46D6860BE7B12712A7135A1 /* AddHostFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostFlow.swift; sourceTree = "<group>"; };
 		F5ED2F31CB6BDBF6BF0C27BA /* PyroWaveConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyroWaveConfig.swift; sourceTree = "<group>"; };
 		F6B90BA7CD90EBC558307D36 /* PlayStationSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationSettings.swift; sourceTree = "<group>"; };
+		F70D5C8E034699F51D25E7C8 /* AppJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppJournal.swift; sourceTree = "<group>"; };
 		F7D0FAABB1D481B0A0B691B9 /* LatencyReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyReporting.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -326,6 +330,7 @@
 			isa = PBXGroup;
 			children = (
 				13248073F9AED7D7E812E4C8 /* AccountCore.swift */,
+				F70D5C8E034699F51D25E7C8 /* AppJournal.swift */,
 				0DA3801F739C720FA111C70C /* AudioPlayerCore.swift */,
 				A90E4E33C6E941BC6A6CE488 /* AutoTestBench.swift */,
 				709E1B34D6D39E4AF68740C7 /* AutoTestCore.swift */,
@@ -340,6 +345,7 @@
 				B4ED4A7AED04F3E6BFC4AD7D /* HDRCalibration.swift */,
 				6A16C5153CFA8B9A8EC07CEB /* HDRDemo.swift */,
 				B4ED9823FE738E797E819ACE /* HDRPatternView.swift */,
+				363D04298BEDB7D45E320BC9 /* HDRShader.swift */,
 				87AD46654DDE4325A528470C /* HDRVideoLayer.swift */,
 				940774B27B5F893F6D351931 /* InputCore.swift */,
 				660EA29E7D18D98FB3C21A9F /* KeymapMac.swift */,
@@ -583,6 +589,7 @@
 			files = (
 				10B79E68B216819332FE0096 /* AV1.swift in Sources */,
 				D92C2D77DE76B139BBF1324A /* AccountCore.swift in Sources */,
+				8E0AB9ABE2A956F67E65F1DD /* AppJournal.swift in Sources */,
 				E7E30A2139A8B73DF65145C7 /* AudioPlayerCore.swift in Sources */,
 				3317CC220B1D8A10541D57ED /* AutoTestBench.swift in Sources */,
 				DE1F27E722CA3C6537882A48 /* AutoTestCore.swift in Sources */,
@@ -596,6 +603,7 @@
 				B9A3A3996E03B51DA8C7C19D /* HDRCalibration.swift in Sources */,
 				12034EA33F19153239227110 /* HDRDemo.swift in Sources */,
 				0B283BC384A9C86C71D4265A /* HDRPatternView.swift in Sources */,
+				917B08DED10AAA8BAC6C4344 /* HDRShader.swift in Sources */,
 				CD9C125280E6BF846AEE3C41 /* HDRVideoLayer.swift in Sources */,
 				EF3A238235E625C782A326F0 /* InputCore.swift in Sources */,
 				08492ED020ED23978215AE43 /* KeymapMac.swift in Sources */,

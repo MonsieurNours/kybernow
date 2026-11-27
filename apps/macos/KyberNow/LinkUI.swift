@@ -620,6 +620,60 @@ enum MicText {
 }
 #endif
 
+/// Réglages de l'app › Clavier (docs/link-ui.md, « Réglages de l'app ») :
+/// deux réglages qui décrivent le clavier branché, pas l'ordinateur.
+enum KeyboardText {
+    static var section: String { String(localized: "Clavier") }
+    static var layout: String { String(localized: "Disposition du clavier") }
+    static var layoutHelp: String { String(localized: "Pour les touches d'une partie sur console (ZQSD ou WASD). Auto suit le clavier physique branché quand iPadOS le dit, sinon la langue du premier clavier.") }
+    static var appleISO: String { String(localized: "Clavier Apple ISO") }
+    static var appleISOHelp: String { String(localized: "Clavier Apple européen (touche @# ou §± sous Échap) : la touche sous Échap et celle près de Maj retrouvent leur place sur l'ordinateur.") }
+
+    #if os(iOS)
+    static func label(_ l: KeyboardLayout) -> String {
+        switch l {
+        case .auto: return String(localized: "Auto")
+        case .azerty: return "AZERTY"
+        case .qwerty: return "QWERTY"
+        case .qwertz: return "QWERTZ"
+        }
+    }
+    #endif
+}
+
+/// « Envoyer le journal » (docs/link-ui.md, « Réglages de l'app » › À propos).
+enum JournalText {
+    static var about: String { String(localized: "À propos") }
+    static var version: String { String(localized: "Version") }
+    static var send: String { String(localized: "Envoyer le journal") }
+    static var label: String { String(localized: "Journal") }
+    /// Aide sous le bouton (Mac, iPhone, iPad : la feuille de partage).
+    static var help: String { String(localized: "Si l'app se ferme ou qu'une session se coupe, ce fichier texte raconte ce qui s'est passé. Joignez-le à votre message : vous choisissez à qui l'envoyer.") }
+    /// Aide sur l'Apple TV (par le téléphone).
+    static var helpTV: String { String(localized: "Si l'app se ferme ou qu'une session se coupe, ce fichier texte raconte ce qui s'est passé. Il passe par votre téléphone : vous choisissez à qui l'envoyer.") }
+    static var preparing: String { String(localized: "Préparation du journal…") }
+    static var uploading: String { String(localized: "Envoi du journal…") }
+    static var scan: String { String(localized: "Scannez ce QR code avec votre téléphone, puis enregistrez ou partagez le journal.") }
+    static var encrypted: String { String(localized: "Chiffré sur cet appareil : seul ce QR code l'ouvre. Il sert une fois, pendant une heure.") }
+    static var done: String { String(localized: "Terminé") }
+    static var opened: String { String(localized: "Journal ouvert sur le téléphone.") }
+    static var expired: String { String(localized: "Ce QR code a expiré.") }
+    static var newCode: String { String(localized: "Nouveau QR code") }
+    static var unreachable: String { String(localized: "Le relais ne répond pas : vérifiez la connexion à Internet, puis réessayez.") }
+    static var retry: String { String(localized: "Réessayer") }
+    static var oldRelay: String { String(localized: "Ce relais ne prend pas encore les journaux : il doit être mis à jour.") }
+    static var tooMany: String { String(localized: "Trop d'envois : réessayez dans une heure.") }
+
+    /// Le texte d'un dépôt refusé.
+    static func failure(_ f: AppJournal.Failure) -> String {
+        switch f {
+        case .unreachable, .other: return unreachable
+        case .oldRelay: return oldRelay
+        case .tooMany: return tooMany
+        }
+    }
+}
+
 enum HDRText {
     /// La puce de l'accueil, l'interrupteur des réglages, la ligne de la barre, les statistiques.
     static var label: String { "HDR" }

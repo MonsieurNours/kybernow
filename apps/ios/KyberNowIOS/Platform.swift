@@ -109,8 +109,17 @@ final class Preferences: ObservableObject {
     @Published var spatialAudio: Bool { didSet { d.set(spatialAudio, forKey: "spatialAudio") } }
     @Published var latencyAlert: Bool { didSet { d.set(latencyAlert, forKey: "latencyAlert") } }
     @Published var icloudSync: Bool { didSet { d.set(icloudSync, forKey: "icloudSync") } }
-    /// Clavier Apple ISO (européen) branché : touches `@#` et `<>` échangées.
+    /// Clavier Apple ISO (européen) branché : touches `@#` et `<>` échangées
+    /// (Réglages de l'app › Clavier, il décrit le clavier, pas l'ordinateur).
     @Published var appleISOKeyboard: Bool { didSet { d.set(appleISOKeyboard, forKey: "appleISOKeyboard") } }
+    /// « Disposition du clavier » (Réglages de l'app › Clavier) : nomme les
+    /// touches d'une partie sur console (`Keymap.character(hid:)`).
+    @Published var keyboardLayout: KeyboardLayout {
+        didSet {
+            d.set(keyboardLayout.rawValue, forKey: "keyboardLayout")
+            Keymap.layout = keyboardLayout
+        }
+    }
     /// Pavé tactile virtuel (le doigt déplace le pointeur) ou toucher direct (le doigt est le pointeur).
     @Published var directTouch: Bool { didSet { d.set(directTouch, forKey: "directTouch") } }
     /// « Sessions en données mobiles » (Réglages de l'app) : coupé, l'accueil
@@ -130,6 +139,9 @@ final class Preferences: ObservableObject {
         latencyAlert = Self.flag("latencyAlert")
         icloudSync = Self.flag("icloudSync")
         appleISOKeyboard = Self.flag("appleISOKeyboard", false)
+        let layout = UserDefaults.standard.string(forKey: "keyboardLayout").flatMap(KeyboardLayout.init(rawValue:)) ?? .auto
+        keyboardLayout = layout
+        Keymap.layout = layout
         directTouch = Self.flag("directTouch", false)
         allowCellular = Self.flag("allowCellular", false)
         pointerSpeed = UserDefaults.standard.object(forKey: "pointerSpeed") as? Double ?? 1.4

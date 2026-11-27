@@ -39,6 +39,8 @@ public enum Core {
         #if os(macOS) || os(iOS)
         kn_set_device_has_microphone(true)
         #endif
+        // Les fins de l'app que le système rapporte, pour « Envoyer le journal ».
+        AppJournal.watchExits()
     }()
 
     /// Chaîne rendue par le cœur, libérée après lecture.

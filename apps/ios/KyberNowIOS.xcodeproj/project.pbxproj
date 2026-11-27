@@ -35,6 +35,7 @@
 		263D92DB45AF33815A440596 /* AddHostScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91FD6F412BECA15E4705994A /* AddHostScanner.swift */; };
 		2B10A24B0E02FA1FFC9F8DCE /* KyberLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C924F6C6F8139DA17F956040 /* KyberLog.swift */; };
 		2B4250B1508169AFF498AA14 /* AutoTestCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84866482E10A62F84B93EDD4 /* AutoTestCore.swift */; };
+		2FED916A432BF0C186A13504 /* AppJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3E7A618783C6CB97DA829D6 /* AppJournal.swift */; };
 		33EBC4B0D83EB9730FAEF3F8 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 9DA666EFDB697E3073C49AC0 /* AppIcon.icon */; };
 		349D7CD85D9FA9F6BC4BDC2F /* RecordingCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B9DFC158B9E58AFDFB4D362 /* RecordingCore.swift */; };
 		3AF2A47B1780A6EF38E902EF /* PlayStationCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E507C6F92BBBC66E91277CD6 /* PlayStationCore.swift */; };
@@ -49,6 +50,7 @@
 		5B8FF1569490F358E421AEFD /* pyrowave_common.mm in Sources */ = {isa = PBXBuildFile; fileRef = E3D818E5A38E5B48DAACECBE /* pyrowave_common.mm */; };
 		6044180EED63D7C090C56C5A /* KeymapIOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C8E35A110CBAFE43FA26DF /* KeymapIOS.swift */; };
 		60A82D0A011624FC38C9BADE /* VideoPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAFEE158257746E0783DAB51 /* VideoPipeline.swift */; };
+		63322AAC5A73472029B761E6 /* HDRShader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C4DC35C94DDD686B56F07F4 /* HDRShader.swift */; };
 		644211D9653E7804B75A37CD /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D24E60CD6CB22677E5A6149 /* Theme.swift */; };
 		6DFC3E0D7FFE36D6B9C48538 /* Welcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C443DAC93EC079C1684794 /* Welcome.swift */; };
 		6EDDE77B6928268EBF954CF4 /* AV1.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED5BA9A9A9B2AF57C3FEBB54 /* AV1.swift */; };
@@ -152,6 +154,7 @@
 		12873856FE243A1B653ADFD4 /* Lend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lend.swift; sourceTree = "<group>"; };
 		14EDFA8B001CCA8A8F0BE2E1 /* KyberNow.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = KyberNow.xcframework; path = Vendor/KyberNow.xcframework; sourceTree = "<group>"; };
 		1A902278E773A170D6D6A7A8 /* HDRVideoLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRVideoLayer.swift; sourceTree = "<group>"; };
+		1C4DC35C94DDD686B56F07F4 /* HDRShader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRShader.swift; sourceTree = "<group>"; };
 		1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		1F7DE9C5954CF031E79AD56B /* DualSenseHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DualSenseHaptics.swift; sourceTree = "<group>"; };
 		20A940CD2E9BEF2AB9FFC201 /* AutoProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoProfile.swift; sourceTree = "<group>"; };
@@ -218,6 +221,7 @@
 		9F2CC5531BE91A2E596139D8 /* CloudSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSync.swift; sourceTree = "<group>"; };
 		A2B1FC1C1CB40956666D1104 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
 		A311A16A82D70847AAB768D2 /* CoreBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreBridge.swift; sourceTree = "<group>"; };
+		A3E7A618783C6CB97DA829D6 /* AppJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppJournal.swift; sourceTree = "<group>"; };
 		B15AA9F9EFA3E6C151832988 /* LinkUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkUI.swift; sourceTree = "<group>"; };
 		B3F54BF416D5315CDBC05036 /* SessionStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStats.swift; sourceTree = "<group>"; };
 		B5B21EE1EB8228AF8F50DED6 /* SettingsStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStats.swift; sourceTree = "<group>"; };
@@ -444,6 +448,7 @@
 			isa = PBXGroup;
 			children = (
 				DA2A882F8116B9EEFC430402 /* AccountCore.swift */,
+				A3E7A618783C6CB97DA829D6 /* AppJournal.swift */,
 				9CDD825886035EA70C8A338E /* AudioPlayerCore.swift */,
 				61DC9C4C33AF7E83D5F35C91 /* AutoTestBench.swift */,
 				84866482E10A62F84B93EDD4 /* AutoTestCore.swift */,
@@ -458,6 +463,7 @@
 				216B5AACD7FD091DD1CF9E3A /* HDRCalibration.swift */,
 				919619F97C936324087E9B51 /* HDRDemo.swift */,
 				98D90F96A6B8BC39AA37500D /* HDRPatternView.swift */,
+				1C4DC35C94DDD686B56F07F4 /* HDRShader.swift */,
 				1A902278E773A170D6D6A7A8 /* HDRVideoLayer.swift */,
 				D096F84DF3830EBF98CCE6EF /* InputCore.swift */,
 				C924F6C6F8139DA17F956040 /* KyberLog.swift */,
@@ -655,6 +661,7 @@
 			files = (
 				6EDDE77B6928268EBF954CF4 /* AV1.swift in Sources */,
 				948D97D7ADAA3A9AAB0A310F /* AccountCore.swift in Sources */,
+				2FED916A432BF0C186A13504 /* AppJournal.swift in Sources */,
 				B8212CF41830876E669E0A4A /* AudioPlayerCore.swift in Sources */,
 				79E2046132B6B2E0A05052EB /* AutoTestBench.swift in Sources */,
 				2B4250B1508169AFF498AA14 /* AutoTestCore.swift in Sources */,
@@ -670,6 +677,7 @@
 				24E7685D6AC661AFDCCA052B /* HDRCalibration.swift in Sources */,
 				8A7C0B26C6A3CC163BB66686 /* HDRDemo.swift in Sources */,
 				70EAD097B4F376E782F1CE07 /* HDRPatternView.swift in Sources */,
+				63322AAC5A73472029B761E6 /* HDRShader.swift in Sources */,
 				962E9235A44D43A17C764D7C /* HDRVideoLayer.swift in Sources */,
 				CF1672C3B10A503BCCE9BB62 /* InputCore.swift in Sources */,
 				AA646ACFCCEDA7CA1C36A75C /* KeyboardMouse.swift in Sources */,

@@ -22,6 +22,10 @@ struct AppSettingsView: View {
     @State private var micDevice: String? = MicrophonePrefs.device
     @State private var micDevices: [MicDevice] = []
     @State private var micVoice = MicrophonePrefs.voiceProcessing
+    /// « Envoyer le journal » : le fichier se prépare (« Préparation du journal… »).
+    @State private var journalPreparing = false
+    /// La vue sous le bouton, d'où part la feuille de partage.
+    @State private var journalAnchor: NSView?
     /// Langue en vigueur depuis le lancement (le choix ne s'applique qu'à la relance).
     private static let launchLanguage = LanguageChoice.current
 
@@ -34,6 +38,7 @@ struct AppSettingsView: View {
             languageCard
             microphoneCard
             macCard
+            aboutCard
         }
         .padding(20)
         .frame(width: 500)
@@ -148,7 +153,6 @@ struct AppSettingsView: View {
     private var macCard: some View {
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let native = DisplayInfo.nativePixels(screen)
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
         return SettingsCard(icon: "cpu", title: String(localized: "Ce Mac")) {
             VStack(alignment: .leading, spacing: 8) {
                 fact(String(localized: "Écran"), "\(screen.localizedName) · \(LinkFormat.dims(native.width, native.height)) · \(DisplayInfo.refreshLabel(screen))", mono: false)
@@ -156,7 +160,6 @@ struct AppSettingsView: View {
                     fact(String(localized: "Affichage de macOS"), String(localized: "agrandi, comme \(looks)"), mono: false)
                 }
                 fact(String(localized: "Décodage matériel"), DecoderCapabilities.current.summary, mono: false)
-                fact(String(localized: "Version"), "KyberNow Link \(version)", mono: false)
             }
             Text(DisplayInfo.variableRefresh(screen)
                  ? "L'écran se cale sur chaque image : latence minimale sans déchirure."
@@ -166,6 +169,45 @@ struct AppSettingsView: View {
             hdrCalibrationRow
         }
         .onReceive(NotificationCenter.default.publisher(for: HDRCalibrationWindow.changed)) { _ in calibrationTick += 1 }
+    }
+
+    /// À propos (en dernier, docs/link-ui.md, « Réglages de l'app ») : la
+    /// version, et « Envoyer le journal » par la feuille de partage du système.
+    private var aboutCard: some View {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+        return SettingsCard(icon: "info", title: JournalText.about) {
+            fact(JournalText.version, "KyberNow Link \(version)", mono: false)
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(JournalText.label).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                    Text(JournalText.help)
+                        .font(Theme.sans(12)).foregroundStyle(Theme.muted).lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                if journalPreparing {
+                    Text(JournalText.preparing).font(Theme.sans(12)).foregroundStyle(Theme.muted)
+                } else {
+                    Button(JournalText.send) { sendJournal() }
+                        .buttonStyle(GhostButton(height: 30))
+                        .background(ViewAnchor(view: $journalAnchor))
+                }
+            }
+        }
+    }
+
+    /// Le journal préparé, puis la feuille de partage du système (Mail,
+    /// Messages, AirDrop…) sous le bouton.
+    private func sendJournal() {
+        journalPreparing = true
+        Task { @MainActor in
+            defer { journalPreparing = false }
+            guard let url = try? await AppJournal.file() else { return }
+            let picker = NSSharingServicePicker(items: [url])
+            if let anchor = journalAnchor ?? NSApp.keyWindow?.contentView {
+                picker.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+            }
+        }
     }
 
     /// « Réglage du HDR », seulement sur un écran HDR : l'état de cet écran
@@ -398,4 +440,18 @@ private struct AccountsCard: View {
         relay.text = ""
         accounts.signIn(relay: address)
     }
+}
+
+/// La vue AppKit sous un élément SwiftUI : le point d'ancrage d'une feuille de
+/// partage (`NSSharingServicePicker`).
+private struct ViewAnchor: NSViewRepresentable {
+    @Binding var view: NSView?
+
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        DispatchQueue.main.async { view = v }
+        return v
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }

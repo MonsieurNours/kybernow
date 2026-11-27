@@ -886,9 +886,6 @@ private struct SettingsPane: View {
                 update { $0.commandAsControl.toggle() }
             }
         }
-        rows.toggle(String(localized: "Clavier Apple ISO"), String(localized: "Clavier Apple européen (touche @# ou §± sous Échap) : la touche sous Échap et celle près de Maj retrouvent leur place sur l'ordinateur."), prefs.appleISOKeyboard) {
-            prefs.appleISOKeyboard.toggle()
-        }
         rows.toggle(String(localized: "Presse-papiers partagé"), String(localized: "Le texte copié ici se colle sur l'ordinateur, et inversement."), s.clipboard) {
             update { $0.clipboard.toggle() }
         }
