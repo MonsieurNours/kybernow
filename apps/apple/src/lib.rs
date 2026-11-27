@@ -38,10 +38,13 @@ pub mod autotest;
 pub mod camera;
 pub mod input;
 pub mod invite;
+pub mod journal;
 pub mod lend;
+pub mod micro;
 pub mod playstation;
 pub mod recording;
 pub mod relay;
+pub mod rules;
 pub mod share;
 pub mod welcome;
 
@@ -1067,6 +1070,12 @@ pub struct KnPlatform {
     /// et le dernier flux lâché par Kyber), d'un fil quelconque ; nul : l'app
     /// le garde et le rend elle-même. Ajouté en dernier.
     pub release_userdata: Option<unsafe extern "C" fn(userdata: *mut c_void)>,
+    /// PyroWave n'a pas pu démarrer sur l'appareil (après
+    /// `kn_session_pyrowave_failed`) : l'image repart en `codec` (`hevc`,
+    /// `av1`, `h264`) pour cette session, le réglage ne change pas ; `text` :
+    /// l'avis bref de link-ui (« Image en HEVC : PyroWave n'a pas pu démarrer
+    /// sur cet appareil. »), à montrer une fois. Ajouté après `release_userdata`.
+    pub on_pyrowave_fallback: Option<unsafe extern "C" fn(userdata: *mut c_void, codec: *const c_char, text: *const c_char)>,
 }
 
 struct ApplePlatform {
@@ -1333,6 +1342,13 @@ impl Platform for ApplePlatform {
     /// Gardée pour `KN_STATUS_ENDING`, qui suit tout de suite.
     fn on_ending(&self, error: Option<&str>) {
         *self.ending_error.lock().unwrap_or_else(|e| e.into_inner()) = error.map(str::to_string);
+    }
+
+    fn on_pyrowave_fallback(&self, codec: Codec, text: &str) {
+        let Some(f) = self.cb.on_pyrowave_fallback else { return };
+        let codec = CString::new(codec.key()).unwrap_or_default();
+        let c = CString::new(text.replace('\0', " ")).unwrap_or_default();
+        unsafe { f(self.cb.userdata, codec.as_ptr(), c.as_ptr()) };
     }
 
     fn on_notice(&self, notice: &Notice) {
@@ -1680,6 +1696,13 @@ pub struct KnHdrLuminance {
 impl From<HdrLuminance> for KnHdrLuminance {
     fn from(l: HdrLuminance) -> Self {
         Self { max: l.max, full_frame: l.full_frame, min: l.min, sdr_white: l.sdr_white }
+    }
+}
+
+/// Les valeurs par défaut du cœur (aussi la valeur rendue après une panique).
+impl Default for KnHdrLuminance {
+    fn default() -> Self {
+        HdrLuminance::default().into()
     }
 }
 
