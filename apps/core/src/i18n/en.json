@@ -270,6 +270,8 @@
     "busy": "{device} is already sending its camera to {name}.",
     "busy_unnamed": "Another device is already sending its camera to {name}.",
     "failed": "{name} could not open its virtual camera.",
+    "not_installed": "{name}'s virtual camera isn't installed. Update the Station, or reinstall it.",
+    "extension_off": "{name}'s virtual camera isn't turned on. On that Mac, turn on KyberNow Station in System Settings › General › Login Items & Extensions.",
     "denied": "Camera access is denied. Allow it in the device's Settings.",
     "in_use": "The camera is being used by another app.",
     "unplugged": "{camera} is no longer connected.",

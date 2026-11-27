@@ -416,6 +416,13 @@ impl Microphone {
             let packet = self.uplink.lock().unwrap().as_ref().and_then(|u| u.try_recv());
             let Some(packet) = packet else { break };
             if let Some(link) = parse_status(&packet) {
+                // La raison donnée par l'ordinateur, au journal de l'appareil.
+                if let Link::Failed(r) = link {
+                    let raw = serde_json::from_slice::<serde_json::Value>(&packet[1..]).ok();
+                    let reason = raw.as_ref().and_then(|v| v.get("reason")).and_then(|r| r.as_str()).unwrap_or("?");
+                    let state = raw.as_ref().and_then(|v| v.get("state")).and_then(|r| r.as_str()).unwrap_or("?");
+                    log::info!("micro : refusé par l'ordinateur ({state}, {reason} : {r:?})");
+                }
                 *self.link.lock().unwrap() = link;
             }
         }

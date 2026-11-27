@@ -415,6 +415,13 @@ impl CameraLink {
         }
         for p in packets {
             if let Some(e) = parse_status(&p) {
+                // La raison donnée par l'ordinateur, au journal de l'appareil :
+                // l'avis ne la montre pas, le journal permet de trancher.
+                match &e {
+                    CameraEvent::Failed { reason } => log::info!("caméra : refusée par l'ordinateur ({reason})"),
+                    CameraEvent::Busy { device } => log::info!("caméra : l'ordinateur reçoit déjà celle de {device:?}"),
+                    _ => {}
+                }
                 match &e {
                     CameraEvent::Started => {
                         if i.state == State::Starting {
@@ -551,8 +558,24 @@ pub fn event_notice(event: &CameraEvent, computer: &str, lang: Lang) -> Option<S
             Some(i18n::tr(lang, "camera.busy", &[("device", device), ("name", computer)]))
         }
         CameraEvent::Busy { .. } => Some(i18n::tr(lang, "camera.busy_unnamed", &[("name", computer)])),
-        CameraEvent::Failed { .. } => Some(i18n::tr(lang, "camera.failed", &[("name", computer)])),
+        CameraEvent::Failed { reason } => Some(i18n::tr(lang, failure_key(reason), &[("name", computer)])),
         _ => None,
+    }
+}
+
+/// La clé du texte d'un refus de l'ordinateur, d'après la raison que donne
+/// son aide caméra (server/camera) : caméra virtuelle absente (Windows :
+/// source Media Foundation ou filtre DirectShow pas installés ; Linux :
+/// ni v4l2loopback ni PipeWire), extension de caméra pas activée (Station
+/// Mac), sinon le texte général.
+fn failure_key(reason: &str) -> &'static str {
+    let r = reason.to_ascii_lowercase();
+    if r.contains("not installed") || r.contains("not registered") || r.contains("v4l2loopback") {
+        "camera.not_installed"
+    } else if r.contains("extension not active") {
+        "camera.extension_off"
+    } else {
+        "camera.failed"
     }
 }
 
@@ -775,6 +798,13 @@ mod tests {
             "Atelier n'a pas pu ouvrir sa caméra virtuelle."
         );
         assert_eq!(event_notice(&CameraEvent::Started, "Atelier", Lang::Fr), None);
+        // Raisons précises de l'aide caméra de la Station.
+        let failed = |r: &str, lang| event_notice(&CameraEvent::Failed { reason: r.into() }, "Atelier", lang).unwrap();
+        assert_eq!(failed("virtual camera not installed (kybernow-camera --install)", Lang::Fr), "La caméra virtuelle n'est pas installée sur Atelier. Mettez à jour la Station, ou réinstallez-la.");
+        assert_eq!(failed("DirectShow filter not registered (kybernow-camera --install)", Lang::En), "Atelier's virtual camera isn't installed. Update the Station, or reinstall it.");
+        assert_eq!(failed("no v4l2loopback device, PipeWire unreachable", Lang::Fr), "La caméra virtuelle n'est pas installée sur Atelier. Mettez à jour la Station, ou réinstallez-la.");
+        assert!(failed("camera extension not active (System Settings, Login Items & Extensions)", Lang::Fr).contains("Ouverture et extensions"));
+        assert!(failed("camera extension not active", Lang::En).contains("Login Items & Extensions"));
         assert_eq!(
             device_notice(DeviceNotice::Unplugged, "Logitech C920", Lang::Fr),
             "Logitech C920 n'est plus branchée."
