@@ -387,6 +387,15 @@ impl<'a> Cx<'a> {
         }
     }
 
+    /// Une invitation de plus par ce compte (REL-13) ; sinon l'avis « Trop d'essais ».
+    fn invite_limit(&self, account: &Account) -> Result<(), Notice> {
+        let limit = self.acc.limits.lock().unwrap_or_else(|e| e.into_inner()).invite(account.id);
+        limit.map_err(|wait| {
+            tracing::warn!(compte = account.id, "invitations : limite par expéditeur atteinte");
+            Notice::TooMany(wait.0.as_secs().div_ceil(60))
+        })
+    }
+
     /// Un e-mail de plus vers cette adresse, dans la limite.
     fn may_mail(&self, to: &str) -> bool {
         self.acc.mailer.is_some() && self.acc.limits.lock().unwrap_or_else(|e| e.into_inner()).mail(to)

@@ -175,6 +175,12 @@ pub(super) fn create(cx: Cx<'_>, post: bool) -> Reply {
         let page = console::create_org(&cx.view(), "", Some(kind), true, &nav, Some(Notice::OrgNameMissing));
         return cx.page(200, page);
     }
+    // Pas d'équipes à la chaîne (REL-13).
+    let owned = acc.db().orgs_of(account.id).map(|l| l.iter().filter(|(_, r)| *r == Role::Owner).count()).unwrap_or(0);
+    if owned >= super::super::MAX_OWNED_ORGS {
+        let page = console::create_org(&cx.view(), "", Some(kind), true, &nav, Some(Notice::NotAllowed));
+        return cx.page(429, page);
+    }
     let created = acc.db().create_org(&name, kind, account.id, cx.now);
     let org = match created {
         Ok(o) => o,
@@ -215,6 +221,11 @@ pub(super) fn invite(cx: Cx<'_>) -> Reply {
     // Seul un Propriétaire en nomme un autre.
     if wanted == Role::Owner && role != Role::Owner {
         return show(cx, &account, &org, role, Tab::Members, Some(Notice::NotAllowed));
+    }
+    if let Err(n) = cx.invite_limit(&account) {
+        let mut r = show(cx, &account, &org, role, Tab::Members, Some(n));
+        r.status = 429;
+        return r;
     }
     let target = acc.db().account_by_email(&email).ok().flatten().filter(|a| a.verified());
     // Déjà membre : refusé, en le nommant ; une invitation en attente pour la même adresse est remplacée.
@@ -263,6 +274,11 @@ pub(super) fn resend(cx: Cx<'_>) -> Reply {
     let (org, role) = managed!(cx, account, Tab::Members);
     let Ok(id) = cx.req.form("invitation").parse::<i64>() else { return show(cx, &account, &org, role, Tab::Members, None) };
     let Some((_, wanted)) = acc.db().org_invite(org.id, id).ok().flatten() else { return show(cx, &account, &org, role, Tab::Members, None) };
+    if let Err(n) = cx.invite_limit(&account) {
+        let mut r = show(cx, &account, &org, role, Tab::Members, Some(n));
+        r.status = 429;
+        return r;
+    }
     let resent = acc.db().resend_org_invite(org.id, id, cx.now);
     let email = match resent {
         Ok(Resend::Done(email)) => email,

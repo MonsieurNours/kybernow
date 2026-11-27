@@ -556,6 +556,7 @@ mod deplacer;
 mod invitations;
 mod lot2;
 mod lot45;
+mod limites;
 mod lot6;
 mod delegation;
 mod noms_hostiles;

@@ -204,7 +204,15 @@ pub struct Limiter {
     forgot_ip: Buckets<IpAddr>,
     sign_up_ip: Buckets<IpAddr>,
     mail_to: Buckets<String>,
+    invites_hour: Buckets<i64>,
+    invites_day: Buckets<i64>,
 }
+
+/// Les invitations et ajouts qu'un compte envoie (REL-13) : par heure, et par jour.
+pub const INVITES_PER_HOUR: u32 = 20;
+pub const INVITES_PER_DAY: u32 = 100;
+/// Les familles et équipes qu'un compte peut créer.
+pub const MAX_OWNED_ORGS: usize = 20;
 
 /// Une limite atteinte : réessayer dans ce temps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,6 +228,8 @@ impl Default for Limiter {
             forgot_ip: Buckets::new(10, WINDOW),
             sign_up_ip: Buckets::new(10, Duration::from_secs(3600)),
             mail_to: Buckets::new(3, WINDOW),
+            invites_hour: Buckets::new(INVITES_PER_HOUR, Duration::from_secs(3600)),
+            invites_day: Buckets::new(INVITES_PER_DAY, Duration::from_secs(86_400)),
         }
     }
 }
@@ -259,6 +269,16 @@ impl Limiter {
         self.sign_up_ip.take(&ip_key(ip), Instant::now()).map_err(Limited)
     }
 
+    /// Une invitation (ou un ajout) de plus envoyée par ce compte ?
+    pub fn invite(&mut self, account: i64) -> Result<(), Limited> {
+        let now = Instant::now();
+        self.invites_day.take(&account, now).map_err(Limited)?;
+        self.invites_hour.take(&account, now).map_err(|wait| {
+            self.invites_day.refund(&account, now);
+            Limited(wait)
+        })
+    }
+
     /// Un e-mail de plus vers cette adresse ?
     pub fn mail(&mut self, to: &str) -> bool {
         self.mail_to.take(&to.to_string(), Instant::now()).is_ok()
@@ -273,6 +293,8 @@ impl Limiter {
         self.forgot_ip.sweep(now);
         self.sign_up_ip.sweep(now);
         self.mail_to.sweep(now);
+        self.invites_hour.sweep(now);
+        self.invites_day.sweep(now);
     }
 }
 

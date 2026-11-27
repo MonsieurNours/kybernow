@@ -472,6 +472,11 @@ pub(super) fn add(cx: Cx<'_>) -> Reply {
     if target.as_ref().is_some_and(|t| station.account == Some(t.id)) {
         return people_page(cx, &account, &station, Some(Notice::NotAllowed), Kept { form, ..Kept::default() });
     }
+    if let Err(n) = cx.invite_limit(&account) {
+        let mut r = people_page(cx, &account, &station, Some(n), Kept::default());
+        r.status = 429;
+        return r;
+    }
     // Déjà là ? Une personne qui a déjà un accès à cet ordinateur : ses droits changent ; une
     // invitation en attente pour la même adresse : remplacée (docs/comptes.md, « Ajouter quelqu'un »).
     let had_access = target.as_ref().is_some_and(|t| {
@@ -529,6 +534,11 @@ pub(super) fn resend(cx: Cx<'_>) -> Reply {
     let Ok(id) = cx.req.form("acces").parse::<i64>() else { return people_page(cx, &account, &station, None, Kept::default()) };
     let grant: Option<Grant> = acc.db().grant(&station.id, id).ok().flatten().filter(|g| matches!(g.subject, Subject::Invite { .. }));
     let Some(grant) = grant else { return people_page(cx, &account, &station, None, Kept::default()) };
+    if let Err(n) = cx.invite_limit(&account) {
+        let mut r = people_page(cx, &account, &station, Some(n), Kept::default());
+        r.status = 429;
+        return r;
+    }
     let resent = acc.db().resend_grant_invite(&station.id, id, cx.now);
     let email = match resent {
         Ok(Resend::Done(email)) => email,
