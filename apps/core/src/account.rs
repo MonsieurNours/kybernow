@@ -392,6 +392,13 @@ pub struct SignIn {
     pub state: String,
     /// `kybernow` : le schéma du retour (`ASWebAuthenticationSession`).
     pub callback_scheme: String,
+    /// PKCE (RFC 7636) : le vérificateur, gardé par l'app avec le reste et
+    /// rendu à l'échange du code ; seul son défi (SHA-256) part dans
+    /// l'adresse. Une autre app qui intercepterait le retour
+    /// `kybernow://compte?code=…` ne peut pas échanger le code. Absent (un
+    /// `SignIn` gardé par une app d'avant) : rien n'est envoyé.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub verifier: String,
 }
 
 /// L'adresse de la page de connexion du relais pour cet appareil
@@ -400,13 +407,16 @@ pub struct SignIn {
 pub fn sign_in(relay: &str, device_name: &str) -> Result<SignIn, AccountError> {
     let addr = relay_addr(relay)?;
     let state = new_state();
+    let verifier = new_verifier();
+    // Un relais d'avant PKCE ignore `code_challenge` et `code_verifier`.
     let url = format!(
-        "https://{}/compte/connexion?appareil={}&retour={}&etat={state}",
+        "https://{}/compte/connexion?appareil={}&retour={}&etat={state}&code_challenge={}&code_challenge_method=S256",
         addr.web_authority(),
         encode(&self::device_name(device_name)),
         encode(RETURN_URI),
+        pkce_challenge(&verifier),
     );
-    Ok(SignIn { relay: addr.to_string(), url, state, callback_scheme: RETURN_SCHEME.to_string() })
+    Ok(SignIn { relay: addr.to_string(), url, state, callback_scheme: RETURN_SCHEME.to_string(), verifier })
 }
 
 /// Le retour de la fenêtre du système (`kybernow://compte?code=…&etat=…`, ou
@@ -428,7 +438,11 @@ fn finish_sign_in_with(http: &dyn RelayHttp, sign_in: &SignIn, callback: &str) -
     }
     let code = get("code").filter(|c| !c.is_empty() && c.len() <= 128).ok_or(AccountError::BadCode)?;
     let addr = relay_addr(&sign_in.relay)?;
-    let r = call(http, &addr, "POST", "/v1/devices/token", None, Some(&json!({ "code": code })))?;
+    let mut body = json!({ "code": code });
+    if !sign_in.verifier.is_empty() {
+        body["code_verifier"] = json!(sign_in.verifier);
+    }
+    let r = call(http, &addr, "POST", "/v1/devices/token", None, Some(&body))?;
     match r.status {
         200 => opened(&addr, &r.body),
         _ => Err(refusal(&r, false)),
@@ -463,6 +477,26 @@ fn new_state() -> String {
         b.copy_from_slice(&n.to_le_bytes());
     }
     b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// Vérificateur PKCE : 32 octets au hasard en base64url sans remplissage
+/// (43 signes, RFC 7636).
+fn new_verifier() -> String {
+    use base64::Engine;
+    let mut b = [0u8; 32];
+    if getrandom::getrandom(&mut b).is_err() {
+        // Sans hasard du système : l'heure et l'état, encore uniques.
+        let n = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+        b[..16].copy_from_slice(&n.to_le_bytes());
+    }
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b)
+}
+
+/// Défi PKCE (`S256`) : base64url sans remplissage du SHA-256 du vérificateur.
+fn pkce_challenge(verifier: &str) -> String {
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
 }
 
 /// Encodage d'un paramètre d'adresse (RFC 3986, caractères non réservés gardés).

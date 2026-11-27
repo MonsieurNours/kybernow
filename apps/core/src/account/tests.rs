@@ -116,13 +116,22 @@ fn fenetre_du_systeme() {
     assert!(s.state.bytes().all(|b| b.is_ascii_hexdigit()));
     assert_eq!(
         s.url,
-        format!("https://share.kybernow.app/compte/connexion?appareil=iPad%20de%20L%C3%A9a&retour=kybernow%3A%2F%2Fcompte&etat={}", s.state)
+        format!(
+            "https://share.kybernow.app/compte/connexion?appareil=iPad%20de%20L%C3%A9a&retour=kybernow%3A%2F%2Fcompte&etat={}&code_challenge={}&code_challenge_method=S256",
+            s.state,
+            pkce_challenge(&s.verifier)
+        )
     );
+    // PKCE (REL-09) : vérificateur de 43 signes base64url, défi S256.
+    assert_eq!(s.verifier.len(), 43);
+    assert!(s.verifier.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
+    assert_eq!(pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", "vecteur de la RFC 7636");
     assert_ne!(sign_in("", "x").unwrap().state, s.state, "un état par demande");
     // Le retour : le code échangé contre la session d'appareil.
-    let fake = Fake::new(|c, _| {
+    let verifier = s.verifier.clone();
+    let fake = Fake::new(move |c, _| {
         assert_eq!((c.method.as_str(), c.path.as_str(), c.bearer.as_deref()), ("POST", "/v1/devices/token", None));
-        assert_eq!(c.body, Some(json!({ "code": "c0de/+x" })));
+        assert_eq!(c.body, Some(json!({ "code": "c0de/+x", "code_verifier": verifier })));
         reply(200, opened_body())
     });
     let back = format!("kybernow://compte?code=c0de%2F%2Bx&etat={}", s.state);
@@ -140,6 +149,15 @@ fn fenetre_du_systeme() {
     // Code échu ou déjà servi.
     let refused = Fake::new(|_, _| reply(400, json!({ "error": "bad_code" })));
     assert_eq!(finish_sign_in_with(&*refused, &s, &back), Err(AccountError::BadCode));
+    // Un `SignIn` gardé par une app d'avant PKCE (JSON sans `verifier`) :
+    // l'échange part sans vérificateur, comme avant.
+    let old: SignIn = serde_json::from_value(json!({ "relay": s.relay, "url": s.url, "state": s.state, "callback_scheme": "kybernow" })).unwrap();
+    assert!(old.verifier.is_empty());
+    let plain = Fake::new(|c, _| {
+        assert_eq!(c.body, Some(json!({ "code": "c0de/+x" })));
+        reply(200, opened_body())
+    });
+    assert!(finish_sign_in_with(&*plain, &old, &back).is_ok());
 }
 
 #[test]
