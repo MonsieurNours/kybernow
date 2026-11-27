@@ -54,8 +54,14 @@ final class SessionController: ObservableObject {
     /// attend son retour (« La Station redémarre… ») ; jusqu'à la phase suivante.
     @Published private(set) var stationRestarting = false
     @Published private(set) var menuOpen = false
-    @Published private(set) var stats: VideoStats?
-    @Published private(set) var audioStats: AudioStats?
+    /// Mesures de chaque seconde, dans un objet à part : seul le menu les
+    /// observe ; menu fermé, la vue de session n'est plus recalculée chaque seconde.
+    let meter = SessionMeter()
+    private(set) var stats: VideoStats? {
+        get { meter.stats }
+        set { meter.stats = newValue }
+    }
+    private(set) var audioStats: AudioStats?
     @Published private(set) var route = AudioRoute.current
     /// Par où passe la session (docs/relais.md) : direct sur le réseau, ou par le
     /// relais hors de chez soi (puce « Par le relais » au menu, « Chemin » dans les
@@ -547,6 +553,7 @@ final class SessionController: ObservableObject {
         routeObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.route = AudioRoute.current }
         }
+        watchCameras()
         // Siri, une autre app qui prend le son : à la fin de l'interruption,
         // la session audio repart.
         interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { note in
@@ -1016,13 +1023,31 @@ final class SessionController: ObservableObject {
 
     /// Capsule en haut de l'écran pendant quelques secondes.
     /// Une Caméra de continuité est là (un iPhone ou un iPad choisi).
-    var cameraReady: Bool { !CameraCapture.cameras().isEmpty }
+    /// Un iPhone ou un iPad est relié comme caméra (Caméra de continuité) :
+    /// tenu à jour quand il se relie ou s'en va, pas relu à chaque rendu.
+    @Published private(set) var cameraReady = !CameraCapture.cameras().isEmpty
+    private var cameraWatch: [NSObjectProtocol] = []
+
+    private func watchCameras() {
+        let center = NotificationCenter.default
+        cameraWatch = [AVCaptureDevice.wasConnectedNotification, AVCaptureDevice.wasDisconnectedNotification].map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.cameraReady = !CameraCapture.cameras().isEmpty }
+            }
+        }
+    }
 
     /// La tuile « Caméra » : allume ou éteint la caméra de l'iPhone choisi.
-    func toggleCamera() {
+    /// `chosen` : celle que le choix de tvOS vient de rendre ; sinon celle que
+    /// le système préfère, puis la première.
+    func toggleCamera(chosen: String? = nil) {
         guard let engine, cameraOffered else { return }
         if cameraState == .off {
-            engine.cameraOn(id: CameraCapture.cameras().first?.id, resolution1080: host.settings.camera1080)
+            let list = CameraCapture.cameras()
+            cameraReady = !list.isEmpty
+            let preferred = AVCaptureDevice.systemPreferredCamera?.uniqueID
+            let id = [chosen, preferred].compactMap { $0 }.first { id in list.contains { $0.id == id } } ?? chosen ?? list.first?.id
+            engine.cameraOn(id: id, resolution1080: host.settings.camera1080)
         } else {
             engine.cameraOff()
         }
@@ -1430,5 +1455,13 @@ final class SessionController: ObservableObject {
         routeObserver = nil
         if let interruptionObserver { NotificationCenter.default.removeObserver(interruptionObserver) }
         interruptionObserver = nil
+        cameraWatch.forEach(NotificationCenter.default.removeObserver)
+        cameraWatch = []
     }
+}
+
+/// Les mesures de la session (image), observées par le menu seulement.
+@MainActor
+final class SessionMeter: ObservableObject {
+    @Published var stats: VideoStats?
 }

@@ -4,7 +4,7 @@
 
 import Foundation
 
-struct TopShelfEntry: Codable, Identifiable {
+struct TopShelfEntry: Codable, Identifiable, Equatable {
     var id: UUID
     var name: String
     var online: Bool
@@ -13,6 +13,8 @@ struct TopShelfEntry: Codable, Identifiable {
     var lastSession: Date?
     /// Image du dernier passage (ou aperçu), dans le dossier partagé.
     var imageFile: String?
+    /// Date de cette image : une image refaite republie le Top Shelf.
+    var imageDate: Date?
 }
 
 enum TopShelfStore {

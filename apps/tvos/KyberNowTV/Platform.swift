@@ -204,6 +204,9 @@ final class HostImagery: ObservableObject {
         }
     }
 
+    /// Date de l'image de cet ordinateur (Top Shelf : republié quand elle change).
+    func date(_ id: UUID) -> Date? { pictures[id]?.date }
+
     func file(_ id: UUID) -> String? {
         guard let p = pictures[id] else { return nil }
         return "\(id.uuidString)-\(p.source == .lastSession ? "last" : "preview").jpg"

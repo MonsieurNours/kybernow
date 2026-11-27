@@ -18,13 +18,25 @@ final class RemoteNavigationTests: XCTestCase {
         app.descendants(matching: .any).element(matching: NSPredicate(format: "hasFocus == true"))
     }
 
-    /// De « Se connecter », à droite après les profils : les réglages de l'ordinateur.
+    /// Appuie sur `move` jusqu'à ce que le focus soit sur `label` (au plus `limit` fois) :
+    /// la rangée de l'accueil gagne des puces avec les versions (« Auto », HDR…).
+    @discardableResult
+    private func reach(_ label: String, by move: XCUIRemote.Button, limit: Int = 8, in app: XCUIApplication) -> Bool {
+        for _ in 0..<limit {
+            if focused(app).label == label { return true }
+            remote.press(move)
+            usleep(400_000)
+        }
+        return focused(app).label == label
+    }
+
+    /// De « Se connecter », à droite après les profils et les puces : les réglages de l'ordinateur.
     func testSettingsReachableFromHome() {
         let app = launch()
         let label = "Réglages de Tour du bureau"
         XCTAssertTrue(app.buttons[label].waitForExistence(timeout: 5))
         sleep(1)
-        for _ in 0..<4 { remote.press(.right) }
+        reach(label, by: .right, in: app)
         XCTAssertEqual(focused(app).label, label)
         remote.press(.select)
         XCTAssertTrue(app.staticTexts["Statistiques"].waitForExistence(timeout: 3))
@@ -157,5 +169,30 @@ final class RemoteNavigationTests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Changer de sortie : AirPods, HomePod, téléviseur"].exists, "Retour ferme le panneau")
         XCTAssertTrue(app.staticTexts["Reprendre"].exists, "le menu reste ouvert")
         XCTAssertTrue(focused(app).label.hasPrefix("Son"), "le focus revient à la tuile « Son » (\(focused(app).label))")
+    }
+
+    /// Menu de session : le panneau « Taper du texte » s'ouvre sur son champ,
+    /// et Retour ne ferme que lui (focus rendu à la tuile).
+    func testTypingPanelBackClosesOnlyThePanel() {
+        let app = launch(["-screen", "menu"])
+        XCTAssertTrue(app.staticTexts["Reprendre"].waitForExistence(timeout: 8))
+        sleep(1)
+        var reached = false
+        // Une seule rangée de tuiles : à droite de « Reprendre ».
+        for move in Array(repeating: XCUIRemote.Button.right, count: 8) {
+            if focused(app).label.hasPrefix("Taper du texte") { reached = true; break }
+            remote.press(move)
+            usleep(400_000)
+        }
+        reached = reached || focused(app).label.hasPrefix("Taper du texte")
+        XCTAssertTrue(reached, "tuile « Taper du texte » introuvable à la télécommande (\(focused(app).label))")
+        remote.press(.select)
+        XCTAssertTrue(app.staticTexts["Le texte part tel quel, à l'endroit où se trouve le curseur sur l'ordinateur."].waitForExistence(timeout: 3))
+        sleep(1)
+        remote.press(.menu)
+        sleep(1)
+        XCTAssertFalse(app.staticTexts["Le texte part tel quel, à l'endroit où se trouve le curseur sur l'ordinateur."].exists, "Retour ferme le panneau")
+        XCTAssertTrue(app.staticTexts["Reprendre"].exists, "le menu reste ouvert")
+        XCTAssertTrue(focused(app).label.hasPrefix("Taper du texte"), "le focus revient à la tuile (\(focused(app).label))")
     }
 }

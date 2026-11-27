@@ -30,7 +30,11 @@ struct SessionMenu: View {
         self.session = session
         _share = ObservedObject(wrappedValue: session.share)
         _lend = ObservedObject(wrappedValue: session.lend)
+        _meter = ObservedObject(wrappedValue: session.meter)
     }
+
+    /// Les mesures de chaque seconde (le menu se recalcule avec elles).
+    @ObservedObject private var meter: SessionMeter
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -525,7 +529,8 @@ struct SessionMenu: View {
         .buttonStyle(GlassButton(radius: 22, scale: 1.07))
         .focused($focus, equals: .camera)
         .continuityDevicePicker(isPresented: $cameraPicker) { device in
-            if device != nil { session.toggleCamera() }
+            // L'appareil choisi, pas la première caméra que la découverte voit.
+            if let device { session.toggleCamera(chosen: device.videoDevices.first?.uniqueID) }
         }
     }
 
