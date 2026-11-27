@@ -15,6 +15,7 @@
 //! - [`lookup`] : la réponse de `GET /v1/codes/{code}` et la signature de
 //!   l'empreinte d'Admin ;
 //! - [`console`] : les ports d'une console PlayStation qui passent par le tunnel ;
+//! - [`webauthn`] : les passkeys (comptes du relais, clé d'Admin à distance de la Station) ;
 //! - [`access`] : le jeton d'accès des comptes KyberNow (docs/comptes.md),
 //!   signé par le relais, vérifié par la Station, et la clé de `GET /v1/keys`.
 
@@ -32,6 +33,7 @@ pub mod msg;
 pub mod quic;
 pub mod tls;
 pub mod transport;
+pub mod webauthn;
 
 #[cfg(feature = "client")]
 pub mod client;

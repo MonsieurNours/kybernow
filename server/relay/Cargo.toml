@@ -43,7 +43,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 yamux = "0.13"
 
 [dev-dependencies]
-kybernow-tunnel = { path = "tunnel", features = ["client", "station", "server"] }
+kybernow-tunnel = { path = "tunnel", features = ["client", "station", "server", "test-webauthn"] }
 rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
 
 # Argon2 (comptes) : lent exprès, très lent sans optimisation ; optimisé aussi pour les essais.

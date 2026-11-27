@@ -358,7 +358,7 @@ fn un_nouveau_mot_de_passe_deconnecte_les_appareils() {
 #[test]
 fn passkey_depuis_une_app_export_et_suppression_avec_stations_et_appareils() {
     use super::super::passkeys::tests::Authenticator;
-    use super::super::passkeys::ES256;
+    use kybernow_tunnel::webauthn::ES256;
 
     let w = world(true);
     let link = linked(&w);
