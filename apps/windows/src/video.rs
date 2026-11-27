@@ -10,6 +10,7 @@
 //! de son flux, et partage l'appareil Direct3D de la session (`gpu.rs`) avec
 //! ceux des autres écrans ; rien n'attend ailleurs.
 
+use crate::sync::Locked;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
@@ -25,17 +26,59 @@ use kybernow_core::media::{FOURCC_AV1, FOURCC_PYROWAVE, Packet, PacketHandler, R
 use kybernow_core::session::Session;
 
 use crate::decoder::{self, Decoder, codec_name, is_corrupt};
-use crate::gpu::Gpu;
+use crate::gpu::{Gpu, SessionGpu};
 use crate::hdr::ScreenHdr;
 use crate::pyrowave::{self, Config as PyroConfig, Outcome};
-use crate::render::Renderer;
+use crate::render::{DrawError, Renderer};
+
+/// Tampons des images, repris d'une image à l'autre : le fil du réseau ne
+/// fait plus une allocation par image (jusqu'à 240 par seconde).
+#[derive(Default)]
+pub struct BufferPool(Mutex<Vec<Vec<u8>>>);
+
+/// Au plus ce nombre de tampons gardés (les autres sont rendus au système).
+const POOL_KEEP: usize = 8;
+
+impl BufferPool {
+    /// Un tampon qui contient `data`.
+    pub fn take(self: &Arc<Self>, data: &[u8]) -> Pooled {
+        let mut v = self.0.locked().pop().unwrap_or_default();
+        v.clear();
+        v.extend_from_slice(data);
+        Pooled { data: v, pool: Arc::downgrade(self) }
+    }
+}
+
+/// Un tampon d'image ; rendu à son `BufferPool` quand il est lâché.
+pub struct Pooled {
+    data: Vec<u8>,
+    pool: Weak<BufferPool>,
+}
+
+impl std::ops::Deref for Pooled {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+impl Drop for Pooled {
+    fn drop(&mut self) {
+        if let Some(pool) = self.pool.upgrade() {
+            let mut kept = pool.0.locked();
+            if kept.len() < POOL_KEEP {
+                kept.push(std::mem::take(&mut self.data));
+            }
+        }
+    }
+}
 
 pub enum VideoMsg {
     Codec(u32),
     Config(Vec<u8>),
     /// `received` : l'image complète vient d'arriver (µs, [`now_micros`]).
     /// `resume` : image de reprise après une perte (docs/reprise-apres-perte.md).
-    Frame { data: Vec<u8>, pts: u64, key: bool, received: i64, resume: Option<u64> },
+    Frame { data: Pooled, pts: u64, key: bool, received: i64, resume: Option<u64> },
     /// Une image perdue en route (console PlayStation qui ne l'a pas
     /// réparée, ou numéro d'image sauté sur l'image de la Station) : le
     /// décodeur attend une image clé ou une image de reprise au lieu de
@@ -79,7 +122,7 @@ const LOCAL_MAX: usize = 1000;
 
 impl Link {
     fn push_local(&self, decode_ms: f64, display_ms: f64) {
-        let mut l = self.local.lock().unwrap();
+        let mut l = self.local.locked();
         if l[0].len() < LOCAL_MAX {
             l[0].push(decode_ms.max(0.0));
             l[1].push(display_ms.max(0.0));
@@ -89,7 +132,7 @@ impl Link {
     /// Médianes de décodage et d'affichage depuis l'appel précédent (une fois
     /// par seconde) ; `None` sans image montrée.
     pub fn local_second(&self) -> (Option<f64>, Option<f64>) {
-        let mut l = self.local.lock().unwrap();
+        let mut l = self.local.locked();
         let median = |v: &mut Vec<f64>| {
             if v.is_empty() {
                 return None;
@@ -166,11 +209,11 @@ impl Shared {
 
     /// À appeler au démarrage (ou à la relance) du flux.
     pub fn arm_watch(&self) {
-        *self.watch.lock().unwrap() = Some((Instant::now(), self.frames.load(Ordering::Relaxed)));
+        *self.watch.locked() = Some((Instant::now(), self.frames.load(Ordering::Relaxed)));
     }
 
     pub fn disarm_watch(&self) {
-        *self.watch.lock().unwrap() = None;
+        *self.watch.locked() = None;
     }
 
     /// Le flux tourne depuis 4 s sans une image : on le relance (une fois par
@@ -178,7 +221,7 @@ impl Shared {
     /// muet est retiré par le cœur lui-même.
     fn check_watch(&self) {
         let fire = {
-            let mut w = self.watch.lock().unwrap();
+            let mut w = self.watch.locked();
             match *w {
                 Some((at, frames)) if at.elapsed() >= Duration::from_secs(4) => {
                     *w = None;
@@ -238,6 +281,7 @@ pub struct VideoHandler {
     pending: AtomicUsize,
     /// Arrêt demandé (le message d'arrêt peut être refusé par une file pleine).
     stopped: AtomicBool,
+    pool: Arc<BufferPool>,
 }
 
 impl PacketHandler for VideoHandler {
@@ -246,7 +290,7 @@ impl PacketHandler for VideoHandler {
             Packet::Codec { codec } => VideoMsg::Codec(codec),
             Packet::Media { is_config: true, data, .. } => VideoMsg::Config(data.to_vec()),
             Packet::Media { is_key, pts, data, resume, .. } => VideoMsg::Frame {
-                data: data.to_vec(),
+                data: self.pool.take(data),
                 pts,
                 key: is_key,
                 received: now_micros(),
@@ -297,7 +341,7 @@ impl VideoHandler {
     /// Arrête le fil de l'image et attend sa fin (borné).
     pub fn stop_and_wait(&self, timeout: Duration) {
         self.stop();
-        let Some(t) = self.thread.lock().unwrap().take() else { return };
+        let Some(t) = self.thread.locked().take() else { return };
         let started = Instant::now();
         while !t.is_finished() && started.elapsed() < timeout {
             std::thread::sleep(Duration::from_millis(20));
@@ -336,7 +380,7 @@ struct LateState {
 
 impl PacketHandler for LateFeed {
     fn packet(&self, p: Packet<'_>) {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.locked();
         if let Some(target) = st.target.clone() {
             drop(st);
             target.packet(p);
@@ -356,7 +400,7 @@ impl PacketHandler for LateFeed {
 impl LateFeed {
     /// La fenêtre de l'écran est là : ses paquets vont désormais à son fil de l'image.
     pub fn attach(&self, target: Arc<VideoHandler>) {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.locked();
         if let Some(codec) = st.codec.take() {
             target.packet(Packet::Codec { codec });
         }
@@ -377,7 +421,7 @@ pub struct VideoOptions {
 /// Démarre le fil de l'image d'un écran, avec son rendu : la chaîne
 /// d'échange est déjà créée, sur le fil de la fenêtre (DXGI parle alors à la
 /// fenêtre depuis son propre fil).
-pub fn spawn(renderer: Renderer, hwnd: isize, gpu: Arc<Gpu>, opts: VideoOptions, shared: Arc<Shared>) -> Result<Arc<VideoHandler>, String> {
+pub fn spawn(renderer: Renderer, hwnd: isize, gpu: Arc<SessionGpu>, opts: VideoOptions, shared: Arc<Shared>) -> Result<Arc<VideoHandler>, String> {
     let (tx, rx) = mpsc::sync_channel(240);
     let handler = Arc::new(VideoHandler {
         tx,
@@ -385,20 +429,25 @@ pub fn spawn(renderer: Renderer, hwnd: isize, gpu: Arc<Gpu>, opts: VideoOptions,
         overflow: AtomicBool::new(false),
         pending: AtomicUsize::new(0),
         stopped: AtomicBool::new(false),
+        pool: Arc::default(),
     });
     let h = handler.clone();
     let thread = std::thread::Builder::new()
         .name("kybernow-video".into())
         .spawn(move || run(renderer, hwnd, gpu, opts, shared, h, rx))
         .map_err(|e| e.to_string())?;
-    *handler.thread.lock().unwrap() = Some(thread);
+    *handler.thread.locked() = Some(thread);
     Ok(handler)
 }
+
+/// Après la perte de la carte, on réessaie de la recréer pendant au plus ce
+/// temps (un TDR rend la carte en 2 à 3 s), puis le fil s'arrête.
+const RECOVER_WITHIN: Duration = Duration::from_secs(15);
 
 fn run(
     mut renderer: Renderer,
     hwnd: isize,
-    gpu: Arc<Gpu>,
+    session_gpu: Arc<SessionGpu>,
     opts: VideoOptions,
     shared: Arc<Shared>,
     handler: Arc<VideoHandler>,
@@ -408,12 +457,17 @@ fn run(
     // jusque-là) : une présentation sans attendre l'objet d'attente de la
     // chaîne fausserait son compte (première image retardée, ou une image de
     // plus en file pour toute la session).
+    let mut gpu = session_gpu.current();
     let mut decoder: Option<Decoder> = None;
     // PyroWave (docs/pyrowave-client-windows.md) : son propre décodeur, à la
     // place de FFmpeg, et le dernier paquet de configuration reçu.
     let mut pyro: Option<pyrowave::Decoder> = None;
     let mut pyro_config: Option<PyroConfig> = None;
     let mut pyro_skipped: u64 = 0;
+    // L'ouverture du décodeur PyroWave a échoué pour ce format : pas de nouvel
+    // essai à chaque image (fence, handle partagé, journal) avant le prochain
+    // changement de format.
+    let mut pyro_failed = false;
     let mut fourcc = 0u32;
     let mut config: Vec<u8> = Vec::new();
     let mut send_config = false;
@@ -440,7 +494,7 @@ fn run(
             shared.request_keyframe();
         }
     };
-    let open_pyro = |shared: &Shared, config: Option<PyroConfig>| -> Option<pyrowave::Decoder> {
+    let open_pyro = |gpu: &Gpu, shared: &Shared, config: Option<PyroConfig>| -> Option<pyrowave::Decoder> {
         let device = gpu.pyrowave()?;
         match pyrowave::Decoder::new(device, &gpu.device) {
             Ok(mut d) => {
@@ -451,7 +505,7 @@ fn run(
                 }
                 let what = |lang: Lang| format!("PyroWave · {}", crate::i18n::tr(lang, "decoder.hardware", &[]));
                 log::info!("décodeur : {}", what(Lang::Fr));
-                *shared.decoder.lock().unwrap() = what(crate::i18n::lang());
+                *shared.decoder.locked() = what(crate::i18n::lang());
                 Some(d)
             }
             Err(e) => {
@@ -460,14 +514,14 @@ fn run(
             }
         }
     };
-    let open = |fourcc: u32, hw: bool, shared: &Shared| -> Option<Decoder> {
+    let open = |gpu: &Gpu, fourcc: u32, hw: bool, shared: &Shared| -> Option<Decoder> {
         match Decoder::new(fourcc, hw.then_some(&gpu.device), Some(&gpu.lock)) {
             Ok(d) => {
                 let key = if d.hardware { "decoder.hardware" } else { "decoder.software" };
                 let what = |lang: Lang| format!("{} · {}", codec_name(fourcc), crate::i18n::tr(lang, key, &[]));
                 log::info!("décodeur : {}", what(Lang::Fr));
                 // Montré dans la barre et le titre de la session : langue de l'app.
-                *shared.decoder.lock().unwrap() = what(crate::i18n::lang());
+                *shared.decoder.locked() = what(crate::i18n::lang());
                 Some(d)
             }
             Err(e) => {
@@ -480,6 +534,55 @@ fn run(
     loop {
         if handler.stopped.load(Ordering::Relaxed) {
             break;
+        }
+        // Carte graphique perdue : carte de la session et rendu recréés,
+        // décodeurs rouverts sur elle, image clé demandée.
+        if let Some(why) = renderer.lost().map(str::to_string) {
+            log::error!("image : carte graphique perdue ({why}), reprise");
+            decoder = None;
+            pyro = None;
+            pyro_failed = false;
+            let vsync = renderer.vsync;
+            // Une seule chaîne d'échange par fenêtre : l'ancienne part d'abord.
+            drop(renderer);
+            let started = Instant::now();
+            let mut lost = gpu.clone();
+            let fresh = loop {
+                let made = session_gpu.recover(&lost).and_then(|g| match Renderer::new(&g, HWND(hwnd as *mut _), shared.client_size(), vsync) {
+                    Ok(r) => Ok((g, r)),
+                    Err(e) => {
+                        // La carte neuve est déjà perdue (TDR pas fini) : la suivante sera recréée.
+                        if g.is_lost() {
+                            lost = g;
+                        }
+                        Err(e)
+                    }
+                });
+                match made {
+                    Ok(done) => break Some(done),
+                    Err(e) if started.elapsed() < RECOVER_WITHIN && !handler.stopped.load(Ordering::Relaxed) => {
+                        log::warn!("image : carte pas encore revenue ({e}), nouvel essai dans 1 s");
+                        std::thread::sleep(Duration::from_secs(1));
+                    }
+                    Err(e) => {
+                        log::error!("image : carte graphique pas revenue ({e}), fil de l'image arrêté");
+                        break None;
+                    }
+                }
+            };
+            let Some((g, r)) = fresh else { return };
+            gpu = g;
+            renderer = r;
+            log::info!("image : rendu recréé sur la nouvelle carte");
+            hw_allowed = opts.hardware;
+            if fourcc != 0 && fourcc != FOURCC_PYROWAVE {
+                decoder = open(&gpu, fourcc, hw_allowed, &shared);
+            }
+            gate.reset();
+            send_config = true;
+            waiting_key = true;
+            unsupported_logged = false;
+            keyframe(&shared, true);
         }
         if renderer.resize(shared.client_size()) {
             // Plein écran ↔ fenêtre sur un bureau immobile : l'image en place
@@ -532,12 +635,14 @@ fn run(
                 decoder.take();
                 gate.reset();
                 pyro.take();
+                pyro_failed = false;
                 if c == FOURCC_PYROWAVE {
                     // Le paquet de configuration suit ; celui d'avant ne vaut plus.
                     pyro_config = None;
-                    pyro = open_pyro(&shared, None);
+                    pyro = open_pyro(&gpu, &shared, None);
+                    pyro_failed = pyro.is_none();
                 } else {
-                    decoder = open(c, hw_allowed, &shared);
+                    decoder = open(&gpu, c, hw_allowed, &shared);
                 }
                 waiting_key = true;
                 send_config = true;
@@ -587,7 +692,7 @@ fn run(
                     log::warn!("image : format jamais annoncé, décodeur {} ouvert d'office", codec_name(wanted));
                     fourcc = wanted;
                     // PyroWave n'est pas pour FFmpeg : son décodeur s'ouvre plus bas.
-                    decoder = if fourcc == FOURCC_PYROWAVE { None } else { open(fourcc, hw_allowed, &shared) };
+                    decoder = if fourcc == FOURCC_PYROWAVE { None } else { open(&gpu, fourcc, hw_allowed, &shared) };
                     gate.reset();
                     send_config = true;
                     waiting_key = true;
@@ -606,8 +711,12 @@ fn run(
                         pyro_configure(&mut pyro, &mut pyro_config, &data);
                         continue;
                     }
-                    if pyro.is_none() {
-                        pyro = open_pyro(&shared, pyro_config);
+                    if pyro.is_none() && !pyro_failed {
+                        pyro = open_pyro(&gpu, &shared, pyro_config);
+                        if pyro.is_none() {
+                            // Noté une fois (`open_pyro`) ; pas d'autre essai avant un autre format.
+                            pyro_failed = true;
+                        }
                     }
                     // D'autres images attendent : celle-ci n'est pas décodée du tout.
                     let Some(dec) = pyro.as_mut().filter(|_| !newer_waiting) else {
@@ -622,12 +731,15 @@ fn run(
                     match dec.decode(&data) {
                         Ok(Outcome::Ready(img)) => {
                             let decoded = now_micros();
-                            renderer.set_screen(*shared.screen_hdr.lock().unwrap());
+                            renderer.set_screen(*shared.screen_hdr.locked());
+                            renderer.set_snapshots(shared.is_primary());
                             match renderer.draw_pyrowave(dec, img.config, shared.edge_hint.load(Ordering::Relaxed)) {
                                 Ok(()) => shown(&shared, hwnd, &arrivals, pts, decoded),
+                                // Repris en haut de la boucle.
+                                Err(DrawError::Lost(_)) => {}
                                 Err(e) => {
                                     if !unsupported_logged {
-                                        log::error!("rendu PyroWave : {}", e.0);
+                                        log::error!("rendu PyroWave : {e}");
                                         unsupported_logged = true;
                                     }
                                 }
@@ -705,16 +817,20 @@ fn run(
                             if newer_waiting {
                                 continue;
                             }
-                            renderer.set_screen(*shared.screen_hdr.lock().unwrap());
+                            renderer.set_screen(*shared.screen_hdr.locked());
+                            renderer.set_snapshots(shared.is_primary());
                             match renderer.draw(frame, shared.edge_hint.load(Ordering::Relaxed), shared.stream_hdr.load(Ordering::Relaxed)) {
                                 Ok(()) => shown(&shared, hwnd, &arrivals, pts, decoded),
+                                // Carte perdue : pas un repli sur le processeur, la
+                                // carte est recréée en haut de la boucle.
+                                Err(DrawError::Lost(_)) => break,
                                 Err(e) => {
                                     if dec.hardware {
-                                        log::warn!("rendu : {}", e.0);
+                                        log::warn!("rendu : {e}");
                                         fallback = true;
                                     } else if !unsupported_logged {
                                         // Format que l'app ne sait pas montrer (10 bits…).
-                                        log::error!("rendu impossible : {}", e.0);
+                                        log::error!("rendu impossible : {e}");
                                         unsupported_logged = true;
                                     }
                                     break;
@@ -734,7 +850,7 @@ fn run(
                     // La carte décode dans un format qu'on ne sait pas montrer.
                     log::warn!("décodage par le processeur à la place de la carte graphique");
                     hw_allowed = false;
-                    decoder = open(fourcc, false, &shared);
+                    decoder = open(&gpu, fourcc, false, &shared);
                     gate.reset();
                     send_config = true;
                     waiting_key = true;
@@ -745,7 +861,7 @@ fn run(
     }
     if let Some((px, w, h)) = renderer.take_snapshot() {
         match crate::snapshot::jpeg(&px, w, h) {
-            Ok(j) => *shared.last_image.lock().unwrap() = Some(j),
+            Ok(j) => *shared.last_image.locked() = Some(j),
             Err(e) => log::warn!("dernière image : {e}"),
         }
     }

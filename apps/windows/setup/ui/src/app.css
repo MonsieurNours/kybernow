@@ -2,7 +2,7 @@
 
 @font-face {
   font-family: 'Archivo';
-  src: url('./assets/fonts/Archivo-wdth-wght.woff2') format('woff2');
+  src: url('$appui/assets/fonts/Archivo-wdth-wght.woff2') format('woff2');
   font-weight: 100 900;
   font-stretch: 62% 125%;
   font-display: block;
@@ -10,7 +10,7 @@
 
 @font-face {
   font-family: 'Martian Mono';
-  src: url('./assets/fonts/MartianMono-wdth-wght.woff2') format('woff2');
+  src: url('$appui/assets/fonts/MartianMono-wdth-wght.woff2') format('woff2');
   font-weight: 100 800;
   font-stretch: 75% 112.5%;
   font-display: block;

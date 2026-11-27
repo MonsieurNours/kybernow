@@ -23,6 +23,7 @@
 //! Gardé dans `%APPDATA%\KyberNow\synced.json` (`synced::SyncFile`, rien de
 //! secret). Les règles se testent sur le Mac (`src/synced.rs`).
 
+use crate::sync::Locked;
 use std::sync::mpsc;
 
 use kybernow_core::account::{AccountError, Paired, SyncedValues};
@@ -32,32 +33,58 @@ use crate::synced::{self as rules, Local, SyncFile};
 
 /// `synced.json`, lu une fois (`None` : pas encore lu).
 static FILE: Mutex<Option<SyncFile>> = Mutex::new(None);
-/// Un échange avec le relais à la fois (lecture ou envoi), dans l'ordre.
+/// Un échange avec le relais à la fois (lecture ou envoi). L'ordre des envois
+/// est celui de la file de `send_queue`, pas celui de ce verrou.
 static BUSY: Mutex<()> = Mutex::new(());
+
+type Job = Box<dyn FnOnce() + Send>;
+
+/// Les envois au relais, sur un seul fil, dans l'ordre où la personne a changé
+/// ses réglages : deux changements rapprochés (« Bureau » puis « Jeu ») ne
+/// peuvent plus arriver au relais dans le désordre, ce qui laissait les autres
+/// appareils sur l'avant-dernier choix.
+fn send_queue(job: Job) {
+    static QUEUE: std::sync::OnceLock<Mutex<mpsc::Sender<Job>>> = std::sync::OnceLock::new();
+    let queue = QUEUE.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<Job>();
+        let spawned = std::thread::Builder::new().name("kybernow-reglages".into()).spawn(move || {
+            while let Ok(job) = rx.recv() {
+                job();
+            }
+        });
+        if let Err(e) = spawned {
+            log::error!("réglages synchronisés : fil des envois refusé ({e})");
+        }
+        Mutex::new(tx)
+    });
+    if let Err(mpsc::SendError(job)) = queue.lock().unwrap_or_else(|e| e.into_inner()).send(job) {
+        // Sans fil (refusé) : sur un fil à part, comme avant.
+        std::thread::spawn(job);
+    }
+}
 /// Avant une session : au plus ce temps pour lire les réglages du compte.
 const BEFORE_SESSION: Duration = Duration::from_millis(1500);
 
 fn path() -> std::path::PathBuf {
-    std::env::var_os("APPDATA").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir).join("KyberNow").join("synced.json")
+    crate::files::app_file("synced.json")
 }
 
+/// `f` sur `synced.json` ; le fichier n'est réécrit (atomique) que si `f` l'a
+/// changé.
 fn with_file<T>(f: impl FnOnce(&mut SyncFile) -> T) -> T {
-    let mut guard = FILE.lock().unwrap();
-    let file = guard.get_or_insert_with(|| std::fs::read_to_string(path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default());
+    let mut guard = FILE.locked();
+    let file = guard.get_or_insert_with(|| crate::files::load_json(&path()).unwrap_or_default());
+    let before = serde_json::to_vec(&*file).ok();
     let out = f(file);
-    if let Ok(text) = serde_json::to_string_pretty(&*file) {
-        let p = path();
-        let tmp = p.with_extension("json.tmp");
-        if std::fs::write(&tmp, text).is_ok() {
-            let _ = std::fs::rename(&tmp, &p);
-        }
+    if serde_json::to_vec(&*file).ok() != before {
+        crate::files::save_json(&path(), &*file);
     }
     out
 }
 
 /// L'interrupteur des réglages de l'app (allumé tant qu'il n'a pas été changé).
 pub fn enabled(app: &AppHandle) -> bool {
-    app.state::<UiState>().prefs.lock().unwrap().sync_settings.unwrap_or(true)
+    app.state::<UiState>().prefs.locked().sync_settings.unwrap_or(true)
 }
 
 /// Un compte oublié : ses réglages gardés aussi.
@@ -95,7 +122,7 @@ fn effective(c: &Computer, l: &Local, pc: &ThisPc) -> kybernow_core::profile::St
 }
 
 fn this_pc(app: &AppHandle) -> ThisPc {
-    app.state::<UiState>().this_pc.lock().unwrap().clone().unwrap_or_default()
+    app.state::<UiState>().this_pc.locked().clone().unwrap_or_default()
 }
 
 /// Le compte et la Station d'un ordinateur de l'accueil : celui par lequel il
@@ -118,7 +145,7 @@ pub fn fetch_all(app: &AppHandle) {
     if !enabled(app) {
         return;
     }
-    let _busy = BUSY.lock().unwrap();
+    let _busy = BUSY.locked();
     for a in account::list() {
         fetch_one(app, &a);
     }
@@ -198,7 +225,7 @@ pub fn before_session(app: &AppHandle, id: &str) {
     let app = app.clone();
     std::thread::spawn(move || {
         {
-            let _busy = BUSY.lock().unwrap();
+            let _busy = BUSY.locked();
             fetch_one(&app, &a);
         }
         let _ = tx.send(());
@@ -227,8 +254,8 @@ pub fn changed(app: &AppHandle, id: &str, before: &Settings) {
         return;
     }
     let Some(a) = account::list().into_iter().find(|a| a.key() == key) else { return };
-    std::thread::spawn(move || {
-        let _busy = BUSY.lock().unwrap();
+    send_queue(Box::new(move || {
+        let _busy = BUSY.locked();
         let (values, last) = with_file(|f| {
             let s = f.accounts.entry(key.clone()).or_default();
             (s.to_send(&station, &change, || rules::everything(&new, &new_eff)), s.last(&station).cloned())
@@ -245,7 +272,7 @@ pub fn changed(app: &AppHandle, id: &str, before: &Settings) {
                 with_file(|f| f.accounts.entry(key.clone()).or_default().unsent(&station, &values));
             }
         }
-    });
+    }));
 }
 
 // MARK: - Interrupteur
@@ -255,12 +282,7 @@ pub fn changed(app: &AppHandle, id: &str, before: &Settings) {
 #[tauri::command(async)]
 pub fn set_sync_settings(app: AppHandle, on: bool) -> bool {
     let state = app.state::<UiState>();
-    let prefs = {
-        let mut p = state.prefs.lock().unwrap();
-        p.sync_settings = Some(on);
-        p.clone()
-    };
-    save_prefs(&prefs);
+    update_prefs(&state, |p| p.sync_settings = Some(on));
     log::info!("réglages synchronisés : {}", if on { "allumés" } else { "coupés" });
     if on {
         std::thread::spawn(move || fetch_all(&app));

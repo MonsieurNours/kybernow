@@ -2,7 +2,7 @@
 <script lang="ts">
   import { send } from '../lib/backend'
   import { app, go } from '../lib/state.svelte'
-  import Mark from '../lib/Mark.svelte'
+  import Mark from '$appui/lib/Mark.svelte'
   import { t } from '../lib/i18n/index.svelte'
 
   const licenses = $derived([

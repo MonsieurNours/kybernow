@@ -196,10 +196,82 @@ pub fn run(program: &str, args: &[&str]) -> Result<Output> {
         .with_context(|| format!("lancement de {program}"))
 }
 
-/// Ouvre une page web dans le navigateur.
+/// Le fichier porte une signature Authenticode valide (chaîne jusqu'à une
+/// racine de confiance, sans révocation connue) dont le signataire s'appelle
+/// `signer` (« Microsoft Corporation »).
+pub fn verify_signature(path: &std::path::Path, signer: &str) -> Result<()> {
+    use windows_sys::Win32::Security::Cryptography::{CERT_NAME_SIMPLE_DISPLAY_TYPE, CertGetNameStringW};
+    use windows_sys::Win32::Security::WinTrust::{
+        WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_FILE_INFO, WTD_CHOICE_FILE, WTD_REVOKE_WHOLECHAIN,
+        WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE, WTHelperGetProvSignerFromChain, WTHelperProvDataFromStateData,
+        WinVerifyTrust,
+    };
+    let wpath = wide(&path.to_string_lossy());
+    let mut file = WINTRUST_FILE_INFO { cbStruct: std::mem::size_of::<WINTRUST_FILE_INFO>() as u32, pcwszFilePath: wpath.as_ptr(), ..Default::default() };
+    let mut data = WINTRUST_DATA {
+        cbStruct: std::mem::size_of::<WINTRUST_DATA>() as u32,
+        dwUIChoice: WTD_UI_NONE,
+        fdwRevocationChecks: WTD_REVOKE_WHOLECHAIN,
+        dwUnionChoice: WTD_CHOICE_FILE,
+        dwStateAction: WTD_STATEACTION_VERIFY,
+        ..Default::default()
+    };
+    data.Anonymous.pFile = &mut file;
+    let mut action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+    let status = unsafe { WinVerifyTrust(std::ptr::null_mut(), &mut action, &mut data as *mut _ as *mut _) };
+    // Le nom du signataire, tant que l'état de la vérification est ouvert.
+    let name = (status == 0)
+        .then(|| unsafe {
+            let prov = WTHelperProvDataFromStateData(data.hWVTStateData);
+            let sgnr = if prov.is_null() { std::ptr::null_mut() } else { WTHelperGetProvSignerFromChain(prov, 0, 0, 0) };
+            if sgnr.is_null() || (*sgnr).csCertChain == 0 {
+                return String::new();
+            }
+            let cert = (*(*sgnr).pasCertChain).pCert;
+            let mut buf = [0u16; 256];
+            let n = CertGetNameStringW(cert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, std::ptr::null(), buf.as_mut_ptr(), buf.len() as u32);
+            String::from_utf16_lossy(&buf[..(n as usize).saturating_sub(1)])
+        })
+        .unwrap_or_default();
+    data.dwStateAction = WTD_STATEACTION_CLOSE;
+    unsafe { WinVerifyTrust(std::ptr::null_mut(), &mut action, &mut data as *mut _ as *mut _) };
+    if status != 0 {
+        bail!("signature refusée ({:#010x})", status as u32);
+    }
+    if name != signer {
+        bail!("signé par « {name} », pas par {signer}");
+    }
+    Ok(())
+}
+
+/// Les DLL chargées à la demande ne viennent que de System32 (et, avec
+/// `app_dir`, du dossier de l'exécutable) : jamais du dossier courant ni du
+/// PATH, ni, pour le lanceur, du dossier de Téléchargements où il a été
+/// ouvert (une DLL piégée au nom d'une DLL système). En première ligne de `main`.
+pub fn protect_dll_search(app_dir: bool) {
+    use windows_sys::Win32::System::LibraryLoader::{
+        LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, LOAD_LIBRARY_SEARCH_SYSTEM32, SetDefaultDllDirectories,
+    };
+    unsafe {
+        SetDefaultDllDirectories(if app_dir { LOAD_LIBRARY_SEARCH_DEFAULT_DIRS } else { LOAD_LIBRARY_SEARCH_SYSTEM32 });
+    }
+}
+
+/// Ouvre une page web dans le navigateur par défaut, par `ShellExecuteW`
+/// (verbe `open`) : jamais par `cmd.exe`, qui exécuterait ce qui suit un `&`
+/// de l'adresse.
 pub fn open_url(url: &str) {
-    if url.starts_with("https://") {
-        let _ = Command::new(system32("cmd.exe")).args(["/C", "start", "", url]).spawn();
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    if !crate::account::openable_url(url) {
+        log(&format!("adresse refusée, pas ouverte : {}", url.chars().take(80).collect::<String>()));
+        return;
+    }
+    let (verb, target) = (wide("open"), wide(url));
+    let r = unsafe { ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), target.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL) };
+    // Plus de 32 : ouvert (convention de ShellExecute).
+    if (r as isize) <= 32 {
+        log(&format!("ouverture de l'adresse impossible ({})", r as isize));
     }
 }
 

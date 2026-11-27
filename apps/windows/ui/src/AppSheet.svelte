@@ -14,6 +14,7 @@
   « Revoir l'accueil » (docs/link-ui.md « Accueil et compte KyberNow ») : les trois écrans du premier lancement.
 -->
 <script lang="ts">
+  import Sheet from './lib/Sheet.svelte'
   import { onMount } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
@@ -103,12 +104,15 @@
 
   /** Auto (langue de Windows), Français, English : appliquée tout de suite. */
   async function language(l: AppInfo['language']) {
+    const before = info?.language
     if (info) info.language = l
     try {
       setLang(await invoke<string>('set_language', { language: l }))
       // Les textes du cœur (« Synchroniser les réglages des ordinateurs ») suivent la langue.
       info = await invoke<AppInfo>('app_info')
     } catch (e) {
+      // Refusée : l'ancien choix revient.
+      if (info && before) info.language = before
       error = String(e)
     }
   }
@@ -122,6 +126,7 @@
       const now = await invoke<boolean>('set_sync_settings', { on })
       if (info) info.sync_settings = now
     } catch (e) {
+      if (info) info.sync_settings = !on
       accountError = String(e)
     }
   }
@@ -195,7 +200,7 @@
     })
 </script>
 
-<div class="veil" role="presentation" onclick={(e) => e.target === e.currentTarget && onclose()}>
+<Sheet onclose={onclose} animate={false}>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="app-title">
     <button class="close" aria-label={t('common.close')} onclick={onclose}><Icon name="x" size={14} /></button>
     <h2 id="app-title"><Mark product="link" size={40} /></h2>
@@ -378,19 +383,9 @@
       {/if}
     </div>
   </div>
-</div>
+</Sheet>
 
 <style>
-  .veil {
-    position: absolute;
-    inset: 0;
-    z-index: 30;
-    background: rgb(5 7 10 / 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 56px 24px 24px;
-  }
 
   .sheet {
     position: relative;

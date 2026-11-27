@@ -13,6 +13,7 @@
   l'ajout et ouvre l'association (PairSheet, App.svelte).
 -->
 <script lang="ts">
+  import Sheet from './lib/Sheet.svelte'
   import { onDestroy, onMount, untrack } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import Switch from './lib/Switch.svelte'
@@ -98,6 +99,7 @@
   }
 
   onDestroy(() => {
+    destroyed = true
     stopPolling()
     invoke('pair_cancel').catch(() => {})
   })
@@ -242,13 +244,21 @@
   let receiveExpired = $state(false)
   let received = $state<string | null>(null)
   let receiving = false
+  /** La feuille est fermée : une réponse qui arrive ensuite est annulée côté app. */
+  let destroyed = false
 
   async function startReceive() {
     error = null
     receiveExpired = false
     received = null
     try {
-      receiveCode = await invoke<string | null>('ps_handoff_receive', { on: true })
+      const code = await invoke<string | null>('ps_handoff_receive', { on: true })
+      if (destroyed) {
+        // Fermée pendant la demande : l'attente (fil, port) s'arrête aussitôt.
+        if (code !== null) invoke('ps_handoff_receive', { on: false }).catch(() => {})
+        return
+      }
+      receiveCode = code
       receiving = receiveCode !== null
     } catch (e) {
       error = String(e)
@@ -284,6 +294,11 @@
     pairState = 'pending'
     code = null
     const c = await run(() => invoke<string>('pair_start', { candidate }))
+    if (destroyed) {
+      // Fermée pendant la demande : le code envoyé ne sert plus.
+      if (c) invoke('pair_cancel').catch(() => {})
+      return
+    }
     if (!c || mine !== round) return
     code = c
     const poll = async () => {
@@ -341,7 +356,7 @@
   ])
 </script>
 
-<div class="veil" role="presentation" onclick={(e) => e.target === e.currentTarget && onclose()}>
+<Sheet onclose={onclose}>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="add-title">
     <nav>
       <h2 id="add-title">{t('add.title')}</h2>
@@ -408,7 +423,7 @@
                     maxlength="40"
                     autofocus
                     bind:value={newName}
-                    onkeydown={(e) => (e.key === 'Enter' ? rename(a) : e.key === 'Escape' && (renaming = null))}
+                    onkeydown={(e) => (e.key === 'Enter' ? rename(a) : e.key === 'Escape' && (e.preventDefault(), (renaming = null)))}
                   />
                   <div class="acts">
                     <button class="ghost" onclick={() => rename(a)}>{t('ps.rename')}</button>
@@ -580,26 +595,9 @@
       {#if error}<div class="error" role="alert">{error}</div>{/if}
     </div>
   </div>
-</div>
+</Sheet>
 
 <style>
-  .veil {
-    position: absolute;
-    inset: 0;
-    z-index: 30;
-    background: rgb(5 7 10 / 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 56px 24px 24px;
-    animation: fade 0.25s var(--ease-out);
-  }
-
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
-  }
 
   .sheet {
     width: min(980px, 100%);
@@ -610,14 +608,7 @@
     background: var(--ink-1);
     box-shadow: 0 40px 120px rgb(0 0 0 / 0.6);
     overflow: hidden;
-    animation: rise 0.32s var(--ease-out);
-  }
-
-  @keyframes rise {
-    from {
-      transform: translateY(18px) scale(0.985);
-      opacity: 0;
-    }
+    animation: sheet-rise 0.32s var(--ease-out);
   }
 
   nav {

@@ -270,34 +270,35 @@
       }),
     ]
     // L'état complet une fois les écoutes en place (rien ne passe entre deux).
+    // Lectures indépendantes, en même temps ; une qui échoue (noté au journal
+    // de la page) n'empêche ni les autres, ni le lien `kybernow://` reçu au
+    // lancement (`take_action`), ni l'avis des Stations.
+    const logged = (what: string) => (e: unknown) => console.error(`${what} :`, e)
     Promise.all(off).then(() =>
-      invoke<Snapshot>('snapshot').then((s) => {
-        computers = s.computers
-        discovered = s.discovered
-        thisPc = s.this_pc ?? thisPc
-        sessions = s.sessions ?? []
-      })
-        .then(() => invoke<Friend[]>('lend_friends').then((f) => (friends = f)))
-        .then(() => invoke<PsState>('ps_state').then((s) => (ps = s)))
-        .then(() => invoke<AccountView[]>('account_list').then((a) => (accounts = a)))
-        .then(() =>
-          invoke<WelcomeView>('welcome_state')
-            .then((w) => {
-              welcome = w
-              if (w.show) welcomeOpen = true
-            })
-            .catch(() => {}),
-        )
-        .then(() =>
-          invoke<AppInfo>('app_info').then((i) => {
-            update = i.update
-            battery = i.battery ?? battery
-            setLang(i.lang)
-          }),
-        )
+      Promise.allSettled([
+        invoke<Snapshot>('snapshot').then((s) => {
+          computers = s.computers
+          discovered = s.discovered
+          thisPc = s.this_pc ?? thisPc
+          sessions = s.sessions ?? []
+        }, logged('snapshot')),
+        invoke<Friend[]>('lend_friends').then((f) => (friends = f), logged('lend_friends')),
+        invoke<PsState>('ps_state').then((s) => (ps = s), logged('ps_state')),
+        invoke<AccountView[]>('account_list').then((a) => (accounts = a), logged('account_list')),
+        invoke<WelcomeView>('welcome_state').then((w) => {
+          welcome = w
+          if (w.show) welcomeOpen = true
+        }, logged('welcome_state')),
+        invoke<AppInfo>('app_info').then((i) => {
+          update = i.update
+          battery = i.battery ?? battery
+          setLang(i.lang)
+        }, logged('app_info')),
+      ])
         .then(() => invoke<Action | null>('take_action'))
         .then((a) => a && handle(a))
-        .then(takeStationNotice),
+        .catch(logged('take_action'))
+        .finally(takeStationNotice),
     )
     return () => off.forEach((p) => p.then((f) => f()))
   })
@@ -520,8 +521,12 @@
 
   /** « Retirer » l'ordinateur d'un ami de cet appareil. */
   async function removeFriend(id: string) {
-    await invoke('lend_remove', { id })
-    if (selectedId === id) selectedId = computers[0]?.id ?? null
+    try {
+      await invoke('lend_remove', { id })
+      if (selectedId === id) selectedId = computers[0]?.id ?? null
+    } catch (e) {
+      error = String(e)
+    }
   }
 
   /** « Reprendre l'ordinateur » (préavis de 2 min) ou « Reprendre tout de suite », depuis l'accueil de l'hôte. */

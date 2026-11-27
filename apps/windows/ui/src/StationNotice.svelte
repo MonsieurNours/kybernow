@@ -8,6 +8,7 @@
   quand toutes sont à jour, il devient « Fermer ».
 -->
 <script lang="ts">
+  import Sheet from './lib/Sheet.svelte'
   import { onMount } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import type { StationNotice, StationOutcome } from './lib/api'
@@ -95,7 +96,7 @@
   {/if}
 {/snippet}
 
-<div class="veil" role="presentation">
+<Sheet onclose={later} outside={false} z={40} fixed animate={false}>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="notice-title" aria-describedby="notice-text">
     {#if one}
       <h2 id="notice-title">{t('station_offer.notice_title_one', { name: one.name })}</h2>
@@ -137,19 +138,9 @@
       </div>
     {/if}
   </div>
-</div>
+</Sheet>
 
 <style>
-  .veil {
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 56px 24px 24px;
-    background: rgb(5 7 10 / 0.7);
-  }
 
   .dialog {
     width: min(520px, 100%);

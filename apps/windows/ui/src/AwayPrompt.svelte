@@ -5,15 +5,14 @@
   (`welcome_away_hint`, côté app).
 -->
 <script lang="ts">
+  import Sheet from './lib/Sheet.svelte'
   import Icon from './lib/Icon.svelte'
   import { t } from './lib/i18n/index.svelte'
 
   let { name, onsignin, onsignup, onclose }: { name: string; onsignin: () => void; onsignup: () => void; onclose: () => void } = $props()
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && onclose()} />
-
-<div class="veil" role="presentation" onclick={(e) => e.target === e.currentTarget && onclose()}>
+<Sheet onclose={onclose} shade="rgb(2 3 5 / 0.62)">
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="away-title" aria-describedby="away-text">
     <div class="top">
       <span class="badge"><Icon name="globe" size={28} stroke={1.8} /></span>
@@ -29,26 +28,9 @@
       <button class="primary" autofocus onclick={onsignin}>{t('account.sign_in')}</button>
     </div>
   </div>
-</div>
+</Sheet>
 
 <style>
-  .veil {
-    position: absolute;
-    inset: 0;
-    z-index: 30;
-    background: rgb(2 3 5 / 0.62);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 56px 24px 24px;
-    animation: fade 0.25s var(--ease-out);
-  }
-
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
-  }
 
   .sheet {
     width: min(640px, 100%);
@@ -60,14 +42,7 @@
     border-radius: 22px;
     background: var(--ink-0);
     box-shadow: 0 30px 80px rgb(0 0 0 / 0.6);
-    animation: rise 0.32s var(--ease-out);
-  }
-
-  @keyframes rise {
-    from {
-      transform: translateY(18px) scale(0.985);
-      opacity: 0;
-    }
+    animation: sheet-rise 0.32s var(--ease-out);
   }
 
   .top {

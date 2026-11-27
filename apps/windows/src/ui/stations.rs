@@ -11,6 +11,7 @@
 //! « Plus tard », dernière vérification) ; la dernière version lancée de l'app
 //! dans `app.json` (`Prefs::last_launched`).
 
+use crate::sync::Locked;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use kybernow_core::station_offer::{self, Banner, Context, NOTICE_WAIT_SECS};
@@ -73,7 +74,7 @@ pub fn check(app: &AppHandle, c: &Computer) -> bool {
     let in_session = !state.session_ids().is_empty();
     let now = now();
     let ctx = {
-        let live = state.live.lock().unwrap();
+        let live = state.live.locked();
         let Some(l) = live.get(&c.id) else { return false };
         // Seulement sur le réseau : par le relais, l'annonce de la Station suffit.
         if l.away || l.info.is_none() {
@@ -95,7 +96,7 @@ pub fn check(app: &AppHandle, c: &Computer) -> bool {
     if !go {
         return false;
     }
-    state.checking.lock().unwrap().insert(c.id.clone());
+    state.checking.locked().insert(c.id.clone());
     let app = app.clone();
     let c = c.clone();
     std::thread::spawn(move || {
@@ -108,7 +109,7 @@ pub fn check(app: &AppHandle, c: &Computer) -> bool {
                     station.update.version.as_deref().filter(|_| station.update.available).unwrap_or("à jour")
                 );
                 let changed = {
-                    let mut live = state.live.lock().unwrap();
+                    let mut live = state.live.locked();
                     match live.get_mut(&c.id).and_then(|l| l.info.as_mut()) {
                         Some(info) if info.station.as_ref() != Some(&station) => {
                             info.station = Some(station);
@@ -125,7 +126,7 @@ pub fn check(app: &AppHandle, c: &Computer) -> bool {
             Ok(None) => log::info!("Station de {} : pas de vérification à la demande", c.name),
             Err(e) => log::warn!("Station de {} : vérification refusée ({e})", c.name),
         }
-        state.checking.lock().unwrap().remove(&c.id);
+        state.checking.locked().remove(&c.id);
     });
     true
 }
@@ -158,7 +159,7 @@ pub fn launched(prefs: &mut super::Prefs) -> bool {
     let updated = station_offer::app_updated(last.as_deref(), APP_VERSION);
     if prefs.last_launched.as_deref() != Some(APP_VERSION) {
         prefs.last_launched = Some(APP_VERSION.to_string());
-        super::save_prefs(prefs);
+        super::write_prefs(prefs);
     }
     updated
 }
@@ -175,7 +176,7 @@ pub fn notice_after_update(app: AppHandle) {
     while start.elapsed() < Duration::from_secs(15) {
         let ids: Vec<String> = state.with_store(|s| s.computers.iter().map(|c| c.id.clone()).collect());
         let known = {
-            let live = state.live.lock().unwrap();
+            let live = state.live.locked();
             ids.iter().all(|id| live.get(id).is_some_and(|l| l.online.is_some()))
         };
         if known {
@@ -189,13 +190,13 @@ pub fn notice_after_update(app: AppHandle) {
         check(&app, located.as_ref().unwrap_or(c));
     }
     let waiting = Instant::now();
-    while waiting.elapsed() < Duration::from_secs(NOTICE_WAIT_SECS) && !state.checking.lock().unwrap().is_empty() {
+    while waiting.elapsed() < Duration::from_secs(NOTICE_WAIT_SECS) && !state.checking.locked().is_empty() {
         std::thread::sleep(Duration::from_millis(250));
     }
     let now = now();
     let stations: Vec<NoticeStation> = {
         let computers = state.with_store(|s| s.computers.clone());
-        let live = state.live.lock().unwrap();
+        let live = state.live.locked();
         computers
             .iter()
             .filter_map(|c| {
@@ -210,14 +211,14 @@ pub fn notice_after_update(app: AppHandle) {
         return;
     }
     log::info!("app mise à jour en {APP_VERSION} : avis pour {} Station(s)", stations.len());
-    *state.station_notice.lock().unwrap() = Some(StationNotice { app: APP_VERSION.to_string(), stations });
+    *state.station_notice.locked() = Some(StationNotice { app: APP_VERSION.to_string(), stations });
     let _ = app.emit_to("main", "station-notice", ());
 }
 
 /// L'avis après une mise à jour de l'app, s'il attend (une seule fois).
 #[tauri::command]
 pub fn take_station_notice(state: tauri::State<'_, UiState>) -> Option<StationNotice> {
-    state.station_notice.lock().unwrap().take()
+    state.station_notice.locked().take()
 }
 
 /// « Plus tard » (bandeau, ou avis pour chacune de ses Stations) : le bandeau

@@ -10,6 +10,7 @@
   réessayer sans retaper le code.
 -->
 <script lang="ts">
+  import Sheet from './lib/Sheet.svelte'
   import { onMount } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import type { InviteAdded, InviteRefusal } from './lib/api'
@@ -65,9 +66,7 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && dismiss()} />
-
-<div class="veil" role="presentation" onclick={(e) => e.target === e.currentTarget && dismiss()}>
+<Sheet onclose={dismiss}>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="invite-title">
     <button type="button" class="close" aria-label={t('common.close')} disabled={working} onclick={dismiss}><Icon name="x" size={14} /></button>
     <h2 id="invite-title">{title}</h2>
@@ -107,26 +106,9 @@
       </div>
     </form>
   </div>
-</div>
+</Sheet>
 
 <style>
-  .veil {
-    position: absolute;
-    inset: 0;
-    z-index: 30;
-    background: rgb(5 7 10 / 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 56px 24px 24px;
-    animation: fade 0.25s var(--ease-out);
-  }
-
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
-  }
 
   .sheet {
     position: relative;
@@ -139,14 +121,7 @@
     border-radius: 22px;
     background: var(--ink-1);
     box-shadow: 0 40px 120px rgb(0 0 0 / 0.6);
-    animation: rise 0.32s var(--ease-out);
-  }
-
-  @keyframes rise {
-    from {
-      transform: translateY(18px) scale(0.985);
-      opacity: 0;
-    }
+    animation: sheet-rise 0.32s var(--ease-out);
   }
 
   form {

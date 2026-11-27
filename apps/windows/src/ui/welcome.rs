@@ -16,6 +16,7 @@
 //!   au plus ; la règle est celle du cœur.
 //! - **« PAS ENCORE INSTALLÉ »** (écran 3) : `welcome_station_download`.
 
+use crate::sync::Locked;
 use kybernow_core::welcome::{self as rules, WelcomeState};
 
 use super::*;
@@ -29,17 +30,11 @@ fn has_account() -> bool {
 /// `f` sur l'état gardé, puis `app.json` enregistré.
 fn with_state<T>(app: &AppHandle, f: impl FnOnce(&mut WelcomeState) -> T) -> T {
     let state = app.state::<UiState>();
-    let (out, prefs) = {
-        let mut p = state.prefs.lock().unwrap();
-        let out = f(&mut p.welcome);
-        (out, p.clone())
-    };
-    save_prefs(&prefs);
-    out
+    update_prefs(&state, |p| f(&mut p.welcome))
 }
 
 fn current(app: &AppHandle) -> WelcomeView {
-    let state = app.state::<UiState>().prefs.lock().unwrap().welcome.clone();
+    let state = app.state::<UiState>().prefs.locked().welcome.clone();
     view::view(&state, has_account(), view::now())
 }
 

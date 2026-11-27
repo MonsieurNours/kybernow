@@ -12,6 +12,7 @@
 //! sur son fil, inscrite au registre des sessions du cœur (`focus.rs`), qui
 //! coupe les entrées et le son de celles qui ne sont pas actives.
 
+use crate::sync::Locked;
 use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Instant;
@@ -35,7 +36,7 @@ use kybernow_core::{Display, WindowHandle};
 use crate::audio::{self, AudioOutput};
 use crate::displays::Layout;
 use crate::focus;
-use crate::gpu::Gpu;
+use crate::gpu::SessionGpu;
 use crate::video::Link;
 use crate::window::{self, App, Command, VideoSettings, WM_APP_COMMAND, WM_APP_MOUSE, WM_APP_STATUS};
 
@@ -283,23 +284,26 @@ pub struct SessionHost {
 }
 
 impl SessionHost {
-    pub fn start(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>) -> Self {
+    pub fn start(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>) -> std::io::Result<Self> {
         Self::start_as(window::new_app_id(), host_name, params, opts, events)
     }
 
     /// [`Self::start`] avec son identifiant (`window::new_app_id`), pris
     /// avant : ce qui suit la session (sa fenêtre de connexion, sa fin) la
     /// désigne par lui, jamais par son ordinateur seul.
-    pub fn start_as(id: u64, host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>) -> Self {
+    ///
+    /// Le fil refusé (mémoire, limite de fils) rend l'erreur au lieu de
+    /// paniquer : l'appelant tient le verrou des sessions, qu'une panique
+    /// empoisonnerait pour toute l'app.
+    pub fn start_as(id: u64, host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>) -> std::io::Result<Self> {
         let control = Arc::new(AtomicIsize::new(0));
         let app = Arc::new(OnceLock::new());
         let end_asked = Arc::new(Mutex::new(false));
         let (c, a, e) = (control.clone(), app.clone(), end_asked.clone());
         std::thread::Builder::new()
             .name("kybernow-window".into())
-            .spawn(move || run(id, host_name, params, opts, events, c, a, e))
-            .expect("fil de la fenêtre de session");
-        Self { id, control, app, end_asked }
+            .spawn(move || run(id, host_name, params, opts, events, c, a, e))?;
+        Ok(Self { id, control, app, end_asked })
     }
 
     pub fn id(&self) -> u64 {
@@ -338,7 +342,7 @@ impl SessionHost {
     /// fenêtres existent, elle est gardée et transmise au départ du cœur.
     pub fn end(&self, why: &str) {
         let app = {
-            let mut asked = self.end_asked.lock().unwrap();
+            let mut asked = self.end_asked.locked();
             *asked = true;
             self.app().cloned()
         };
@@ -567,7 +571,7 @@ struct WinPlatform {
 impl WinPlatform {
     /// Capte tant que l'état le demande (allumé, en attente ou pris), sinon arrête.
     fn follow_microphone(&self, state: MicState) {
-        let mut capture = self.mic.lock().unwrap();
+        let mut capture = self.mic.locked();
         if !state.capturing() {
             if capture.take().is_some() {
                 log::info!("micro : capture arrêtée ({state:?})");
@@ -579,14 +583,14 @@ impl WinPlatform {
         }
         let slot = self.mic_session.clone();
         let sink: crate::micro::Sink = Arc::new(move |samples: &[f32], rate: u32| {
-            let session = slot.lock().unwrap().as_ref().and_then(Weak::upgrade);
+            let session = slot.locked().as_ref().and_then(Weak::upgrade);
             if let Some(s) = session {
                 s.push_microphone(samples, rate);
             }
         });
         let (slot, events) = (self.mic_session.clone(), self.events.clone());
         let denied = Box::new(move || {
-            if let Some(s) = slot.lock().unwrap().as_ref().and_then(Weak::upgrade) {
+            if let Some(s) = slot.locked().as_ref().and_then(Weak::upgrade) {
                 s.set_microphone(false);
             }
             events.microphone_denied();
@@ -616,13 +620,13 @@ impl Platform for WinPlatform {
         if let Some(main) = screens.iter().find(|s| s.primary).or_else(|| screens.first()) {
             self.refresh.store(main.refresh, Ordering::Relaxed);
         }
-        *self.stream_order.lock().unwrap() = screens.iter().map(|s| s.screen).collect();
+        *self.stream_order.locked() = screens.iter().map(|s| s.screen).collect();
         self.app.screens_changed(screens, not_created);
     }
     /// HDR (docs/hdr.md) : les écrans dont l'image part en HDR. Le rendu suit
     /// l'image elle-même (étiquetée PQ) ; ceci sert aux images sans étiquette.
     fn on_hdr(&self, hdr: &[bool]) {
-        let order = self.stream_order.lock().unwrap().clone();
+        let order = self.stream_order.locked().clone();
         log::info!("HDR des écrans de la session : {hdr:?}");
         self.app.set_stream_hdr(&order, hdr);
     }
@@ -673,7 +677,7 @@ impl Platform for WinPlatform {
     }
     fn on_status(&self, status: &Status) {
         if let Status::Ended { error: Some(e), .. } = status {
-            *self.app.error.lock().unwrap() = Some(e.clone());
+            *self.app.error.locked() = Some(e.clone());
         }
         // Surveillance de la première image, à chaque (re)démarrage du flux.
         match status {
@@ -683,7 +687,7 @@ impl Platform for WinPlatform {
             }
             _ => {}
         }
-        *self.app.status.lock().unwrap() = Some(status.clone());
+        *self.app.status.locked() = Some(status.clone());
         self.app.post(WM_APP_STATUS);
         self.events.status(status);
     }
@@ -698,19 +702,19 @@ impl Platform for WinPlatform {
         let primary = self.app.primary_window();
         let frames = primary.as_ref().map_or(0, |w| w.shared.frames.load(Ordering::Relaxed));
         let fps = {
-            let mut last = self.last_frames.lock().unwrap();
+            let mut last = self.last_frames.locked();
             // L'écran principal peut changer (écran débranché) : le compte repart.
             let fps = frames.saturating_sub(*last);
             *last = frames;
             fps
         };
-        *self.app.fps.lock().unwrap() = fps;
-        *self.app.latency.lock().unwrap() = ms;
+        *self.app.fps.locked() = fps;
+        *self.app.latency.locked() = ms;
         self.app.post(WM_APP_STATUS);
         let (_, (width, height)) = self.app.primary_display();
-        let rtt_ms = self.session.lock().unwrap().as_ref().and_then(|s| s.latency().rtt_ms());
+        let rtt_ms = self.session.locked().as_ref().and_then(|s| s.latency().rtt_ms());
         let audio = {
-            let mut last = self.audio_stats.lock().unwrap();
+            let mut last = self.audio_stats.locked();
             if let Some(s) = self.audio.as_ref().and_then(|a| a.engine().take_stats()) {
                 *last = Some(s);
             }
@@ -727,7 +731,7 @@ impl Platform for WinPlatform {
             fps,
             width,
             height,
-            decoder: primary.map(|w| w.shared.decoder.lock().unwrap().clone()).unwrap_or_default(),
+            decoder: primary.map(|w| w.shared.decoder.locked().clone()).unwrap_or_default(),
             relative: self.app.relative(),
             rtt_ms,
             audio_ms: audio.map(|a| a.buffer_ms + a.output_ms),
@@ -827,7 +831,7 @@ impl Platform for WinPlatform {
     /// le texte (docs/link-ui.md, « Hors de chez vous »), jamais le texte d'Admin.
     fn on_relay_error(&self, error: &RelayError, _text: &str) {
         log::info!("relais : {}", error.kind());
-        *self.relay_error.lock().unwrap() = Some(error.clone());
+        *self.relay_error.locked() = Some(error.clone());
     }
 }
 
@@ -847,7 +851,7 @@ fn run(
         events.ended(&Summary { error: Some(e), ..Default::default() });
     };
 
-    let gpu = match Gpu::new() {
+    let gpu = match SessionGpu::new() {
         Ok(g) => g,
         Err(e) => return fail(&events, format!("Direct3D 11 : {e}")),
     };
@@ -937,7 +941,7 @@ fn run(
     // Le micro est proposé à l'ordinateur seulement si ce PC en a un (docs/micro.md).
     kybernow_core::micro::set_device_has_microphone(crate::micro::has_microphone());
     let session = Session::start_with_screens(params, screens, platform.clone());
-    *platform.mic_session.lock().unwrap() = Some(Arc::downgrade(&session));
+    *platform.mic_session.locked() = Some(Arc::downgrade(&session));
     // Le choix retenu pour l'ordinateur, juste après le départ (coupé par défaut).
     session.set_microphone(opts.microphone);
     // Plusieurs ordinateurs : inscrite au registre des sessions du cœur, elle
@@ -958,17 +962,17 @@ fn run(
             }
         }
         Err(_) => {
-            *app.error.lock().unwrap() = Some(crate::i18n::t("errors.four_at_most", &[]));
+            *app.error.locked() = Some(crate::i18n::t("errors.four_at_most", &[]));
             session.stop();
         }
     }
-    *platform.session.lock().unwrap() = Some(session.clone());
+    *platform.session.locked() = Some(session.clone());
     let _ = app.link.session.set(Arc::downgrade(&session));
     let _ = app.link.latency.set(session.latency());
     let _ = app.session.set(session.clone());
     // Une fin demandée pendant la mise en place (avant les fenêtres, ou avant
     // le cœur) lui est transmise maintenant.
-    let asked = *end_asked.lock().unwrap();
+    let asked = *end_asked.locked();
     app.session_ready(asked);
 
     // Raccourcis de Windows (⊞, Alt+Tab…) vers l'ordinateur en plein écran :
@@ -979,14 +983,14 @@ fn run(
 
     // La boucle ne s'arrête que par `quit` (fin dite par le cœur, ou fin
     // demandée avant le cœur) : autrement, le journal le dit.
-    if !app.closing.load(Ordering::Relaxed) && !matches!(*app.status.lock().unwrap(), Some(Status::Ended { .. })) {
+    if !app.closing.load(Ordering::Relaxed) && !matches!(*app.status.locked(), Some(Status::Ended { .. })) {
         log::warn!("[{host_name}] boucle de messages arrêtée sans fin demandée : la session s'arrête");
     }
     session.stop();
     session.wait();
     // La capture du micro s'arrête avec la session.
-    platform.mic.lock().unwrap().take();
-    *platform.mic_session.lock().unwrap() = None;
+    platform.mic.locked().take();
+    *platform.mic_session.locked() = None;
     // Normalement déjà fait à l'arrêt de l'image.
     retire(app.detach_input());
     // Les fils de l'image finissent (ils gardent la dernière image) avant le résumé.
@@ -1000,8 +1004,8 @@ fn run(
     }
     // Par le relais, l'échec dit le nom de l'ordinateur (docs/link-ui.md, « Hors de
     // chez vous ») : le texte vient de l'erreur typée du cœur, pas de celui d'Admin.
-    let error = crate::relais::failure_text(platform.relay_error.lock().unwrap().as_ref(), app.error.lock().unwrap().clone(), &computer, crate::i18n::lang());
-    *platform.session.lock().unwrap() = None;
+    let error = crate::relais::failure_text(platform.relay_error.locked().as_ref(), app.error.locked().clone(), &computer, crate::i18n::lang());
+    *platform.session.locked() = None;
     let last_image = app.take_last_image();
     let (requested, shown, was_front) = (app.user_ended(), app.ever_shown(), app.was_front());
     if let Some(fid) = app.focus_id() {

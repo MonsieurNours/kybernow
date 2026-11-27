@@ -177,3 +177,16 @@ button:disabled {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Feuilles (lib/Sheet.svelte) : le fond apparaît, la feuille monte. */
+@keyframes sheet-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes sheet-rise {
+  from {
+    transform: translateY(18px) scale(0.985);
+    opacity: 0;
+  }
+}

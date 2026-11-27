@@ -45,6 +45,9 @@ mod focus;
 mod follow;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod glyph;
+// Fichiers de l'app : dossier, écriture atomique, relecture (se teste sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod files;
 #[cfg(windows)]
 mod fonds;
 #[cfg(windows)]
@@ -75,6 +78,12 @@ mod menu;
 // Le micro de ce PC vers l'ordinateur (docs/micro.md) : capture WASAPI.
 #[cfg(windows)]
 mod micro;
+// Souris en mode relatif : écarts d'une souris absolue (se teste sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod mouse;
+// Verrous repris même empoisonnés (se teste sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod sync;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod notice;
 #[cfg(windows)]
@@ -134,6 +143,9 @@ mod tray;
 mod ui;
 #[cfg(windows)]
 mod video;
+// WASAPI commun au son et au micro.
+#[cfg(windows)]
+mod wasapi;
 #[cfg(windows)]
 mod window;
 // Accueil au premier lancement et carte du compte KyberNow : ce que

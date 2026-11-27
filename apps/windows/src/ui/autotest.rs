@@ -24,6 +24,7 @@
 //! - **En session** ([`Check`]) : Auto, et un réseau (ou le relais) différent
 //!   de celui du test : le bandeau « Autre réseau que celui du test ».
 
+use crate::sync::Locked;
 use std::sync::atomic::AtomicBool;
 
 use kybernow_core::autotest::{self as core_auto, AutoError, AutoResult, Choice, Device, Progress, Step, StepProgress, StepState};
@@ -68,7 +69,7 @@ pub fn choose(app: &AppHandle, id: &str) -> Result<Chosen, String> {
 /// Le panneau du test s'ouvrira à la fin de la session de `id`.
 pub fn later(id: &str) {
     log::info!("profil Auto : test à la fin de la session");
-    *LATER.lock().unwrap() = Some(id.to_string());
+    *LATER.locked() = Some(id.to_string());
 }
 
 /// [`later`], dit dans un avis (capsule de la barre, sinon notification de
@@ -82,7 +83,7 @@ pub fn later_told(app: &AppHandle, id: &str) {
 
 /// La session est finie, l'accueil revient : le panneau du test attendu.
 pub fn take_later() -> Option<String> {
-    LATER.lock().unwrap().take()
+    LATER.locked().take()
 }
 
 /// Le profil Auto pour `id` avec `result` (sinon le test gardé) : gardé,
@@ -202,12 +203,12 @@ pub fn autotest_run(app: AppHandle, id: String) -> Result<Outcome, String> {
     let host = located.as_ref().unwrap_or(&c).host.clone();
     let console = Arc::new(console_of(&app, &id)?);
     let pc = {
-        let cached = state.this_pc.lock().unwrap().clone();
+        let cached = state.this_pc.locked().clone();
         match cached {
             Some(pc) => pc,
             None => {
                 let pc = pc::this_pc();
-                *state.this_pc.lock().unwrap() = Some(pc.clone());
+                *state.this_pc.locked() = Some(pc.clone());
                 pc
             }
         }
@@ -232,7 +233,7 @@ pub fn autotest_run(app: AppHandle, id: String) -> Result<Outcome, String> {
     );
     let cancel = Arc::new(AtomicBool::new(false));
     {
-        let mut running = RUNNING.lock().unwrap();
+        let mut running = RUNNING.locked();
         for (other, flag) in running.iter().filter(|(other, _)| *other == id) {
             log::info!("profil Auto : test précédent de {other} arrêté");
             flag.store(true, Ordering::Relaxed);
@@ -261,7 +262,7 @@ pub fn autotest_run(app: AppHandle, id: String) -> Result<Outcome, String> {
     let started = Instant::now();
     let out = core_auto::run(console, &device, &mut decoder, &mut progress, &cancel, lang);
     drop(decoder);
-    RUNNING.lock().unwrap().retain(|(_, flag)| !Arc::ptr_eq(flag, &cancel));
+    RUNNING.locked().retain(|(_, flag)| !Arc::ptr_eq(flag, &cancel));
     let secs = started.elapsed().as_secs_f64();
     Ok(match out {
         Ok(r) => {
@@ -283,7 +284,7 @@ pub fn autotest_run(app: AppHandle, id: String) -> Result<Outcome, String> {
 /// d'avant reste.
 #[tauri::command(async)]
 pub fn autotest_cancel(id: String) {
-    for (other, flag) in RUNNING.lock().unwrap().iter() {
+    for (other, flag) in RUNNING.locked().iter() {
         if *other == id {
             flag.store(true, Ordering::Relaxed);
         }

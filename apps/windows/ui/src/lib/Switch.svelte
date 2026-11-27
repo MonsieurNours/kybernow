@@ -1,4 +1,4 @@
-<!-- Interrupteur, allumé au néon quand il est actif. -->
+<!-- Interrupteur, allumé au néon quand il est actif. Aussi celui de l'installateur (setup/ui, alias `$appui`). -->
 <script lang="ts">
   let { checked, label, disabled = false, onchange }: { checked: boolean; label: string; disabled?: boolean; onchange: (v: boolean) => void } =
     $props()
@@ -17,6 +17,7 @@
     padding: 3px;
     background: #1e2832;
     display: inline-flex;
+    flex: none;
     align-items: center;
     justify-self: start;
     transition: background-color 0.2s, box-shadow 0.2s;

@@ -36,6 +36,8 @@ mod windows {
     const TITLE: &str = sys::DISPLAY_NAME;
 
     pub fn main() {
+        // Lancé depuis Téléchargements : jamais une DLL de ce dossier.
+        sys::protect_dll_search(false);
         let args: Vec<String> = std::env::args().skip(1).collect();
         let has = |flag: &str| args.iter().any(|a| a.eq_ignore_ascii_case(flag));
         let silent = has("/S");

@@ -27,6 +27,7 @@
 //! rendre la souris », le bandeau du clavier, le contenu protégé) sont de
 //! petites fenêtres transparentes posées sur celle de la partie.
 
+use crate::sync::Locked;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
@@ -53,7 +54,7 @@ use kybernow_core::playstation::settings::PlaySettings;
 use kybernow_core::relay::RouteInfo;
 
 use crate::audio::{self, AudioOutput};
-use crate::gpu::Gpu;
+use crate::gpu::SessionGpu;
 use crate::i18n::t;
 use crate::render::Renderer;
 use crate::video::{self, ConsoleLink, Link, Shared, VideoHandler, VideoOptions};
@@ -171,7 +172,7 @@ struct Inner {
 
 impl Inner {
     fn with_play(&self, f: impl FnOnce(&Play)) {
-        if let Some(p) = self.play.lock().unwrap().as_ref() {
+        if let Some(p) = self.play.locked().as_ref() {
             f(p);
         }
     }
@@ -187,7 +188,7 @@ impl Inner {
 
     fn set_bar(&self, f: impl FnOnce(&mut BarState)) {
         let changed = {
-            let mut b = self.bar.lock().unwrap();
+            let mut b = self.bar.locked();
             let before = *b;
             f(&mut b);
             (before != *b).then_some(*b)
@@ -256,7 +257,7 @@ impl PsSession {
     }
 
     pub fn bar_state(&self) -> BarState {
-        *self.inner.bar.lock().unwrap()
+        *self.inner.bar.locked()
     }
 
     /// La disposition du clavier et de la souris, tout de suite.
@@ -271,7 +272,7 @@ impl PsSession {
 
     /// Le chemin par le relais (puce « Par le relais »), s'il y passe.
     pub fn route(&self) -> Option<RouteInfo> {
-        self.inner.remote.lock().unwrap().as_ref().map(|r| r.route_info())
+        self.inner.remote.locked().as_ref().map(|r| r.route_info())
     }
 }
 
@@ -319,7 +320,7 @@ fn follow_screen(force: bool) {
     }
     with_ctx(|c| c.monitor = monitor);
     let state = screen_of(hwnd);
-    let mut cur = shared.screen_hdr.lock().unwrap();
+    let mut cur = shared.screen_hdr.locked();
     if *cur != state {
         log::info!("PlayStation : l'écran de la partie est maintenant en {}", if state.hdr { "HDR" } else { "SDR" });
         *cur = state;
@@ -412,7 +413,7 @@ fn run(start: Start, inner: Arc<Inner>) {
     if let Err(e) = register_class() {
         return fail(&inner, format!("classe de fenêtre : {e}"));
     }
-    let gpu = match Gpu::new() {
+    let gpu = match SessionGpu::new() {
         Ok(g) => g,
         Err(e) => return fail(&inner, format!("Direct3D 11 : {e}")),
     };
@@ -452,10 +453,10 @@ fn run(start: Start, inner: Arc<Inner>) {
     // HDR (docs/hdr.md) : la partie est demandée en HDR ou non pour toute sa durée ; le rendu
     // suit l'écran de la fenêtre (ramenée au SDR sur un écran SDR).
     shared.stream_hdr.store(profile.hdr, Ordering::Relaxed);
-    *shared.screen_hdr.lock().unwrap() = screen_of(hwnd);
+    *shared.screen_hdr.locked() = screen_of(hwnd);
     let size = client_size(hwnd);
     shared.set_client_size(size.0, size.1);
-    let renderer = match Renderer::new(&gpu, hwnd, size, false) {
+    let renderer = match Renderer::new(&gpu.current(), hwnd, size, false) {
         Ok(r) => r,
         Err(e) => {
             unsafe {
@@ -478,7 +479,7 @@ fn run(start: Start, inner: Arc<Inner>) {
     };
     let audio = audio::spawn(Arc::new(MonotonicClock::new()));
     crate::ps_haptics::retain();
-    *inner.remote.lock().unwrap() = start.remote;
+    *inner.remote.locked() = start.remote;
 
     let (rumble, triggers) = start.settings.intensities();
     log::info!(
@@ -492,7 +493,7 @@ fn run(start: Start, inner: Arc<Inner>) {
     let on_state = {
         let i = inner.clone();
         Box::new(move |s: PlayState| {
-            i.states.lock().unwrap().push_back(s);
+            i.states.locked().push_back(s);
             i.post(WM_APP_PS_STATE, 0);
         })
     };
@@ -515,12 +516,12 @@ fn run(start: Start, inner: Arc<Inner>) {
     {
         let i = inner.clone();
         play.set_on_keyboard(Some(Box::new(move |e: KeyboardEvent| {
-            i.keyboard.lock().unwrap().push_back(e);
+            i.keyboard.locked().push_back(e);
             i.post(WM_APP_PS_KEYBOARD, 0);
         })));
     }
     play.set_layout(start.layout);
-    *inner.play.lock().unwrap() = Some(play);
+    *inner.play.locked() = Some(play);
 
     let pad = !kybernow_core::gamepads::global().pads().is_empty();
     inner.set_bar(|b| b.pad = pad);
@@ -564,7 +565,7 @@ fn run(start: Start, inner: Arc<Inner>) {
     // Le fil de l'image s'arrête d'abord (la partie ne reste pas bloquée sur sa file), puis
     // la partie (sa fin peut prendre quelques secondes pendant la connexion), verrou relâché.
     video.stop();
-    let play = inner.play.lock().unwrap().take();
+    let play = inner.play.locked().take();
     if let Some(mut p) = play {
         p.stop();
     }
@@ -576,9 +577,9 @@ fn run(start: Start, inner: Arc<Inner>) {
     }
     crate::ps_haptics::release();
     // Par le relais : la Station reste jointe jusqu'à la fin de l'arrêt.
-    inner.remote.lock().unwrap().take();
+    inner.remote.locked().take();
     inner.hwnd.store(0, Ordering::Relaxed);
-    let end = inner.end.lock().unwrap().take();
+    let end = inner.end.locked().take();
     let quiet = inner.quiet.load(Ordering::Relaxed);
     log::info!("PlayStation [{}] : partie finie ({end:?}{})", inner.name, if quiet { ", voulue ici" } else { "" });
     inner.events.ended(end, quiet, inner.started.elapsed().as_secs());
@@ -611,7 +612,7 @@ fn destroy(hwnd: HWND) {
 fn states() {
     let Some(inner) = with_ctx(|c| c.inner.clone()) else { return };
     loop {
-        let Some(s) = inner.states.lock().unwrap().pop_front() else { break };
+        let Some(s) = inner.states.locked().pop_front() else { break };
         match s {
             PlayState::Connecting => {
                 with_ctx(|c| c.streaming = false);
@@ -629,7 +630,7 @@ fn states() {
             }
             PlayState::Ended(end) => {
                 // Mise en veille demandée ici : sa fin ne se dit pas.
-                *inner.end.lock().unwrap() = Some(end);
+                *inner.end.locked() = Some(end);
                 let hwnd = with_ctx(|c| {
                     c.streaming = false;
                     c.hwnd
@@ -651,7 +652,7 @@ fn states() {
 fn keyboard_events() {
     let Some(inner) = with_ctx(|c| c.inner.clone()) else { return };
     loop {
-        let Some(e) = inner.keyboard.lock().unwrap().pop_front() else { break };
+        let Some(e) = inner.keyboard.locked().pop_front() else { break };
         match e {
             KeyboardEvent::Open(text) => {
                 log::info!("PlayStation [{}] : clavier de la console ouvert", inner.name);
@@ -685,7 +686,7 @@ fn keyboard_events() {
 /// Les aides du bas de l'image et l'avis du contenu protégé, selon l'état.
 fn refresh_hints() {
     with_ctx(|c| {
-        let bar = *c.inner.bar.lock().unwrap();
+        let bar = *c.inner.bar.locked();
         let text = if !c.shown || !c.streaming {
             None
         } else if c.console_keyboard {
@@ -807,7 +808,7 @@ fn capture_mouse() {
     let Some((inner, hwnd)) = with_ctx(|c| (c.inner.clone(), c.hwnd)) else { return };
     let already = with_ctx(|c| c.captured).unwrap_or(true);
     // Une manette branchée : le cœur ignore clavier et souris, rien à prendre.
-    if already || inner.bar.lock().unwrap().pad || unsafe { GetForegroundWindow() } != hwnd {
+    if already || inner.bar.locked().pad || unsafe { GetForegroundWindow() } != hwnd {
         return;
     }
     // Barre ouverte : un clic dans l'image la ferme (l'app la cache).
@@ -1082,17 +1083,17 @@ fn edge_fired() {
 fn second() {
     let Some((inner, streaming)) = with_ctx(|c| (c.inner.clone(), c.streaming)) else { return };
     if streaming {
-        let stats = inner.play.lock().unwrap().as_ref().map(|p| p.stats());
+        let stats = inner.play.locked().as_ref().map(|p| p.stats());
         if let Some(s) = stats {
             inner.events.stats(&s);
         }
     }
     let pad = !kybernow_core::gamepads::global().pads().is_empty();
-    if inner.bar.lock().unwrap().pad != pad {
+    if inner.bar.locked().pad != pad {
         inner.set_bar(|b| b.pad = pad);
         refresh_hints();
     }
-    let route = inner.remote.lock().unwrap().as_ref().map(|r| r.route_info());
+    let route = inner.remote.locked().as_ref().map(|r| r.route_info());
     if let Some(r) = route {
         let changed = with_ctx(|c| {
             let changed = c.last_route.as_ref() != Some(&r);

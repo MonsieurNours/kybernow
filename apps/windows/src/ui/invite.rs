@@ -13,6 +13,7 @@
 //! d'être ajouté deux fois. Le reste (même ordinateur, nom, réponses) est dans
 //! `inviting.rs`.
 
+use crate::sync::Locked;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -49,7 +50,7 @@ pub fn keep_ticket(state: &UiState, code: InviteCode) -> (u64, String) {
     let id = SEQ.fetch_add(1, Ordering::Relaxed);
     log::info!("partage : le code est un code d'invitation{}", if code.route.is_some() { " (par le relais)" } else { "" });
     let computer = code.computer.trim().to_string();
-    *state.invite.ticket.lock().unwrap() = Some(Ticket { id, code });
+    *state.invite.ticket.locked() = Some(Ticket { id, code });
     (id, computer)
 }
 
@@ -65,7 +66,7 @@ pub fn keep_ticket(state: &UiState, code: InviteCode) -> (u64, String) {
 #[tauri::command(async)]
 pub fn invite_redeem(app: AppHandle, ticket: u64, password: String) -> Result<InviteAdded, InviteRefusal> {
     let state = app.state::<UiState>();
-    let code = match state.invite.ticket.lock().unwrap().as_ref() {
+    let code = match state.invite.ticket.locked().as_ref() {
         Some(tk) if tk.id == ticket => tk.code.clone(),
         _ => return Err(InviteRefusal::other(t("errors.no_session", &[]))),
     };
@@ -75,7 +76,7 @@ pub fn invite_redeem(app: AppHandle, ticket: u64, password: String) -> Result<In
     })?;
     // Le code a servi : il n'est plus gardé.
     {
-        let mut tk = state.invite.ticket.lock().unwrap();
+        let mut tk = state.invite.ticket.locked();
         if tk.as_ref().is_some_and(|x| x.id == ticket) {
             *tk = None;
         }
@@ -150,7 +151,7 @@ fn keep(app: &AppHandle, invited: &Invited) -> Result<InviteAdded, InviteRefusal
     );
     let online = info.is_some();
     {
-        let mut live = state.live.lock().unwrap();
+        let mut live = state.live.locked();
         let l = live.entry(id.clone()).or_default();
         if online {
             l.online = Some(true);

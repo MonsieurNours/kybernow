@@ -269,14 +269,41 @@ pub fn clear_jump_list() {
 }
 
 /// Vos ordinateurs (identifiant, nom) au clic droit de l'icône de l'app.
+/// Appelé à chaque relevé des ordinateurs : la liste n'est refaite que si
+/// elle change (ordinateurs, noms, langue), sur un seul fil qui ne prend que
+/// la dernière demande (jamais deux `BeginList`/`CommitList` en même temps).
 pub fn update_jump_list(computers: Vec<(String, String)>) {
-    std::thread::spawn(move || unsafe {
-        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-        if let Err(e) = build_jump_list(&computers) {
-            log::warn!("liste de la barre des tâches : {e}");
+    use std::sync::mpsc::{Sender, channel};
+    use std::sync::{Mutex, OnceLock};
+    type Wanted = (Vec<(String, String)>, &'static str);
+    static LAST: Mutex<Option<Wanted>> = Mutex::new(None);
+    static WORKER: OnceLock<Mutex<Sender<Wanted>>> = OnceLock::new();
+    let wanted: Wanted = (computers, crate::i18n::lang().code());
+    {
+        let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+        if last.as_ref() == Some(&wanted) {
+            return;
         }
-        CoUninitialize();
+        *last = Some(wanted.clone());
+    }
+    let worker = WORKER.get_or_init(|| {
+        let (tx, rx) = channel::<Wanted>();
+        let _ = std::thread::Builder::new().name("kybernow-liste-taches".into()).spawn(move || unsafe {
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            while let Ok(mut next) = rx.recv() {
+                // Seulement la dernière demande en attente.
+                while let Ok(newer) = rx.try_recv() {
+                    next = newer;
+                }
+                if let Err(e) = build_jump_list(&next.0) {
+                    log::warn!("liste de la barre des tâches : {e}");
+                }
+            }
+            CoUninitialize();
+        });
+        Mutex::new(tx)
     });
+    let _ = worker.lock().unwrap_or_else(|e| e.into_inner()).send(wanted);
 }
 
 fn xml_escape(s: &str) -> String {

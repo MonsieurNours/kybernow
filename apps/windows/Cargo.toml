@@ -14,8 +14,8 @@ path = "src/main.rs"
 [features]
 # Kyber demande PyroWave : correctif kyclient 0025 (`VideoCodec::PyroWave`,
 # `fallback_codec`) et fonctionnalité `pyrowave` du cœur, posés ensemble par
-# scripts/build.sh --kyber-pyrowave, comme Android et les apps Apple, tant
-# qu'ils ne sont pas allumés pour toutes les apps (third_party/ est partagé).
+# scripts/build.sh, par défaut (`--sans-pyrowave` les retire), comme Android et
+# les apps Apple. Le cœur sans elle ne compile pas contre le correctif posé.
 kyber-pyrowave = ["kybernow-core/pyrowave"]
 
 [dependencies]
@@ -75,7 +75,6 @@ features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
-    "Win32_Devices_Properties",
     "Win32_Storage_EnhancedStorage",
     "Win32_Storage_FileSystem",
     "Win32_System_Pipes",

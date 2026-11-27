@@ -179,6 +179,7 @@ fn place_files(setup: &Path, arch: payload::Arch, dir: &Path, progress: &dyn Fn(
 /// ancien fichier est d'abord renommé (`.ancien`), puis le nouveau prend sa
 /// place. Au moindre échec, tout revient comme avant.
 fn swap_files(new: &Path, dir: &Path) -> Result<()> {
+    let new_names = file_names(new);
     let mut done: Vec<(PathBuf, Option<PathBuf>)> = Vec::new();
     let result = (|| -> Result<()> {
         for e in std::fs::read_dir(new)? {
@@ -212,7 +213,28 @@ fn swap_files(new: &Path, dir: &Path) -> Result<()> {
             let _ = std::fs::remove_file(b);
         }
     }
+    // Les fichiers que la nouvelle version n'a plus (une DLL retirée serait
+    // encore chargée) : effacés ; encore ouverts, mis de côté en `.ancien`
+    // (effacés à la mise à jour suivante).
+    for name in payload::stale_files(&file_names(dir), &new_names, &[sys::UNINSTALLER]) {
+        let path = dir.join(&name);
+        if std::fs::remove_file(&path).is_err() {
+            let _ = std::fs::rename(&path, dir.join(format!("{name}.ancien")));
+        }
+        sys::log(&format!("retiré (absent de cette version) : {name}"));
+    }
     Ok(())
+}
+
+/// Les fichiers (pas les dossiers) d'un dossier.
+fn file_names(d: &Path) -> Vec<String> {
+    std::fs::read_dir(d)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect()
 }
 
 fn retry(mut f: impl FnMut() -> std::io::Result<()>) -> bool {

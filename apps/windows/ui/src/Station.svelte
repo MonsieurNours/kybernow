@@ -11,10 +11,11 @@
   jour) : `station_pending` pendant l'attente, `station-outcome` à la fin.
 -->
 <script lang="ts">
+  import Sheet from './lib/Sheet.svelte'
   import { onMount } from 'svelte'
   import Icon from './lib/Icon.svelte'
-  import type { Computer, StationOutcome, StationRefusal } from './lib/api'
-  import { invoke, listen } from './lib/api'
+  import type { Computer, StationOutcome } from './lib/api'
+  import { invoke, listen, stationRefusal, stationRefusalText } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let { computer, accountName = null, onremoved }: { computer: Computer; accountName?: string | null; onremoved: () => void } = $props()
@@ -65,21 +66,11 @@
     return () => off.then((f) => f())
   })
 
+  /** Le texte d'un refus (`api.ts`, comme le bandeau et l'avis) ; « en session » : la confirmation. */
   function refusal(e: unknown, kind: Kind): string | null {
-    const r = (typeof e === 'object' && e && 'kind' in e ? e : { kind: 'other', message: String(e), device: null, seconds: null }) as StationRefusal
-    switch (r.kind) {
-      case 'in_session':
-        confirm = { kind, device: r.device }
-        return null
-      case 'too_soon':
-        return t('station.too_soon')
-      case 'unsupported':
-        return t('station.too_old')
-      case 'requires_setup':
-        return t('station.requires_setup', { version: update?.version ?? '' })
-      default:
-        return r.message
-    }
+    const r = stationRefusal(e)
+    if (r.kind === 'in_session') confirm = { kind, device: r.device }
+    return stationRefusalText(r, update?.version ?? '')
   }
 
   async function run(kind: Kind, force = false) {
@@ -105,8 +96,12 @@
   }
 
   async function remove() {
-    await invoke('remove_computer', { id: computer.id })
-    onremoved()
+    try {
+      await invoke('remove_computer', { id: computer.id })
+      onremoved()
+    } catch (e) {
+      outcome = { text: String(e), tone: 'warn' }
+    }
   }
 </script>
 
@@ -177,7 +172,7 @@
 
 {#if confirm}
   {@const c = confirm}
-  <div class="veil" role="presentation" onclick={(e) => e.target === e.currentTarget && (confirm = null)}>
+  <Sheet onclose={() => (confirm = null)} fixed animate={false}>
     <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-text">
       <h2 id="confirm-title">{c.device ? t('station.in_session_title', { device: c.device }) : t('station.in_session_anonymous')}</h2>
       <p id="confirm-text">{c.kind === 'restart' ? t('station.in_session_restart') : t('station.in_session_update')}</p>
@@ -186,7 +181,7 @@
         <button class="danger" onclick={() => run(c.kind, true)}>{c.kind === 'restart' ? t('station.restart_anyway') : t('station.update_anyway')}</button>
       </div>
     </div>
-  </div>
+  </Sheet>
 {/if}
 
 <style>
@@ -331,17 +326,6 @@
     background: #c42b1c;
     color: #fff;
     font-weight: 600;
-  }
-
-  .veil {
-    position: fixed;
-    inset: 0;
-    z-index: 30;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 56px 24px 24px;
-    background: rgb(5 7 10 / 0.7);
   }
 
   .dialog {

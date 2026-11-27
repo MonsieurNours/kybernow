@@ -29,7 +29,7 @@
   } = $props()
 </script>
 
-<header data-tauri-drag-region>
+<header data-tauri-drag-region data-stays-active>
   <div class="left" data-tauri-drag-region>
     {#if onback}
       <button class="back" aria-label={t('titlebar.back')} onclick={onback}><Icon name="back" size={16} /></button>

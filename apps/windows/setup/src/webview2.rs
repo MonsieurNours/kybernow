@@ -28,27 +28,15 @@ pub fn install() -> Result<String> {
     std::fs::create_dir_all(&dir)?;
     let exe = dir.join("MicrosoftEdgeWebview2Setup.exe");
     sys::log("WebView2 absent : téléchargement de l'installateur de Microsoft");
-    // Le chemin passe par une variable d'environnement : une apostrophe dans le
-    // nom du dossier temporaire ne casse pas la commande.
-    let out = {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new(sys::system32(r"WindowsPowerShell\v1.0\powershell.exe"))
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                &format!("$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri '{BOOTSTRAPPER}' -OutFile $env:KYBERNOW_WV2"),
-            ])
-            .env("KYBERNOW_WV2", &exe)
-            .creation_flags(sys::CREATE_NO_WINDOW)
-            .output()
-    };
-    if !exe.exists() {
-        let why = out.map(|o| String::from_utf8_lossy(&o.stderr).trim().to_string()).unwrap_or_else(|e| e.to_string());
+    // Par le client HTTPS de l'installateur (rustls, autorités du web), pas
+    // par PowerShell (restreint sur certains PC d'entreprise) ; le fichier
+    // n'est lancé qu'entier et signé par Microsoft.
+    let fetched = crate::account::download(BOOTSTRAPPER, std::time::Duration::from_secs(60))
+        .and_then(|body| std::fs::write(&exe, body).map_err(Into::into))
+        .and_then(|()| sys::verify_signature(&exe, "Microsoft Corporation"));
+    if let Err(e) = fetched {
         let _ = std::fs::remove_dir_all(&dir);
-        return Err(crate::i18n::err("errors.webview2Download", &[("error", &why)]));
+        return Err(crate::i18n::err("errors.webview2Download", &[("error", &e)]));
     }
     sys::log("installation de WebView2");
     let status = std::process::Command::new(&exe).args(["/silent", "/install"]).status();

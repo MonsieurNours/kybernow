@@ -46,6 +46,7 @@
   cœur ; la ligne « Écran » dit alors « …, en HDR ». Ailleurs, aucune trace du HDR.
 -->
 <script lang="ts">
+  import { menuKeys } from './lib/menukeys'
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import StationBanner from './StationBanner.svelte'
@@ -238,18 +239,29 @@
   let homeHdr = $state(false)
   let screensEpoch = $state(0)
   let asked = 0
+  // Ce dont dépend la réponse, en une clé : l'événement `computers` refait
+  // chaque objet à chaque relevé, la demande ne repart que si la clé change
+  // (côté app, `displays_info` relève les écrans de ce PC).
+  const displaysKey = $derived(
+    selected
+      ? JSON.stringify([
+          selected.id,
+          $state.snapshot(selected.settings),
+          selected.info?.virtual_display?.max_screens,
+          selected.info?.virtual_display?.available,
+          battery,
+          $state.snapshot(thisPc),
+          screensEpoch,
+        ])
+      : null,
+  )
   $effect(() => {
-    void screensEpoch
-    void battery
-    void thisPc
-    if (!selected) {
+    const key = displaysKey
+    if (!key) {
       screens = 1
       return
     }
-    const id = selected.id
-    const settings = $state.snapshot(selected.settings)
-    void selected.info?.virtual_display?.max_screens
-    void selected.info?.virtual_display?.available
+    const [id, settings] = JSON.parse(key) as [string, unknown]
     const n = ++asked
     invoke<DisplaysInfo>('displays_info', { id, settings })
       .then((i) => {
@@ -379,7 +391,7 @@
               <Icon name="user" size={18} stroke={1.6} />{psAccountName(chosenAccount)}<Icon name="caret" size={14} stroke={2} />
             </button>
             {#if accountMenu}
-              <div class="menu" role="menu">
+              <div class="menu" role="menu" use:menuKeys={() => (accountMenu = false)}>
                 {#each c.accounts as a (a.id)}
                   <button role="menuitemradio" aria-checked={a.id === chosenAccount.id} onclick={() => ((accountMenu = false), a.id !== chosenAccount.id && onchooseaccount?.(c.id, a.id))}>
                     <span class="tick">{#if a.id === chosenAccount.id}<Icon name="check" size={14} stroke={2.2} />{/if}</span>{psAccountName(a)}

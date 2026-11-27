@@ -15,8 +15,9 @@
 //! bout à bout), toujours image clé ; image incomplète ou illisible sautée,
 //! jamais d'image clé demandée.
 
-#![allow(non_camel_case_types, dead_code)]
+#![allow(non_camel_case_types)]
 
+use crate::sync::Locked;
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
@@ -453,10 +454,6 @@ impl Decoder {
         }
     }
 
-    pub fn config(&self) -> Option<Config> {
-        self.config
-    }
-
     /// Paquet de configuration : décodeur et textures recréés s'il change.
     pub fn configure(&mut self, c: Config) -> Result<(), String> {
         if self.config == Some(c) && !self.decoder.is_null() {
@@ -589,7 +586,7 @@ impl Decoder {
             return Ok(Outcome::Skipped("pas de configuration"));
         };
         let api = self.device.api;
-        let _submit = self.device.submit.lock().unwrap();
+        let _submit = self.device.submit.locked();
         unsafe {
             // Chaque paquet est une image entière : rien à garder de la précédente.
             (api.decoder_clear)(self.decoder);

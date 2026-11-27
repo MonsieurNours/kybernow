@@ -94,7 +94,8 @@
   function save(patch: Partial<Settings>) {
     s = { ...s, ...patch }
     const settings = $state.snapshot(s)
-    saving = saving.then(() => invoke('save_settings', { id: computer.id, settings })).catch(() => {})
+    // Refusé (ordinateur retiré entre-temps…) : noté, la suite part quand même.
+    saving = saving.then(() => invoke('save_settings', { id: computer.id, settings })).catch((e) => console.error('save_settings :', e))
   }
 
   const custom = $derived(isCustom(s, thisPc, auto))
@@ -123,8 +124,10 @@
     !pyroOffered ? t('pyrowave.not_offered', { name: computer.name }) : !pyroDecodes ? t('pyrowave.cannot_decode', { device: t('pyrowave.this_device') }) : null,
   )
   let wired = $state<boolean | null>(null)
+  // L'identifiant seul : `computer` est un objet neuf à chaque relevé.
+  const computerId = $derived(computer.id)
   $effect(() => {
-    const id = computer.id
+    const id = computerId
     invoke<boolean>('computer_wired', { id })
       .then((w) => (wired = w))
       .catch(() => (wired = null))
@@ -160,13 +163,13 @@
   let displaysInfo = $state<DisplaysInfo | null>(null)
   let screensEpoch = $state(0)
   let asked = 0
+  // Ce que ce PC décode compte pour « Personnalisé » (règle du cœur). Une clé :
+  // la demande ne repart que si un de ces éléments change vraiment.
+  const displaysKey = $derived(JSON.stringify([computerId, $state.snapshot(s), screensEpoch, $state.snapshot(thisPc)]))
   $effect(() => {
-    const settings = $state.snapshot(s)
-    void screensEpoch
-    // Ce que ce PC décode compte pour « Personnalisé » (règle du cœur).
-    void thisPc
+    const [id, settings] = JSON.parse(displaysKey) as [string, unknown]
     const n = ++asked
-    invoke<DisplaysInfo>('displays_info', { id: computer.id, settings })
+    invoke<DisplaysInfo>('displays_info', { id, settings })
       .then((i) => {
         if (n === asked) displaysInfo = i
       })

@@ -13,6 +13,7 @@
 //! `consoles.rs`, sans rien de Windows ; les secrets vont au gestionnaire
 //! d'identifiants (`KyberNow:ps-…`).
 
+use crate::sync::Locked;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,7 +36,7 @@ use kybernow_core::playstation::settings::PlaySettings;
 use kybernow_core::relay::RouteInfo;
 
 use super::{UiState, console_via, emit_sessions, show_action, show_home_if_idle};
-use crate::consoles::{self, Bundle, BundleStation, Consoles, Found, Secrets, StateView, Status};
+use crate::consoles::{self, Bundle, BundleStation, Consoles, Found, Secrets, StateView};
 use crate::i18n::t;
 use crate::ps_session::{self, BarState, Command, PsSession};
 use crate::{i18n, relais, store};
@@ -83,7 +84,7 @@ impl Secrets for WinSecrets {
 }
 
 fn file_path() -> PathBuf {
-    std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("KyberNow").join("playstation.json")
+    crate::files::app_file("playstation.json")
 }
 
 fn ps(app: &AppHandle) -> &PsState {
@@ -100,39 +101,37 @@ pub fn start(app: &AppHandle) {
             c.save(&file_path());
         }
         log::info!("PlayStation : {} compte(s), {} console(s)", c.file.accounts.len(), c.file.consoles.len());
-        *p.consoles.lock().unwrap() = c;
+        *p.consoles.locked() = c;
     });
     let a = app.clone();
     let _ = std::thread::Builder::new().name("ps-recherche".into()).spawn(move || search_loop(a));
 }
 
 fn with<T>(app: &AppHandle, f: impl FnOnce(&mut Consoles) -> T) -> T {
-    f(&mut ps(app).consoles.lock().unwrap())
+    f(&mut ps(app).consoles.locked())
 }
 
+/// `playstation.json` : copié sous le verrou des consoles, écrit hors de lui
+/// (la recherche et l'état des consoles n'attendent pas le disque).
 fn save(app: &AppHandle) {
-    with(app, |c| c.save(&file_path()));
+    let file = with(app, |c| c.file.clone());
+    Consoles::save_file(&file_path(), &file);
 }
 
 impl PsState {
     /// Une partie au moins est en cours.
     pub fn playing(&self) -> bool {
-        !self.sessions.lock().unwrap().is_empty()
+        !self.sessions.locked().is_empty()
     }
 }
 
 /// Les identifiants des parties en cours.
 pub fn session_ids(app: &AppHandle) -> Vec<String> {
-    ps(app).sessions.lock().unwrap().iter().map(|s| s.id().to_string()).collect()
+    ps(app).sessions.locked().iter().map(|s| s.id().to_string()).collect()
 }
 
 fn session(app: &AppHandle, id: &str) -> Option<Arc<PsSession>> {
-    ps(app).sessions.lock().unwrap().iter().find(|s| s.id() == id).cloned()
-}
-
-/// Une partie au moins est en cours.
-pub fn playing(app: &AppHandle) -> bool {
-    !ps(app).sessions.lock().unwrap().is_empty()
+    ps(app).sessions.locked().iter().find(|s| s.id() == id).cloned()
 }
 
 /// Les Stations joignables par le relais en ce moment (« Hors de chez vous »).
@@ -141,14 +140,14 @@ fn away_station(app: &AppHandle, station: &str) -> bool {
         return false;
     }
     let state = app.state::<UiState>();
-    let away = state.live.lock().unwrap().get(station).is_some_and(|l| l.away);
+    let away = state.live.locked().get(station).is_some_and(|l| l.away);
     away && state.with_store(|s| s.get(station).is_some_and(|c| relais::route_of(c.relay.as_ref(), c.fingerprint.as_deref()).is_some()))
 }
 
 fn view(app: &AppHandle) -> StateView {
     let sessions = session_ids(app);
     let away = |s: &str| away_station(app, s);
-    let c = ps(app).consoles.lock().unwrap();
+    let c = ps(app).consoles.locked();
     c.view(Instant::now(), &away, &sessions)
 }
 
@@ -193,7 +192,7 @@ fn search_loop(app: AppHandle) {
     loop {
         let shown = app.get_webview_window("main").and_then(|w| w.is_visible().ok()).unwrap_or(false);
         let waking = with(&app, |c| !c.waking.is_empty());
-        if (shown && !playing(&app)) || waking {
+        if (shown && !ps(&app).playing()) || waking {
             search_once(&app, Duration::from_millis(2000));
         }
         std::thread::sleep(Duration::from_secs(3));
@@ -205,7 +204,7 @@ fn search_loop(app: AppHandle) {
 /// Stations qui la voient (hors de chez soi).
 pub fn learn(app: &AppHandle, station: &str, console: &kybernow_core::console::Console) {
     {
-        let mut learned = ps(app).learned.lock().unwrap();
+        let mut learned = ps(app).learned.locked();
         if learned.get(station).is_some_and(|t| t.elapsed() < Duration::from_secs(60)) {
             return;
         }
@@ -326,13 +325,13 @@ pub fn ps_login(app: AppHandle) -> Result<Option<KeptAccount>, String> {
 }
 
 /// « Saisir l'identifiant à la main ».
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_account_manual(app: AppHandle, psn_id: String, name: String) -> Result<KeptAccount, String> {
     let Some(id) = consoles::valid_psn_id(&psn_id) else { return Err(t("ps.bad_account_id", &[])) };
     kept_account(&app, &id, Some(&name))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_account_rename(app: AppHandle, account: String, name: String) {
     if with(&app, |c| c.rename_account(&account, &name)) {
         save(&app);
@@ -340,7 +339,7 @@ pub fn ps_account_rename(app: AppHandle, account: String, name: String) {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_account_remove(app: AppHandle, account: String) {
     with(&app, |c| c.remove_account(&mut WinSecrets, &account));
     log::info!("PlayStation : compte retiré");
@@ -349,7 +348,7 @@ pub fn ps_account_remove(app: AppHandle, account: String) {
 }
 
 /// La puce « HDR » de la console, à l'accueil.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_set_hdr(app: AppHandle, id: String, on: bool) {
     let Some(host) = consoles::host_of(&id).map(str::to_string) else { return };
     with(&app, |c| {
@@ -361,7 +360,7 @@ pub fn ps_set_hdr(app: AppHandle, id: String, on: bool) {
     emit_state(&app);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_choose_account(app: AppHandle, id: String, account: String) {
     let Some(host) = consoles::host_of(&id).map(str::to_string) else { return };
     with(&app, |c| {
@@ -476,7 +475,7 @@ pub fn ps_settings(app: AppHandle, id: String) -> Result<SettingsView, String> {
     Ok(SettingsView { id, name: k.name.clone(), model: k.model.clone(), settings: k.settings(), layout: k.layout(), key_names })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_save_settings(app: AppHandle, id: String, settings: PlaySettings) {
     let Some(host) = consoles::host_of(&id) else { return };
     let (rumble, triggers) = settings.intensities();
@@ -493,7 +492,7 @@ pub fn ps_save_settings(app: AppHandle, id: String, settings: PlaySettings) {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_save_layout(app: AppHandle, id: String, layout: Layout) {
     let Some(host) = consoles::host_of(&id) else { return };
     with(&app, |c| {
@@ -507,7 +506,7 @@ pub fn ps_save_layout(app: AppHandle, id: String, layout: Layout) {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_default_layout(app: AppHandle, id: String) -> Layout {
     if let Some(host) = consoles::host_of(&id) {
         with(&app, |c| {
@@ -523,7 +522,7 @@ pub fn ps_default_layout(app: AppHandle, id: String) -> Layout {
     Layout::default()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ps_remove(app: AppHandle, id: String) {
     let Some(host) = consoles::host_of(&id) else { return };
     with(&app, |c| c.remove(&mut WinSecrets, host));
@@ -603,7 +602,7 @@ fn wake_and_wait(app: &AppHandle, id: &str, host: &str, at: &Endpoint, model: Mo
     }
     let deadline = Instant::now() + Duration::from_secs(60);
     while Instant::now() < deadline {
-        if ps(app).cancelled.lock().unwrap().iter().any(|c| c == id) {
+        if ps(app).cancelled.locked().iter().any(|c| c == id) {
             return false;
         }
         if broadcast_search {
@@ -662,13 +661,13 @@ pub fn ps_play(app: AppHandle, id: String) -> Result<PlayInfo, String> {
         .ok_or_else(|| t("ps.end_not_paired", &[]))?;
     let away = live.is_none() && with(&app, |c| c.stations_of(&host).to_vec()).iter().any(|s| away_station(&app, s));
     {
-        let mut launching = ps(&app).launching.lock().unwrap();
+        let mut launching = ps(&app).launching.locked();
         if launching.contains(&id) {
             return Ok(PlayInfo { windowed: false });
         }
         launching.push(id.clone());
     }
-    ps(&app).cancelled.lock().unwrap().retain(|c| c != &id);
+    ps(&app).cancelled.locked().retain(|c| c != &id);
     let (a, id2) = (app.clone(), id.clone());
     std::thread::Builder::new()
         .name("ps-lancement".into())
@@ -680,13 +679,13 @@ pub fn ps_play(app: AppHandle, id: String) -> Result<PlayInfo, String> {
 #[allow(clippy::too_many_arguments)]
 fn launch(app: AppHandle, id: String, host: String, kept: consoles::Kept, account: String, registered: Registered, live: Option<Found>, away: bool) {
     launch_inner(&app, &id, host, kept, account, registered, live, away);
-    ps(&app).launching.lock().unwrap().retain(|l| l != &id);
-    ps(&app).cancelled.lock().unwrap().retain(|c| c != &id);
+    ps(&app).launching.locked().retain(|l| l != &id);
+    ps(&app).cancelled.locked().retain(|c| c != &id);
 }
 
 /// « Annuler » pendant le lancement : la partie ne s'ouvre pas, sans rien dire.
 fn cancelled(app: &AppHandle, id: &str) -> bool {
-    let c = ps(app).cancelled.lock().unwrap().iter().any(|c| c == id);
+    let c = ps(app).cancelled.locked().iter().any(|c| c == id);
     if c {
         log::info!("PlayStation : lancement annulé");
         let _ = app.emit("session-ended", EndedEvent { id, summary: Summary { error: None, median_ms: None, p95_ms: None, seconds: 0 } });
@@ -768,7 +767,7 @@ fn launch_inner(app: &AppHandle, id: &str, host: String, kept: consoles::Kept, a
     }
     phase(&app, &id, "connecting");
     let state = app.state::<UiState>();
-    let (hevc, pc_hdr) = state.this_pc.lock().unwrap().as_ref().map_or((true, false), |p| (p.hevc, p.hdr));
+    let (hevc, pc_hdr) = state.this_pc.locked().as_ref().map_or((true, false), |p| (p.hevc, p.hdr));
     let mut settings = kept.settings();
     // HDR (docs/hdr.md) : la puce allumée (PS5), un décodeur 10 bits et l'écran où la partie
     // s'ouvre (celui de l'accueil) en HDR ; sinon la console envoie du SDR.
@@ -795,10 +794,10 @@ fn launch_inner(app: &AppHandle, id: &str, host: String, kept: consoles::Kept, a
     // Inscrite avant de démarrer : une fin très rapide (fenêtre impossible) la retire bien,
     // et « Annuler » la trouve dès cet instant.
     let session = Arc::new(PsSession::new(&start, events));
-    ps(&app).sessions.lock().unwrap().push(session.clone());
-    ps(&app).totals.lock().unwrap().insert(id.clone(), (0, 0));
-    ps(&app).launching.lock().unwrap().retain(|l| l != &id);
-    if ps(&app).cancelled.lock().unwrap().iter().any(|c| c == &id) {
+    ps(&app).sessions.locked().push(session.clone());
+    ps(&app).totals.locked().insert(id.clone(), (0, 0));
+    ps(&app).launching.locked().retain(|l| l != &id);
+    if ps(&app).cancelled.locked().iter().any(|c| c == &id) {
         session.command(Command::Disconnect);
     }
     session.run(start);
@@ -877,7 +876,7 @@ impl ps_session::Events for Events {
 
     fn stats(&self, s: &PlayStats) {
         let (lost, recovered) = {
-            let mut totals = ps(&self.app).totals.lock().unwrap();
+            let mut totals = ps(&self.app).totals.locked();
             let e = totals.entry(self.id.clone()).or_default();
             e.0 += s.lost;
             e.1 += s.recovered;
@@ -916,7 +915,7 @@ impl ps_session::Events for Events {
         let (a, id) = (self.app.clone(), self.id.clone());
         let _ = self.app.run_on_main_thread(move || {
             let state = a.state::<UiState>();
-            let served = state.bar_session.lock().unwrap().as_deref() == Some(id.as_str());
+            let served = state.bar_session.locked().as_deref() == Some(id.as_str());
             let shown = a.get_webview_window("bar").and_then(|b| b.is_visible().ok()).unwrap_or(false);
             if served && shown {
                 super::bar_hide(a.clone(), Some(id), None);
@@ -953,8 +952,8 @@ impl ps_session::Events for Events {
 
     fn ended(&self, end: Option<PlayEnd>, quiet: bool, seconds: u64) {
         let app = &self.app;
-        ps(app).sessions.lock().unwrap().retain(|s| s.id() != self.id);
-        ps(app).totals.lock().unwrap().remove(&self.id);
+        ps(app).sessions.locked().retain(|s| s.id() != self.id);
+        ps(app).totals.locked().remove(&self.id);
         // La console ne reconnaît plus ce compte : son association est effacée
         // (« Associer » revient si c'était la dernière).
         if end == Some(PlayEnd::NotPaired) {
@@ -965,7 +964,7 @@ impl ps_session::Events for Events {
         let error = if quiet { None } else { end.as_ref().and_then(end_text) };
         // La barre de cette partie s'en va avec elle.
         let state = app.state::<UiState>();
-        if state.bar_session.lock().unwrap().as_deref() == Some(self.id.as_str()) {
+        if state.bar_session.locked().as_deref() == Some(self.id.as_str()) {
             let (a, id) = (app.clone(), self.id.clone());
             let _ = app.run_on_main_thread(move || super::bar_hide(a, Some(id), Some(false)));
         }
@@ -991,7 +990,7 @@ fn show_bar(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, pad: bool) {
     let state = app.state::<UiState>();
     let Some(bar) = app.get_webview_window("bar") else { return };
     ps(app).pad_mode.store(pad, Ordering::Relaxed);
-    let before = state.bar_session.lock().unwrap().replace(id.to_string());
+    let before = state.bar_session.locked().replace(id.to_string());
     if let Some(prev) = before.filter(|p| p != id && consoles::host_of(p).is_some()) {
         if let Some(s) = session(app, &prev) {
             s.command(Command::BarClosed);
@@ -1008,7 +1007,7 @@ fn show_bar(app: &AppHandle, id: &str, hwnd: isize, pinned: bool, pad: bool) {
     crate::window::set_bar_session(None);
     s.command(Command::BarOpen);
     let route = s.route().map(|r| relais::RouteView::new(&r, i18n::lang()));
-    let sessions = state.sessions.lock().unwrap().len() + ps(app).sessions.lock().unwrap().len();
+    let sessions = state.sessions.locked().len() + ps(app).sessions.locked().len();
     let shown = super::console_bar_shown(id, s.name(), pinned, sessions, route, bar_view(app, id, s.name(), s.bar_state()));
     let _ = app.emit_to("bar", "bar-shown", shown);
 }
@@ -1033,8 +1032,8 @@ pub fn command(app: &AppHandle, id: &str, command: &str) -> bool {
     let Some(s) = session(app, id) else {
         if command == "disconnect" {
             // Pendant le réveil ou la jonction par le relais : le lancement s'arrête.
-            if ps(app).launching.lock().unwrap().iter().any(|l| l == id) {
-                ps(app).cancelled.lock().unwrap().push(id.to_string());
+            if ps(app).launching.locked().iter().any(|l| l == id) {
+                ps(app).cancelled.locked().push(id.to_string());
                 log::info!("PlayStation : « Annuler » pendant le lancement");
             } else {
                 log::info!("PlayStation : « Annuler » : plus de partie à arrêter");
@@ -1069,7 +1068,7 @@ pub fn show(app: &AppHandle, id: &str) -> Option<bool> {
 
 /// Quitter l'app : chaque partie s'arrête.
 pub fn stop_all(app: &AppHandle) {
-    for s in ps(app).sessions.lock().unwrap().iter() {
+    for s in ps(app).sessions.locked().iter() {
         s.command(Command::Disconnect);
     }
 }
@@ -1085,14 +1084,14 @@ pub struct WaitingView {
 
 fn device_name(app: &AppHandle) -> String {
     let state = app.state::<UiState>();
-    let name = state.this_pc.lock().unwrap().as_ref().map(|p| p.name.clone()).unwrap_or_default();
+    let name = state.this_pc.locked().as_ref().map(|p| p.name.clone()).unwrap_or_default();
     if name.trim().is_empty() { std::env::var("COMPUTERNAME").unwrap_or_else(|_| "PC".into()) } else { name }
 }
 
 /// Les appareils du réseau qui attendent un envoi (2 s), sans celui-ci.
 #[tauri::command(async)]
 pub fn ps_handoff_discover(app: AppHandle) -> Vec<WaitingView> {
-    let mine = ps(&app).receiving.lock().unwrap().as_ref().map(|r| r.port);
+    let mine = ps(&app).receiving.locked().as_ref().map(|r| r.port);
     handoff::discover(Duration::from_millis(2000), &[])
         .unwrap_or_default()
         .into_iter()
@@ -1147,7 +1146,7 @@ fn received_text(accounts: usize, consoles: usize) -> String {
 #[tauri::command(async)]
 pub fn ps_handoff_receive(app: AppHandle, on: bool) -> Result<Option<String>, String> {
     let p = ps(&app);
-    if let Some(old) = p.receiving.lock().unwrap().take() {
+    if let Some(old) = p.receiving.locked().take() {
         old.stop.store(true, Ordering::Relaxed);
     }
     if !on {
@@ -1159,7 +1158,7 @@ pub fn ps_handoff_receive(app: AppHandle, on: bool) -> Result<Option<String>, St
     })?;
     let code = receiver.code();
     let stop = Arc::new(AtomicBool::new(false));
-    *p.receiving.lock().unwrap() = Some(Receiving { stop: stop.clone(), port: receiver.port() });
+    *p.receiving.locked() = Some(Receiving { stop: stop.clone(), port: receiver.port() });
     log::info!("PlayStation : attente d'un envoi");
     let a = app.clone();
     let _ = std::thread::Builder::new().name("ps-reception".into()).spawn(move || {
@@ -1185,7 +1184,7 @@ pub fn ps_handoff_receive(app: AppHandle, on: bool) -> Result<Option<String>, St
             }
         }
         receiver.stop();
-        let mut r = ps(&a).receiving.lock().unwrap();
+        let mut r = ps(&a).receiving.locked();
         if r.as_ref().is_some_and(|r| Arc::ptr_eq(&r.stop, &stop)) {
             *r = None;
         }
@@ -1212,8 +1211,3 @@ fn merge(app: &AppHandle, bundle: &Bundle) -> (usize, usize) {
     counts
 }
 
-/// Pour le menu de l'icône et la fermeture : l'état d'une console en partie.
-#[allow(dead_code)]
-pub fn status_of(app: &AppHandle, id: &str) -> Option<Status> {
-    view(app).consoles.into_iter().find(|c| c.id == id).map(|c| c.status)
-}

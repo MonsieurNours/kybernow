@@ -177,18 +177,104 @@ pub fn extract(path: &Path, arch: Arch, dest: &Path, mut progress: impl FnMut(f3
     Ok(count)
 }
 
-/// Copie l'exécutable seul (sans contenu) : il sert de désinstalleur.
+/// Copie l'exécutable seul (sans contenu) : il sert de désinstalleur. Une
+/// signature de l'installateur ne vaut plus pour cette copie coupée :
+/// l'entrée qui la désigne est remise à zéro (une signature absente plutôt
+/// qu'invalide, moins suspecte pour SmartScreen et les antivirus).
 pub fn copy_stub(path: &Path, dest: &Path) -> Result<()> {
+    use std::io::Write;
     let (_, exe_len) = read_footer(path)?;
+    let mut head = vec![0u8; 4096.min(exe_len as usize)];
+    File::open(path)?.read_exact(&mut head)?;
     let mut src = File::open(path)?.take(exe_len);
     let mut out = File::create(dest)?;
     std::io::copy(&mut src, &mut out)?;
+    if strip_security_dir(&mut head, exe_len) {
+        out.seek(SeekFrom::Start(0))?;
+        out.write_all(&head)?;
+    }
     Ok(())
+}
+
+/// Remet à zéro l'entrée « Security directory » (signature Authenticode)
+/// d'un en-tête PE quand elle désigne au-delà de `len` octets ; vrai si
+/// l'en-tête a changé.
+pub fn strip_security_dir(head: &mut [u8], len: u64) -> bool {
+    let u16_at = |h: &[u8], at: usize| h.get(at..at + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
+    let u32_at = |h: &[u8], at: usize| h.get(at..at + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    if head.get(0..2) != Some(b"MZ") {
+        return false;
+    }
+    let Some(pe) = u32_at(head, 0x3C).map(|v| v as usize) else { return false };
+    if head.get(pe..pe + 4) != Some(b"PE\0\0") {
+        return false;
+    }
+    let opt = pe + 24;
+    let dirs = match u16_at(head, opt) {
+        Some(0x10b) => opt + 96,
+        Some(0x20b) => opt + 112,
+        _ => return false,
+    };
+    let entry = dirs + 4 * 8;
+    let (Some(offset), Some(size)) = (u32_at(head, entry), u32_at(head, entry + 4)) else { return false };
+    if size == 0 || u64::from(offset) + u64::from(size) <= len {
+        return false;
+    }
+    head[entry..entry + 8].fill(0);
+    true
+}
+
+/// Fichiers d'une version précédente absents de la nouvelle (sans tenir
+/// compte de la casse) : à retirer pour qu'une DLL abandonnée ne soit plus
+/// chargée. Les copies de secours `.ancien` et `keep` restent.
+pub fn stale_files(old: &[String], new: &[String], keep: &[&str]) -> Vec<String> {
+    old.iter()
+        .filter(|o| !new.iter().any(|n| n.eq_ignore_ascii_case(o)))
+        .filter(|o| !keep.iter().any(|k| k.eq_ignore_ascii_case(o)) && !o.to_ascii_lowercase().ends_with(".ancien"))
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Un en-tête PE32+ minimal dont la signature est à `offset`, `size` octets.
+    fn pe_head(offset: u32, size: u32) -> Vec<u8> {
+        let mut h = vec![0u8; 1024];
+        h[0..2].copy_from_slice(b"MZ");
+        h[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        h[0x80..0x84].copy_from_slice(b"PE\0\0");
+        let opt = 0x80 + 24;
+        h[opt..opt + 2].copy_from_slice(&0x20bu16.to_le_bytes());
+        let entry = opt + 112 + 32;
+        h[entry..entry + 4].copy_from_slice(&offset.to_le_bytes());
+        h[entry + 4..entry + 8].copy_from_slice(&size.to_le_bytes());
+        h
+    }
+
+    #[test]
+    fn signature_hors_de_la_copie() {
+        // Signée à la fin de l'installateur (après le contenu) : retirée de la copie.
+        let mut h = pe_head(900_000, 9000);
+        assert!(strip_security_dir(&mut h, 500_000));
+        assert_eq!(h, pe_head(0, 0));
+        // Dans la copie, ou sans signature : rien ne change.
+        let mut inside = pe_head(400_000, 9000);
+        assert!(!strip_security_dir(&mut inside, 500_000));
+        let mut none = pe_head(0, 0);
+        assert!(!strip_security_dir(&mut none, 500_000));
+        let mut junk = vec![1u8; 64];
+        assert!(!strip_security_dir(&mut junk, 10));
+    }
+
+    #[test]
+    fn fichiers_retires() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        let old = s(&["kybernow.exe", "Vieille.dll", "SDL2.dll", "kynput.dll.ancien", "uninstall.exe"]);
+        let new = s(&["KYBERNOW.EXE", "SDL2.dll"]);
+        assert_eq!(stale_files(&old, &new, &["uninstall.exe"]), s(&["Vieille.dll"]));
+    }
 
     fn archive(files: &[(&str, &str)]) -> Vec<u8> {
         let mut tar = tar::Builder::new(Vec::new());

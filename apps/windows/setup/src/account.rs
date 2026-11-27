@@ -200,6 +200,18 @@ pub fn navigation(url: &str, origin: &str) -> Navigation {
     if url.starts_with("https://") || url.starts_with("http://") { Navigation::External } else { Navigation::Block }
 }
 
+/// Adresse qu'on peut confier au navigateur par défaut : `https://` suivi d'un
+/// hôte, sans espace, guillemet, caractère de contrôle ni `\\`, et bornée. Ce
+/// n'est jamais un chemin ni une commande (elle part par `ShellExecuteW`, mais
+/// on refuse aussi ce qu'un shell interpréterait).
+pub fn openable_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else { return false };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    !host.is_empty()
+        && url.len() <= 2048
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '\\' | '<' | '>' | '^' | '`' | '|'))
+}
+
 /// Un `etat` tiré au hasard (le retour n'est pris que s'il le porte).
 pub fn new_state() -> String {
     let mut bytes = [0u8; 16];
@@ -235,35 +247,85 @@ fn config(pin: Option<[u8; 32]>) -> Result<Arc<rustls::ClientConfig>> {
 
 /// Une requête au relais (`Connection: close`, corps JSON facultatif).
 pub fn request(relay: &RelayAddr, method: &str, path: &str, body: Option<&Value>, timeout: Duration) -> Result<Reply> {
-    let config = config(relay.pin)?;
-    let addrs: Vec<SocketAddr> = (relay.host.as_str(), relay.port).to_socket_addrs().with_context(|| format!("{} introuvable", relay.host))?.collect();
-    let tcp = addrs
-        .iter()
-        .find_map(|a| TcpStream::connect_timeout(a, timeout).ok())
-        .with_context(|| format!("{} injoignable", relay.web_authority()))?;
-    tcp.set_read_timeout(Some(timeout))?;
-    tcp.set_write_timeout(Some(timeout))?;
-    let name = match relay.host.parse::<IpAddr>() {
-        Ok(ip) => ServerName::IpAddress(ip.into()),
-        Err(_) => ServerName::try_from(relay.host.clone()).context("nom d'hôte invalide")?,
-    };
-    let conn = rustls::ClientConnection::new(config, name).context("connexion TLS")?;
-    let mut tls = rustls::StreamOwned::new(conn, tcp);
     let payload = body.map(|b| b.to_string()).unwrap_or_default();
     let mut head = format!("{method} {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Length: {}\r\n", relay.web_authority(), payload.len());
     if body.is_some() {
         head.push_str("Content-Type: application/json\r\n");
     }
     head.push_str("\r\n");
-    tls.write_all(head.as_bytes())?;
-    tls.write_all(payload.as_bytes())?;
+    head.push_str(&payload);
+    let raw = https_exchange(&relay.host, relay.port, relay.pin, head.as_bytes(), timeout)?;
+    parse_reply(&raw)
+}
+
+/// Une requête HTTPS brute : la réponse entière (`Connection: close`).
+fn https_exchange(host: &str, port: u16, pin: Option<[u8; 32]>, request: &[u8], timeout: Duration) -> Result<Vec<u8>> {
+    let config = config(pin)?;
+    let addrs: Vec<SocketAddr> = (host, port).to_socket_addrs().with_context(|| format!("{host} introuvable"))?.collect();
+    let tcp = addrs.iter().find_map(|a| TcpStream::connect_timeout(a, timeout).ok()).with_context(|| format!("{host}:{port} injoignable"))?;
+    tcp.set_read_timeout(Some(timeout))?;
+    tcp.set_write_timeout(Some(timeout))?;
+    let name = match host.parse::<IpAddr>() {
+        Ok(ip) => ServerName::IpAddress(ip.into()),
+        Err(_) => ServerName::try_from(host.to_string()).context("nom d'hôte invalide")?,
+    };
+    let conn = rustls::ClientConnection::new(config, name).context("connexion TLS")?;
+    let mut tls = rustls::StreamOwned::new(conn, tcp);
+    tls.write_all(request)?;
     let mut raw = Vec::new();
     match tls.read_to_end(&mut raw) {
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {}
-        Err(e) => return Err(e).context("lecture de la réponse du relais"),
+        Err(e) => return Err(e).context(format!("lecture de la réponse de {host}")),
     }
-    parse_reply(&raw)
+    Ok(raw)
+}
+
+/// `https://hôte[:port]/chemin` : l'hôte, le port (443 par défaut) et le chemin.
+pub fn split_https(url: &str) -> Option<(String, u16, String)> {
+    let rest = url.strip_prefix("https://")?;
+    let (authority, path) = match rest.find(['/', '?']) {
+        Some(i) => (&rest[..i], if rest[i..].starts_with('?') { format!("/{}", &rest[i..]) } else { rest[i..].to_string() }),
+        None => (rest, "/".to_string()),
+    };
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((h, p)) if !h.contains(']') || h.ends_with(']') => (h, p.parse().ok()?),
+        _ => (authority, 443),
+    };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    (!host.is_empty() && !host.contains(['@', ' '])).then(|| (host.to_string(), port, path))
+}
+
+/// La valeur d'un en-tête d'une réponse brute (sans la casse du nom).
+pub fn header(raw: &[u8], name: &str) -> Option<String> {
+    let end = raw.windows(4).position(|w| w == b"\r\n\r\n")?;
+    let head = std::str::from_utf8(&raw[..end]).ok()?;
+    head.lines().skip(1).find_map(|l| {
+        let (k, v) = l.split_once(':')?;
+        k.trim().eq_ignore_ascii_case(name).then(|| v.trim().to_string())
+    })
+}
+
+/// Télécharge `url` en HTTPS (autorités du web), en suivant au plus cinq
+/// redirections, toutes en HTTPS ; le corps d'une réponse 200.
+pub fn download(url: &str, timeout: Duration) -> Result<Vec<u8>> {
+    let mut url = url.to_string();
+    for _ in 0..6 {
+        let (host, port, path) = split_https(&url).with_context(|| format!("adresse refusée : {url}"))?;
+        let authority = if port == 443 { host.clone() } else { format!("{host}:{port}") };
+        let head = format!("GET {path} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\nUser-Agent: KyberNow-Link-Setup\r\nAccept: */*\r\n\r\n");
+        let raw = https_exchange(&host, port, None, head.as_bytes(), timeout)?;
+        let reply = parse_reply(&raw)?;
+        match reply.status {
+            200 => return Ok(reply.body),
+            301 | 302 | 303 | 307 | 308 => {
+                let to = header(&raw, "location").context("redirection sans adresse")?;
+                url = if to.starts_with('/') { format!("https://{authority}{to}") } else { to };
+            }
+            s => bail!("réponse {s} de {host}"),
+        }
+    }
+    bail!("trop de redirections")
 }
 
 pub fn parse_reply(raw: &[u8]) -> Result<Reply> {
@@ -458,6 +520,28 @@ fn write_credential(target: &str, user: &str, blob: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn telechargement_adresses() {
+        assert_eq!(split_https("https://go.microsoft.com/fwlink/p/?LinkId=2124703"), Some(("go.microsoft.com".into(), 443, "/fwlink/p/?LinkId=2124703".into())));
+        assert_eq!(split_https("https://exemple.org:8443"), Some(("exemple.org".into(), 8443, "/".into())));
+        assert_eq!(split_https("https://exemple.org?a=1"), Some(("exemple.org".into(), 443, "/?a=1".into())));
+        assert_eq!(split_https("http://exemple.org/"), None);
+        assert_eq!(split_https("https://moi@exemple.org/"), None);
+        let raw = b"HTTP/1.1 302 Found\r\nLocation: https://cdn.exemple/x.exe\r\nContent-Length: 0\r\n\r\n";
+        assert_eq!(header(raw, "location").as_deref(), Some("https://cdn.exemple/x.exe"));
+        assert_eq!(header(raw, "set-cookie"), None);
+    }
+
+    #[test]
+    fn adresses_ouvrables() {
+        assert!(openable_url("https://share.kybernow.app/aide?a=1&b=2"));
+        assert!(openable_url("https://x/?a&calc.exe"));
+        for bad in ["http://x", "https://", "https:///a", "file:///c:/x", "https://x/a b", "https://x/\"a", "https://x/|calc", "https://x/^", "https://x\\y"] {
+            assert!(!openable_url(bad), "{bad}");
+        }
+        assert!(!openable_url(&format!("https://x/{}", "a".repeat(3000))));
+    }
 
     #[test]
     fn adresses() {

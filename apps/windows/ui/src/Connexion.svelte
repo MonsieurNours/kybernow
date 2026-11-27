@@ -82,12 +82,12 @@
           guest = true
           computer = guestComputer({ title: v.title, fingerprint: v.fingerprint ?? null })
         }
-      })
+      }, (e) => console.error('connexion_state :', e))
       invoke<Snapshot>('snapshot').then((s) => {
         const known = s.computers.find((c) => c.id === id)
         if (known && !ps) computer = known
-      })
-      invoke<AppInfo>('app_info').then((i) => setLang(i.lang))
+      }, (e) => console.error('snapshot :', e))
+      invoke<AppInfo>('app_info').then((i) => setLang(i.lang), (e) => console.error('app_info :', e))
     })
     return () => off.forEach((p) => p.then((f) => f()))
   })

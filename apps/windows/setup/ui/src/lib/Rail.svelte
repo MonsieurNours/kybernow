@@ -6,7 +6,7 @@
 <script lang="ts">
   import { send } from './backend'
   import { app, go, stepIndex, steps } from './state.svelte'
-  import Mark from './Mark.svelte'
+  import Mark from '$appui/lib/Mark.svelte'
   import { t } from './i18n/index.svelte'
 
   const index = $derived(stepIndex())

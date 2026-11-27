@@ -254,19 +254,17 @@ pub struct Consoles {
 
 impl Consoles {
     pub fn load(path: &Path) -> Self {
-        let file = std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let file = crate::files::load_json(path).unwrap_or_default();
         Consoles { file, ..Default::default() }
     }
 
     pub fn save(&self, path: &Path) {
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let Ok(json) = serde_json::to_vec_pretty(&self.file) else { return };
-        let tmp = path.with_extension("json.tmp");
-        if std::fs::write(&tmp, &json).is_ok() && std::fs::rename(&tmp, path).is_err() {
-            let _ = std::fs::write(path, &json);
-        }
+        Self::save_file(path, &self.file);
+    }
+
+    /// Écrit `file` dans `path` (atomique, `files::save_json`).
+    pub fn save_file(path: &Path, file: &PsFile) {
+        crate::files::save_json(path, file);
     }
 
     /// Au lancement : les associations dont le secret a disparu (gestionnaire

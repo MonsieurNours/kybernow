@@ -8,12 +8,15 @@ type Tauri = {
   window: { getCurrentWindow(): { minimize(): Promise<void>; toggleMaximize(): Promise<void>; close(): Promise<void> } }
 }
 
-import { mockTauri } from './mock'
 import { i18n, t } from './i18n/index.svelte'
 
-// Dans un navigateur (développement), une imitation de l'app.
+// Dans un navigateur (développement), une imitation de l'app, chargée à la
+// demande : dans l'app, `import.meta.env.DEV` est faux, la branche disparaît
+// et `mock.ts` (faux comptes, faux ordinateurs, textes de l'imitation) n'est
+// ni livré ni exécuté.
 const tauri: Tauri =
-  (window as unknown as { __TAURI__?: Tauri }).__TAURI__ ?? (import.meta.env.DEV ? (mockTauri() as unknown as Tauri) : (undefined as never))
+  (window as unknown as { __TAURI__?: Tauri }).__TAURI__ ??
+  (import.meta.env.DEV ? ((await import('./mock')).mockTauri() as unknown as Tauri) : (undefined as never))
 
 export const invoke = <T>(cmd: string, args?: Record<string, unknown>) => tauri.core.invoke<T>(cmd, args)
 export const listen = <T>(name: string, cb: (payload: T) => void) => tauri.event.listen<T>(name, (e) => cb(e.payload))

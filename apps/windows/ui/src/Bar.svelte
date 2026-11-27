@@ -79,12 +79,16 @@
   le dit sous la barre.
 -->
 <script lang="ts">
+  import { menuKeys } from './lib/menukeys'
   import { onMount, tick, untrack } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import StatsPanel from './lib/StatsPanel.svelte'
   import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
   import Switch from './lib/Switch.svelte'
+  import LendPanelView from './bar/LendPanel.svelte'
+  import SharePanel from './bar/SharePanel.svelte'
+  import PsBarView, { type PsItem } from './bar/PsBar.svelte'
   import type { BarHdr, BarMic, Chosen, PyroWaveBanner, PsBar, PsBarNav, PsStats } from './lib/api'
   import { psStatsLines } from './lib/api'
   import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RecordingEvent, RecordingView, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
@@ -260,7 +264,6 @@
   const psSeen = new Map<string, PsStats>()
   /** Barre pilotée par la manette : l'élément sous l'anneau. */
   let padFocus = $state(0)
-  type PsItem = 'stats' | 'sound' | 'mouse' | 'settings' | 'fullscreen' | 'rest' | 'disconnect'
   /** Les éléments de la barre d'une console, dans l'ordre (la souris est absente avec une manette branchée). */
   const psItems = $derived<PsItem[]>(psBar ? ['stats', 'sound', ...(psBar.pad ? [] : ['mouse' as const]), 'settings', 'fullscreen', 'rest', 'disconnect'] : [])
   const ringed = (item: PsItem) => !!psBar?.pad_mode && psItems[padFocus] === item
@@ -336,13 +339,14 @@
           },
         }
         seen.set(s.id, entry)
-        if (s.id !== id) return
+        // Barre cachée : seulement noté (repris de `seen` quand elle se montre).
+        if (s.id !== id || document.hidden) return
         stats = entry.stats
         history = entry.history
         seconds = entry.seconds
         losses = entry.losses
         multi = s.screens > 1
-        reportWidth()
+        // La largeur est redite par l'observateur de taille si le texte l'a changée.
       }),
       listen<BarCamera>('bar-camera', (c) => {
         if (c.id === id) camera = c
@@ -492,7 +496,7 @@
         // ses pastilles et ses puces le montrent déjà.
         if (s.notice && view === 'bar' && s.id === id && (inside || held || !!menu)) return
         // Les mesures et la courbe de cette session, déjà reçues barre cachée.
-        if (s.id !== id) {
+        if (s.id !== id || seen.has(s.id)) {
           const kept = seen.get(s.id)
           stats = kept?.stats ?? null
           history = kept?.history ?? []
@@ -656,10 +660,28 @@
   }
 
   /** Le pointeur bouge : sur la barre (et la bande au-dessus), elle reste ; ailleurs, le compte à rebours part (une fois : bouger dehors ne le prolonge pas). */
+  // Le rectangle de la barre, relu seulement quand sa taille change (pas à
+  // chaque mouvement du pointeur), et la largeur redite à l'app à ce moment-là
+  // (pas à chaque mesure, une fois par seconde).
+  let barRect: DOMRect | null = null
+  $effect(() => {
+    const el = bar
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      barRect = el.getBoundingClientRect()
+      reportWidth()
+    })
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      barRect = null
+    }
+  })
+
   function track(e: MouseEvent) {
     // La capsule d'un avis repart d'elle-même.
     if (view !== 'bar') return
-    const r = bar?.getBoundingClientRect()
+    const r = barRect ?? bar?.getBoundingClientRect()
     inside = !!r && e.clientX >= r.left && e.clientX <= r.right && e.clientY <= r.bottom
     if (inside) {
       held = false
@@ -717,17 +739,28 @@
     await closeMenu()
     afterMenu()
     // Même profil : remis tel quel (utile après des réglages personnalisés).
-    const chosen = await invoke<Chosen>('session_profile', { id, profile: p })
-    // Auto sans test gardé : le panneau du test attend la fin de la session, l'avis le dit.
-    if (chosen === 'later') showNotice(t('autotest.later'))
+    try {
+      const chosen = await invoke<Chosen>('session_profile', { id, profile: p })
+      // Auto sans test gardé : le panneau du test attend la fin de la session, l'avis le dit.
+      if (chosen === 'later') showNotice(t('autotest.later'))
+    } catch (e) {
+      showNotice(String(e))
+    }
   }
 
   /** Le menu Souris : appliqué tout de suite et gardé pour l'ordinateur, comme le menu de l'icône. */
   async function pickMouse(m: 'auto' | 'bureau' | 'jeu') {
     await closeMenu()
     afterMenu()
+    // Coché tout de suite ; refusé (session pas prête), l'ancien choix revient et l'avis le dit.
+    const before = mouseSetting
     mouseSetting = m
-    await invoke('session_mouse', { id, mode: m })
+    try {
+      await invoke('session_mouse', { id, mode: m })
+    } catch (e) {
+      mouseSetting = before
+      showNotice(String(e))
+    }
   }
 
   async function pickKeys(k: string) {
@@ -812,8 +845,14 @@
   }
 
   async function toggleKeepSound() {
+    const before = keepSound
     keepSound = !keepSound
-    await invoke('session_keep_sound', { id, on: keepSound })
+    try {
+      await invoke('session_keep_sound', { id, on: keepSound })
+    } catch (e) {
+      keepSound = before
+      showNotice(String(e))
+    }
   }
 
   const command = (c: string) => invoke('session_command', { id, command: c })
@@ -1228,40 +1267,7 @@
   }
 </script>
 
-<!--
-  Le code et son lien, partagés par « Partager » et « Prêter l'ordinateur… » : « 123 456 », « Copier le lien », le QR code
-  (un indicateur d'attente tant que le lien du relais se prépare) et, copie impossible, l'adresse à copier à la main.
--->
-{#snippet codeTop(code: string, qr: ShareQr | null, address: string, phase: RelayPhase, done: 'ok' | 'fail' | null, copy: () => void)}
-  <div class="top">
-    <div class="codebox">
-      <span class="eyebrow">{t('share.code')}</span>
-      <span class="digits mono" aria-label={t('share.code') + ' ' + code}>{code}</span>
-      <button class="ghost" onclick={copy} disabled={phase === 'waiting'}><Icon name="copy" size={16} stroke={1.6} />{t('share.copy_link')}</button>
-      {#if done === 'ok'}<span class="copied" role="status">{t('share.link_copied')}</span>{/if}
-    </div>
-    {#if phase === 'waiting'}
-      <div class="qr qr-wait" role="img" aria-label={t('share.relay_preparing')}><span class="spin big"></span></div>
-    {:else if qr}
-      <svg class="qr" role="img" aria-label={t('share.qr')} viewBox="-4 -4 {qr.size + 8} {qr.size + 8}" shape-rendering="crispEdges">
-        <rect x="-4" y="-4" width={qr.size + 8} height={qr.size + 8} fill="#fff" />
-        <path d={qr.path} fill="#000" />
-      </svg>
-    {/if}
-  </div>
-  {#if done === 'fail'}
-    <!-- Copie impossible : l'adresse reste là, sélectionnée d'un clic. -->
-    <p class="note refusal" role="alert">{t('share.copy_failed')}</p>
-    <input class="field link mono" readonly value={address} onfocus={selectAll} onclick={selectAll} aria-label={t('share.copy_link')} />
-  {/if}
-{/snippet}
 
-<!-- Sous l'aide du même réseau : « Préparation du lien hors de chez vous… », puis « Pas encore joignable hors de chez vous. ». -->
-{#snippet relayLine(phase: RelayPhase)}
-  {#if phase === 'waiting'}
-    <p class="help" role="status"><span class="spin" aria-hidden="true"></span>{t('share.relay_preparing')}</p>
-  {:else if phase === 'unreachable'}<p class="help">{t('share.relay_down')}</p>{/if}
-{/snippet}
 
 <!--
   Une puce de la barre : icône, libellé (rien en barre étroite, le libellé accessible reste), ▾ quand elle ouvre un
@@ -1341,7 +1347,7 @@
         {@render chipBody(camera.state === 0 ? 'camera-off' : 'camera', camera.state === 1 ? t('camera.starting') : t('camera.camera'), true)}
       </button>
       {#if menu === 'camera'}
-        <div class="menu" role="menu" aria-label={t('camera.camera')}>
+        <div class="menu" role="menu" use:menuKeys={closeMenu} aria-label={t('camera.camera')}>
           <button role="menuitem" onclick={toggleCamera}>
             <span class="tick"></span><span class="name">{camera.state === 0 ? t('camera.turn_on') : t('camera.turn_off')}</span><span class="hint"></span>
           </button>
@@ -1372,7 +1378,7 @@
       {@render chipBody(stats?.relative ? 'crosshair' : 'cursor', mouseLabel, true)}
     </button>
     {#if menu === 'mouse'}
-      <div class="menu" role="menu" aria-label={t('bar.mouse')}>
+      <div class="menu" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.mouse')}>
         {#each mouseChoices as m (m.id)}
           <button role="menuitemradio" aria-checked={m.id === mouseSetting} onclick={() => pickMouse(m.id)}>
             <span class="tick">{#if m.id === mouseSetting}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
@@ -1391,7 +1397,7 @@
       {@render chipBody('keyboard', t('bar.keys'), true)}
     </button>
     {#if menu === 'keys'}
-      <div class="menu keys" role="menu" aria-label={t('bar.keys')}>
+      <div class="menu keys" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.keys')}>
         {#each keys as k (k.id)}
           <button role="menuitem" onclick={() => pickKeys(k.id)}>
             <span class="name">{k.name}</span><span class="hint">{k.hint}</span>
@@ -1538,76 +1544,7 @@
 <div class="bar" class:compact class:padmode={psBar?.pad_mode} role="toolbar" aria-label={t('bar.toolbar')} tabindex="-1" bind:this={bar}>
   <Mark size={22} state="now" lit />
   {#if psBar}
-  {@const b = psBar}
-  <!-- Partie sur une console : son nom, les mesures, le son, la souris, ses réglages, le plein écran, la veille, la fin. -->
-  <span class="psname">{b.name}</span>
-  <span class="sep"></span>
-  <div class="slot">
-    <button
-      class="stats"
-      class:open={menu === 'stats'}
-      class:ring={ringed('stats')}
-      aria-haspopup="dialog"
-      aria-expanded={menu === 'stats'}
-      aria-label={t('bar.statistics')}
-      title={t('bar.statistics')}
-      onclick={() => psAct('stats')}
-    >
-      {#if psStats && psStats.width > 0}
-        <span class="mono lat">{t('ps.fps', { n: Math.round(psStats.fps) })}</span>
-        <span class="sep"></span>
-        <span class="mono info">{psStats.width} × {psStats.height} · {psStats.hevc ? 'H.265' : 'H.264'}{psStats.hdr ? ' · HDR' : ''}</span>
-      {:else}
-        <span class="lat"><Icon name="chart" size={18} stroke={1.6} /></span>
-      {/if}
-    </button>
-    {#if menu === 'stats'}
-      <div class="menu path psstats" role="dialog" aria-label={t('bar.statistics')}>
-        <div class="eyebrow">{t('bar.statistics')}</div>
-        {#if psLines.length}
-          {#each psLines as line, i (i)}<p class="mono">{line}</p>{/each}
-        {:else}
-          <p class="help">{t('ps.stats_waiting')}</p>
-        {/if}
-      </div>
-    {/if}
-  </div>
-  {#if route?.via_relay}
-    <span class="relay" class:tcp={route.transport === 'relay_tcp'} title={routeTitle}><Icon name="globe" size={14} stroke={1.6} />{t('relay.via')}</span>
-  {/if}
-  <span class="sep"></span>
-  <button class="icon" class:on={b.muted} class:ring={ringed('sound')} aria-pressed={b.muted} aria-label={b.muted ? t('ps.unmute') : t('ps.mute')} title={b.muted ? t('ps.unmute') : t('ps.mute')} onclick={() => psAct('sound')}>
-    <Icon name={b.muted ? 'speakeroff' : 'speaker'} size={20} stroke={1.6} />
-  </button>
-  {#if !b.pad}
-    <!-- Une manette branchée l'emporte sur le clavier et la souris : pas de souris. -->
-    <button class="icon" class:on={b.captured} class:ring={ringed('mouse')} aria-pressed={b.captured} aria-label={(b.captured ? t('ps.give_mouse') : t('ps.take_mouse')) + t('bar.mouse_shortcut')} title={(b.captured ? t('ps.give_mouse') : t('ps.take_mouse')) + t('bar.mouse_shortcut')} onclick={() => psAct('mouse')}>
-      <Icon name="mouse" size={20} stroke={1.6} />
-    </button>
-  {/if}
-  <button class="icon" class:ring={ringed('settings')} aria-label={t('home.settings_for', { name: b.name })} title={t('home.settings_for', { name: b.name })} onclick={() => psAct('settings')}>
-    <Icon name="gear" size={20} stroke={1.6} />
-  </button>
-  <button class="icon" class:ring={ringed('fullscreen')} aria-label={(b.fullscreen ? t('ps.exit_fullscreen') : t('bar.fullscreen')) + t('bar.fullscreen_shortcut')} title={b.fullscreen ? t('ps.exit_fullscreen') : t('bar.fullscreen')} onclick={() => psAct('fullscreen')}>
-    <Icon name="fullscreen" size={20} stroke={1.6} />
-  </button>
-  <button class="icon" class:ring={ringed('rest')} aria-label={t('ps.rest')} title={t('ps.rest')} onclick={() => psAct('rest')}>
-    <Icon name="power" size={20} stroke={1.6} />
-  </button>
-  <span class="sep"></span>
-  <button class="quit" class:ring={ringed('disconnect')} title={t('bar.disconnect') + t('bar.disconnect_shortcut')} onclick={() => psAct('disconnect')}>{t('bar.disconnect')}</button>
-  {#if b.pad_mode}
-    <!-- La manette pilote la barre : la console reçoit une manette au repos. -->
-    <div class="padbanner" role="note">
-      <span class="drives"><Icon name="gamepad" size={16} stroke={1.8} />{t('ps.pad_drives')}</span>
-      <span class="away">{t('ps.pad_away')}</span>
-      <span class="sep"></span>
-      <span class="k"><span class="mono">◀ ▶</span>{t('ps.pad_navigate')}</span>
-      <span class="k"><span class="mono">✕</span>{t('ps.pad_select')}</span>
-      <span class="k"><span class="mono">○</span>{t('ps.pad_close')}</span>
-      <span class="k"><span class="mono">L1 R1 OPTIONS CREATE</span>{t('ps.pad_back')}</span>
-    </div>
-  {/if}
+  <PsBarView b={psBar} stats={psStats} lines={psLines} {menu} {route} {routeTitle} {ringed} act={psAct} />
   {:else if borrow}
     <!-- L'ami qui emprunte : « Prêté par {hôte} » et le temps restant (rien n'est changé sur l'ordinateur). -->
     <span class="title">{t('lend.lent_by', { host: borrow.host })}</span>
@@ -1668,7 +1605,7 @@
         {@render chipBody('monitor', shownQuality, true)}
       </button>
       {#if menu === 'quality'}
-        <div class="menu quality" role="menu" aria-label={t('share.quality')}>
+        <div class="menu quality" role="menu" use:menuKeys={closeMenu} aria-label={t('share.quality')}>
           <div class="menu-title" aria-hidden="true">{t('share.quality')}</div>
           {#each shareQualities as q (q)}
             <button role="menuitemradio" aria-checked={q === guest.quality} onclick={() => pickQuality(q)}>
@@ -1686,7 +1623,7 @@
           {@render chipBody('monitor', guest.watch.screen, true)}
         </button>
         {#if menu === 'screen'}
-          <div class="menu quality" role="menu" aria-label={guest.watch.screen}>
+          <div class="menu quality" role="menu" use:menuKeys={closeMenu} aria-label={guest.watch.screen}>
             <div class="menu-title" aria-hidden="true">{guest.watch.screen}</div>
             {#each guest.watch.screens as sc (sc.id)}
               <button role="menuitemradio" aria-checked={sc.id === watched} onclick={() => pickScreen(sc.id)}>
@@ -1719,7 +1656,7 @@
           {@render chipBody('tower', t('bar.computers'), true)}
         </button>
         {#if menu === 'computers'}
-          <div class="menu computers" role="menu" aria-label={t('bar.computers')}>
+          <div class="menu computers" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.computers')}>
             {#each others as c (c.id)}
               {@const inert = c.pick === 'full' || c.pick === 'waking' || c.pick === 'busy'}
               <button
@@ -1767,70 +1704,16 @@
       </button>
       {#if menu === 'share'}
         <div class="menu share" role="dialog" aria-label={t('share.title', { name: computerName })}>
-          {#if share?.open}
-            <h3>{t('share.title', { name: computerName })}</h3>
-            {@render codeTop(share.code, share.qr, share.web || share.link, relay, copied, copyLink)}
-            <!-- Relais joint : le partage vaut aussi hors de chez vous, et l'hôte accepte chaque invité venu de loin. -->
-            <p class="help">{t(relay === 'joined' ? 'share.help_relay' : 'share.help')}</p>
-            {@render relayLine(relay)}
-            {#if share.requests.length > 0}
-              <div class="eyebrow list-title">{t('share.requests')}</div>
-              <ul class="guests requests">
-                {#each share.requests as g (g.id)}
-                  <li>
-                    <div class="who">
-                      <span class="gname">{t('share.wants_to_join', { name: g.name })}</span>
-                      <span class="gmeta">{requestMeta(g)}</span>
-                    </div>
-                    <div class="acts">
-                      <!-- Quatre invités ont leur place : « Accepter » est inactif (la raison est dessous : « Quatre invités au plus. »), « Refuser » reste. -->
-                      <button class="accept" aria-disabled={acting || share.full} onclick={() => accept(g)}>{t('share.accept')}</button>
-                      <button class="danger" aria-disabled={acting} onclick={() => refuse(g)}>{t('share.decline')}</button>
-                    </div>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-            <div class="eyebrow list-title">{t('share.guests')}</div>
-            {#if share.guests.length === 0}
-              <p class="nobody">{t('share.nobody')}</p>
-            {:else}
-              <ul class="guests">
-                {#each share.guests as g (g.id)}
-                  <li>
-                    <div class="who">
-                      <span class="gname">{t(`share.guest_${g.role}`, { name: g.name })}</span>
-                      <span class="gmeta">{guestMeta(g)}</span>
-                    </div>
-                    <div class="acts">
-                      <!-- Deux droits indépendants, chacun donné ou repris sans toucher à l'autre : les manettes, puis le
-                           clavier et la souris. Pas d'autre clic tant qu'Admin n'a pas répondu : le rôle qui part se
-                           déduit de celui qui est affiché. -->
-                      <button aria-disabled={acting} onclick={() => setRole(g, roleOf(!rolePads(g.role), roleKbm(g.role)))}>{t(rolePads(g.role) ? 'share.take_pads' : 'share.give_pads')}</button>
-                      <button aria-disabled={acting} onclick={() => setRole(g, roleOf(rolePads(g.role), !roleKbm(g.role)))}>{t(roleKbm(g.role) ? 'share.take_kbm' : 'share.give_kbm')}</button>
-                      <button class="danger" aria-disabled={acting} onclick={() => kick(g)}>{t('share.remove')}</button>
-                    </div>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-            {#if share.full}<p class="note" role="note">{t('share.limit')}</p>{/if}
-            {#if share.guests_speak != null}
-              <!-- Micro des invités : coupé à chaque nouveau partage, vaut tout de suite pour ceux déjà là. -->
-              <div class="speak">
-                <span class="speak-title">{t('micro.guests')}</span>
-                <Switch label={t('micro.guests')} checked={share.guests_speak} disabled={acting} onchange={guestsSpeak} />
-              </div>
-              <p class="speak-help">{t('micro.guests_help')}</p>
-            {/if}
-            <div class="foot">
-              <button class="ghost" onclick={newCode}>{t('share.new_code')}</button>
-              <button class="ghost danger" onclick={stopSharing}>{t('share.stop')}</button>
-            </div>
-          {:else if share?.text}
-            <!-- « Partager » inactif : Station trop ancienne, partage coupé sur l'ordinateur. -->
-            <p class="note" role="note">{share.text}</p>
-          {/if}
+          <SharePanel
+            {share}
+            name={computerName}
+            {relay}
+            {copied}
+            {acting}
+            {guestMeta}
+            {requestMeta}
+            on={{ copy: copyLink, accept, refuse, setRole, kick, guestsSpeak, newCode, stop: stopSharing }}
+          />
           {#if shownError}<p class="note refusal" role="alert">{shownError}</p>{/if}
         </div>
       {/if}
@@ -1857,69 +1740,20 @@
       </button>
       {#if menu === 'lend'}
         <div class="menu share lend" role="dialog" aria-label={t('lend.panel_title', { name: computerName })}>
-          {#if lendText}
-            <p class="note" role="note">{lendText}</p>
-          {:else}
-            <h3>{t('lend.panel_title', { name: computerName })}</h3>
-            {#if lend?.notice?.reason === 'slot_start' && lend.notice.text && !slotAsked}<p class="help" role="status">{lend.notice.text}</p>{/if}
-            {#if lend && lend.requests.length > 0}
-              <div class="eyebrow list-title">{t('share.requests')}</div>
-              <ul class="guests requests">
-                {#each lend.requests as r (r.id)}
-                  <li>
-                    <div class="who">
-                      <!-- Pendant son créneau, l'ami passe avant : le texte du créneau, et « Accepter » seul (sans « Refuser »). -->
-                      <span class="gname">{r.kind === 'slot' ? t('lend.slot_notice', { name: r.name }) : t('lend.wants_to_borrow', { name: r.name })}</span>
-                      {#if lendRequestMeta(r)}<span class="gmeta">{lendRequestMeta(r)}</span>{/if}
-                    </div>
-                    <div class="acts">
-                      <button class="accept" aria-disabled={lendActing} onclick={() => answer(r, true)}>{t('share.accept')}</button>
-                      {#if r.kind !== 'slot'}<button class="danger" aria-disabled={lendActing} onclick={() => answer(r, false)}>{t('share.decline')}</button>{/if}
-                    </div>
-                  </li>
-                {/each}
-              </ul>
-              <p class="help">{t('lend.accept_closes')}</p>
-            {/if}
-            {#if lend?.code}
-              {@render codeTop(lend.code.code, lend.code.qr, lend.code.web || lend.code.link, lendRelay.value, lendCopied, copyLendLink)}
-              <p class="help">{t('lend.code_valid')}</p>
-              <p class="help">{t('lend.code_help')}</p>
-              {@render relayLine(lendRelay.value)}
-              <p class="help strong">{t('lend.session_closes')}</p>
-              <div class="foot">
-                <button class="ghost danger" aria-disabled={lendActing} onclick={cancelCode}>{t('lend.cancel_code')}</button>
-              </div>
-            {:else if !lend?.borrower}
-              <div class="col">
-                <span class="eyebrow">{t('lend.duration')}</span>
-                <Segmented
-                  label={t('lend.duration')}
-                  options={lendDurations.map((d) => ({ value: d === null ? 'none' : String(d), label: t(`lend.duration_${d ?? 'none'}`) }))}
-                  value={lendDuration}
-                  disabled={lendActing}
-                  onchange={(v) => (lendDuration = v)}
-                />
-              </div>
-              <div class="col">
-                <span class="eyebrow">{t('lend.steam')}</span>
-                <Segmented
-                  label={t('lend.steam')}
-                  options={[
-                    { value: 'friend' as const, label: t('lend.steam_friend') },
-                    { value: 'host' as const, label: t('lend.steam_host') },
-                  ]}
-                  value={lendSteam}
-                  disabled={lendActing}
-                  onchange={(v) => (lendSteam = v)}
-                />
-              </div>
-              {#if trustOnce}<p class="note" role="note">{t('lend.trust')}</p>{/if}
-              <div class="foot">
-                <button class="primary" disabled={lendActing} onclick={createCode}>{t('lend.create_code')}</button>
-              </div>
-            {/if}
-          {/if}
+          <LendPanelView
+            {lend}
+            name={computerName}
+            text={lendText}
+            {slotAsked}
+            acting={lendActing}
+            relay={lendRelay.value}
+            copied={lendCopied}
+            bind:duration={lendDuration}
+            bind:steam={lendSteam}
+            {trustOnce}
+            requestMeta={lendRequestMeta}
+            on={{ answer, copy: copyLendLink, cancelCode, createCode }}
+          />
           {#if lendError && lendError !== lendText}<p class="note refusal" role="alert">{lendError}</p>{/if}
         </div>
       {/if}
@@ -1935,7 +1769,7 @@
         {@render chipBody(profileIcon, profileName, true, true)}
       </button>
       {#if menu === 'profile'}
-        <div class="menu" role="menu" aria-label={t('bar.profile')}>
+        <div class="menu" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.profile')}>
           {#each profiles as p (p.id)}
             <button role="menuitemradio" aria-checked={p.id === profile} onclick={() => pickProfile(p.id)}>
               <span class="tick">{#if p.id === profile}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
@@ -2212,34 +2046,6 @@
     }
   }
 
-  /* Barre d'une console : son nom, puis les mêmes pièces qu'une session d'ordinateur. */
-  .psname {
-    padding: 0 6px 0 4px;
-    font-size: 14px;
-    font-weight: 600;
-    max-width: 220px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .menu.psstats {
-    gap: 8px;
-    width: 440px;
-  }
-
-  .menu.psstats p {
-    margin: 0;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--muted);
-    white-space: normal;
-  }
-
-  .menu.psstats .help {
-    font-family: var(--sans);
-    font-size: 13px;
-  }
-
   /* Barre pilotée par la manette : l'anneau sur l'élément choisi, le bandeau sous la barre. */
   .bar.padmode {
     position: relative;
@@ -2247,48 +2053,6 @@
 
   .ring {
     box-shadow: 0 0 0 2px var(--signal), 0 0 14px rgb(109 91 255 / 0.55) !important;
-  }
-
-  .padbanner {
-    position: absolute;
-    top: calc(100% + 10px);
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    height: 40px;
-    padding: 0 16px;
-    border: 1px solid rgb(154 140 255 / 0.4);
-    border-radius: 12px;
-    background: rgb(9 13 18 / 0.92);
-    box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
-    font-size: 12px;
-    color: var(--muted);
-    animation: drop 0.2s var(--ease-out);
-  }
-
-  .padbanner .drives {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-weight: 600;
-    color: var(--signal);
-  }
-
-  .padbanner .away {
-    color: var(--faint);
-  }
-
-  .padbanner .k {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
-
-  .padbanner .k .mono {
-    font-size: 11px;
-    color: var(--text);
   }
 
   /* Le bandeau sous la barre : un menu ouvert passe dessous. */
@@ -2551,85 +2315,6 @@
     background: var(--signal-strong);
   }
 
-  /* Panneau de l'hôte : à gauche de la barre, aligné sur son bouton, comme « Ordinateurs ». */
-  .menu.share {
-    left: -8px;
-    transform: none;
-    width: 400px;
-    padding: 16px;
-    gap: 12px;
-    white-space: normal;
-    /* Un petit écran : le panneau défile dans la fenêtre de la barre (qui ne dépasse pas l'écran). */
-    max-height: calc(100vh - 90px);
-    overflow-y: auto;
-  }
-
-  .menu.share h3 {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 640;
-  }
-
-  .menu.share .top {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-  }
-
-  .menu.share .codebox {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-
-  .menu.share .digits {
-    font-size: 32px;
-    letter-spacing: 0.08em;
-    user-select: text;
-  }
-
-  .menu.share .qr {
-    flex: none;
-    width: 150px;
-    height: 150px;
-    border-radius: 8px;
-  }
-
-  .menu.share .ghost {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    height: 36px;
-    padding: 0 12px;
-    border: 1px solid var(--line-2);
-    border-radius: 8px;
-    background: none;
-    color: var(--muted);
-    font-size: 13px;
-    grid-template-columns: none;
-  }
-
-  .menu.share .ghost:hover {
-    color: var(--text);
-    border-color: var(--faint);
-    background: none;
-  }
-
-  /* « Copier le lien » attend le lien du relais. */
-  .menu.share .ghost:disabled {
-    opacity: 0.5;
-    cursor: default;
-    pointer-events: none;
-  }
-
-  /* Lien du relais en préparation : un indicateur d'attente, à la place du QR code et devant le message. */
-  .menu.share .qr-wait {
-    display: grid;
-    place-items: center;
-  }
-
   .spin {
     display: inline-block;
     width: 12px;
@@ -2661,125 +2346,9 @@
     }
   }
 
-  .menu.share .ghost.danger,
-  .menu.share .danger {
-    color: #ff8a8a;
-  }
-
   .copied {
     font-size: 12px;
     color: var(--ok);
-  }
-
-  .menu.share .field.link {
-    height: 36px;
-    font-size: 12px;
-  }
-
-  .menu.share .help,
-  .menu.share .nobody {
-    margin: 0;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--muted);
-  }
-
-  .menu.share .list-title {
-    margin-top: 2px;
-  }
-
-  .menu.share .guests {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .menu.share .guests li {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 10px 12px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--ink-2);
-  }
-
-  .menu.share .who {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .menu.share .gname {
-    font-size: 13px;
-    font-weight: 600;
-  }
-
-  .menu.share .gmeta {
-    font-size: 12px;
-    color: var(--faint);
-  }
-
-  .menu.share .acts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  /* Les actions sur un invité : de petits boutons, pas des lignes de menu. */
-  .menu.share .acts button {
-    display: inline-flex;
-    padding: 5px 10px;
-    border: 1px solid var(--line-2);
-    border-radius: 7px;
-    font-size: 12px;
-    grid-template-columns: none;
-  }
-
-  .menu.share .acts button:hover {
-    border-color: var(--faint);
-  }
-
-  /* « Accepter » : l'action que l'on attend d'une demande. */
-  .menu.share .acts button.accept {
-    border-color: var(--signal);
-    background: var(--signal-soft);
-  }
-
-  /* Une action attend la réponse d'Admin : les autres patientent. */
-  .menu.share .acts button[aria-disabled="true"] {
-    opacity: 0.5;
-    pointer-events: none;
-  }
-
-  .menu.share .speak {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-top: 12px;
-  }
-  .menu.share .speak-title {
-    font-size: 13px;
-  }
-  .menu.share .speak-help {
-    margin: 4px 0 0;
-    font-size: 12px;
-    color: var(--muted);
-  }
-  .menu.share .foot {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    padding-top: 4px;
-    border-top: 1px solid var(--line);
-  }
-
-  .menu.share .foot .ghost {
-    margin-top: 8px;
   }
 
   /* « Se déconnecter », « Quitter le partage », « Rendre l'ordinateur » : en rouge, avec leur icône. */
@@ -2825,23 +2394,17 @@
     color: var(--warn);
   }
 
-  .menu.lend .col {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .menu.lend .help.strong {
-    color: var(--text);
-  }
-
-  .menu.lend .foot .primary {
-    height: 40px;
-    margin-top: 8px;
-    padding: 0 18px;
-    background: var(--signal-strong);
-    color: #fff;
-    font-weight: 600;
+  /* Panneau de l'hôte : à gauche de la barre, aligné sur son bouton, comme « Ordinateurs ». */
+  .menu.share {
+    left: -8px;
+    transform: none;
+    width: 400px;
+    padding: 16px;
+    gap: 12px;
+    white-space: normal;
+    /* Un petit écran : le panneau défile dans la fenêtre de la barre (qui ne dépasse pas l'écran). */
+    max-height: calc(100vh - 90px);
+    overflow-y: auto;
   }
 
   .menu.giveback {
@@ -2866,8 +2429,7 @@
     gap: 8px;
   }
 
-  .menu.giveback button,
-  .menu.lend .foot .primary {
+  .menu.giveback button {
     display: inline-flex;
     align-items: center;
     justify-content: center;

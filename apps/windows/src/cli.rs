@@ -1,6 +1,7 @@
 //! Ligne de commande : une session vers un ordinateur, sans l'accueil
 //! (essais, dépannage). `kybernow --probe` dit ce que la carte décode.
 
+use crate::sync::Locked;
 use std::sync::{Arc, mpsc};
 
 use kybernow_core::console::{Console, Mode};
@@ -203,7 +204,7 @@ struct CliEvents(std::sync::Mutex<mpsc::Sender<Summary>>);
 
 impl HostEvents for CliEvents {
     fn ended(&self, s: &Summary) {
-        let _ = self.0.lock().unwrap().send(s.clone());
+        let _ = self.0.locked().send(s.clone());
     }
 }
 
@@ -397,6 +398,10 @@ pub fn main() -> i32 {
         },
         Arc::new(CliEvents(std::sync::Mutex::new(tx))),
     );
+    if let Err(e) = &_host {
+        system::error_box(&format!("La session n'a pas pu démarrer : {e}"));
+        return 1;
+    }
     let summary = rx.recv().unwrap_or_default();
     match summary.error {
         Some(e) => {
