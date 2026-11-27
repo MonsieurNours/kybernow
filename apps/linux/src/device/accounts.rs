@@ -640,7 +640,7 @@ mod tests {
         let back: AccountSync = serde_json::from_value(serde_json::to_value(&ours).unwrap()).unwrap();
         assert_eq!(back, sync);
         // Les clés : `SyncKeys` est le JSON de `SyncedValues`, « Personnalisé » (`null`) compris.
-        let v = SyncedValues { profile: Some(None), yuv444: Some(true), hdr: Some(false), ..Default::default() };
+        let v = SyncedValues { profile: Some(None), yuv444: Some(true), hdr: Some(false), pen: Some("mouse".into()), ..Default::default() };
         assert_eq!(keys_to_core(&keys_from_core(&v)), Some(v));
     }
 }

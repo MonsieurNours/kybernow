@@ -5,8 +5,8 @@
 //! `kybernow.json`) et pose ici les valeurs reçues dans les réglages des ordinateurs (`apply`).
 //!
 //! - **Ce qui suit la personne** : le profil (`jeu`, `bureau`, `max`, `auto` ; « Personnalisé » → `null`), le format
-//!   vidéo (`codec`), le texte net (`yuv444`), le débit (`mbps`, Mbit/s), le HDR (`hdr`) et le mode immersif
-//!   (`immersive`).
+//!   vidéo (`codec`), le texte net (`yuv444`), le débit (`mbps`, Mbit/s), le HDR (`hdr`), le mode immersif
+//!   (`immersive`) et « Stylet : Pression / Souris » (`pen` : `pressure`, `mouse`).
 //! - **Envoyer** : à chaque réglage gardé (`Action::Save`), `App::sync_changes` compare chaque ordinateur d'un compte à
 //!   ce qui a été lu, appliqué ou envoyé (`AccountsUi::sync_base`) et rend les clés changées (et toutes, pour un
 //!   premier envoi) ; le pilote les pose sur ce qui attend encore (`AccountSync::to_send`, `unsent`) et les envoie.
@@ -43,6 +43,8 @@ pub struct SyncKeys {
     pub hdr: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub immersive: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pen: Option<String>,
 }
 
 impl SyncKeys {
@@ -125,11 +127,22 @@ pub struct Tracked {
     pub yuv444: bool,
     pub hdr: bool,
     pub immersive: String,
+    /// La clé du cœur (`pressure`, `mouse`), une valeur inconnue ramenée à `pressure`.
+    pub pen: &'static str,
 }
 
 impl Tracked {
     pub fn of(s: &HostSettings) -> Self {
-        Self { custom: s.custom(), profile: s.profile, codec: s.codec.clone(), mbps: s.mbps, yuv444: s.yuv444, hdr: s.hdr, immersive: s.immersive.clone() }
+        Self {
+            custom: s.custom(),
+            profile: s.profile,
+            codec: s.codec.clone(),
+            mbps: s.mbps,
+            yuv444: s.yuv444,
+            hdr: s.hdr,
+            immersive: s.immersive.clone(),
+            pen: crate::pen::parse(&s.pen),
+        }
     }
 }
 
@@ -150,12 +163,13 @@ pub fn full_keys(t: &Tracked, e: &Effective) -> SyncKeys {
     };
     k.hdr = Some(t.hdr);
     k.immersive = Some(t.immersive.clone());
+    k.pen = Some(t.pen.to_string());
     k
 }
 
 /// Seulement les clés changées : un profil → `{profile}` ; passer en « Personnalisé » → `{profile: null, codec,
 /// yuv444, mbps}` ; le format, le 4:4:4 ou le débit d'un réglage personnalisé → la clé et `profile: null` ; le HDR →
-/// `{hdr}` ; le mode immersif → `{immersive}`.
+/// `{hdr}` ; le mode immersif → `{immersive}` ; le stylet → `{pen}`.
 pub fn changed_keys(old: &Tracked, new: &Tracked, e: &Effective) -> SyncKeys {
     let mut k = SyncKeys::default();
     if new.custom {
@@ -184,6 +198,9 @@ pub fn changed_keys(old: &Tracked, new: &Tracked, e: &Effective) -> SyncKeys {
     if old.immersive != new.immersive {
         k.immersive = Some(new.immersive.clone());
     }
+    if old.pen != new.pen {
+        k.pen = Some(new.pen.to_string());
+    }
     k
 }
 
@@ -200,8 +217,8 @@ fn decodable(m: &Machine, codec: &str) -> bool {
 
 /// Les valeurs reçues posées dans les réglages de l'ordinateur, comme `SyncedValues::apply_to` du cœur : un profil
 /// prend ses réglages sur cet appareil (ce qui s'en écartait revient au profil, comme le choisir ici) ;
-/// « Personnalisé » : le format s'il se décode ici, le 4:4:4 s'il existe dans ce format, le débit ; le HDR et le mode
-/// immersif tels quels. Rend vrai si quelque chose a changé. Auto reçu d'un autre appareil : les réglages du test de
+/// « Personnalisé » : le format s'il se décode ici, le 4:4:4 s'il existe dans ce format, le débit ; le HDR, le mode
+/// immersif et le stylet tels quels. Rend vrai si quelque chose a changé. Auto reçu d'un autre appareil : les réglages du test de
 /// cet appareil (docs/profil-auto.md) ; sans test fait ici, le profil reste celui de cet appareil.
 pub fn apply(s: &mut HostSettings, k: &SyncKeys, m: &Machine) -> bool {
     let before = s.clone();
@@ -232,6 +249,9 @@ pub fn apply(s: &mut HostSettings, k: &SyncKeys, m: &Machine) -> bool {
     }
     if let Some(i) = k.immersive.as_deref().filter(|i| crate::app::IMMERSIVE.contains(i)) {
         s.immersive = i.to_string();
+    }
+    if let Some(p) = k.pen.as_deref().filter(|p| crate::pen::MODES.contains(p)) {
+        s.pen = p.to_string();
     }
     *s != before
 }
@@ -344,6 +364,10 @@ impl App {
                 }
                 self.accounts.sync_base.insert(id.clone(), Tracked::of(&h.settings));
             }
+            // Le stylet vaut tout de suite pour une session de cet ordinateur (le pilote le donne au cœur).
+            if let Some(pen) = self.store.host(&id).map(|h| crate::pen::parse(&h.settings.pen)) {
+                self.pen_setting_changed(&id, pen);
+            }
         }
         changed
     }
@@ -424,11 +448,12 @@ mod tests {
         s.codec = "av1".into();
         let eav1 = Effective { codec: "av1".into(), mbps: 80 };
         assert_eq!(changed_keys(&old, &Tracked::of(&s), &eav1), SyncKeys { profile: Some(None), codec: Some("av1".into()), ..Default::default() });
-        // Le HDR, le mode immersif : eux seuls.
+        // Le HDR, le mode immersif, le stylet : eux seuls.
         let mut s = HostSettings::default();
         s.hdr = false;
         s.immersive = "never".into();
-        assert_eq!(changed_keys(&base, &Tracked::of(&s), &e), SyncKeys { hdr: Some(false), immersive: Some("never".into()), ..Default::default() });
+        s.pen = "mouse".into();
+        assert_eq!(changed_keys(&base, &Tracked::of(&s), &e), SyncKeys { hdr: Some(false), immersive: Some("never".into()), pen: Some("mouse".into()), ..Default::default() });
         // Le son, l'écran : rien.
         let mut s = HostSettings::default();
         s.audio = "5.1".into();
@@ -447,7 +472,7 @@ mod tests {
         let c = app.sync_changes(&auto);
         assert_eq!(c.len(), 1);
         assert_eq!(c[0].keys, SyncKeys { hdr: Some(false), ..Default::default() });
-        assert_eq!(c[0].full, SyncKeys { profile: Some(Some("jeu".into())), hdr: Some(false), immersive: Some("fullscreen".into()), ..Default::default() });
+        assert_eq!(c[0].full, SyncKeys { profile: Some(Some("jeu".into())), hdr: Some(false), immersive: Some("fullscreen".into()), pen: Some("pressure".into()), ..Default::default() });
         assert_eq!(c[0].station, STATION);
         // La base suit : rien de plus sans nouveau changement.
         assert!(app.sync_changes(&auto).is_empty());
@@ -472,10 +497,10 @@ mod tests {
     fn valeurs_recues_appliquees_sans_renvoyer() {
         let mut app = app();
         let k = key(&app);
-        let known = SyncKeys { profile: Some(Some("max".into())), hdr: Some(false), immersive: Some("never".into()), ..Default::default() };
+        let known = SyncKeys { profile: Some(Some("max".into())), hdr: Some(false), immersive: Some("never".into()), pen: Some("mouse".into()), ..Default::default() };
         assert!(app.sync_apply(&k, STATION, &known));
         let s = &app.store.hosts[0].settings;
-        assert_eq!((s.profile, s.hdr, s.immersive.as_str()), (Profile::Max, false, "never"));
+        assert_eq!((s.profile, s.hdr, s.immersive.as_str(), s.pen.as_str()), (Profile::Max, false, "never", "mouse"));
         // Pas renvoyé.
         assert!(app.sync_changes(&auto).is_empty());
         // Une autre Station : rien.
@@ -523,6 +548,10 @@ mod tests {
         assert!(!s.custom());
         // Une valeur que l'app ne connaît pas : rien.
         assert!(!apply(&mut s, &SyncKeys { immersive: Some("bientot".into()), ..Default::default() }, &m));
+        assert!(!apply(&mut s, &SyncKeys { pen: Some("bientot".into()), ..Default::default() }, &m));
+        // Le stylet : tel quel.
+        assert!(apply(&mut s, &SyncKeys { pen: Some("mouse".into()), ..Default::default() }, &m));
+        assert_eq!(s.pen, "mouse");
     }
 
     #[test]

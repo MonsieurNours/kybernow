@@ -743,6 +743,9 @@ pub enum MenuItem {
     /// « Envoi… » ; estompé, il dit la raison en capsule.
     Mic,
     PadMouse,
+    /// « Stylet » (docs/link-ui.md, « Stylet : Pression / Souris ») : bascule ; sous-titre « Pression » ou « Souris ».
+    /// Seulement quand la ligne de la barre se montre (`SessionUi::pen_shown`).
+    Pen,
     Keyboard,
     Keys,
     Stats,
@@ -1490,6 +1493,13 @@ pub struct SessionUi {
     /// « Micro » (docs/micro.md) : `None` sans micro sur l'appareil (ni puce, ni tuile) et pour une partie sur une
     /// console ; sinon le choix retenu pour cet ordinateur et l'état dit par le cœur.
     pub mic: Option<crate::micro::MicView>,
+    /// « Stylet : Pression / Souris » de la session (`pressure`, `mouse` : `crate::pen`), le choix retenu pour
+    /// l'ordinateur (un invité part en « Pression ») ; le pilote le donne au cœur (`Session::set_pen_mode`) dès
+    /// qu'il change.
+    pub pen: String,
+    /// La ligne « Stylet » du menu « Souris » (et sa tuile) se montre : `PenChoice::shown` du cœur, tenu par le
+    /// pilote (un stylet a servi ou l'appareil en a un, et l'ordinateur reçoit le stylet).
+    pub pen_shown: bool,
 }
 
 impl SessionUi {
@@ -1614,6 +1624,8 @@ impl SessionUi {
             recording: None,
             recording_busy: false,
             mic: None,
+            pen: crate::pen::PRESSURE.into(),
+            pen_shown: false,
         }
     }
 
@@ -1814,6 +1826,8 @@ pub enum Setting {
     Immersive,
     Pads,
     Mouse,
+    /// « Stylet » : Pression, Souris (docs/link-ui.md, « Stylet : Pression / Souris »).
+    Pen,
     Clipboard,
     /// « Définition de la caméra » (docs/webcam.md) : 720p ou 1080p.
     Camera,
@@ -2243,6 +2257,8 @@ pub enum Target {
     BarMouse,
     /// Le menu de la souris : « Auto », « Souris du bureau », « Souris des jeux » (`MOUSE_MODES`).
     BarMousePick(usize),
+    /// Sous les choix de la souris, la ligne « Stylet » : « Pression », « Souris » (`crate::pen::MODES`).
+    BarPenPick(usize),
     /// Le bouton du panneau « Envoyer le journal » (QR code).
     JournalButton,
     /// La pastille « Presse-papiers » (sans action) ; « Plus » (barre étroite).
@@ -4615,6 +4631,7 @@ impl App {
             Target::BarMouse if self.session().is_some_and(|s| s.console.is_some()) => self.active_id().map(|id| vec![Action::ToggleMouse(id)]).unwrap_or_default(),
             Target::BarMouse => self.toggle_bar_menu(BarMenu::Mouse),
             Target::BarMousePick(i) => self.pick_mouse(i),
+            Target::BarPenPick(i) => self.pick_pen(i),
             // Le bouton du panneau du journal : « Nouveau QR code », « Réessayer » relancent ; « Terminé » ferme.
             Target::JournalButton => match &self.journal {
                 Some(step) if step.retries() => self.send_log(),
@@ -4776,6 +4793,16 @@ impl App {
             actions.push(Action::Save);
         }
         actions
+    }
+
+    /// La ligne « Stylet » du menu de la souris : le choix s'applique tout de suite et reste pour cet ordinateur, comme
+    /// le réglage « Stylet » de la rubrique Commandes ; le menu se ferme.
+    fn pick_pen(&mut self, i: usize) -> Vec<Action> {
+        let Some(mode) = crate::pen::MODES.get(i).copied() else { return Vec::new() };
+        let Some(s) = self.session_mut() else { return Vec::new() };
+        s.bar_menu = None;
+        let id = s.id;
+        self.set_pen(id, mode, false)
     }
 
     /// Le réglage de la souris de l'ordinateur d'une session (`auto`, `desktop`, `game`) ; « Auto » sans réglage
@@ -5557,6 +5584,8 @@ impl App {
             }
             // À la manette, estompé, il reste choisissable : la raison en capsule.
             MenuItem::Mic => self.toggle_mic(id, true),
+            // La tuile bascule et dit le nouveau choix dans son sous-titre ; le menu reste ouvert.
+            MenuItem::Pen => self.toggle_pen(id, false),
             MenuItem::PadMouse => {
                 s.pad_mouse = !s.pad_mouse;
                 s.menu = false;
@@ -6392,6 +6421,8 @@ impl App {
                         ["auto", "desktop", "game"].iter().position(|v| *v == st.mouse).unwrap_or(0),
                         vec![false; 3],
                     ),
+                    // « Stylet » : montré même sans stylet branché (docs/link-ui.md).
+                    choice(Setting::Pen, crate::pen::title().as_str(), crate::pen::help(), crate::pen::labels(), crate::pen::index(&st.pen), vec![false; 2]),
                     choice(
                         Setting::Immersive,
                         tr("Mode immersif", "Immersive mode"),
@@ -6879,6 +6910,12 @@ impl App {
             }
             Setting::Audio => st.audio = pick(&["auto", "stereo", "5.1", "7.1", "computer"], i),
             Setting::Mouse => st.mouse = pick(&["auto", "desktop", "game"], i),
+            // Vaut tout de suite pour une session de cet ordinateur (rien ne relance l'image).
+            Setting::Pen => {
+                let mode = if i == usize::MAX { crate::pen::toggled(&st.pen) } else { crate::pen::MODES[i.min(1)] };
+                st.pen = mode.to_string();
+                self.pen_setting_changed(&id, mode);
+            }
             // Vaut tout de suite : les fenêtres de session suivent le réglage (`device::sync_keyboard_grab`).
             Setting::Immersive => st.immersive = pick(&IMMERSIVE, i),
             Setting::Camera => st.camera_1080 = i == 1,
@@ -7046,6 +7083,64 @@ impl App {
             }
         }
         actions
+    }
+
+    // MARK: - Stylet
+
+    /// « Stylet » d'une session qui démarre (docs/link-ui.md, « Stylet : Pression / Souris ») : le choix retenu pour
+    /// cet ordinateur (hôte, ordinateur emprunté) ; un invité part en « Pression ». Le pilote le donne au cœur
+    /// (`Session::set_pen_mode`).
+    pub fn pen_choice(&self, host: &str, guest: bool) -> &'static str {
+        if guest {
+            return crate::pen::PRESSURE;
+        }
+        match (self.store.host(host), self.store.borrowed(host)) {
+            (Some(h), _) => crate::pen::parse(&h.settings.pen),
+            (None, Some(b)) if b.pen_mouse => crate::pen::MOUSE,
+            _ => crate::pen::PRESSURE,
+        }
+    }
+
+    /// Le stylet de la session passe à `mode` (`pressure`, `mouse`) : retenu pour l'ordinateur (hôte, ordinateur
+    /// emprunté ; pas pour un invité, qui repart en « Pression ») ; le pilote le donne au cœur au tour suivant.
+    /// `notify` (raccourci) : l'avis bref « Stylet : souris » / « Stylet : pression ». Rien pour une partie sur une
+    /// console.
+    pub fn set_pen(&mut self, id: SessionId, mode: &str, notify: bool) -> Vec<Action> {
+        let Some(s) = self.session_by_mut(id) else { return Vec::new() };
+        if s.console.is_some() {
+            return Vec::new();
+        }
+        let mode = crate::pen::parse(mode);
+        s.pen = mode.to_string();
+        if notify {
+            s.notice = Some((crate::pen::notice(mode), Instant::now()));
+        }
+        let (key, guest) = (s.host.clone(), s.guest.is_some());
+        if guest {
+            return Vec::new();
+        }
+        if let Some(h) = self.store.host_mut(&key) {
+            h.settings.pen = mode.to_string();
+        } else if let Some(b) = self.store.borrowed.iter_mut().find(|b| b.id == key) {
+            b.pen_mouse = mode == crate::pen::MOUSE;
+        } else {
+            return Vec::new();
+        }
+        vec![Action::Save]
+    }
+
+    /// La tuile « Stylet » et Ctrl+Alt+Maj+P : l'autre choix (voir [`App::set_pen`]).
+    pub fn toggle_pen(&mut self, id: SessionId, notify: bool) -> Vec<Action> {
+        let Some(mode) = self.session_by(id).map(|s| crate::pen::toggled(&s.pen)) else { return Vec::new() };
+        self.set_pen(id, mode, notify)
+    }
+
+    /// Le réglage « Stylet » de cet ordinateur a changé (rubrique Commandes, réglages synchronisés reçus) : ses
+    /// sessions le prennent tout de suite (un invité garde le sien).
+    pub fn pen_setting_changed(&mut self, host: &str, mode: &str) {
+        for s in self.sessions.iter_mut().filter(|s| s.host == host && s.guest.is_none() && s.console.is_none()) {
+            s.pen = crate::pen::parse(mode).to_string();
+        }
     }
 
     // MARK: - HDR
@@ -8476,6 +8571,51 @@ mod tests {
         app.open_session(guest);
         app.pads_unavailable_notice(g, 1);
         assert_eq!(said(&app, g), None, "un invité ne le voit pas");
+    }
+
+    /// « Stylet : Pression / Souris » (docs/link-ui.md) : « Pression » la première fois ; la ligne du menu de la souris,
+    /// la tuile et Ctrl+Alt+Maj+P changent la session et le retiennent pour l'ordinateur (un invité part en
+    /// « Pression », un ordinateur emprunté garde le sien) ; le raccourci le dit en avis bref ; le réglage de la rubrique
+    /// Commandes (toujours là) vaut tout de suite pour la session.
+    #[test]
+    fn pen_pressure_or_mouse() {
+        crate::i18n::force_english(false);
+        let mut app = desk();
+        let a = open(&mut app, "a");
+        assert_eq!(app.session_by(a).unwrap().pen, "pressure");
+        assert_eq!(app.pen_choice("a", false), "pressure");
+        // La ligne « Stylet » du menu de la souris : tout de suite, retenu, le menu se ferme.
+        assert!(app.activate(Target::BarMouse).is_empty());
+        assert_eq!(app.activate(Target::BarPenPick(1)), vec![Action::Save]);
+        assert_eq!(app.session_by(a).unwrap().bar_menu, None);
+        assert_eq!(app.session_by(a).unwrap().pen, "mouse");
+        assert_eq!(app.store.host("a").unwrap().settings.pen, "mouse");
+        assert_eq!(app.pen_choice("a", false), "mouse");
+        assert_eq!(app.pen_choice("a", true), "pressure", "un invité part en « Pression »");
+        // Le raccourci : l'autre choix, avec l'avis bref.
+        assert_eq!(app.toggle_pen(a, true), vec![Action::Save]);
+        let s = app.session_by(a).unwrap();
+        assert_eq!((s.pen.as_str(), s.notice.as_ref().map(|n| n.0.as_str())), ("pressure", Some("Stylet\u{202f}: pression")));
+        // La tuile : bascule sans avis (son sous-titre le dit).
+        app.session_by_mut(a).unwrap().notice = None;
+        app.session_by_mut(a).unwrap().menu = true;
+        assert_eq!(app.activate(Target::Menu(MenuItem::Pen)), vec![Action::Save]);
+        assert!(app.session_by(a).unwrap().notice.is_none());
+        assert_eq!(app.store.host("a").unwrap().settings.pen, "mouse");
+        // Réglages de l'ordinateur, rubrique Commandes : « Stylet », ses deux choix, son aide, juste après la souris.
+        let rows = app.rows(Section::Controls);
+        let i = rows.iter().position(|r| r.setting == Setting::Pen).expect("Stylet");
+        assert_eq!(rows[i - 1].setting, Setting::Mouse);
+        assert_eq!(rows[i].label, "Stylet");
+        assert!(rows[i].hint.starts_with("Pression\u{202f}: le stylet arrive comme un vrai stylet"));
+        assert!(matches!(&rows[i].kind, RowKind::Choice { options, current: 1, .. } if *options == vec!["Pression".to_string(), "Souris".to_string()]));
+        assert_eq!(app.choose(Setting::Pen, 0), vec![Action::Save]);
+        assert_eq!(app.session_by(a).unwrap().pen, "pressure", "la session le prend tout de suite");
+        app.choose(Setting::Pen, usize::MAX);
+        assert_eq!((app.store.host("a").unwrap().settings.pen.as_str(), app.session_by(a).unwrap().pen.as_str()), ("mouse", "mouse"));
+        // Un ordinateur emprunté garde le sien.
+        app.store.borrowed.push(crate::model::Borrowed { id: "lend:m".into(), pen_mouse: true, ..Default::default() });
+        assert_eq!(app.pen_choice("lend:m", false), "mouse");
     }
 
     /// Le Steam Deck, le salon et KyberNow Link OS gardent une session ; le bureau en tient plusieurs.

@@ -910,6 +910,7 @@ pub fn friend_add(address: String, port: u16, fingerprint: Option<String>, relay
                     remember,
                     // `put_borrowed` garde le choix d'un ordinateur déjà emprunté.
                     hdr_off: false,
+                    pen_mouse: false,
                 };
                 Box::new((b, lend_live(&s), password.clone()))
             });

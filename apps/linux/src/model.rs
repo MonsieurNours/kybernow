@@ -111,6 +111,10 @@ pub struct HostSettings {
     /// Mode immersif (docs/link-ui.md) : `fullscreen` (le clavier entier, Alt+Tab et la touche ⊞ compris, va à
     /// l'ordinateur en plein écran), `always` (aussi dans une fenêtre), `never`.
     pub immersive: String,
+    /// « Stylet : Pression / Souris » (docs/link-ui.md, « Stylet ») : `pressure` (le vrai stylet, par défaut ; absent
+    /// d'un fichier d'avant : pression aussi) ou `mouse` (le stylet en souris absolue), les clés du cœur
+    /// (`PenMode::key`). Synchronisé (`pen`).
+    pub pen: String,
     pub clipboard: bool,
     /// « Définition de la caméra » (docs/webcam.md) : 1080p, sinon 720p ; hors profil.
     pub camera_1080: bool,
@@ -168,6 +172,7 @@ impl Default for HostSettings {
             combo: true,
             ctrl_command: None,
             immersive: "fullscreen".into(),
+            pen: crate::pen::PRESSURE.into(),
             clipboard: true,
             camera_1080: false,
             camera_seen: false,
@@ -460,6 +465,8 @@ pub struct Borrowed {
     pub hdr_off: bool,
     /// « Micro » pour cet ordinateur emprunté : coupé la première fois, retenu comme celui d'un hôte.
     pub mic: bool,
+    /// « Stylet : Souris » pour cet ordinateur emprunté (« Pression » la première fois), retenu comme celui d'un hôte.
+    pub pen_mouse: bool,
 }
 
 impl Borrowed {
@@ -898,7 +905,7 @@ impl Store {
         if let Some(old) = self.borrowed.iter_mut().find(|o| o.address == b.address && o.port == b.port && o.login == b.login) {
             let id = old.id.clone();
             // Le choix « HDR » de cet ordinateur reste.
-            *old = Borrowed { id: id.clone(), hdr_off: old.hdr_off, mic: old.mic, ..b };
+            *old = Borrowed { id: id.clone(), hdr_off: old.hdr_off, mic: old.mic, pen_mouse: old.pen_mouse, ..b };
             return id;
         }
         let id = b.id.clone();

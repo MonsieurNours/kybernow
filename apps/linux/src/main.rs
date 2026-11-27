@@ -15,6 +15,7 @@ mod i18n;
 mod journal;
 mod micro;
 mod model;
+mod pen;
 // Les captures (`--preview`) et leurs essais : pas dans l'app livrée (LINAPP-39).
 #[cfg(any(test, not(feature = "device")))]
 // Avec l'app (`device`), seuls ses essais servent : les captures ne se lancent pas.
