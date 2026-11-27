@@ -37,6 +37,8 @@ windows)
     x86_64-w64-mingw32-g++ "${CXXFLAGS[@]}" -static -shared -o "$OUTPUT/KyberNowCameraFilter.dll" \
         "$HERE/windows/dshow.cpp" "$HERE/windows/filter.def" -lstrmiids -lole32 -loleaut32 -luuid
     OBJ="$(mktemp -d)"
+    # Retiré à la sortie, même si une compilation échoue (TRANS-21).
+    trap 'rm -rf "$OBJ"' EXIT
     x86_64-w64-mingw32-g++ "${CXXFLAGS[@]}" -c -o "$OBJ/install.o" "$HERE/windows/install.cpp"
     # Garde : une interface que seul Windows implémente, déclarée dans un
     # espace de noms anonyme, est « dévirtualisée » par GCC en un appel direct
