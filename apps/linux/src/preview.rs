@@ -71,7 +71,7 @@ pub(crate) fn host(id: &str, name: &str, addr: &str) -> Host {
     }
 }
 
-fn demo(english: bool, layout: Layout) -> App {
+pub(crate) fn demo(english: bool, layout: Layout) -> App {
     crate::i18n::set_english(english);
     let mut store = Store::default();
     let mut a = host("a", "Tour du salon", "192.168.1.42");

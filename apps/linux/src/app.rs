@@ -98,9 +98,29 @@ pub enum Online {
     Offline,
 }
 
+/// Une erreur dite sous le nom de l'ordinateur, à l'accueil (docs/link-ui.md, « Accueil »).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostError {
+    /// Admin refuse le compte de l'appareil (401).
+    PasswordRefused,
+    /// Le certificat d'Admin n'est plus celui de l'appairage : la Station a été réinstallée.
+    Reinstalled,
+}
+
+impl HostError {
+    pub fn text(self) -> &'static str {
+        match self {
+            HostError::PasswordRefused => tr("Mot de passe refusé : mettez-le à jour dans les réglages.", "Password refused: update it in the settings."),
+            HostError::Reinstalled => tr("La Station a été réinstallée : vérifiez son empreinte dans les réglages.", "The Station was reinstalled: check its fingerprint in the settings."),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct HostLive {
     pub online: Online,
+    /// L'erreur de la dernière sonde, dite sous le nom (mot de passe refusé, Station réinstallée).
+    pub error: Option<HostError>,
     /// La Station a un écran virtuel (`None` : pas encore su).
     pub virtual_display: Option<bool>,
     /// La Station, depuis sa dernière réponse (`None` : jamais répondu).
@@ -6840,7 +6860,6 @@ impl App {
                     vec![false; 4],
                 ),
                 choice(Setting::Language, tr("Langue", "Language"), tr("Auto : celle du système.", "Auto: the system's.").into(), vec!["Auto".into(), "Français".into(), "English".into()], lang, vec![false; 3]),
-                toggle(Setting::KeepImage, tr("Garder la dernière image", "Keep the last image"), tr("L'accueil montre la dernière image de chaque session, pour tous les ordinateurs.", "The home screen shows the last image of each session, for every computer.").into(), self.store.app.keep_last_image),
                 choice(
                     Setting::UpdateChannel,
                     tr("Versions proposées", "Offered versions"),
@@ -6855,8 +6874,8 @@ impl App {
                 ),
                 Row { setting: Setting::CheckUpdate, label: format!("KyberNow Link {}", self.version), hint: update, kind: RowKind::Action(tr("Chercher", "Check").into()), enabled: true, tag: None },
             ];
-            // « Micro » et « Réduire l'écho et le bruit », après « Garder la dernière image » (l'app n'a pas de « Son »).
-            let at = rows.iter().position(|r| r.setting == Setting::KeepImage).map_or(rows.len(), |i| i + 1);
+            // « Micro » et « Réduire l'écho et le bruit », après l'interface (l'app n'a pas de « Son »).
+            let at = rows.iter().position(|r| r.setting == Setting::Interface).map_or(rows.len(), |i| i + 1);
             for (k, r) in self.mic_app_rows().into_iter().enumerate() {
                 rows.insert(at + k, r);
             }
@@ -6990,6 +7009,8 @@ impl App {
                         display.iter().position(|v| *v == st.display).unwrap_or(0),
                         vec![false, false, false, m.vrr == Some(false) || pi.is_some()],
                     ),
+                    // « Garder la dernière image » (docs/link-ui.md, rubrique Image) : pour cet ordinateur.
+                    toggle(Setting::KeepImage, tr("Garder la dernière image", "Keep the last image"), tr("L'accueil montre la dernière image de la session de cet ordinateur.", "The home screen shows the last image of this computer's session.").into(), st.keep_last_image),
                 ];
                 // « HDR », après le texte net, seulement sur un écran HDR ; inactif avec la raison de la puce.
                 if let Some(u) = hdr {
@@ -7353,10 +7374,6 @@ impl App {
                 self.store.app.interface = order[i.min(3)].into();
                 return vec![Action::Interface, Action::Save];
             }
-            Setting::KeepImage => {
-                self.store.app.keep_last_image = !self.store.app.keep_last_image;
-                return vec![Action::Save];
-            }
             Setting::MicDevice => return self.choose_mic_device(i),
             Setting::MicEcho => {
                 self.store.app.mic_echo = !self.store.app.mic_echo;
@@ -7500,6 +7517,7 @@ impl App {
                 st.mbps = snap_mbps(st.mbps, st.codec == "pyrowave");
             }
             Setting::Display => st.display = pick(&["auto", "vsync", "immediate", "vrr"], i),
+            Setting::KeepImage => st.keep_last_image = !st.keep_last_image,
             Setting::Bitrate => {
                 let rates = bitrates(st.codec == "pyrowave");
                 st.mbps = rates[i.min(rates.len() - 1)];

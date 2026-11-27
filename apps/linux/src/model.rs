@@ -147,6 +147,9 @@ pub struct HostSettings {
     /// première fois ; la barre, la tuile du menu et la rubrique Son le changent, la session suivante le reprend.
     /// Propre à cet appareil : jamais synchronisé.
     pub mic: bool,
+    /// « Garder la dernière image » (docs/link-ui.md, rubrique Image) : l'accueil montre la dernière image de la
+    /// session de cet ordinateur. Propre à cet appareil : jamais synchronisé.
+    pub keep_last_image: bool,
 }
 
 impl Default for HostSettings {
@@ -178,6 +181,7 @@ impl Default for HostSettings {
             auto: None,
             encoder_max: None,
             mic: false,
+            keep_last_image: true,
         }
     }
 }
@@ -373,8 +377,10 @@ pub struct AppSettings {
     /// Interface : `auto` (console sous gamescope, bureau ailleurs),
     /// `desktop`, `handheld`, `tv`.
     pub interface: String,
-    /// Garder la dernière image de chaque session pour l'accueil.
-    pub keep_last_image: bool,
+    /// « Garder la dernière image » d'avant la 0.11.8, pour toute l'app : lu une fois et repris par chaque ordinateur
+    /// (`HostSettings::keep_last_image`, `Store::adopt_legacy_keep_image`), jamais réécrit.
+    #[serde(rename = "keep_last_image", skip_serializing)]
+    pub legacy_keep_last_image: Option<bool>,
     /// KyberNow Link OS : le premier démarrage (manette, langue, réseau, usage,
     /// ordinateur) est fait.
     pub os_setup_done: bool,
@@ -417,7 +423,7 @@ pub struct AppSettings {
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), beta: false, interface: "auto".into(), keep_last_image: true, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), share_name: String::new(), share_quality: String::new(), lend_warned: false, sync_settings: true, last_launched: String::new(), welcome: Default::default(), mic_device: String::new(), mic_echo: true }
+        Self { language: "auto".into(), beta: false, interface: "auto".into(), legacy_keep_last_image: None, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), share_name: String::new(), share_quality: String::new(), lend_warned: false, sync_settings: true, last_launched: String::new(), welcome: Default::default(), mic_device: String::new(), mic_echo: true }
     }
 }
 
@@ -803,12 +809,22 @@ impl Store {
             s.device_id = new_id();
         }
         s.adopt_legacy_sync();
+        s.adopt_legacy_keep_image();
         s.set_aside = aside;
         if writable {
             s.path = Some(path);
             s.save();
         }
         s
+    }
+
+    /// « Garder la dernière image » coupé pour toute l'app avant la 0.11.8 : coupé pour chaque ordinateur.
+    pub fn adopt_legacy_keep_image(&mut self) {
+        if self.app.legacy_keep_last_image.take() == Some(false) {
+            for h in &mut self.hosts {
+                h.settings.keep_last_image = false;
+            }
+        }
     }
 
     /// Écrit le fichier (par un fichier temporaire renommé : jamais à moitié écrit).
@@ -1161,6 +1177,25 @@ fn utc_stamp(secs: u64) -> String {
 #[cfg(test)]
 mod store_file_tests {
     use super::*;
+
+    /// « Garder la dernière image » coupé pour toute l'app avant la 0.11.8 : coupé pour chaque ordinateur, et le champ
+    /// d'avant n'est plus écrit (TRANS-39 : le réglage est celui de l'ordinateur).
+    #[test]
+    fn garder_la_derniere_image_par_ordinateur() {
+        let d = dir("garder-image");
+        let path = d.join("kybernow.json");
+        let host = r#"{"id":"a","name":"Atelier","address":"192.168.1.20","port":9443,"fingerprint":null,"user":"u","password":"","os":null,"gpu":null,"av1":false,"pyrowave":false,"mac":null,"wake":[],"relay":null,"settings":{},"last":null}"#;
+        std::fs::write(&path, format!(r#"{{"hosts":[{host}],"app":{{"keep_last_image":false}}}}"#)).unwrap();
+        let s = Store::load_from(path.clone(), 0);
+        assert!(!s.hosts[0].settings.keep_last_image);
+        let saved = std::fs::read_to_string(&path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        assert!(v["app"].get("keep_last_image").is_none());
+        assert_eq!(v["hosts"][0]["settings"]["keep_last_image"], false);
+        // Sans réglage d'avant : gardée.
+        assert!(HostSettings::default().keep_last_image);
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     fn dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("kybernow-store-{name}-{}", std::process::id()));

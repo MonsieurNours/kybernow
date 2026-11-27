@@ -84,6 +84,8 @@ pub enum Event {
         own_device: Option<bool>,
         /// Le HDR que la Station propose ; `None` : pas de réponse.
         hdr: Option<crate::app::StationHdr>,
+        /// Ce que l'accueil dit sous le nom (mot de passe refusé, Station réinstallée).
+        error: Option<crate::app::HostError>,
         /// Ce que « Partager » peut faire (KyberNow Share) ; `None` : pas de réponse d'Admin.
         share: Option<crate::app::ShareAvail>,
         /// Ce que « Prêter l'ordinateur… » peut faire, et la vue du prêt quand il est activé ; `None` : pas de réponse.
@@ -1006,7 +1008,7 @@ pub fn run(args: &[String]) {
     app.launched = Instant::now();
     for h in app.store.hosts.clone() {
         let last = Store::image_path(&h.id).with_extension("png");
-        if app.store.app.keep_last_image
+        if h.settings.keep_last_image
             && let Some(img) = std::fs::read(&last).ok().and_then(|b| ui::canvas::decode_png(&b))
         {
             app.images.insert(h.id.clone(), img);
@@ -2857,8 +2859,9 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
 #[allow(clippy::too_many_arguments)]
 fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, wins: &mut Wins, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>, tx: &Sender<Event>) {
     match e {
-        Event::HostInfo { id, online, away, relay, os, gpu, av1, pyrowave, virtual_display, max_screens, station, wake, own_device, share, lend, lend_view, gamepads, hdr } => {
+        Event::HostInfo { id, online, away, relay, os, gpu, av1, pyrowave, virtual_display, max_screens, station, wake, own_device, share, lend, lend_view, gamepads, hdr, error } => {
             let entry = app.live.entry(id.clone()).or_insert_with(HostLive::default);
+            entry.error = error;
             entry.online = if online {
                 Online::Online
             } else if away {
@@ -4454,7 +4457,7 @@ fn disconnect(app: &mut App, lives: &mut Lives, wins: &mut Wins, id: SessionId) 
     // L'accueil qui revient montre déjà la dernière image de la session.
     if let (Some(l), Some(s)) = (lives.get(id), app.session_by(id))
         && !l.guest
-        && app.store.app.keep_last_image
+        && app.store.host(&s.host).is_some_and(|h| h.settings.keep_last_image)
         && let Some(img) = l.snapshot.clone()
     {
         let host = s.host.clone();
@@ -4582,7 +4585,7 @@ fn finish(app: &mut App, l: Live) {
         h.last = Some(LastSession { median, p95, seconds, mode: l.mode.clone(), hz: l.hz, codec: l.codec.into(), mbps, at: now_secs(), screens: l.screens as u32, route: l.path.as_str().into(), hdr: l.handle.session.hdr_used() });
     }
     app.store.save();
-    if app.store.app.keep_last_image
+    if app.store.host(&id).is_some_and(|h| h.settings.keep_last_image)
         && let Some(img) = l.snapshot.clone()
     {
         if let Some(png) = ui::canvas::encode_png(&img) {

@@ -18,7 +18,7 @@ use kybernow_core::share::{self, JoinRequest, Joining, PendingJoin, ShareAvailab
 use kybernow_core::wake::WakeTarget;
 
 use super::Event;
-use crate::app::{BorrowSource, Found, LendAvail, LendHostView, LendLive, LendOp, LendSlotUi, LendState, LendSteam, SessionId, ShareAvail, ShareOp, ShareView, StationKind, StationLive, StationRefusal};
+use crate::app::{BorrowSource, Found, HostError, LendAvail, LendHostView, LendLive, LendOp, LendSlotUi, LendState, LendSteam, SessionId, ShareAvail, ShareOp, ShareView, StationKind, StationLive, StationRefusal};
 use crate::model::{new_id, Borrowed, Host, HostRelay, HostSettings, WakeCard};
 
 /// Sonde un ordinateur : en ligne ou non, son système, sa Station, et son
@@ -29,7 +29,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
         // « Hors de chez vous » si le relais le dit connecté (jamais de sonde par le relais toutes les 8 s).
         if host.address.is_empty() && super::accounts::access(&host.id).is_some() {
             let away = away_from_home(&host, &ConsoleError::Network(String::from("absent du réseau")));
-            let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, pyrowave: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None, hdr: None });
+            let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, pyrowave: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None, hdr: None, error: None });
             return;
         }
         // Un ordinateur d'un compte : le jeton d'accès du relais ; un ordinateur appairé : le compte de l'appareil.
@@ -66,6 +66,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                     lend_view,
                     gamepads: Some(info.gamepads_available()),
                     hdr: Some(station_hdr(&info)),
+                    error: None,
                 });
                 if want_preview
                     && let Ok(bytes) = c.preview(960)
@@ -78,7 +79,13 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                 log::info!("{} : hors ligne ({e})", host.name);
                 // Le réseau ne répond pas : l'ordinateur est peut-être joignable par le relais (« Hors de chez vous »).
                 let away = away_from_home(&host, &e);
-                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, pyrowave: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None, hdr: None });
+                // Le mot de passe refusé, une Station réinstallée : dits sous le nom, à l'accueil.
+                let error = match &e {
+                    ConsoleError::Http { status: 401, .. } => Some(HostError::PasswordRefused),
+                    ConsoleError::CertificateChanged { .. } => Some(HostError::Reinstalled),
+                    _ => None,
+                };
+                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, pyrowave: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None, hdr: None, error });
             }
         }
     });
