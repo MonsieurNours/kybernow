@@ -754,6 +754,8 @@ enum Msg {
     BitrateCap(Option<u32>),
     /// PyroWave : le débit du lien a changé ([`Session::set_link_mbps`]).
     LinkMbps,
+    /// PyroWave : le décodeur de l'app ne s'ouvre pas ([`Session::pyrowave_failed`]).
+    PyroWaveFailed,
     /// Taille des images décodées par l'app.
     DecodedSize(u32, u32),
     /// Écran choisi dans la barre.
@@ -1625,6 +1627,17 @@ impl Session {
         self.send(Msg::NoImage);
     }
 
+    /// Le décodeur PyroWave de l'app ne s'ouvre pas sur cet appareil
+    /// (WINAPP-11 : périphérique graphique sans ce qu'il faut, partage
+    /// refusé) : la session passe, pour elle seulement, au format de repli de
+    /// l'appareil (`profile::pyrowave_fallback` : HEVC, sinon AV1, sinon
+    /// H.264) et relance l'image, comme « Passer en HEVC ». À dire une fois,
+    /// après avoir retenu l'échec ; sans effet hors PyroWave ou pour un
+    /// invité (qui lit le format de l'hôte).
+    pub fn pyrowave_failed(&self) {
+        self.send(Msg::PyroWaveFailed);
+    }
+
     /// Change de profil pendant la session (barre) : nouveau débit sur-le-champ,
     /// ou flux relancé si le format, le 4:4:4 ou le transport changent.
     pub fn set_settings(&self, settings: StreamSettings) {
@@ -1921,6 +1934,10 @@ struct Worker {
     /// PyroWave (docs/pyrowave.md) : la Station le propose (`info.pyrowave.available`,
     /// lu au début d'une session d'hôte quand il peut servir).
     station_pyrowave: bool,
+    /// PyroWave : le décodeur de l'app ne s'ouvre pas sur cet appareil
+    /// ([`Session::pyrowave_failed`]) : le format de repli pour le reste de
+    /// la session.
+    pyrowave_failed: bool,
     /// PyroWave : « Débit maximal » de la Station (`info.pyrowave.max_mbps`).
     station_pyrowave_max: Option<u32>,
     /// PyroWave : débit du lien donné par l'app (0 : inconnu), partagé avec
@@ -2160,6 +2177,7 @@ impl Worker {
             guest,
             station_hdr: None,
             station_pyrowave: false,
+            pyrowave_failed: false,
             station_pyrowave_max: None,
             link_mbps: Arc::new(AtomicU32::new(0)),
             watch_display: Arc::new(AtomicU32::new(0)),
@@ -3724,7 +3742,7 @@ impl Worker {
         let mut s = self.params.settings.clone();
         if self.guest.is_none() {
             let caps = self.capabilities().unwrap_or_default();
-            s = crate::profile::pyrowave_format(&s, caps, self.station_pyrowave, self.relay_tunnel.is_some());
+            s = crate::profile::pyrowave_format(&s, caps, self.station_pyrowave && !self.pyrowave_failed, self.relay_tunnel.is_some());
         }
         if self.fallback >= 2 {
             s.yuv444 = false;
@@ -3733,6 +3751,18 @@ impl Worker {
             s = crate::profile::hdr_format(&s, self.capabilities().unwrap_or(Capabilities { hevc: true, ..Capabilities::default() }));
         }
         s
+    }
+
+    /// [`Session::pyrowave_failed`] : vrai si le format change (l'image est
+    /// à relancer).
+    fn on_pyrowave_failed(&mut self) -> bool {
+        if self.pyrowave_failed || self.guest.is_some() || self.effective().codec != Codec::PyroWave {
+            return false;
+        }
+        self.pyrowave_failed = true;
+        let to = self.effective();
+        warn!("PyroWave : le décodeur de l'appareil ne s'ouvre pas, {} pour le reste de la session", to.codec.label());
+        true
     }
 
     /// Débit du profil pour le flux en cours : sur la somme des pixels par
@@ -4069,6 +4099,11 @@ impl Worker {
                 Ok(Msg::BitrateCap(cap)) => {
                     self.bitrate_cap = cap;
                     self.apply_bitrate();
+                }
+                Ok(Msg::PyroWaveFailed) => {
+                    if self.on_pyrowave_failed() && !self.refit_pyrowave() && self.streaming.is_some() {
+                        self.restart_streaming(Duration::from_millis(300));
+                    }
                 }
                 Ok(Msg::LinkMbps) => {
                     if !self.refit_pyrowave() {
@@ -5956,6 +5991,30 @@ mod tests {
     }
 
     /// COEUR-29 : lâcher la session sans `stop()` l'arrête quand même.
+    /// WINAPP-11 : le décodeur PyroWave de l'app ne s'ouvre pas : le format
+    /// de repli de l'appareil pour le reste de la session, une fois.
+    #[test]
+    fn pyrowave_qui_ne_s_ouvre_pas() {
+        let (mut w, _) = worker(crate::profile::Profile::Max, two_screens(0));
+        w.params.capabilities = Some(Capabilities { hevc: true, hevc444: true, av1: true, hdr: false, pyrowave: true });
+        w.params.settings.codec = Codec::PyroWave;
+        w.params.settings.profile = None;
+        w.station_pyrowave = true;
+        if !crate::profile::PYROWAVE_KYBER {
+            assert!(!w.on_pyrowave_failed(), "sans PyroWave chez Kyber, jamais effectif");
+            return;
+        }
+        assert_eq!(w.effective().codec, Codec::PyroWave);
+        assert!(w.on_pyrowave_failed());
+        assert_eq!(w.effective().codec, Codec::Hevc);
+        assert!(!w.on_pyrowave_failed(), "une fois");
+        // Le choix de l'app reste PyroWave : il revient à la session suivante.
+        assert_eq!(w.params.settings.codec, Codec::PyroWave);
+        // Hors PyroWave : rien.
+        let (mut w, _) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        assert!(!w.on_pyrowave_failed());
+    }
+
     /// TRANS-40 : un seul débit en arrière-plan, et l'image figée n'est pas
     /// une panne ; au retour, plus de plafond.
     #[test]

@@ -15,6 +15,7 @@ pub mod camera;
 pub mod console;
 pub mod ffi;
 pub mod focus;
+pub mod frames;
 pub mod gamepads;
 pub mod i18n;
 pub mod input;

@@ -107,6 +107,106 @@ impl Lowered {
     }
 }
 
+// MARK: - Paquet de configuration (WINAPP-50)
+
+/// Le paquet de configuration d'un flux PyroWave (`KNPW`, docs/pyrowave.md),
+/// lu une fois pour toutes les apps (avant : Windows, Linux et Android, avec
+/// trois contrôles différents) : `"KNPW"` | version | chroma (0 : 4:2:0,
+/// 1 : 4:4:4) | couleur (0 : SDR BT.709, 1 : HDR10 BT.2020 PQ) | plage
+/// (0 : pleine, 1 : réduite) | largeur u32 LE | hauteur u32 LE. Une version
+/// plus récente garde ces 16 octets en tête (la version 2 ajoute les
+/// métadonnées HDR à la fin) : les octets en trop sont ignorés.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Config {
+    pub chroma444: bool,
+    pub hdr: bool,
+    pub full_range: bool,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Config {
+    /// Taille de la tête du paquet.
+    pub const SIZE: usize = 16;
+    /// Côté le plus grand qu'un décodeur accepte.
+    pub const MAX_SIDE: u32 = 16384;
+
+    /// Lit un paquet de configuration ; `None` s'il n'en est pas un, ou s'il
+    /// décrit une image impossible (côté nul ou trop grand, 4:2:0 de taille
+    /// impaire).
+    pub fn parse(d: &[u8]) -> Option<Self> {
+        if !Self::is_config(d) || d[4] < 1 || d[5] > 1 || d[6] > 1 || d[7] > 1 {
+            return None;
+        }
+        let u32le = |o: usize| u32::from_le_bytes([d[o], d[o + 1], d[o + 2], d[o + 3]]);
+        let c = Self { chroma444: d[5] == 1, hdr: d[6] == 1, full_range: d[7] == 0, width: u32le(8), height: u32le(12) };
+        c.valid().then_some(c)
+    }
+
+    /// Un paquet de configuration, pas une image : il commence par `KNPW`
+    /// (une image commence par son en-tête de séquence, bit de poids fort à
+    /// 1) et a au moins [`Self::SIZE`] octets. Il peut arriver dans le flux
+    /// des images.
+    pub fn is_config(d: &[u8]) -> bool {
+        d.len() >= Self::SIZE && d.starts_with(b"KNPW")
+    }
+
+    /// Sans paquet de configuration : la définition lue dans l'en-tête de
+    /// séquence d'une image (SDR, plage pleine).
+    pub fn from_sequence_header(d: &[u8]) -> Option<Self> {
+        if d.len() < 8 {
+            return None;
+        }
+        let w0 = u32::from_le_bytes([d[0], d[1], d[2], d[3]]);
+        let w1 = u32::from_le_bytes([d[4], d[5], d[6], d[7]]);
+        if w0 >> 31 != 1 || (w1 >> 24) & 3 != 0 {
+            return None;
+        }
+        let c = Self { chroma444: (w1 >> 26) & 1 == 1, hdr: false, full_range: true, width: (w0 & 0x3FFF) + 1, height: ((w0 >> 14) & 0x3FFF) + 1 };
+        c.valid().then_some(c)
+    }
+
+    /// Faute de mieux (aucun paquet, en-tête illisible) : 4:2:0 SDR plage
+    /// pleine, à la taille donnée ramenée au pair.
+    pub fn fallback(width: u32, height: u32) -> Self {
+        Self { chroma444: false, hdr: false, full_range: true, width: (width & !1).max(2), height: (height & !1).max(2) }
+    }
+
+    fn valid(&self) -> bool {
+        (1..=Self::MAX_SIDE).contains(&self.width) && (1..=Self::MAX_SIDE).contains(&self.height) && (self.chroma444 || (self.width % 2 == 0 && self.height % 2 == 0))
+    }
+
+    /// La taille des plans de chrominance.
+    pub fn chroma_size(&self) -> (u32, u32) {
+        if self.chroma444 { (self.width, self.height) } else { (self.width / 2, self.height / 2) }
+    }
+
+    /// Pour le journal : « 3840×2160 4:2:0 SDR pleine ».
+    pub fn label(&self) -> String {
+        format!(
+            "{}×{} {} {} {}",
+            self.width,
+            self.height,
+            if self.chroma444 { "4:4:4" } else { "4:2:0" },
+            if self.hdr { "HDR10" } else { "SDR" },
+            if self.full_range { "pleine" } else { "réduite" }
+        )
+    }
+
+    /// Le paquet (version 1), pour les essais et l'encodeur de la Station.
+    pub fn bytes(&self) -> [u8; 16] {
+        let mut b = [0u8; 16];
+        b[..4].copy_from_slice(b"KNPW");
+        b[4] = 1;
+        b[5] = self.chroma444 as u8;
+        b[6] = self.hdr as u8;
+        b[7] = (!self.full_range) as u8;
+        b[8..12].copy_from_slice(&self.width.to_le_bytes());
+        b[12..16].copy_from_slice(&self.height.to_le_bytes());
+        b
+    }
+}
+
 fn even(v: f64) -> u32 {
     (((v / 2.0).round() as u32) * 2).max(2)
 }
@@ -189,6 +289,41 @@ pub fn lowered(modes: &[Mode], primary: usize, yuv444: bool, ceiling_mbps: u32) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WINAPP-50 : le paquet de configuration lu d'une seule façon.
+    #[test]
+    fn paquet_de_configuration() {
+        let c = Config { chroma444: false, hdr: true, full_range: false, width: 3840, height: 2160 };
+        let b = c.bytes();
+        assert_eq!(Config::parse(&b), Some(c));
+        assert!(Config::is_config(&b));
+        assert_eq!(c.chroma_size(), (1920, 1080));
+        assert_eq!(c.label(), "3840×2160 4:2:0 HDR10 réduite");
+        // Version 2 : métadonnées HDR à la fin, ignorées ici.
+        let mut v2 = b.to_vec();
+        v2[4] = 2;
+        v2.extend_from_slice(&[0u8; 28]);
+        assert!(Config::is_config(&v2));
+        assert_eq!(Config::parse(&v2), Some(c));
+        // Refusés : trop court, autre en-tête, version 0, octet inconnu, 4:2:0 impair, trop grand.
+        assert_eq!(Config::parse(&b[..15]), None);
+        let bad = |i: usize, v: u8| {
+            let mut x = b;
+            x[i] = v;
+            Config::parse(&x)
+        };
+        assert_eq!(bad(0, b'X'), None);
+        assert_eq!(bad(4, 0), None);
+        assert_eq!((bad(5, 2), bad(6, 2), bad(7, 2)), (None, None, None));
+        assert_eq!(Config::parse(&Config { width: 1921, ..c }.bytes()), None);
+        assert!(Config::parse(&Config { chroma444: true, width: 1921, ..c }.bytes()).is_some(), "4:4:4 impair possible");
+        assert_eq!(Config::parse(&Config { width: 16385, ..c }.bytes()), None);
+        // Une image n'est pas un paquet de configuration.
+        let header = [(1919u32 | (1079 << 14) | (1 << 31)).to_le_bytes(), 0u32.to_le_bytes()].concat();
+        assert!(!Config::is_config(&header));
+        assert_eq!(Config::from_sequence_header(&header), Some(Config { chroma444: false, hdr: false, full_range: true, width: 1920, height: 1080 }));
+        assert_eq!(Config::fallback(1921, 1081), Config { chroma444: false, hdr: false, full_range: true, width: 1920, height: 1080 });
+    }
 
     fn m(width: u32, height: u32, refresh: u32) -> Mode {
         Mode { width, height, refresh }
