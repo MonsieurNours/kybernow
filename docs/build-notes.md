@@ -4,7 +4,7 @@
 
 ## Versions des outils
 
-Les binaires de KyberNow construits sur Kyber (surcouche serveur, cœur Rust et bibliothèques des apps KyberNow Link) sont compilés et vérifiés avec ces versions. Celles de Rust, cargo-c, MinGW, meson, llvm-mingw, wasm-bindgen et binaryen, et les versions de FFmpeg et d'Opus des apps Linux, webOS et Android, sont écrites dans `scripts/kyber-toolchain.sh`, que lisent tous les scripts de compilation (Stations Windows, Mac et Linux, chroot x86_64, apps, et `scripts/release.sh`) : une version différente n'arrête rien, elle est signalée au début (« Attention : rustc 1.90.0, versions vérifiées : 1.89.0 »). Le NDK d'Android est vérifié par `build-native.sh` lui-même. Après une mise à jour vérifiée, changer les deux endroits.
+Les binaires de KyberNow construits sur Kyber (surcouche serveur, cœur Rust et bibliothèques des apps KyberNow Link) sont compilés et vérifiés avec ces versions. Celles de Rust, cargo-c, MinGW, meson, llvm-mingw, wasm-bindgen et binaryen, et les versions de FFmpeg et d'Opus des apps Linux, webOS et Android, sont écrites dans `scripts/kyber-toolchain.sh`, que lisent tous les scripts de compilation (Stations Windows, Mac et Linux, chroot x86_64, apps, et `scripts/release.sh`) : une version différente n'arrête rien, elle est signalée au début (« Attention : rustc 1.90.0, versions vérifiées : 1.89.0 »). Le NDK d'Android est vérifié par `build-native.sh` lui-même. Après une mise à jour vérifiée, changer les deux endroits, et pour cargo-c aussi `.github/workflows/coeur.yml`, qui l'épingle (la dernière version peut demander un Rust plus récent).
 
 | Outil | Version | Pour |
 |---|---|---|

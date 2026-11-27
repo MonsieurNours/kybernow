@@ -60,9 +60,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config clang libclang-dev libopus-dev libudev-dev libevdev-dev
+      # cargo-c épinglé sur la version vérifiée (KYBER_CARGO_C de
+      # scripts/kyber-toolchain.sh) : la dernière demande parfois un Rust plus
+      # récent que le nôtre (0.10.28 et Rust 1.98, le 27/11/2026).
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-c
+          tool: cargo-c@0.10.15
       # Sources de Kyber : la même étiquette tant que les correctifs ne
       # changent pas d'origine ; le cache évite de recloner à chaque fois.
       - uses: actions/cache@v4
@@ -99,9 +102,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             pkg-config clang libclang-dev gcc-multilib \
             libopus-dev:i386 libudev-dev:i386 libevdev-dev:i386
+      # cargo-c épinglé sur la version vérifiée (KYBER_CARGO_C de
+      # scripts/kyber-toolchain.sh) : la dernière demande parfois un Rust plus
+      # récent que le nôtre (0.10.28 et Rust 1.98, le 27/11/2026).
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-c
+          tool: cargo-c@0.10.15
       - uses: actions/cache@v4
         with:
           path: third_party/kyber-desktop
