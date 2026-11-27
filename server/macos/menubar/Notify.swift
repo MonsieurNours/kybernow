@@ -26,7 +26,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     override init() {
         super.init()
         center.delegate = self
-        let accept = UNNotificationAction(identifier: "accept", title: t("lend.accept"), options: [])
+        // Accorder l'emprunt demande un Mac déverrouillé : sur l'écran verrouillé,
+        // un passant ne peut pas accepter (STMAC-05). Refuser reste possible.
+        let accept = UNNotificationAction(identifier: "accept", title: t("lend.accept"), options: [.authenticationRequired])
         let refuse = UNNotificationAction(identifier: "refuse", title: t("lend.refuse"), options: [.destructive])
         center.setNotificationCategories([
             UNNotificationCategory(identifier: "lend", actions: [accept, refuse], intentIdentifiers: [], options: []),

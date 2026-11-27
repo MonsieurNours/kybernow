@@ -41,9 +41,17 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     // MARK: État
 
+    /// Un relevé à la fois : Admin bloqué rend un relevé plus long (~5 s)
+    /// que l'intervalle (2 s), la file grossirait sans fin (STMAC-14).
+    private var polling = false
+
     private func refresh() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        if polling { return }
+        polling = true
         poller.async { [weak self] in
             guard let self else { return }
+            defer { DispatchQueue.main.async { self.polling = false } }
             var s = Snapshot()
             s.kyber = serviceState(Labels.kyber)
             s.admin = serviceState(Labels.admin)
@@ -52,7 +60,9 @@ final class StatusController: NSObject, NSMenuDelegate {
             s.permissions = PermissionState.current()
             DispatchQueue.main.async {
                 self.snapshot = s
-                self.notifier.update(s)
+                // Admin muet (relevé raté) : garder les notifications, sinon
+                // elles reviendraient « nouvelles », avec le son (STMAC-13).
+                if s.state != nil { self.notifier.update(s) }
                 self.item.button?.image = statusIcon(s.kyber != .running || s.permissions.count < 3 ? .idle : s.inSession ? .session : .running)
                 self.item.button?.toolTip = "KyberNow Station · \(self.statusLine(s).0)"
                 if let menu = self.item.menu, menu.numberOfItems > 0 { self.build(menu) }
@@ -400,6 +410,14 @@ if arguments.first == "--permissions" {
 }
 if arguments.first == "--check-strings" {
     exit(checkStrings() ? 0 : 1)
+}
+if arguments.first == "--check-instance" {
+    exit(checkInstance() ? 0 : 1)
+}
+// Une seule icône (Single.swift) : une copie ouverte à la main passe la main
+// au service launchd de l'icône.
+if !claimSingleInstance() {
+    exit(0)
 }
 
 let app = NSApplication.shared
