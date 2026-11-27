@@ -267,7 +267,7 @@ pub fn not_found(lang: Lang) -> String {
 /// Ce que le relais voit et garde.
 pub fn privacy(lang: Lang) -> String {
     let title = t(lang, "Confidentialité du relais", "Relay privacy");
-    let items: [(&str, &str); 6] = [
+    let items: [(&str, &str); 7] = [
         (
             "Ce relais fait passer KyberNow par internet quand votre appareil n'est pas sur le même réseau que l'ordinateur.",
             "This relay carries KyberNow over the internet when your device is not on the same network as the computer.",
@@ -285,6 +285,10 @@ pub fn privacy(lang: Lang) -> String {
             "For this, each computer has its own certificate, and certificates are listed in public logs (Certificate Transparency): the computer's identifier, already present in its share links, appears there.",
         ),
         (
+            "Un appareil comme un téléviseur peut déposer ici son journal pour que votre téléphone le reprenne. Il est chiffré sur l'appareil, avec une clé qui n'existe que dans le QR code : le relais ne peut pas le lire. Il le garde en mémoire une heure au plus, et l'efface dès que le téléphone l'a repris.",
+            "A device such as a TV can drop its log here for your phone to pick up. It is encrypted on the device, with a key that only exists in the QR code: the relay cannot read it. It keeps it in memory for one hour at most, and deletes it as soon as the phone has picked it up.",
+        ),
+        (
             "Pour se protéger des abus, le relais garde dans ses journaux les adresses IP et l'heure des connexions, quelques jours. Il ne garde jamais les codes de partage.",
             "To protect itself from abuse, the relay keeps IP addresses and connection times in its logs for a few days. It never keeps share codes.",
         ),
@@ -299,6 +303,42 @@ pub fn privacy(lang: Lang) -> String {
         back = t(lang, "Retour à KyberNow Share", "Back to KyberNow Share"),
     );
     simple(lang, &title, "/privacy", &body)
+}
+
+/// La page d'un journal déposé (docs/relais.md, « Dépôt d'un journal ») : son script
+/// (`/assets/journal.js`) lit la clé dans le fragment de l'adresse, reprend le dépôt une fois,
+/// le déchiffre et le décompresse dans le navigateur, puis propose « Enregistrer » et « Partager ».
+/// Les textes de link-ui (« Page ouverte sur le téléphone ») sont écrits ici, dans la langue du
+/// navigateur ; le script les prend dans les attributs `data-*`.
+pub fn journal(lang: Lang) -> String {
+    let title = t(lang, "Journal de KyberNow Link", "KyberNow Link log");
+    let attr = |fr_text: &str, en: &str| crate::accounts::pages::esc(&t(lang, fr_text, en));
+    let body = format!(
+        r#"<h1>{title}</h1>
+<div id="kj" data-gone="{gone}" data-incomplete="{incomplete}" data-failed="{failed}" data-lang="{code}">
+<p id="kj-status" role="status">{opening}</p>
+<div id="kj-ready" hidden>
+<p id="kj-line" class="kj-line"></p>
+<p class="kj-actions"><button id="kj-share" class="btn kn-primary" type="button" hidden>{share}</button><button id="kj-save" class="btn btn-ghost" type="button">{save}</button></p>
+<p>{once}</p>
+</div>
+<p id="kj-error" role="alert" hidden></p>
+</div>
+<script src="{script}" defer></script>"#,
+        gone = attr(
+            "Ce journal n'est plus là : il a déjà été ouvert, ou il a expiré. Envoyez-en un nouveau depuis l'appareil.",
+            "This log is no longer here: it was already opened, or it expired. Send a new one from the device."
+        ),
+        incomplete = attr("Ce lien est incomplet : scannez de nouveau le QR code.", "This link is incomplete: scan the QR code again."),
+        failed = attr("Ce journal n'a pas pu être ouvert : envoyez-en un nouveau depuis l'appareil.", "This log couldn't be opened: send a new one from the device."),
+        code = lang.code(),
+        opening = t(lang, "Ouverture du journal…", "Opening the log…"),
+        share = t(lang, "Partager", "Share"),
+        save = t(lang, "Enregistrer", "Save"),
+        once = t(lang, "Ce lien ne sert qu'une fois : enregistrez ou partagez le journal maintenant.", "This link only works once: save or share the log now."),
+        script = assets::url("journal.js"),
+    );
+    simple(lang, &title, "/", &body)
 }
 
 #[cfg(test)]
@@ -459,6 +499,27 @@ mod tests {
                 assert!(!text.contains(word), "« {word} » dans l'accueil");
             }
         }
+    }
+
+    #[test]
+    fn la_page_d_un_journal() {
+        for (lang, title, gone) in [(Lang::Fr, "Journal de KyberNow Link", "Ce journal n&#39;est plus là"), (Lang::En, "KyberNow Link log", "This log is no longer here")] {
+            let page = journal(lang);
+            assert!(page.contains(title) && page.contains(gone), "{page}");
+            // Un seul script, celui du relais, versionné ; rien en ligne, rien d'ailleurs.
+            assert_eq!(page.matches("<script").count(), 1);
+            assert!(page.contains(&format!("<script src=\"{}\" defer></script>", assets::url("journal.js"))));
+            for bad in ["onclick=", "onload=", "style=", "<iframe", "cookie"] {
+                assert!(!page.contains(bad), "{bad}");
+            }
+            for abs in page.split("https://").skip(1) {
+                assert!(abs.starts_with("www.kybernow.app/"), "lien vers {}", &abs[..abs.len().min(30)]);
+            }
+            for id in ["kj", "kj-status", "kj-ready", "kj-line", "kj-share", "kj-save", "kj-error"] {
+                assert!(page.contains(&format!("id=\"{id}\"")), "{id}");
+            }
+        }
+        assert!(journal(Lang::Fr).contains("data-lang=\"fr\"") && journal(Lang::En).contains("data-lang=\"en\""));
     }
 
     #[test]

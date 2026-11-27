@@ -34,6 +34,11 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/login/kybernow", post(crate::accounts::web_login_start).get(crate::accounts::web_login_return))
         .route("/api/login/kybernow/start", get(crate::accounts::web_login_begin))
         .route("/api/login/kybernow/return", post(crate::accounts::web_login_post))
+        // La clé d'Admin à distance (STWIN-17) : ajoutée et demandée de bout en bout, sur le nom de la Station.
+        .route("/api/login/key", post(crate::remote_keys::login))
+        .route("/api/login/key/options", post(crate::remote_keys::login_options))
+        .route("/api/login/key/add", get(crate::remote_keys::add_page).post(crate::remote_keys::add))
+        .route("/api/login/key/add/options", post(crate::remote_keys::add_options))
         .route("/api/logout", post(logout))
         .route("/api/password", post(change_password))
         .route("/api/status", get(status))
@@ -123,6 +128,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         // Hors de chez vous (docs/relais.md) : adresse du relais, accès des
         // appareils, état (session d'Admin, jamais par le relais).
         .route("/api/relay", get(crate::relay::get_relay).put(crate::relay::put_relay))
+        .route("/api/relay/keys", post(crate::remote_keys::create))
+        .route("/api/relay/keys/{id}", axum::routing::delete(crate::remote_keys::delete))
         // Compte KyberNow (docs/comptes.md) : compte rattaché, interrupteur,
         // accès entrés par un jeton et leur blocage (session d'Admin, jamais par le relais).
         .route("/api/account", get(crate::accounts::get).put(crate::accounts::put))

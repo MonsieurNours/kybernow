@@ -420,6 +420,9 @@ fn ouvrir_admin_sur_le_reseau_avec_le_droit_administrer() {
     assert_eq!(location(&ana.get(&format!("/compte/admin?id={st}&lang=fr"))), format!("{e2e}/api/login/kybernow/start?lang=fr"));
     let nonce = "bcdefghijklmnopqrstuvwxyza";
     let e2e_url = format!("/compte/ouvrir-admin?station={st}&nonce={nonce}&retour={}&lang=fr", e2e.replace(':', "%3A").replace('/', "%2F"));
+    // La page dit que l'ordinateur demandera ensuite sa propre clé (STWIN-17) ; pas sur l'ancien chemin.
+    assert!(html(&ana.get(&e2e_url)).contains("clé d&#39;Admin à distance") || html(&ana.get(&e2e_url)).contains("clé d'Admin à distance"));
+    assert!(!html(&ana.get(&remote_url)).contains("clé d'Admin à distance") && !html(&ana.get(&remote_url)).contains("clé d&#39;Admin à distance"));
     let extra = [("station", st.as_str()), ("nonce", nonce), ("retour", e2e.as_str()), ("action", "ouvrir")];
     let r = ana.passkey(&e2e_url, "/compte/ouvrir-admin?lang=fr", &mut auth, &extra);
     let target = between(html(&r), "content=\"0;url=", "\"").replace("&amp;", "&");

@@ -126,9 +126,10 @@ On TCP, the relay looks at the start of each TLS connection:
 | `GET /privacy` | What the relay sees and keeps (French or English) |
 | `GET /assets/<file>?v=<version>` | The page's stylesheet, fonts, logo and favicon, embedded in the binary; kept for a year (`immutable`, the address carries the version); unknown file: the “not found” page |
 | `GET /v1/health` | `200 {"ok":true,"version":"…"}`; the iPhone and iPad apps call it before opening the tunnel (wakes the cellular radio) |
+| `POST /v1/journal`, `GET /v1/journal/{id}`, `GET /v1/journal/{id}/state`, `DELETE /v1/journal/{id}`, `GET /journal/{id}` | Dropping an encrypted log, and its page (“Dropping a log”) |
 | `https://<id>.share…/*` | HTTP/1.1 proxy to the Station's Admin (WebSocket included); Station absent: “computer unreachable” page (503) |
 
-The relay's pages have no script, no cookie and no audience measurement, and load nothing from another site: content policy `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. They never write the relay's address (relative paths): the same page serves on the relay's listening port and on its public port (`https://share.kybernow.app`, without a port at 443). Details: [server/relay/README.en.md](../server/relay/README.en.md#the-home-page).
+The relay's pages (except a log's, see “Dropping a log”) have no script, no cookie and no audience measurement, and load nothing from another site: content policy `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. They never write the relay's address (relative paths): the same page serves on the relay's listening port and on its public port (`https://share.kybernow.app`, without a port at 443). Details: [server/relay/README.en.md](../server/relay/README.en.md#the-home-page).
 
 Proxy: `Host` passed as is, `X-Forwarded-For` and `Forwarded` removed (the browser's address travels in the stream header), `Domain=` removed from every `Set-Cookie`. One origin per Station: one Station's code never reads another's cookies.
 
@@ -181,8 +182,51 @@ The added fields (`browser_tls`, `tls_ready`) and the `tls_zone` message are ign
 
 - It sees the presented name (so the Station's identifier), addresses, volumes and times, nothing of the content any more.
 - To pass itself off as the Station, the domain's operator would have to get another certificate issued for `<id>.station…` (they hold the DNS, they can): that certificate would be published in the Certificate Transparency logs, the Station would see it and suspend “Remote Admin”. Browsers do not allow pinning a certificate: this is the best guarantee possible for a site opened in a browser.
-- **Account tokens**: it is still the relay that signs the `via: "relay"` token that opens a remote session (after the passkey, which it checks). A compromised relay could forge one and open Admin itself, going through the encrypted path like a browser. Closing that needs a proof the Station checks itself (“Later”).
+- **Account tokens**: it is still the relay that signs the `via: "relay"` token (after the account's passkey, which it checks). End to end, it is no longer enough: the Station also asks for its remote Admin key, which it checks itself (“Remote Admin key”); a compromised relay can no longer open Admin on its own.
 - The Certificate Transparency logs are public: every Station that got a certificate appears there, under its identifier (already present in its share links). The relay's `/privacy` page says so.
+
+### Remote Admin key: the proof the relay cannot make (STWIN-17)
+
+Implemented on 27/11/2026 (phase 2b of the audit), for Station 0.11.8: `server/admin/src/remote_keys.rs`, WebAuthn verification shared with the relay (`kybernow_tunnel::webauthn`).
+
+**The problem.** End to end, the relay no longer sees Admin, but it alone signs the `via: "relay"` token that opens a remote session. A compromised relay (its signing key stolen, or its operator) could forge one: it would ask the Station for the start like a browser (`/api/login/kybernow/start`, through the encrypted path), sign a token for that `nonce`, and the session would open.
+
+**The choice: a passkey registered on site with the Station.** The Station itself keeps the public key of passkeys created **for its end-to-end name** (`rp.id` = `<id>.station.share.kybernow.app`) and asks for one of them at every remote opening, **on top of** the relay's token. Both proofs remain needed: the token says the account and its rights (removed in the console, they no longer count); the key says it is the host, and the relay cannot produce it:
+
+- the private key never leaves the host's authenticator (phone, computer, synced keychain);
+- the public key reaches the Station during the **adding**, over a connection encrypted end to end all the way to it, authorised by a one-time code drawn **on site** (Admin opened on the network, never through the relay) and passed in the address fragment;
+- what the authenticator signs carries the origin (`https://<id>.station…`) and the name's hash: a signature made for another site (the relay, `share.kybernow.app`) does not count, and the relay has no certificate for that name (getting one issued shows in the public logs, which the Station watches every day).
+
+Set aside: the account's passkey, checked by the Station (its public key would come from the relay, which could hand over its own); a secret set on site in the browser (a cookie can't be set on the end-to-end name from the network, is wiped with the browser's data and doesn't follow the host from one device to another, whereas a passkey syncs); a confirmation on the computer (the host is away, nobody to confirm).
+
+**Adding (on site).**
+
+| Route | Content |
+|---|---|
+| `POST /api/relay/keys` | Admin session, on the network only (`403 network_only` through the relay, even with a remote session); `409 not_ready` without an end-to-end certificate. → `{"url":"https://<name>/api/login/key/add#code=<code>","expires":600}`: a 128-bit code, once, 10 minutes. The interface shows this link as a QR code (“Add a key”) |
+| `GET /api/login/key/add` | The adding page, served by the Station **end to end only** (`browser_tls`, `Host` = its name); it removes the code from the address |
+| `POST /api/login/key/add/options` | `{code}` → the options for `navigator.credentials.create()`: `rp.id` = the name, user “Admin · {computer}” (one identifier for the whole Station: adding again on the same authenticator replaces the key), ES256, Ed25519, RS256, user verification required, `residentKey: preferred`, no attestation, existing keys excluded |
+| `POST /api/login/key/add` | `{code, client_data, attestation}` (base64url) → `{"ok":true,"name":"iPhone"}`; the key's name comes from the browser that adds it (iPhone, iPad, Android, Mac, Windows, Linux, Chromebook, otherwise “Browser”). Refusals: `410 expired`, `403 invalid`, `409 full` (10 keys), `403 wrong_path` |
+| `DELETE /api/relay/keys/{id}` | Removes a key (Admin session, wherever it comes from: removing gives nothing away) → the relay view |
+| `GET /api/relay` | `remote_keys: [{"id","name","added","used","current"}]` (`current`: valid for the current end-to-end name; a key added for another relay no longer works) |
+
+**Remote opening (end to end).** The return of “Open Admin” (`/api/login/kybernow`, over `browser_tls`) checks the relay's token as before (Administer right, `via: "relay"`, `jti` = the browser's `nonce`, single use), then **does not** open the session: it returns the “Confirm with your key” page and sets `__Host-kyber_admin_key` (`Secure`, `HttpOnly`, `SameSite=Strict`, 2 minutes). `POST /api/login/key/options` → `{rpId, challenge, allowCredentials, userVerification: "required"}` (32-byte challenge drawn by the Station); `POST /api/login/key {id, client_data, authenticator, signature, user}` → the Station checks the origin, challenge, name, flags (user presence and verification), signature and counter, then opens the remote session (`__Host-kyber_admin_session`), writes the feed and tells the relay (`admin_opened`) as before. Without a key for that name: `403`, “No remote Admin key on this computer. Add one on site…”. An opening works once; 16 additions and 16 openings in progress at most.
+
+**Relay guard.** `/api/login/key` and `/api/login/key/options`: like the “Open Admin” return (“Remote Admin” on, path allowed). `/api/login/key/add*`: end to end only, switch on or not (the host can add their key before turning it on). `/api/relay/keys*`: never through the relay without a remote session, and adding never through the relay at all.
+
+**Pages.** Small pages served by Admin, in its language: an inline script, allowed by its hash only (`script-src 'sha256-…'`), requests to the Station only (`connect-src 'self'`), nothing from elsewhere.
+
+**Compatibility.**
+
+| Station | Relay | Remote opening |
+|---|---|---|
+| 0.11.7 | all | as before (relay token alone) |
+| 0.11.8 | 0.11.7 (no end-to-end zone) | decrypted path, token alone: the relay already sees the whole session, a key would protect nothing there; Admin says so under the switch |
+| 0.11.8 | 0.11.8 | end to end: token **and** key. A host who had “Remote Admin” on in 0.11.7 adds a key on site before using it from afar; the refusal page tells them |
+
+The relay has nothing to change for the proof: it signs the same token, and its “Open {computer}'s Admin?” page announces the step when the return is end to end (“Then the computer will ask for its remote Admin key, added on site: the relay can't open Admin in your place.”).
+
+**What is left to the relay.** Refusing to carry (denial of service), removing rights, seeing names, addresses and volumes. On the decrypted path (older Station or relay), everything, as before. Getting a fake certificate issued for a Station's name would let it sit in the middle of a session the host opened themselves: the public logs show it, and the Station then suspends “Remote Admin” (“What the relay still sees”).
 
 ### Deployment on the public relay (for the author to do)
 
@@ -234,7 +278,7 @@ Admin considers “local” what comes from the loopback (`/api/local/*`, `local
   - to a **paired device** (Basic account), only when “Access away from home” is on: `/api/stream/*` (except `/api/stream/station/*`) and the host routes `/api/share*`; access off: `403 {"error":…,"code":"remote_access_off"}`;
   - to an **invited device**, when an invitation is open and “Access away from home” is on: `POST /api/pair/invite` (the invitation's code and password, [invitations.en.md](invitations.en.md)); `POST /api/share/join` also passes when an invitation is open (it answers `"invite": true`);
   - **never** through the relay: restarting and updating the Station (`/api/stream/station/restart`, `/api/stream/station/update`: a heavy action, done on site or in Admin), `/api/login`, `/api/setup`, `/api/password`, `/api/web/ticket`, `/api/pair*` (except `/api/pair/invite`), `/api/pairing`, `/api/invites*`, `/api/local/*`, configuration, accounts, logs, service, display, sound, Admin's update, devices, apps, `/api/events`, Admin's interface. Pairing by code happens on the network only; an invitation adds a device from afar.
-  - **except “Remote Admin”** (docs/comptes.en.md, “Admin from KyberNow Share”): a browser (`browser_tls`, or `admin_http` as long as the Station has never been end to end with this relay: “Browser encrypted end to end”) with a session opened by `/api/login/kybernow` thanks to a `via: "relay"` token (passkey), cookie `__Host-kyber_admin_session`, switch on: all of Admin, the guard turning that cookie back into the session cookie. That sign-in's start and return (`GET /api/login/kybernow/start`, `GET /api/login/kybernow`) also pass, switch on. “Remote Admin” can't be turned on through the relay (`PUT /api/relay`, `403 network_only`).
+  - **except “Remote Admin”** (docs/comptes.en.md, “Admin from KyberNow Share”): a browser (`browser_tls`, or `admin_http` as long as the Station has never been end to end with this relay: “Browser encrypted end to end”) with a session opened by `/api/login/kybernow` thanks to a `via: "relay"` token (passkey), cookie `__Host-kyber_admin_session`, switch on: all of Admin, the guard turning that cookie back into the session cookie. That sign-in's start and return (`GET /api/login/kybernow/start`, `GET /api/login/kybernow`) also pass, switch on. “Remote Admin” can't be turned on through the relay (`PUT /api/relay`, `403 network_only`). End to end, the session only opens after the remote Admin key (`/api/login/key*`, “Remote Admin key”); a key can't be added through the relay (`POST /api/relay/keys`, `403 network_only`).
 - **Blocking**: 10 Basic account failures through the relay from the same address (a /64 in IPv6) within 10 minutes block **that address** for 10 minutes (`429 {"code":"locked"}`); the owner, from elsewhere, still gets through. Safeguard: 100 failures within 10 minutes, all addresses together, block all of the devices' access through the relay for 10 minutes (`locked_until` of `GET /api/relay`). Each block puts a line in the feed.
 - **Kyber**: the agent reaches Kyber only for an authorised client (an accepted guest, while it keeps sending signs of life; a paired device after `prepare`, for 30 s renewed by the heartbeat), and always **from and to the computer's local network address**, never through the loopback (patch 0019 keeps `/kybernow/*` for the loopback). Kyber listens on all addresses.
 - Admin authorises a **relay client** (its identifier): the one that made the successful `wait`, `beat` or `prepare`/`heartbeat`. A client that reconnects keeps its identifier.
@@ -290,13 +334,57 @@ What Admin does on top of the above, without changing any of it (`server/admin/s
 A Station forwards the play of a PlayStation console on its network (contract: [playstation.en.md](playstation.en.md)). Admin alone: Kyber plays no part.
 
 - **The consoles seen**: Admin looks for the consoles on its network (`SRCH` broadcast, ports 9302 and 987, and directly to the ones already seen, every 30 s, and on request: `GET /api/consoles` searches again when the last search is more than 10 s old, one second at most) and keeps their ID (`host-id`), name, model, state and network address. `GET /api/consoles` → `{"consoles":[{"host_id":"C0151B2DAE08","name":"PS5 de Matthieu","model":"ps5"|"ps4","state":"ready"|"standby","seen":<Unix seconds>}]}` (never the address; a console silent for 5 minutes is no longer listed); for a paired device (Basic account), directly or through the relay (“Access away from home” on), like `info`. A Station from before consoles answers `404`.
-- **The flows**: `open_flow`, `flow_open` and relayed TCP connections carry `"to":"console","host_id":"<id>","port":<port>` instead of going to Kyber. A TCP connection to a console opens with the `console_tcp` service (`{"t":"open","service":"console_tcp","to":"console","host_id":…,"port":…}`); the relay writes the header `{"t":"stream","v":1,"kind":"console_tcp",…,"to":"console","host_id":…,"port":…}`. The relay forwards these fields without deciding anything; a `to: "console"` without an ID or a port is refused (`bad_request`), never taken for Kyber. Admin only reaches the address it found itself for that ID, from the computer's local network address, and only these ports: TCP 9295 (session, control channel, pairing) and 997 (PS4); UDP 9295 (pairing's `SRC3`/`SRC2` search), 9296 (Takion), 9302 and 987 (state, wake). Unknown ID or other port: refused (`console_unknown`, `port_forbidden`); a client without a heartbeat: `not_authorized`. Never an address given by the app: the Station is not an open proxy.
+- **The flows**: `open_flow`, `flow_open` and relayed TCP connections carry `"to":"console","host_id":"<id>","port":<port>` instead of going to Kyber. A TCP connection to a console opens with the `console_tcp` service (`{"t":"open","service":"console_tcp","to":"console","host_id":…,"port":…}`); the relay writes the header `{"t":"stream","v":1,"kind":"console_tcp",…,"to":"console","host_id":…,"port":…}`. The relay forwards these fields without deciding anything; a `to: "console"` without an ID or a port is refused (`bad_request`), never taken for Kyber. Admin only reaches the address it found itself for that ID, from the computer's local network address, and only these ports: TCP 9295 (session, control channel, pairing) and 997 (PS4); UDP 9295 (pairing's `SRC3`/`SRC2` search), 9296 (Takion), 9302 and 987 (state, wake); these lists are written once, in the tunnel crate (`kybernow_tunnel::console`: `TCP_PORTS`, `UDP_PORTS`, `allowed`), which the relay, Admin and the core share. Unknown ID or other port: refused (`console_unknown`, `port_forbidden`); a client without a heartbeat: `not_authorized`. Never an address given by the app: the Station is not an open proxy.
 - **Authorisation**: that of a paired device away from home, renewed by its heartbeat (`POST /api/consoles/beat`, 30 s; the app sends it every 10 s) during state, wake and play; the answer is that of `GET /api/consoles`. It only covers consoles: it does not open Kyber, and the end of a Kyber session does not close a console's flows. “Access away from home” off: flows and connections to consoles closed at once. A KyberNow Share guest never gets it (Basic account required). On the network, the heartbeat authorises nothing (there are no flows).
 - **Packets**: unchanged (one UDP packet per datagram; the console sends packets of at most 1,200 bytes, asked for by the app). The socket to the console is kept 25 s after a drop, as towards Kyber.
 - **Relay version**: a relay from before consoles cuts `console_tcp` (unknown service) and forwards `open_flow` without `to`: Admin sees a flow to Kyber, refused to a client that did not `prepare`. The public relay must therefore be up to date.
 - **Core**: `relay::Tunnel::console_addr(host_id, port)` (TCP and UDP on `127.0.0.1:L`, like `kyber_addr`); a single UDP flow per console port (answers go to the app socket that spoke last: search and wake take a new one at each try), freed after 15 s of silence, to stay under the relay's four flows per client; `playstation`'s discovery, wake, pairing, session and Takion take an `Endpoint` (address and ports, `playstation::endpoint`): through the relay, the loopback and the tunnel's ports, Takion MTU at 1,200. `playstation::remote::Remote::open(&admin_console_through_the_relay, host_id)`: the heartbeat, then the four ports (9302, 987, 9295, 9296), and the heartbeat every 10 s while it lives. Apple bridges: `kn_console_consoles`, `kn_ps_remote_open` (code 40: the Station does not see the console), `kn_ps_remote_address`, `kn_ps_remote_state`, `kn_ps_remote_route`, `kn_ps_search_at`; the other `kn_ps_*` take `kn_ps_remote_address`'s address like an IPv4 address.
 - **Stations**: Windows and Mac (the same Admin, `server/admin`).
 - **Tried** on 3 Nov 2026, on the Mac's loopback (the core tests' fake relay, which forwards the ports like a Station) to the author's real PS5 Pro: “standby” state read through the tunnel, wake, session (the `Host` header carries `127.0.0.1`, the console accepts it), control channel, 1080p H.265 stream with the 1,200-byte MTU, 300 pictures without loss. Not tried yet: the real relay (`share.kybernow.app`) with a real Admin on a Windows or Mac Station, and the Mac app away from home.
+
+## Dropping a log
+
+Status: contract of 27/11/2026, decided by the author; implemented in relay 0.11.8 (`server/relay/src/journal.rs`, the page and its script `assets/journal.js`); the apps implement it in phase 2b of the audit, against the format, routes and test vectors below. On-screen texts and steps: [link-ui.en.md](link-ui.en.md), “App settings › About”.
+
+A TV (Apple TV, Android TV, LG), Link OS, the Steam Deck in Game mode and the Linux app in the living room have no share sheet: “Send the log” goes through the relay and a QR code there. **The relay never reads the log**: it is encrypted on the device with a key that only leaves the device in the QR code, after `#` in the address, a part the phone's browser never sends to the server.
+
+1. **On the device**: the log (text, 2 MiB at most once compressed, see link-ui) is gzip-compressed, then encrypted with AES-256-GCM using a key drawn at random for this drop (32 bytes) and a 12-byte nonce. The drop: `KNJ1` (4 bytes), the nonce, then the ciphertext and its 16-byte tag.
+2. **Drop**: `POST /v1/journal` on the relay of the device's KyberNow account, otherwise the public relay, body `application/octet-stream`, with no account or token. Answer `201 {"id":"<identifier>","owner":"<token>","expires_in":3600}`: identifier and token of 128 bits each, in base64url (22 characters). Refusals: `413 {"error":"too_large"}`; `429 {"error":"too_many","retry_after":<s>}` with `Retry-After`; `503 {"error":"full"}`; an older relay answers `404` (the app says it needs updating).
+3. **QR code**: `https://<relay>/journal/<id>#k=<key>`, the key in base64url (43 characters).
+4. **On the phone**: `GET /journal/<id>` returns the page (in the browser's language). Its script reads the key from the address, requests `GET /v1/journal/<id>`, decrypts (WebCrypto), decompresses (`DecompressionStream`), then offers “Save” (file `kybernow-journal.txt`) and “Share” (Web Share, when the browser can share a file). The key appears in no request.
+5. **Single use**: the relay deletes the drop as soon as it has sent it whole; afterwards, and after one hour, `GET /v1/journal/<id>` answers `404 {"error":"gone"}` and the page says so.
+6. **Followed by the device**: `GET /v1/journal/<id>/state` with the `x-kn-owner: <token>` header returns `{"state":"waiting"}` or `{"state":"opened"}` (`404` once expired); the QR code screen reads it again every 2 s. `DELETE /v1/journal/<id>` with the same header removes a drop not yet opened (“Done”).
+
+What the relay keeps: drops in memory only, never on disk, one hour at most; their size and time. Its logs contain neither a drop's identifier nor its token (like codes); the key, it never sees. Limits: 2 MiB and 64 bytes per drop, 6 drops per hour per address (a /64 in IPv6), 256 MiB in all (beyond that, `503`). The log page is the relay's only page with a script: `script-src 'self'` and `connect-src 'self'` are added, for it alone, to the content policy above; the script is embedded in the binary, like the stylesheets, and loads nothing from another site. The privacy page (`/privacy`) describes this drop.
+
+### Relay details
+
+What the relay does on top, without changing anything above:
+
+- **Encryption**: AES-256-GCM with no associated data; a key and a nonce drawn at random for every drop (never one key for two drops).
+- **More refusals**: `400 {"error":"bad_request"}` (under 32 bytes, or without the `KNJ1` mark), `408 {"error":"timeout"}` (body not arrived within 60 s), `405 {"error":"method_not_allowed"}`. A `Content-Length` over the limit is refused (`413`) before the body leaves: the app checks the size before sending. Every attempt counts towards the 6 per hour, except a `503`.
+- **Ceiling**: 4,096 drops kept at once at most (opened ones count until they expire); beyond that, `503 full`, as beyond 256 MiB.
+- **Single use**: “sent whole” means the last byte handed to the connection. An interrupted download (the phone loses the network) leaves the drop, which the phone can ask for again within the hour.
+- **Wrong token or unknown drop**: `404 {"error":"gone"}` for `state` as for `DELETE` (the relay does not say which). `DELETE` of an already opened drop also clears its state (`204`).
+- **The page's line**: the script reads, in the first 4 KiB of the decrypted log, `Appareil : …` (or `Device: …`) and `Journal écrit le …` (or `Log written on …`), like the Android log header; a missing line is left out. The size is the decompressed text's. The apps write these two lines at the start of the log.
+- **The page**: the key leaves the displayed address and the history as soon as the page opens (`history.replaceState`); reloading the page asks to scan again. It needs WebCrypto and `DecompressionStream` (Safari 16.4, Chrome 80, Firefox 113); otherwise, “This log couldn't be opened”. A single request, to this relay, without cookies.
+- **Metrics**: `relay_journals_total{result}` (`stored`, `opened`, `too_large`, `bad`, `too_many`, `full`), `relay_journals_waiting`, `relay_journal_bytes`.
+
+### KNJ1 test vectors
+
+For an app to check its encryption without a relay. Another library's compression gives other bytes than these (gzip header, level): test the encryption on the given input, and the compression by a round trip.
+
+| | Value |
+|---|---|
+| Key (hex) | `000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f` |
+| Key in the QR code (`#k=`) | `AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8` |
+| Nonce (hex) | `a0a1a2a3a4a5a6a7a8a9aaab` |
+| Plain log (UTF-8, 98 bytes, four lines ended by `\n`) | `KyberNow Link 0.11.8` · `Appareil : Essai KNJ1` · `Journal écrit le 2026-11-27 12:00:00.000 UTC` · `Bonjour.` |
+| Input: the gzipped log (hex, 115 bytes) | `1f8b08000000000002fff3ae4c4a2df2cb2f57f0c9cccb5630d03334d4b3e0722c28482c4acdcc51b052702d2e4ecc54f0f6f332e4f2ca2f2dca4bcc5138bc32b928b344212755c1c8c0c84cd7d050d7c85cc1d0c8cac00088f40c0c0c1442439cb99cf2f3b2801af4b800b1b88fb162000000` |
+| Output: the `KNJ1` drop (hex, 147 bytes) | `4b4e4a31a0a1a2a3a4a5a6a7a8a9aaabf993742d45cb02bf609a747d4b30ed2cbb830ee05b7b893aacde15b2ab189573fe5e0fd3e5ef9f6cefce74e527344fadb7edb57a8622d0516c944092f54839820d94362b1182b1213c223754581e9c6d05576a740d0b597a66813296bd8e0fd7133db759f01c0f816a6306e13d075c4a2450614699bf3b2059e75ad4459d934d121ce0` |
+| Line shown by the page (in French) | `Essai KNJ1 · 98 o · 2026-11-27 12:00:00.000 UTC` |
+
+Checked by `journal::tests::vecteur_d_essai_knj1` (ring's AES-GCM, both ways), by `tests/journal.rs` (the drop end to end on a loopback relay) and by the page's script, decrypted under Node with WebCrypto.
 
 ## Trust
 
@@ -305,7 +393,7 @@ A Station forwards the play of a PlayStation console on its network (contract: [
 - **Link and QR code**: `fp` and `sid` come from the Station; the exchange is end to end, the relay cannot get in the middle.
 - **Paired devices**: fingerprints pinned at pairing (on the network). Through the relay, never trust on first use, except the invitation: with a typed code the fingerprint comes from the relay (as for a share), hence the extra password; with its link or QR code it comes from the Station ([invitations.en.md](invitations.en.md)).
 - **Browser**: since 0.11.8, encrypted end to end to the Station (`<id>.station.share.kybernow.app`, the Station's certificate and key); the relay can only pass itself off as the Station by getting another certificate issued, which the public logs show and the Station watches (“Browser encrypted end to end”). With an older Station or relay, the relay decrypts (real `*.share.kybernow.app` certificate). The apps stay encrypted end to end.
-- **“Remote Admin” and KyberNow accounts**: it is the relay that signs KyberNow account tokens (Session, Administer rights…, and the `via: "relay"` token that opens Admin remotely). It no longer reads the Admin session opened remotely (0.11.8, end to end), but a compromised relay could forge a token and open a session itself. Whoever controls it therefore still has a hand on the attached Stations that have “Remote Admin” or accept accounts: a personal relay is only as safe as it is well kept. Without “Remote Admin” or accounts, the relay only carries encrypted streams.
+- **“Remote Admin” and KyberNow accounts**: it is the relay that signs KyberNow account tokens (Session, Administer rights…, and the `via: "relay"` token that opens Admin remotely). It no longer reads the Admin session opened remotely (0.11.8, end to end), and that token alone no longer opens it: the Station also asks for its remote Admin key, added on site (“Remote Admin key”). Whoever controls the relay keeps a hand on the accounts' rights (devices' session tokens, restart and update through the Administer right) and, on the decrypted path (older Station or relay), on “Remote Admin”: a personal relay is only as safe as it is well kept. Without “Remote Admin” or accounts, the relay only carries encrypted streams.
 - The public relay is in France; it keeps IP addresses in its logs for a few days (logs rotated by size), never codes. Privacy page on the relay (`/privacy`).
 
 ## Relay limits and protections
@@ -320,10 +408,3 @@ A Station forwards the play of a PlayStation console on its network (contract: [
 ## Installing a relay at home
 
 A Linux machine with Docker, a domain name whose DNS zone accepts an API token (Gandi by default, for the wildcard certificate), one port open over TCP **and** UDP, 443 preferably. The browser encrypted end to end needs public port 443 and `*.station.<domain>` leading to the relay (the `*.<domain>` wildcard usually suffices); on another port, the relay does not announce it and the browser goes through `<id>.<domain>`, decrypted, as before. The relay listens on a port of the machine (`RELAY_LISTEN`, 8443 by default) and announces the public port the router forwards to it (`RELAY_PUBLIC_PORT`); the step by step is in [server/relay/README.en.md](../server/relay/README.en.md), “Ports and the router”. The relay image is published with every version (`ghcr.io/monsieurnours/kybernow-relay`, by `.github/workflows/relay-image.yml`); the compose's `updater` service pulls it every night. In each Station's Admin: “Away from home › Relay” = the address with its public port, `relay.example.org` for 443, `relay.example.org:9443` for another one.
-
-## Later
-
-- “Remote Admin” without trusting the relay for identity: a passkey registered on site with the Station (on `<id>.station…`, after a code shown by Admin on the network), which the Station checks itself at each opening, on top of the relay's token. A compromised relay could then no longer open Admin. To decide with the author (one more step for the host).
-
-- The browser's picture over WebTransport through the relay (except Safari): the relay would read the name in the first QUIC packet and forward without decrypting.
-- Fair sharing of the home's uplink between several guests.

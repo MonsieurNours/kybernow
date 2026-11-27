@@ -21,6 +21,8 @@ server = ["dep:quinn-proto"]
 # Relais simulé (connexion de contrôle seulement), pour les essais de
 # l'agent et d'Admin : rattachement, enrôlement.
 test-relay = ["station", "server"]
+# Authentificateur logiciel (passkeys) pour les essais du relais et d'Admin.
+test-webauthn = []
 
 [dependencies]
 base64 = "0.22"

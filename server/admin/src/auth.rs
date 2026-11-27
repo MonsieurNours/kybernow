@@ -355,6 +355,8 @@ pub async fn require_session(State(state): State<AppState>, req: Request, next: 
 /// (limité).
 fn is_public(path: &str) -> bool {
     matches!(path, "/api/session" | "/api/login" | "/api/login/kybernow" | "/api/login/kybernow/start" | "/api/login/kybernow/return" | "/api/setup" | "/api/share")
+        // La clé d'Admin à distance : le code d'ajout, ou l'ouverture qui attend la clé (son cookie).
+        || matches!(path, "/api/login/key" | "/api/login/key/options" | "/api/login/key/add" | "/api/login/key/add/options")
         || path.starts_with("/api/local/")
         || path.starts_with("/api/stream/")
         || path.starts_with("/api/share/")

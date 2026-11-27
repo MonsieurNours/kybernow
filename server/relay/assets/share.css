@@ -832,3 +832,7 @@ a.ka-pc:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--kn-signal)
 .ka-admin-chip .ka-ic { width: 14px; height: 14px; color: var(--kn-signal); }
 .ka-admin-chip:hover { color: var(--kn-frost); box-shadow: inset 0 0 0 1px var(--kn-signal-line); }
 .ka-pc-head .ka-pc-top { flex-wrap: wrap; }
+
+/* ---- Page d'un journal déposé ---- */
+.kj-line { font: 500 14px/1.5 var(--kn-font-mono); color: var(--kn-frost); overflow-wrap: anywhere; }
+.page .kj-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }

@@ -5,6 +5,7 @@
 //! - `quic` et `tcp` : les connexions entrantes et leurs limites ;
 //! - [`web`], [`pages`] et [`assets`] : les pages du relais (accueil, saisie du code), leurs
 //!   fichiers embarqués et le mandataire du navigateur ;
+//! - [`journal`] : les journaux déposés par les téléviseurs et Link OS, chiffrés sur l'appareil ;
 //! - [`accounts`] : les comptes KyberNow (`/compte/…`, docs/comptes.md), coupés par défaut ;
 //! - [`certs`] : le certificat relu à chaud ; [`metrics`] : Prometheus.
 
@@ -15,6 +16,7 @@ pub mod accounts;
 pub mod config;
 mod counted;
 pub mod hub;
+pub mod journal;
 pub mod legal;
 pub mod limits;
 pub mod metrics;

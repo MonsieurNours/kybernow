@@ -2,7 +2,8 @@
 //!
 //! - `share.<domaine>` : l'accueil de KyberNow Share et la saisie du code (`/`),
 //!   `/j/{code}`, `/assets/…` (styles, polices et logo embarqués), `/v1/codes/{code}`,
-//!   `/v1/health`, `/privacy` ; avec les comptes (`[accounts] enabled`), `/compte/…`
+//!   `/v1/health`, `/privacy`, les journaux déposés (`/v1/journal…`, `/journal/{id}`,
+//!   [`crate::journal`]) ; avec les comptes (`[accounts] enabled`), `/compte/…`
 //!   ([`crate::accounts`]), seules pages en POST ; avec eux aussi `/tv`,
 //!   `/v1/keys` (clé de signature des jetons), l'API des appareils
 //!   (`/v1/devices/…`, `/v1/computers`, `/v1/access`, en JSON) et les textes
@@ -17,7 +18,7 @@
 use std::convert::Infallible;
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
@@ -36,6 +37,7 @@ use crate::accounts::devices::{self, ApiMethod, ApiRequest};
 use crate::accounts::{Accounts, web as account_web};
 use crate::assets;
 use crate::hub::{Hub, VERSION};
+use crate::journal;
 use crate::pages::{self, Lang};
 
 type Body = BoxBody<Bytes, hyper::Error>;
@@ -90,6 +92,10 @@ pub const PAGE_POLICY: &str =
 
 /// La politique des pages des comptes : la même, plus le script des passkeys (`/assets/passkey.js`, lot 1b).
 pub const ACCOUNT_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+
+/// La politique de la page d'un journal (docs/relais.md, « Dépôt d'un journal ») : celle des pages, plus
+/// son script (`/assets/journal.js`) et ses requêtes vers le relais. Rien d'un autre site.
+pub const JOURNAL_POLICY: &str = "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 
 /// Un fichier de `/assets/` : l'adresse porte la version des fichiers, la réponse se garde un an.
 fn asset(name: &str) -> Option<Response<Body>> {
@@ -189,6 +195,9 @@ async fn relay_page(hub: &Hub, req: Request<Incoming>, ip: IpAddr) -> Response<B
             return device_api(accounts.clone(), req, ip).await;
         }
     }
+    if req.uri().path() == "/v1/journal" || req.uri().path().starts_with("/v1/journal/") {
+        return journal_api(hub, req, ip).await;
+    }
     if req.method() != hyper::Method::GET && req.method() != hyper::Method::HEAD {
         return html(StatusCode::METHOD_NOT_ALLOWED, pages::not_found(lang));
     }
@@ -216,6 +225,14 @@ async fn relay_page(hub: &Hub, req: Request<Incoming>, ip: IpAddr) -> Response<B
         _ => {
             if let Some(name) = path.strip_prefix("/assets/") {
                 return asset(name).unwrap_or_else(|| html(StatusCode::NOT_FOUND, pages::not_found(lang)));
+            }
+            if let Some(id) = path.strip_prefix("/journal/") {
+                if !journal::is_token(id) {
+                    return html(StatusCode::NOT_FOUND, pages::not_found(lang));
+                }
+                let mut r = html(StatusCode::OK, pages::journal(lang));
+                r.headers_mut().insert("content-security-policy", HeaderValue::from_static(JOURNAL_POLICY));
+                return r;
             }
             if let Some(code) = path.strip_prefix("/j/") {
                 let code = code.trim_end_matches('/');
@@ -385,6 +402,101 @@ async fn device_api(accounts: Arc<Accounts>, req: Request<Incoming>, ip: IpAddr)
         r.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(secs));
     }
     r
+}
+
+/// `/v1/journal…` (docs/relais.md, « Dépôt d'un journal ») : le dépôt, l'envoi au téléphone
+/// (une fois), l'état et le retrait vus par l'appareil (`x-kn-owner`). Ni identifiant ni jeton
+/// dans les journaux du relais.
+async fn journal_api(hub: &Hub, req: Request<Incoming>, ip: IpAddr) -> Response<Body> {
+    let gone = || json(StatusCode::NOT_FOUND, serde_json::json!({ "error": "gone" }));
+    let not_allowed = || json(StatusCode::METHOD_NOT_ALLOWED, serde_json::json!({ "error": "method_not_allowed" }));
+    let path = req.uri().path().to_string();
+    if path == "/v1/journal" {
+        return if req.method() == hyper::Method::POST { journal_upload(hub, req, ip).await } else { not_allowed() };
+    }
+    let rest = &path["/v1/journal/".len()..];
+    let (id, state) = match rest.strip_suffix("/state") {
+        Some(id) => (id, true),
+        None => (rest, false),
+    };
+    if !journal::is_token(id) {
+        return gone();
+    }
+    let owner = req.headers().get("x-kn-owner").and_then(|v| v.to_str().ok()).unwrap_or("").trim().to_string();
+    let now = Instant::now();
+    match (req.method().clone(), state) {
+        (hyper::Method::GET, false) => {
+            let Some(body) = hub.journals.open(id, now) else { return gone() };
+            hub.metrics.journal("opened");
+            let mut r = Response::new(body.map_err(|never| match never {}).boxed());
+            let h = r.headers_mut();
+            h.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+            h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            h.insert("x-content-type-options", HeaderValue::from_static("nosniff"));
+            r
+        }
+        (hyper::Method::GET, true) => match hub.journals.state(id, &owner, now) {
+            Some(s) => json(StatusCode::OK, serde_json::json!({ "state": s.as_str() })),
+            None => gone(),
+        },
+        (hyper::Method::DELETE, false) => {
+            if !hub.journals.remove(id, &owner, now) {
+                return gone();
+            }
+            let mut r = Response::new(full(Bytes::new()));
+            *r.status_mut() = StatusCode::NO_CONTENT;
+            r.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            r
+        }
+        _ => not_allowed(),
+    }
+}
+
+/// `POST /v1/journal` : un dépôt `KNJ1` de 2 Mio et 64 octets au plus, 6 par heure et par adresse.
+async fn journal_upload(hub: &Hub, req: Request<Incoming>, ip: IpAddr) -> Response<Body> {
+    let refuse = |status: StatusCode, error: &str| json(status, serde_json::json!({ "error": error }));
+    let key = crate::hub::ip_key(ip);
+    let now = Instant::now();
+    if let Err(wait) = hub.journals.admit(key, now) {
+        hub.metrics.journal("too_many");
+        return retry_after(json(StatusCode::TOO_MANY_REQUESTS, serde_json::json!({ "error": "too_many", "retry_after": wait.as_secs().max(1) })), wait);
+    }
+    let declared = req.headers().get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<u64>().ok());
+    if declared.is_some_and(|n| n > journal::MAX_BYTES as u64) {
+        hub.metrics.journal("too_large");
+        return refuse(StatusCode::PAYLOAD_TOO_LARGE, "too_large");
+    }
+    let body = match tokio::time::timeout(journal::UPLOAD_TIMEOUT, http_body_util::Limited::new(req.into_body(), journal::MAX_BYTES).collect()).await {
+        Err(_) => return refuse(StatusCode::REQUEST_TIMEOUT, "timeout"),
+        Ok(Err(e)) if e.downcast_ref::<http_body_util::LengthLimitError>().is_some() => {
+            hub.metrics.journal("too_large");
+            return refuse(StatusCode::PAYLOAD_TOO_LARGE, "too_large");
+        }
+        Ok(Err(_)) => return refuse(StatusCode::BAD_REQUEST, "bad_request"),
+        Ok(Ok(b)) => b.to_bytes(),
+    };
+    let len = body.len();
+    match hub.journals.put(body, now) {
+        Ok((id, owner)) => {
+            hub.metrics.journal("stored");
+            tracing::info!(taille = len, "journal déposé");
+            json(StatusCode::CREATED, serde_json::json!({ "id": id, "owner": owner, "expires_in": journal::TTL.as_secs() }))
+        }
+        Err(journal::Refused::Full) => {
+            hub.journals.refund(key, now);
+            hub.metrics.journal("full");
+            tracing::warn!(taille = len, "journal refusé : le relais en garde déjà autant qu'il peut");
+            refuse(StatusCode::SERVICE_UNAVAILABLE, "full")
+        }
+        Err(journal::Refused::TooLarge) => {
+            hub.metrics.journal("too_large");
+            refuse(StatusCode::PAYLOAD_TOO_LARGE, "too_large")
+        }
+        Err(journal::Refused::BadRequest) => {
+            hub.metrics.journal("bad");
+            refuse(StatusCode::BAD_REQUEST, "bad_request")
+        }
+    }
 }
 
 /// `/j/{code}` : vers la page de la Station, `/link/?join=<code>`.

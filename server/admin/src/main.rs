@@ -49,6 +49,7 @@ mod pyrowave;
 mod recording;
 mod relay;
 mod relay_tls;
+mod remote_keys;
 mod schema;
 mod service;
 mod settings;

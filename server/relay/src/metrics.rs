@@ -57,6 +57,9 @@ pub struct Gauges {
     pub clients_web: usize,
     pub sessions: usize,
     pub codes: usize,
+    /// Journaux déposés pas encore ouverts, et leurs octets.
+    pub journals: usize,
+    pub journal_bytes: usize,
     pub rtt_station: Option<f64>,
     pub rtt_client: Option<f64>,
     pub cert_expiry: Option<i64>,
@@ -94,6 +97,11 @@ impl Metrics {
         self.inc("relay_code_lookups_total", format!("result=\"{result}\""));
     }
 
+    /// Un dépôt de journal : `stored`, `too_large`, `bad`, `too_many`, `full`, `opened`.
+    pub fn journal(&self, result: &str) {
+        self.inc("relay_journals_total", format!("result=\"{result}\""));
+    }
+
     pub fn handshake(&self, alpn: &str, result: &str) {
         self.inc("relay_handshakes_total", format!("alpn=\"{alpn}\",result=\"{result}\""));
     }
@@ -126,6 +134,10 @@ impl Metrics {
         let _ = writeln!(o, "relay_sessions_active {}", g.sessions);
         gauge(&mut o, "relay_codes_active", "Codes de partage réservés.");
         let _ = writeln!(o, "relay_codes_active {}", g.codes);
+        gauge(&mut o, "relay_journals_waiting", "Journaux déposés, pas encore ouverts.");
+        let _ = writeln!(o, "relay_journals_waiting {}", g.journals);
+        gauge(&mut o, "relay_journal_bytes", "Octets des journaux déposés, en mémoire.");
+        let _ = writeln!(o, "relay_journal_bytes {}", g.journal_bytes);
         gauge(&mut o, "relay_rtt_seconds", "Aller-retour moyen avec le relais.");
         if let Some(r) = g.rtt_station {
             let _ = writeln!(o, "relay_rtt_seconds{{peer=\"station\"}} {r:.6}");

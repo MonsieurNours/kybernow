@@ -10,6 +10,10 @@
 //! `<retour>/api/login/kybernow?token=…`. Admin le vérifie (clé épinglée,
 //! droit Administrer, usage unique, `jti` = son `nonce`) et ouvre sa session.
 //!
+//! De bout en bout (`<id>.<tls_zone>`, Station 0.11.8), ce jeton ne suffit plus : la Station demande
+//! ensuite sa propre clé d'Admin à distance, une passkey ajoutée sur place auprès d'elle, que le relais
+//! ne peut pas fabriquer (STWIN-17, docs/relais.md, « Clé d'Admin à distance »). La page le dit.
+//!
 //! `retour` n'est qu'une adresse du réseau local (adresse IP privée, nom
 //! sans point, `.local`, `.lan`, `.home.arpa`), en `http` ou `https`, sans
 //! chemin : le jeton ne part pas vers un site quelconque. Quand la Station a
@@ -164,7 +168,7 @@ pub(super) fn open_admin(cx: Cx<'_>, post: bool) -> Reply {
     let allow: Vec<String> = if remote { acc.db().passkeys(account.id).unwrap_or_default().iter().map(|p| super::super::b64(&p.credential)).collect() } else { Vec::new() };
     let show = |cx: Cx<'_>, status: u16| {
         let host = origin.split_once("://").map(|(_, h)| h).unwrap_or(&origin).to_string();
-        let page = console::open_admin(&cx.view(), &station.name, &host, &[("station", &station_id), ("nonce", &nonce), ("retour", &origin)], remote.then_some(allow.as_slice()));
+        let page = console::open_admin(&cx.view(), &station.name, &host, &[("station", &station_id), ("nonce", &nonce), ("retour", &origin)], remote.then_some(allow.as_slice()), e2e);
         cx.page(status, page)
     };
     if !post {

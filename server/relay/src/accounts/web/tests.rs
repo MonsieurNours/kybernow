@@ -576,7 +576,7 @@ mod reauth;
 // --- Lot 1b : passkeys, conditions, export, suppression ---------------------------
 
 use super::passkeys::tests::Authenticator;
-use super::passkeys::{ED25519, ES256};
+use kybernow_tunnel::webauthn::{ED25519, ES256};
 
 impl World {
     fn account_id(&self, email: &str) -> i64 {

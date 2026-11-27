@@ -113,9 +113,9 @@ pub struct FakeStation {
     tasks: Vec<JoinHandle<()>>,
 }
 
-/// La seule console que voit la fausse Station, et ses ports permis.
+/// La seule console que voit la fausse Station ; ses ports permis sont ceux du tunnel
+/// (`kybernow_tunnel::console`), comme pour Admin.
 pub const CONSOLE: &str = "C0151B2DAE08";
-pub const CONSOLE_PORTS: [u16; 4] = [9295, 9296, 9302, 987];
 
 impl Drop for FakeStation {
     fn drop(&mut self) {
@@ -289,7 +289,7 @@ pub fn fake_station_with(identity: Arc<StationIdentity>, relay: RelayAddr, roots
                             // Une console : l'écho, précédé de son port, pour la
                             // console connue et ses ports ; le reste lâché.
                             StreamKind::ConsoleTcp => {
-                                let Some(c) = header.console().filter(|c| c.host_id == CONSOLE && CONSOLE_PORTS.contains(&c.port)) else {
+                                let Some(c) = header.console().filter(|c| c.host_id == CONSOLE && kybernow_tunnel::console::allowed(c.port, true)) else {
                                     return drop(stream);
                                 };
                                 let _ = stream.write_all(format!("{}:", c.port).as_bytes()).await;
@@ -325,7 +325,7 @@ pub fn fake_station_with(identity: Arc<StationIdentity>, relay: RelayAddr, roots
                     if let Some(c) = req.console.clone() {
                         if c.host_id != CONSOLE {
                             req.refuse("console_unknown");
-                        } else if !CONSOLE_PORTS.contains(&c.port) {
+                        } else if !kybernow_tunnel::console::allowed(c.port, false) {
                             req.refuse("port_forbidden");
                         } else {
                             req.accept("127.0.0.1:0".parse().unwrap(), udp_echo_addr).unwrap();
@@ -385,6 +385,28 @@ pub async fn https_body(relay: &Relay, roots: &Arc<RootCertStore>, name: &str, m
     cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
     let tls = tokio_rustls::TlsConnector::from(Arc::new(cfg)).connect(ServerName::try_from(name.to_string()).unwrap(), tcp).await?;
     request_body(tls, name, method, path, extra, body).await
+}
+
+/// Une requête HTTPS au relais, corps et réponse en octets (les dépôts de journal).
+pub async fn https_bytes(relay: &Relay, roots: &Arc<RootCertStore>, method: &str, path: &str, extra: &[(&str, &str)], body: Vec<u8>) -> std::io::Result<(u16, hyper::HeaderMap, Bytes)> {
+    let tcp = TcpStream::connect(relay.addr).await?;
+    let mut cfg = rustls::ClientConfig::builder_with_provider(kybernow_tunnel::tls::provider())
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_root_certificates(roots.clone())
+        .with_no_client_auth();
+    cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
+    let tls = tokio_rustls::TlsConnector::from(Arc::new(cfg)).connect(ServerName::try_from(DOMAIN.to_string()).unwrap(), tcp).await?;
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(tls)).await.map_err(std::io::Error::other)?;
+    tokio::spawn(conn);
+    let mut b = Request::builder().method(method).uri(path).header("host", DOMAIN);
+    for (k, v) in extra {
+        b = b.header(*k, *v);
+    }
+    let resp = sender.send_request(b.body(Full::new(Bytes::from(body))).unwrap()).await.map_err(std::io::Error::other)?;
+    let (status, headers) = (resp.status().as_u16(), resp.headers().clone());
+    let body = resp.into_body().collect().await.map_err(std::io::Error::other)?.to_bytes();
+    Ok((status, headers, body))
 }
 
 pub async fn request<S>(io: S, host: &str, method: &str, path: &str, extra: &[(&str, &str)]) -> std::io::Result<Http>
