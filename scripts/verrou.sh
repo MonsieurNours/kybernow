@@ -19,6 +19,19 @@
 # KYBERNOW_VERROU_ATTENTE=<secondes> : attendre au plus ce temps que le verrou
 # se libère (défaut 0 : refus immédiat, avec le nom de celui qui le tient).
 
+# Nom de cette machine. Sur macOS, le nom local (scutil) : « hostname -s »
+# change avec le réseau, et un verrou laissé sous l'ancien nom ne serait plus
+# jamais repris. Les verrous écrits avec l'un ou l'autre restent reconnus.
+kyber_verrou_machine() {
+    local n=""
+    command -v scutil > /dev/null 2>&1 && n="$(scutil --get LocalHostName 2>/dev/null)"
+    [ -n "$n" ] || n="$(hostname -s)"
+    echo "$n"
+}
+kyber_verrou_ici() {
+    [ "$1" = "$(kyber_verrou_machine)" ] || [ "$1" = "$(hostname -s)" ]
+}
+
 # Date de démarrage d'un processus (contre la réutilisation d'un pid).
 kyber_verrou_debut() {
     LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//'
@@ -43,11 +56,30 @@ kyber_verrou_perime() {
     debut=$(sed -n 's/^debut=//p' "$d/qui")
     machine=$(sed -n 's/^machine=//p' "$d/qui")
     # Tenu depuis une autre machine (la VM) : jamais repris d'ici.
-    [ "$machine" = "$(hostname -s)" ] || return 1
+    kyber_verrou_ici "$machine" || return 1
     [ -n "$pid" ] || return 0
     kill -0 "$pid" 2>/dev/null || return 0
     [ "$(kyber_verrou_debut "$pid")" = "$debut" ] || return 0
     return 1
+}
+
+# kyber_verrou_reprendre <dossier du verrou> : retire un verrou périmé, un
+# seul processus à la fois (« <dossier>-reprise », pris par mkdir), et après
+# l'avoir rejugé périmé sous cette garde. Sans elle, deux constructions qui
+# l'avaient jugé périmé ensemble le retiraient l'une après l'autre, et la
+# seconde effaçait le verrou tout neuf de la première : toutes deux tournaient
+# sur les mêmes sources.
+kyber_verrou_reprendre() {
+    local d=$1 r="$1-reprise"
+    if ! mkdir "$r" 2>/dev/null; then
+        # Garde laissée par un processus interrompu : retirée après une minute.
+        [ -n "$(find "$r" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$r" 2>/dev/null
+        sleep 0.2
+        return 0
+    fi
+    kyber_verrou_perime "$d" && rm -rf "$d"
+    rmdir "$r"
+    return 0
 }
 
 # kyber_verrou_prendre <chemin> [description] : prend le verrou de <chemin>
@@ -64,7 +96,7 @@ kyber_verrou_prendre() {
         if kyber_verrou_perime "$d"; then
             # Laissé par un processus terminé (le cas normal quand son script
             # n'a pas pu le rendre lui-même) : repris sans bruit.
-            rm -rf "$d"
+            kyber_verrou_reprendre "$d"
             continue
         fi
         if [ "$(date +%s)" -ge "$fin" ]; then
@@ -76,14 +108,16 @@ kyber_verrou_prendre() {
         fi
         sleep 2
     done
+    # « qui » écrit à côté puis renommé : jamais lu à moitié écrit.
     {
         echo "pid=$$"
         echo "debut=$(kyber_verrou_debut $$)"
-        echo "machine=$(hostname -s)"
+        echo "machine=$(kyber_verrou_machine)"
         echo "commande=$quoi"
         echo "dossier=$(pwd)"
         echo "depuis=$(date '+%Y-%m-%d %H:%M:%S')"
-    } > "$d/qui"
+    } > "$d/qui.$$"
+    mv -f "$d/qui.$$" "$d/qui"
     export KYBERNOW_VERROUS="${KYBERNOW_VERROUS:+$KYBERNOW_VERROUS:}$cible"
 }
 

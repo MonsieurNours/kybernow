@@ -11,6 +11,9 @@
 #                                                (défaut HEAD), sources de Kyber
 #                                                remises à l'origine si besoin
 #   scripts/arbres.sh chemin <variante>          chemin de l'arbre
+#   scripts/arbres.sh recopier <variante>        recopie ses sources de Kyber depuis le
+#                                                third_party/ du dépôt principal (après
+#                                                une mise à jour de Kyber là-bas)
 #
 # Aussi lu (source) par scripts/release.sh.
 #
@@ -98,7 +101,7 @@ arbre_copier() {
                 find "$dst.tmp" -maxdepth 3 -name .kybernow-kynput -delete
                 rm -f "$dst.tmp"/rootfs-*/.kybernow-patches "$dst.tmp/.kybernow-arbre" "$dst.tmp/kysdk/.kybernow-correctifs" ;;
         esac
-        find "$dst.tmp" -maxdepth 1 -name '*.verrou' -exec rm -rf {} +
+        find "$dst.tmp" -maxdepth 1 \( -name '*.verrou' -o -name '*.verrou-reprise' \) -exec rm -rf {} +
         vsrc="$(arbre_vm "$src")" vdst="$(arbre_vm "$dst")"
         find "$dst.tmp" -type f \( -name '*.pc' -o -name '*.la' -o -name '*.cmake' -o -name '*-config' \) -print0 2>/dev/null \
             | xargs -0 grep -lF -e "$src" -e "$vsrc" 2>/dev/null \
@@ -125,7 +128,7 @@ arbre_third_party() {
     mkdir -p "$tp"
     for e in "$ARBRES_TP"/*; do
         name="$(basename "$e")"
-        case "$name" in arbres | *.log | *.orig | *.verrou | *.tmp) continue ;; esac
+        case "$name" in arbres | *.log | *.orig | *.verrou | *.verrou-reprise | *.tmp) continue ;; esac
         target=""
         for l in $links; do [ "${l%%:*}" = "$name" ] && target="$(arbre_dir "${l#*:}")/third_party/$name"; done
         if [ -n "$target" ]; then
@@ -176,6 +179,13 @@ arbre_depots() {
     for r in kysdk kysdk/kyctl kysdk/kymux kysdk/kynput kysdk/kymedia kysdk/kymedia/subprojects/txproto kysdk/kymedia/subprojects/libavconv; do
         [ -e "$kd/$r/.git" ] && echo "$kd/$r"
     done
+}
+
+# Commits des dépôts d'un dossier de sources de Kyber (comparés entre le
+# dépôt principal et un arbre : scripts/release.sh le signale s'ils diffèrent).
+arbre_kyber_commits() {
+    local kd=$1 r
+    for r in $(arbre_depots "$kd"); do echo "${r#"$kd"} $(git -C "$r" rev-parse HEAD 2>/dev/null)"; done
 }
 
 # État exact des sources : commit, modifications, fichiers non suivis (hors ignorés).
@@ -284,8 +294,9 @@ arbre_preparer() {
         git -C "$dir" clean -fdq
     fi
     arbre_third_party "$v"
-    # Fichiers locaux (ignorés par git) dont une construction a besoin.
-    if [ -f "$ARBRES_MAIN/apps/android/local.properties" ] && [ ! -f "$dir/apps/android/local.properties" ]; then
+    # Fichiers locaux (ignorés par git) dont une construction a besoin, recopiés
+    # quand ils changent dans le dépôt principal.
+    if [ -f "$ARBRES_MAIN/apps/android/local.properties" ] && ! cmp -s "$ARBRES_MAIN/apps/android/local.properties" "$dir/apps/android/local.properties"; then
         cp "$ARBRES_MAIN/apps/android/local.properties" "$dir/apps/android/"
     fi
     arbre_kyber_pret "$v"
@@ -315,12 +326,24 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
                 fi
             done ;;
         chemin) arbre_dir "${2:?variante}" ;;
+        recopier)
+            # Sources de Kyber de l'arbre retirées : la préparation suivante les
+            # recopie du third_party/ du dépôt principal (caches de compilation
+            # de ces sources perdus, refaits à la construction suivante).
+            v="${2:?variante}"
+            arbre_possedes "$v" > /dev/null
+            arbre_verrou "$v" "arbres.sh recopier"
+            for e in $(arbre_sources_kyber "$v"); do
+                kd="$(arbre_dir "$v")/third_party/$e"
+                if [ -d "$kd" ] && [ ! -L "$kd" ]; then echo "    $v : third_party/$e retiré (recopié à la préparation)"; rm -rf "$kd"; fi
+            done
+            kyber_verrou_rendre "$(arbre_dir "$v")" ;;
         preparer)
             v="${2:?variante}"
             arbre_verrou "$v" "arbres.sh preparer"
             arbre_preparer "$v" "$(git rev-parse "${3:-HEAD}^{commit}")"
             kyber_verrou_rendre "$(arbre_dir "$v")"
             arbre_dir "$v" ;;
-        *) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+        *) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
     esac
 fi
