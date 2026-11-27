@@ -279,17 +279,10 @@ final class AppModel: ObservableObject {
 
     // MARK: - Réseau
 
-    /// Vu sur le réseau local (annonce Bonjour) : sinon, c'est par VPN.
-    func isLocal(_ host: Host) -> Bool {
-        discovery.found.contains { found in
-            found.name == host.name || (host.consoleFingerprint != nil && found.fingerprint == host.consoleFingerprint)
-        }
-    }
-
     /// Annoncés sur le réseau et pas encore ajoutés.
     var newOnNetwork: [Discovery.Found] {
         discovery.found.filter { found in
-            !store.hosts.contains { $0.name == found.name || ($0.consoleFingerprint != nil && $0.consoleFingerprint == found.fingerprint) }
+            !store.hosts.contains { $0.name == found.name || Fingerprint.same($0.consoleFingerprint, found.fingerprint) }
         }
     }
 
@@ -481,7 +474,7 @@ final class AppModel: ObservableObject {
             if case .badInvite = kind { show(LendText.badInvite) }
             return
         }
-        if store.hosts.contains(where: { ($0.consoleFingerprint != nil && $0.consoleFingerprint == candidate.expected) || ($0.address == candidate.address && $0.consolePort == candidate.port) }) {
+        if store.hosts.contains(where: { Fingerprint.same($0.consoleFingerprint, candidate.expected) || ($0.address == candidate.address && $0.consolePort == candidate.port) }) {
             show(String(localized: "\(candidate.name) est déjà dans vos ordinateurs"))
             return
         }

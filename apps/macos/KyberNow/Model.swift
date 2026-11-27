@@ -130,7 +130,7 @@ enum MouseChoice: String, Codable, CaseIterable {
         }
     }
 
-    var streamMode: StreamView.MouseMode {
+    var streamMode: MouseMode {
         switch self {
         case .auto: return .auto
         case .desktop: return .desktop
@@ -285,7 +285,7 @@ struct ConnectionSettings: Codable, Hashable {
     var encoderMax: Int?
     /// PyroWave choisi à la main : son débit suit l'écran (définition,
     /// fréquence, 4:4:4) tant qu'on n'a pas bougé le curseur du débit
-    /// (`PyroWaveRate`) ; le curseur le fige.
+    /// (`PyroWaveRules.mbps`, le cœur) ; le curseur le fige.
     var pyrowaveRateFollows = false
 
     /// Le résultat gardé du test du profil Auto, lu.
@@ -295,12 +295,18 @@ struct ConnectionSettings: Codable, Hashable {
     /// cœur) : Max, et Auto quand son test l'a choisi ; Jeu et Bureau restent en HEVC.
     var takesPyroWave: Bool { profile == .max || (profile == .auto && codec == .pyrowave) }
 
-    static let minBitrate = 5
-    /// Le plus que Kyber accepte (débit en bits/s sur 32 bits).
-    static let maxBitrate = 4294
+    /// Les bornes du débit réglé à la main dans ce format, sur cet appareil
+    /// (le cœur, `rules::limits` : de 5 à 500 Mbit/s, jusqu'à 2 500 en PyroWave).
+    static func bitrateRange(_ codec: VideoCodec) -> ClosedRange<Int> {
+        CoreValues.current.manualMin...CoreValues.current.manualMax(codec)
+    }
 
-    /// Applique un profil, ramené à ce que ce Mac décode en matériel : sans
-    /// HEVC, du H.264 ; sans 4:4:4 matériel, du 4:2:0 avec un peu plus de débit.
+    /// Le pas du débit réglé à la main (Mbit/s).
+    static var bitrateStep: Int { CoreValues.current.manualStep }
+
+    /// Applique un profil, tel que le cœur le fait pour ce que l'appareil
+    /// décode en matériel (`StreamSettings::for_profile`) : sans HEVC, du
+    /// H.264 ; sans 4:4:4 matériel, du 4:2:0 avec un peu plus de débit.
     mutating func apply(_ profile: Profile) {
         // Auto : les réglages du test gardé ; sans test, rien ne change (l'app
         // ouvre alors le panneau du test, `AutoProfile.choose`).
@@ -309,19 +315,17 @@ struct ConnectionSettings: Codable, Hashable {
             return
         }
         self.profile = profile
-        let caps = DecoderCapabilities.current
-        codec = caps.hevc ? .hevc : .h264
+        let values = CoreValues.current
+        let p: CoreValues.ProfileValues
         switch profile {
-        case .jeu: yuv444 = false; bitrateMbps = 60; transport = .fast
-        case .bureau: yuv444 = true; bitrateMbps = 90; transport = .reliable
-        case .max: yuv444 = true; bitrateMbps = 300; transport = .fast
-        case .auto: break
+        case .jeu: p = values.jeu
+        case .bureau: p = values.bureau
+        case .max, .auto: p = values.max
         }
-        if yuv444, !Self.decodes444(codec) {
-            yuv444 = false
-            bitrateMbps += bitrateMbps / 3
-        }
-        if codec == .h264 { bitrateMbps += bitrateMbps / 2 }
+        codec = p.codec
+        yuv444 = p.yuv444
+        bitrateMbps = p.mbps
+        transport = p.reliable ? .reliable : .fast
     }
 
     /// Auto avec ce résultat du test : le profil, ses réglages
@@ -338,7 +342,7 @@ struct ConnectionSettings: Codable, Hashable {
         let s = r.settings(wired: NetworkLink.shared.wired)
         codec = s?.codec ?? r.codec
         yuv444 = s?.yuv444 ?? r.yuv444
-        bitrateMbps = min(max(s?.mbps ?? r.mbps, Self.minBitrate), Self.maxBitrate)
+        bitrateMbps = CoreValues.clampManual(s?.mbps ?? r.mbps, codec: codec)
         transport = (s?.reliable ?? r.reliable) ? .reliable : .fast
         adaptive = true
         if r.matchesDisplay {
@@ -361,17 +365,42 @@ struct ConnectionSettings: Codable, Hashable {
         }
     }
 
-    /// Débit des profils, calé sur la 4K à 60 Hz.
-    static let referencePixelRate = 3840.0 * 2160 * 60
-
-    /// Débit de la session pour `w` × `h` à `hz` : un profil suit le nombre de
-    /// pixels par seconde (moins que proportionnellement : l'encodeur profite
-    /// des détails plus fins), un débit réglé à la main reste tel quel.
+    /// Débit de la session pour `w` × `h` à `hz` (le cœur,
+    /// `StreamSettings::bitrate`) : un profil suit le nombre de pixels par
+    /// seconde (moins que proportionnellement : l'encodeur profite des
+    /// détails plus fins), un débit réglé à la main reste tel quel.
     func bitrate(width w: Int, height h: Int, refresh hz: Int) -> Int {
         guard profile != nil, w > 0, h > 0, hz > 0 else { return bitrateMbps }
-        let scale = pow(Double(w * h * hz) / Self.referencePixelRate, 0.75)
-        let mbps = (Double(bitrateMbps) * min(max(scale, 0.4), 3)).rounded()
-        return min(max(Int(mbps), Self.minBitrate), Self.maxBitrate)
+        return CoreBitrate.session(engineSettings(), width: w, height: h, refresh: hz)
+    }
+
+    /// Le même débit pour plusieurs écrans dont les pixels par seconde font
+    /// ensemble `pixelRate` (multi-écrans).
+    func bitrate(pixelRate: Double) -> Int {
+        guard profile != nil, pixelRate > 0 else { return bitrateMbps }
+        return CoreBitrate.session(engineSettings(), pixelRate: pixelRate)
+    }
+
+    /// Les réglages de l'image pour le cœur (`settings` de `kn_session_start`) :
+    /// AV1 seulement si l'appareil le décode ; `codecOverride` (« Passer en
+    /// HEVC ») : ce format pour cette session seulement, sans profil, au débit
+    /// de HEVC au plus. `wired` : l'appareil est relié par câble, pour Auto et
+    /// PyroWave (docs/pyrowave-client-apple.md).
+    func engineSettings(codecOverride: VideoCodec? = nil) -> SessionEngine.Settings {
+        let caps = DecoderCapabilities.current
+        var codec = codecOverride ?? self.codec
+        if codec == .av1, !caps.av1 { codec = caps.hevc ? .hevc : .h264 }
+        return SessionEngine.Settings(
+            profile: codecOverride == nil ? profile?.rawValue : nil,
+            codec: codec,
+            yuv444: yuv444 && Self.decodes444(codec),
+            mbps: codecOverride == nil ? bitrateMbps : min(bitrateMbps, PyroWaveSession.hevcMbps),
+            reliable: transport == .reliable,
+            hdr: hdr,
+            wired: NetworkLink.shared.wired,
+            adaptive: adaptive,
+            encoderMax: encoderMax
+        )
     }
 
     var profileLabel: String { Profile.label(profile) }
@@ -803,7 +832,7 @@ final class HostStore: ObservableObject {
     func addInvited(_ invited: Invited, computer: String) -> Host {
         let name = !invited.hostname.isEmpty ? invited.hostname : (computer.isEmpty ? invited.address : computer)
         if let fingerprint = invited.fingerprint,
-           var host = hosts.first(where: { $0.consoleFingerprint.map { Self.sameFingerprint($0, fingerprint) } ?? false }) {
+           var host = hosts.first(where: { $0.consoleFingerprint.map { Fingerprint.same($0, fingerprint) } ?? false }) {
             host.username = invited.username
             if !invited.address.isEmpty {
                 host.address = invited.address
@@ -818,30 +847,13 @@ final class HostStore: ObservableObject {
             return host
         }
         // Sans port dit par Admin : celui d'Admin par défaut.
-        var host = Host(name: name, address: invited.address, consolePort: invited.port != 0 ? invited.port : 9443, username: invited.username)
+        var host = Host(name: name, address: invited.address, consolePort: invited.port != 0 ? invited.port : Host.adminPort, username: invited.username)
         host.consoleFingerprint = invited.fingerprint
         host.relay = invited.relay
         // Compte créé par Admin pour cet appareil, comme à l'accord d'un appairage par code.
         host.pairedByCode = true
         add(host, password: invited.password)
         return host
-    }
-
-    /// Même règle, l'une ou l'autre absente : jamais la même (MAC-20 : une seule
-    /// règle pour toutes les comparaisons de l'app, au lieu de `==`).
-    static func sameFingerprint(_ a: String?, _ b: String?) -> Bool {
-        guard let a, let b else { return false }
-        return sameFingerprint(a, b)
-    }
-
-    /// Deux empreintes d'Admin sont la même : sans `sha256:`, sans deux-points, sans casse.
-    static func sameFingerprint(_ a: String, _ b: String) -> Bool {
-        func normal(_ s: String) -> String {
-            var t = s.lowercased()
-            if t.hasPrefix("sha256:") { t.removeFirst(7) }
-            return t.replacingOccurrences(of: ":", with: "").trimmingCharacters(in: .whitespaces)
-        }
-        return !normal(a).isEmpty && normal(a) == normal(b)
     }
 
     func update(_ host: Host) {
@@ -949,6 +961,14 @@ final class HostStore: ObservableObject {
     private func setStatus(_ s: HostStatus, for id: UUID) {
         guard host(id) != nil else { return }
         status[id] = s
+    }
+
+    /// L'adresse d'Admin d'un ordinateur (« Ouvrir Admin », son QR code) :
+    /// celle de sa console (relais compris), sinon celle de son adresse et de
+    /// son port (démonstration, mot de passe absent), par le cœur (crochets
+    /// d'une IPv6 posés une fois).
+    func adminURL(for host: Host) -> URL? {
+        console(for: host)?.adminURL ?? CoreAddress.adminURL(host: host.address, port: Int(host.consolePort))
     }
 
     /// La console de l'ordinateur : sur le réseau, ou par son relais quand il
@@ -1213,5 +1233,46 @@ enum KeychainWrite {
         item[kSecAttrLabel as String] = label
         for (key, value) in extra { item[key] = value }
         return SecItemAdd(item as CFDictionary, nil)
+    }
+}
+
+// MARK: - Ordinateur d'un visiteur
+
+/// L'ordinateur d'une session de visiteur (audit IOS-22 : construit une seule
+/// fois, pour les trois apps) : invité d'un partage, qui regarde un ordinateur
+/// du compte, ami qui emprunte. Profil Jeu, sans presse-papiers ; rien n'en
+/// est gardé ensuite (ni dernière image, ni statistiques).
+extension Host {
+    /// Le port d'Admin par défaut (9443, `ADMIN_PORT` du cœur).
+    static var adminPort: UInt16 { UInt16(clamping: CoreValues.current.adminPort) }
+
+    /// Invité d'un partage : pas d'écran virtuel, la souris du bureau, rien
+    /// de partagé ; l'image est celle de l'hôte, seul le repli du transport
+    /// vient de l'app.
+    static func visitor(guest found: ShareFound) -> Host {
+        visitor(name: found.computer, address: found.target.host, port: found.target.port, display: .physical, mouse: .desktop)
+    }
+
+    /// « Regarder » un ordinateur du compte : comme un invité.
+    static func visitor(watch computer: Host) -> Host {
+        visitor(name: computer.name, address: computer.address, port: computer.consolePort, display: .physical, mouse: .desktop)
+    }
+
+    /// Ami qui emprunte : l'écran virtuel que la Station fait à la taille de
+    /// l'appareil, la souris Auto comme un hôte (un jeu en plein écran prend
+    /// la souris des jeux).
+    static func visitor(borrow source: BorrowSource) -> Host {
+        let name = LendText.computerOf(source.hostHint.isEmpty ? source.target.host : source.hostHint)
+        return visitor(name: name, address: source.target.host, port: source.target.port, display: .match, mouse: .auto)
+    }
+
+    private static func visitor(name: String, address: String, port: UInt16, display: DisplayChoice, mouse: MouseChoice) -> Host {
+        var host = Host(name: name, address: address, consolePort: port, username: "")
+        host.settings.apply(.jeu)
+        host.settings.display = display
+        host.settings.mouse = mouse
+        host.settings.clipboard = false
+        host.settings.keepLastImage = false
+        return host
     }
 }

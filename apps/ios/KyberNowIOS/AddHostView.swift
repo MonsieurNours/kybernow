@@ -100,29 +100,9 @@ final class AddHostFlow: ObservableObject {
     /// Déjà dans les ordinateurs de cet appareil (même empreinte, ou même adresse et port).
     static func known(_ c: Candidate, in store: HostStore) -> Bool {
         store.hosts.contains { h in
-            (h.consoleFingerprint != nil && c.expected != nil && AddHostFingerprint.same(h.consoleFingerprint, c.expected))
+            Fingerprint.same(h.consoleFingerprint, c.expected)
                 || (h.address == c.address && h.consolePort == c.port)
         }
-    }
-}
-
-/// Empreinte du certificat d'Admin (« sha256:ab:cd:… »).
-enum AddHostFingerprint {
-    static func hex(_ fp: String) -> String {
-        fp.replacingOccurrences(of: "sha256:", with: "", options: .caseInsensitive)
-            .replacingOccurrences(of: ":", with: "")
-            .uppercased()
-    }
-
-    static func same(_ a: String?, _ b: String?) -> Bool {
-        guard let a, let b else { return false }
-        return hex(a) == hex(b)
-    }
-
-    /// Groupes de quatre caractères, comme Admin les affiche (Appareils Link).
-    static func groups(_ fp: String) -> [String] {
-        let h = Array(hex(fp))
-        return stride(from: 0, to: h.count, by: 4).map { String(h[$0 ..< min($0 + 4, h.count)]) }
     }
 }
 
@@ -445,6 +425,8 @@ private struct AddHostMethodLabel: View {
     let selected: Bool
     let compact: Bool
     @EnvironmentObject private var app: AppModel
+    /// Observé (pas lu) : `app.newOnNetwork` suit les annonces du réseau, que
+    /// l'`AppModel` ne republie pas ; le nombre du sous-titre se met à jour.
     @EnvironmentObject private var discovery: Discovery
 
     var body: some View {

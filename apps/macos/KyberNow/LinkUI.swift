@@ -18,9 +18,21 @@ enum LinkFormat {
         return french ? text.replacingOccurrences(of: ".", with: ",") : text
     }
 
-    /// « 8,9 ms ».
-    static func ms(_ value: Double) -> String {
-        "\(decimal(value)) ms"
+    /// « 8,9 ms » ; sans l'unité, « 8,9 » (une courbe, un repère).
+    static func ms(_ value: Double, unit: Bool = true) -> String {
+        unit ? "\(decimal(value)) ms" : decimal(value)
+    }
+
+    /// « 42,5 Mbit/s », « 312 Mbit/s ».
+    static func mbps(_ value: Double) -> String {
+        "\(decimal(value)) Mbit/s"
+    }
+
+    /// Un pourcentage : « 0,8 % », deux décimales sous 0,1 % (« 0,04 % »).
+    static func percent(_ value: Double) -> String {
+        if value <= 0 { return "0 %" }
+        let text = String(format: "%.\(value < 0.1 ? 2 : 1)f", value)
+        return (french ? text.replacingOccurrences(of: ".", with: ",") : text) + " %"
     }
 
     /// « 42 min », « 1 h 05 ».
@@ -75,16 +87,6 @@ enum LinkFormat {
         case .av1: return "AV1"
         case .pyrowave: return "PyroWave"
         }
-    }
-
-    /// Les quatre premiers groupes d'une empreinte : « 7F3A 9C21 B04E 5D88 ».
-    static func fingerprint(_ fp: String) -> String {
-        let hex = fp.replacingOccurrences(of: "sha256:", with: "").replacingOccurrences(of: ":", with: "").uppercased()
-        let groups = stride(from: 0, to: min(hex.count, 16), by: 4).map { i -> String in
-            let start = hex.index(hex.startIndex, offsetBy: i)
-            return String(hex[start ..< (hex.index(start, offsetBy: 4, limitedBy: hex.endIndex) ?? hex.endIndex)])
-        }
-        return groups.joined(separator: " ")
     }
 }
 
@@ -419,8 +421,18 @@ enum LendText {
     }
     static var sessionCloses: String { String(localized: "Votre session se fermera quand votre ami arrivera.") }
     static var cancelCode: String { String(localized: "Annuler le code") }
-    static var warning: String {
-        String(localized: "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.")
+    /// L'avertissement, selon le système de la Station (`os` de son info, le
+    /// même test que « Face à une Station Mac ») : Windows, Mac, sinon (Linux,
+    /// système inconnu) la session sans plus de précision.
+    static func warning(os: String?) -> String {
+        let os = os ?? ""
+        if os.hasPrefix("Windows") {
+            return String(localized: "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.")
+        }
+        if Keymap.stationIsMac(os) {
+            return String(localized: "Votre ami joue dans votre session du Mac. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.")
+        }
+        return String(localized: "Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.")
     }
     static var offInAdmin: String { String(localized: "Le prêt est coupé dans Admin (page « Prêt »).") }
     static var tooOld: String { String(localized: "Le prêt demande KyberNow Station 0.9.0 ou plus récente.") }
@@ -611,16 +623,8 @@ enum SettingsText {
 /// docs/micro.md) : puce de la barre, tuile du menu, réglages, avis.
 enum MicText {
     static var label: String { String(localized: "Micro") }
-    static var labelOff: String { String(localized: "Micro coupé") }
-    /// Infobulles de la puce, avec son raccourci (⌃⌥⌘V sur Mac).
-    static func tooltipOn(_ shortcut: String) -> String { String(localized: "Micro : envoyé à l'ordinateur (\(shortcut))") }
-    static func tooltipOff(_ shortcut: String) -> String { String(localized: "Micro coupé (\(shortcut))") }
-    /// Sous-titre de la tuile « Micro ».
-    static var tileOn: String { String(localized: "Envoyé") }
-    static var tileOff: String { String(localized: "Coupé") }
-    static var tileWaiting: String { String(localized: "Envoi…") }
-    /// Avis bref à l'allumage, quand l'ordinateur le prend.
-    static func sent(_ name: String) -> String { String(localized: "Micro envoyé à \(name).") }
+    // Puce, infobulles, sous-titre de la tuile et avis à l'allumage : le
+    // cœur (`MicUI`, catalogue du cœur).
     /// L'autorisation du système refusée : « Micro » reste coupé.
     static var permission: String {
         #if os(macOS)
@@ -637,6 +641,60 @@ enum MicText {
     static var echoHelp: String { String(localized: "Le traitement voix de l'appareil retire le son de l'ordinateur et le bruit autour de vous. Coupez-le pour un micro de studio.") }
 }
 #endif
+
+/// Réglages de l'app › Clavier (docs/link-ui.md, « Réglages de l'app ») :
+/// deux réglages qui décrivent le clavier branché, pas l'ordinateur.
+enum KeyboardText {
+    static var section: String { String(localized: "Clavier") }
+    static var layout: String { String(localized: "Disposition du clavier") }
+    static var layoutHelp: String { String(localized: "Pour les touches d'une partie sur console (ZQSD ou WASD). Auto suit le clavier physique branché quand iPadOS le dit, sinon la langue du premier clavier.") }
+    static var appleISO: String { String(localized: "Clavier Apple ISO") }
+    static var appleISOHelp: String { String(localized: "Clavier Apple européen (touche @# ou §± sous Échap) : la touche sous Échap et celle près de Maj retrouvent leur place sur l'ordinateur.") }
+
+    #if os(iOS)
+    static func label(_ l: KeyboardLayout) -> String {
+        switch l {
+        case .auto: return String(localized: "Auto")
+        case .azerty: return "AZERTY"
+        case .qwerty: return "QWERTY"
+        case .qwertz: return "QWERTZ"
+        }
+    }
+    #endif
+}
+
+/// « Envoyer le journal » (docs/link-ui.md, « Réglages de l'app » › À propos).
+enum JournalText {
+    static var about: String { String(localized: "À propos") }
+    static var version: String { String(localized: "Version") }
+    static var send: String { String(localized: "Envoyer le journal") }
+    static var label: String { String(localized: "Journal") }
+    /// Aide sous le bouton (Mac, iPhone, iPad : la feuille de partage).
+    static var help: String { String(localized: "Si l'app se ferme ou qu'une session se coupe, ce fichier texte raconte ce qui s'est passé. Joignez-le à votre message : vous choisissez à qui l'envoyer.") }
+    /// Aide sur l'Apple TV (par le téléphone).
+    static var helpTV: String { String(localized: "Si l'app se ferme ou qu'une session se coupe, ce fichier texte raconte ce qui s'est passé. Il passe par votre téléphone : vous choisissez à qui l'envoyer.") }
+    static var preparing: String { String(localized: "Préparation du journal…") }
+    static var uploading: String { String(localized: "Envoi du journal…") }
+    static var scan: String { String(localized: "Scannez ce QR code avec votre téléphone, puis enregistrez ou partagez le journal.") }
+    static var encrypted: String { String(localized: "Chiffré sur cet appareil : seul ce QR code l'ouvre. Il sert une fois, pendant une heure.") }
+    static var done: String { String(localized: "Terminé") }
+    static var opened: String { String(localized: "Journal ouvert sur le téléphone.") }
+    static var expired: String { String(localized: "Ce QR code a expiré.") }
+    static var newCode: String { String(localized: "Nouveau QR code") }
+    static var unreachable: String { String(localized: "Le relais ne répond pas : vérifiez la connexion à Internet, puis réessayez.") }
+    static var retry: String { String(localized: "Réessayer") }
+    static var oldRelay: String { String(localized: "Ce relais ne prend pas encore les journaux : il doit être mis à jour.") }
+    static var tooMany: String { String(localized: "Trop d'envois : réessayez dans une heure.") }
+
+    /// Le texte d'un dépôt refusé.
+    static func failure(_ f: AppJournal.Failure) -> String {
+        switch f {
+        case .unreachable, .other: return unreachable
+        case .oldRelay: return oldRelay
+        case .tooMany: return tooMany
+        }
+    }
+}
 
 enum HDRText {
     /// La puce de l'accueil, l'interrupteur des réglages, la ligne de la barre, les statistiques.
@@ -1341,8 +1399,8 @@ extension HostStore {
     func stationNoticeAtLaunch() {
         let current = StationOffer.appVersion
         // Rien de gardé mais des ordinateurs déjà là : l'app vient d'une version
-        // d'avant cet avis (`StationOffer.beforeNotice`), pas d'un premier lancement.
-        let last = defaults.string(forKey: Self.lastLaunchedKey) ?? (hosts.isEmpty ? nil : StationOffer.beforeNotice)
+        // d'avant cet avis (`CoreValues.stationNoticeBefore`), pas d'un premier lancement.
+        let last = defaults.string(forKey: Self.lastLaunchedKey) ?? (hosts.isEmpty ? nil : CoreValues.current.stationNoticeBefore)
         defaults.set(current, forKey: Self.lastLaunchedKey)
         #if DEBUG
         // Démonstration : `-demoStationNotice YES`, l'avis d'après l'état posé (`-demoStation update`).
@@ -1359,7 +1417,7 @@ extension HostStore {
     }
 
     private func prepareStationNotice() async {
-        let deadline = Date().addingTimeInterval(StationOffer.noticeWait)
+        let deadline = Date().addingTimeInterval(CoreValues.current.stationNoticeWait)
         // Le premier tour du sondage dit qui est en ligne sur le réseau.
         while !demo, lastPoll == .distantPast, Date() < deadline { try? await Task.sleep(for: .milliseconds(250)) }
         let targets = hosts.filter { h in
@@ -1559,18 +1617,8 @@ enum PyroWaveText {
     static var strained: String { String(localized: "Le réseau sature") }
     static var bannerBody: String { String(localized: "L'image peut saccader.") }
     static var switchToHEVC: String { String(localized: "Passer en HEVC") }
-    /// Bandeau et Statistiques, quand le cœur dit avoir baissé la définition.
-    static func lowered(width: Int, height: Int, mbps: Int) -> String {
-        String(localized: "Définition ramenée à \(LinkFormat.dims(width, height)) pour tenir dans \(mbps) Mbit/s.")
-    }
     /// Statistiques, ligne en plus.
     static var lostFrames: String { String(localized: "Images perdues") }
-    /// Sa valeur : « 0,8 % » (deux décimales sous 0,1 %).
-    static func percent(_ value: Double) -> String {
-        if value <= 0 { return "0 %" }
-        let text = String(format: "%.\(value < 0.1 ? 2 : 1)f", value)
-        return (LanguageChoice.effective == "fr" ? text.replacingOccurrences(of: ".", with: ",") : text) + " %"
-    }
     /// Aide de « Texte net (4:4:4) » avec PyroWave.
     static var sharpText: String { String(localized: "Avec PyroWave, presque sans coût : seul le débit monte.") }
     /// Valeur inactive : la Station ne le propose pas.

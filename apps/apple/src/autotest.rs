@@ -36,46 +36,58 @@ fn sample<'a>(s: *const KnAutoSample) -> Option<&'a Sample> {
 /// sur 4 octets, `pwv1`), comme `VideoDecoder.Codec` ; 0 si nul.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_auto_sample_fourcc(s: *const KnAutoSample) -> u32 {
-    sample(s).map(|s| s.codec.fourcc()).unwrap_or(0)
+    kybernow_core::ffi_guard!({
+        sample(s).map(|s| s.codec.fourcc()).unwrap_or(0)
+    })
 }
 
 /// L'extrait est en 4:4:4.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_auto_sample_yuv444(s: *const KnAutoSample) -> bool {
-    sample(s).is_some_and(|s| s.yuv444)
+    kybernow_core::ffi_guard!({
+        sample(s).is_some_and(|s| s.yuv444)
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_auto_sample_width(s: *const KnAutoSample) -> u32 {
-    sample(s).map(|s| s.width).unwrap_or(0)
+    kybernow_core::ffi_guard!({
+        sample(s).map(|s| s.width).unwrap_or(0)
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_auto_sample_height(s: *const KnAutoSample) -> u32 {
-    sample(s).map(|s| s.height).unwrap_or(0)
+    kybernow_core::ffi_guard!({
+        sample(s).map(|s| s.height).unwrap_or(0)
+    })
 }
 
 /// Nombre de paquets : une image clé (en-têtes devant, en H.264 et HEVC)
 /// puis les suivantes ; en PyroWave, une image intra.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_auto_sample_packet_count(s: *const KnAutoSample) -> usize {
-    sample(s).map(|s| s.packets.len()).unwrap_or(0)
+    kybernow_core::ffi_guard!({
+        sample(s).map(|s| s.packets.len()).unwrap_or(0)
+    })
 }
 
 /// Le paquet `index` : ses octets (à l'extrait, valables pendant le rappel),
 /// leur nombre dans `len` et l'image clé dans `is_key`. Nul hors des bornes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_auto_sample_packet(s: *const KnAutoSample, index: usize, len: *mut usize, is_key: *mut bool) -> *const u8 {
-    let Some(p) = sample(s).and_then(|s| s.packets.get(index)) else { return std::ptr::null() };
-    unsafe {
-        if !len.is_null() {
-            *len = p.data.len();
+    kybernow_core::ffi_guard!(std::ptr::null() => {
+        let Some(p) = sample(s).and_then(|s| s.packets.get(index)) else { return std::ptr::null() };
+        unsafe {
+            if !len.is_null() {
+                *len = p.data.len();
+            }
+            if !is_key.is_null() {
+                *is_key = p.is_key;
+            }
         }
-        if !is_key.is_null() {
-            *is_key = p.is_key;
-        }
-    }
-    p.data.as_ptr()
+        p.data.as_ptr()
+    })
 }
 
 /// Rappels du test, appelés sur son fil.
@@ -139,70 +151,76 @@ fn cstring(s: &str) -> CString {
 /// `kn_autotest_free`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_autotest_start(console: *const KnConsole, device_json: *const c_char, cb: *const KnAutoCallbacks) -> *mut KnAutoTest {
-    let (Some(console), Ok(d), Some(cb)) = (unsafe { console.as_ref() }, serde_json::from_str::<DeviceJson>(&text(device_json)), unsafe { cb.as_ref() })
-    else {
-        return std::ptr::null_mut();
-    };
-    let console = console.0.clone();
-    let cb = *cb;
-    let cancel = Arc::new(AtomicBool::new(false));
-    let stop = cancel.clone();
-    let lang = i18n::current();
-    let device = Device { screen: d.screen, caps: d.caps, hdr: d.hdr, network: d.network, wired: d.wired };
-    let name = d.name;
-    std::thread::Builder::new()
-        .name("kybernow-autotest".into())
-        .spawn(move || {
-            // Toute la structure (Send) est prise, pas seulement ses champs.
-            let cb: KnAutoCallbacks = cb;
-            let mut decoder = |s: &Sample| -> Option<f64> {
-                let f = cb.decode?;
-                let handle = KnAutoSample { sample: s };
-                let fps = unsafe { f(cb.userdata, &handle) };
-                (fps.is_finite() && fps > 0.0).then_some(fps)
-            };
-            let mut progress = |p: &Progress| {
-                let Some(f) = cb.on_progress else { return };
-                let json = cstring(&serde_json::to_string(p).unwrap_or_default());
-                unsafe { f(cb.userdata, json.as_ptr()) };
-            };
-            let result = autotest::run(console, &device, &mut decoder, &mut progress, &stop, lang);
-            let Some(done) = cb.on_done else { return };
-            match result {
-                Ok(r) => {
-                    let json = cstring(&serde_json::to_string(&r).unwrap_or_default());
-                    unsafe { done(cb.userdata, json.as_ptr(), std::ptr::null(), false) };
-                }
-                Err(e) => {
-                    if let AutoError::Unreachable(err) = &e {
-                        log::warn!("test du profil Auto : {err}");
+    kybernow_core::ffi_guard!(null => {
+        let (Some(console), Ok(d), Some(cb)) = (unsafe { console.as_ref() }, serde_json::from_str::<DeviceJson>(&text(device_json)), unsafe { cb.as_ref() })
+        else {
+            return std::ptr::null_mut();
+        };
+        let console = console.0.clone();
+        let cb = *cb;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let stop = cancel.clone();
+        let lang = i18n::current();
+        let device = Device { screen: d.screen, caps: d.caps, hdr: d.hdr, network: d.network, wired: d.wired };
+        let name = d.name;
+        std::thread::Builder::new()
+            .name("kybernow-autotest".into())
+            .spawn(move || {
+                // Toute la structure (Send) est prise, pas seulement ses champs.
+                let cb: KnAutoCallbacks = cb;
+                let mut decoder = |s: &Sample| -> Option<f64> {
+                    let f = cb.decode?;
+                    let handle = KnAutoSample { sample: s };
+                    let fps = unsafe { f(cb.userdata, &handle) };
+                    (fps.is_finite() && fps > 0.0).then_some(fps)
+                };
+                let mut progress = |p: &Progress| {
+                    let Some(f) = cb.on_progress else { return };
+                    let json = cstring(&serde_json::to_string(p).unwrap_or_default());
+                    unsafe { f(cb.userdata, json.as_ptr()) };
+                };
+                let result = autotest::run(console, &device, &mut decoder, &mut progress, &stop, lang);
+                let Some(done) = cb.on_done else { return };
+                match result {
+                    Ok(r) => {
+                        let json = cstring(&serde_json::to_string(&r).unwrap_or_default());
+                        unsafe { done(cb.userdata, json.as_ptr(), std::ptr::null(), false) };
                     }
-                    let error = cstring(&e.text(lang, &name));
-                    unsafe { done(cb.userdata, std::ptr::null(), error.as_ptr(), matches!(e, AutoError::Cancelled)) };
+                    Err(e) => {
+                        if let AutoError::Unreachable(err) = &e {
+                            log::warn!("test du profil Auto : {err}");
+                        }
+                        let error = cstring(&e.text(lang, &name));
+                        unsafe { done(cb.userdata, std::ptr::null(), error.as_ptr(), matches!(e, AutoError::Cancelled)) };
+                    }
                 }
-            }
-        })
-        .ok()
-        .map(|_| Box::into_raw(Box::new(KnAutoTest { cancel })))
-        .unwrap_or(std::ptr::null_mut())
+            })
+            .ok()
+            .map(|_| Box::into_raw(Box::new(KnAutoTest { cancel })))
+            .unwrap_or(std::ptr::null_mut())
+    })
 }
 
 /// Arrête le test (entre deux mesures) : `on_done` suit, avec `cancelled`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_autotest_cancel(t: *const KnAutoTest) {
-    if let Some(t) = unsafe { t.as_ref() } {
-        t.cancel.store(true, Ordering::Relaxed);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(t) = unsafe { t.as_ref() } {
+            t.cancel.store(true, Ordering::Relaxed);
+        }
+    })
 }
 
 /// Arrête le test s'il tourne encore et libère la poignée, sans attendre :
 /// `on_done` sera tout de même appelé, une fois.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_autotest_free(t: *mut KnAutoTest) {
-    if !t.is_null() {
-        let t = unsafe { Box::from_raw(t) };
-        t.cancel.store(true, Ordering::Relaxed);
-    }
+    kybernow_core::ffi_guard!({
+        if !t.is_null() {
+            let t = unsafe { Box::from_raw(t) };
+            t.cancel.store(true, Ordering::Relaxed);
+        }
+    })
 }
 
 fn result(json: *const c_char) -> Option<AutoResult> {
@@ -216,12 +234,14 @@ fn result(json: *const c_char) -> Option<AutoResult> {
 /// libérer par `kn_string_free`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_autotest_choices(result_json: *const c_char, lang: *const c_char) -> *mut c_char {
-    let Some(r) = result(result_json) else { return std::ptr::null_mut() };
-    let lang = optional(lang).map(|t| Lang::from_tag(&t)).unwrap_or_else(i18n::current);
-    match serde_json::to_string(&r.choices(lang)) {
-        Ok(json) => give(json),
-        Err(_) => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        let Some(r) = result(result_json) else { return std::ptr::null_mut() };
+        let lang = optional(lang).map(|t| Lang::from_tag(&t)).unwrap_or_else(i18n::current);
+        match serde_json::to_string(&r.choices(lang)) {
+            Ok(json) => give(json),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Les réglages de session d'un résultat (`AutoResult::settings`), avec le
@@ -232,10 +252,12 @@ pub unsafe extern "C" fn kn_autotest_choices(result_json: *const c_char, lang: *
 /// par `kn_string_free`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_autotest_settings(result_json: *const c_char, hdr: bool, wired: bool) -> *mut c_char {
-    match result(result_json) {
-        Some(r) => give(r.settings(hdr, wired).to_json().to_string()),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match result(result_json) {
+            Some(r) => give(r.settings(hdr, wired).to_json().to_string()),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Le plafond de l'encodeur à garder pour cet ordinateur quand ce résultat
@@ -244,11 +266,13 @@ pub unsafe extern "C" fn kn_autotest_settings(result_json: *const c_char, hdr: b
 /// 0 pour aucun. `previous` pour un JSON illisible.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_autotest_next_encoder_max(result_json: *const c_char, previous: u32) -> u32 {
-    let previous = (previous > 0).then_some(previous);
-    match result(result_json) {
-        Some(r) => r.next_encoder_max(previous).unwrap_or(0),
-        None => previous.unwrap_or(0),
-    }
+    kybernow_core::ffi_guard!({
+        let previous = (previous > 0).then_some(previous);
+        match result(result_json) {
+            Some(r) => r.next_encoder_max(previous).unwrap_or(0),
+            None => previous.unwrap_or(0),
+        }
+    })
 }
 
 /// Le test a-t-il été fait sur ce réseau ? `network` : celui du moment (nom
@@ -256,7 +280,9 @@ pub unsafe extern "C" fn kn_autotest_next_encoder_max(result_json: *const c_char
 /// JSON illisible (pas de bandeau sans raison).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_autotest_same_network(result_json: *const c_char, network: *const c_char) -> bool {
-    result(result_json).is_none_or(|r| r.same_network(optional(network).as_deref()))
+    kybernow_core::ffi_guard!({
+        result(result_json).is_none_or(|r| r.same_network(optional(network).as_deref()))
+    })
 }
 
 #[cfg(test)]

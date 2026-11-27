@@ -393,6 +393,9 @@ struct AccountsView: View {
                 }
             }
             .frame(width: 340, height: 340)
+            Text(AccountText.manageScan)
+                .font(Theme.sans(19)).foregroundStyle(Theme.text2)
+                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             Text(verbatim: a.console.replacingOccurrences(of: "https://", with: ""))
                 .font(Theme.mono(19)).foregroundStyle(Theme.muted)
                 .lineLimit(1).minimumScaleFactor(0.6)

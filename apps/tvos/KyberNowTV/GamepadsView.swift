@@ -173,7 +173,7 @@ struct GamepadsView: View {
                 } label: {
                     HStack(spacing: 14) {
                         Icon("vibrate", size: 30).foregroundStyle(Theme.accentLight)
-                        Text("Tester la vibration").font(Theme.sans(23, .semibold))
+                        Text("Vibration d'essai").font(Theme.sans(23, .semibold))
                     }
                     .padding(.leading, 24).padding(.trailing, 30)
                     .frame(height: 72)

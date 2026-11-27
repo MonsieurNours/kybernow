@@ -29,8 +29,8 @@ for f in pyrowave_common.mm pyrowave_decoder.mm pyrowave_bitstream.cpp; do
     clang++ -std=c++17 -O2 -fobjc-arc -c "$PW/upstream/$f" -o "$WORK/$f.o"
 done
 compile -O -o "$WORK/fullscreen" "$HERE/main.swift" "$KIT/AV1.swift" "$KIT/MetalSurface.swift" "$KIT/VideoDecoder.swift" "$KIT/VideoRenderer.swift" "$KIT/LatencyReporting.swift" \
-    "$KIT/PyroWaveDecoder.swift" "$HERE/../common/hdr-stub.swift" "$KIT/HDRVideoLayer.swift" "$KIT/Upscaler.swift" "$KIT/DecoderCapabilities.swift" "$WORK"/pyrowave_*.o -lc++ -framework IOSurface \
-    -I "$KIT/../Vendor/include" -I "$PW/module" -L "$KIT/../Vendor/Frameworks" -lkyclient.0.1 -Xlinker -rpath -Xlinker "$KIT/../Vendor/Frameworks"
+    "$KIT/PyroWaveDecoder.swift" "$KIT/PyroWaveConfig.swift" "$KIT/HDRShader.swift" "$HERE/../common/hdr-stub.swift" "$KIT/HDRVideoLayer.swift" "$KIT/Upscaler.swift" "$KIT/DecoderCapabilities.swift" "$WORK"/pyrowave_*.o -lc++ -framework IOSurface \
+    -I "$KIT/../Vendor/include" -I "$KIT/../Vendor/KyberNow/include" -I "$PW/module" -L "$KIT/../Vendor/Frameworks" -lkyclient.0.1 -lkybernow -Xlinker -rpath -Xlinker "$KIT/../Vendor/Frameworks"
 # Essai d'affichage réel (fenêtres à l'écran) : KYBERNOW_COMPILE_ONLY=1 s'arrête après la compilation.
 [ "${KYBERNOW_COMPILE_ONLY:-0}" = 1 ] && { echo "fullscreen : compilé"; exit 0; }
 "$WORK/fullscreen" "$WORK/s.hevc"

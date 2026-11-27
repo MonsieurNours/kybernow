@@ -97,7 +97,7 @@ enum LinkKind {
         if Accounts.isCallback(text) { return nil }
         if let link = Share.parseLink(text) { return .join(link) }
         if let invite = Lend.parseInvite(text) { return .borrow(invite) }
-        if LendInvite.looksLikeInvite(text) { return .badInvite }
+        if InviteLink.looksLike(text) { return .badInvite }
         return PairingLink.parse(text).map(LinkKind.computer)
     }
 }
@@ -421,7 +421,7 @@ final class RelayLinkWait {
             wait = (code, Date())
             task?.cancel()
             task = Task {
-                try? await Task.sleep(for: .seconds(ShareState.relayLinkWait + 0.05))
+                try? await Task.sleep(for: .seconds(CoreValues.current.relayLinkWait + 0.05))
                 guard !Task.isCancelled else { return }
                 recheck()
             }
@@ -485,7 +485,7 @@ final class ShareHostModel: ObservableObject {
     /// (« Demandes », pastille « 1 demande ») ; elles ne comptent pas dans les invités.
     var requests: [ShareGuest] { state?.requests ?? [] }
     /// Quatre invités au plus : le texte se montre quand la liste est pleine.
-    var full: Bool { guests.count >= 4 }
+    var full: Bool { guests.count >= CoreValues.current.maxGuests }
 
     func setConsole(_ console: ConsoleClient?) {
         self.console = console

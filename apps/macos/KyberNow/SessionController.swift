@@ -334,7 +334,6 @@ final class SessionController: NSObject, ObservableObject {
     /// Le passage (accueil ouvert en deux) sort de la composition une fois ouvert.
     private var sceneHide: Task<Void, Never>?
     private var occluded = false
-    private static let occludedBitrate: UInt32 = 20_000_000
     /// Délai entre le démarrage du flux et l'apparition : le décodeur et la
     /// synchronisation du son se calent, les premières images irrégulières
     /// restent sous l'écran d'attente.
@@ -399,19 +398,26 @@ final class SessionController: NSObject, ObservableObject {
     var hdrStreaming: Bool { hdrScreens.contains(true) }
     // MARK: Micro (docs/micro.md)
 
-    /// L'état du micro dit par le cœur (puce « Micro », menu Session).
-    @Published private(set) var micState: MicState = .off
-    /// Allumé par l'utilisateur, en attente de l'ordinateur : l'avis « Micro
-    /// envoyé à {nom}. » vient quand il le prend.
-    private var micJustOn = false
+    /// Le micro tel que le cœur le montre (`MicUI` : puce « Micro », infobulle
+    /// avec ⌃⌥⌘V, raison d'un refus, menu Session).
+    private lazy var micUI = MicUI(on: host.settings.microphone)
+    @Published private(set) var mic = MicView()
 
     /// La puce « Micro » est allumée : le choix de l'ordinateur, sauf refus.
-    var micOn: Bool { host.settings.microphone && micState.refusal == nil }
+    var micOn: Bool { mic.lit }
     /// Un invité que l'hôte ne laisse pas parler n'a pas la puce (docs/link-ui.md, « Partage »).
-    var micShown: Bool { !(isGuest && micState.notAllowed) }
+    var micShown: Bool { mic.shown }
+
+    private func refreshMic() { mic = micUI.view(shortcut: "⌃⌥⌘V", guest: isGuest) }
 
     /// ⌃⌥⌘V et le menu Session.
-    func toggleMicrophone() { setMicrophone(!host.settings.microphone) }
+    func toggleMicrophone() {
+        switch micUI.tap() {
+        case .refused: if let reason = mic.reason { showHint(.notice(reason), after: 0, for: 5) }
+        case .turnOn: setMicrophone(true)
+        case .turnOff: setMicrophone(false)
+        }
+    }
 
     /// « Micro » de la barre, du menu ou des réglages de l'ordinateur : le
     /// choix est gardé pour l'ordinateur ; l'autorisation du système est
@@ -420,30 +426,33 @@ final class SessionController: NSObject, ObservableObject {
         guard on != host.settings.microphone else { return }
         guard on else { return applyMicrophone(false) }
         // L'ordinateur ne le prend pas : la raison (au clavier ; la puce est inactive).
-        if let reason = micState.refusal {
+        if let reason = mic.reason {
             return showHint(.notice(reason), after: 0, for: 5)
         }
         MicrophoneAccess.request { [weak self] granted in
             guard let self else { return }
-            guard granted else { return self.showHint(.notice(MicText.permission), after: 0, for: 6) }
+            guard granted else {
+                self.micUI.denied()
+                self.refreshMic()
+                return self.showHint(.notice(MicText.permission), after: 0, for: 6)
+            }
             self.applyMicrophone(true)
         }
     }
 
     private func applyMicrophone(_ on: Bool) {
         commit { $0.settings.microphone = on }
-        micJustOn = on
+        micUI.set(on)
+        refreshMic()
         engine?.setMicrophone(on)
     }
 
-    /// Le cœur dit l'état du micro (la capture suit déjà dans `SessionEngine`).
+    /// Le cœur dit l'état du micro (la capture suit déjà dans `SessionEngine`) ;
+    /// l'avis « Micro envoyé à {nom}. » vient quand il le prend.
     private func microphoneChanged(_ state: MicState) {
-        micState = state
-        if state.refusal != nil { micJustOn = false }
-        if micJustOn, state == .on {
-            micJustOn = false
-            showHint(.notice(MicText.sent(host.name)), after: 0, for: 3)
-        }
+        let notice = micUI.changed(state, computer: host.name)
+        refreshMic()
+        if let notice { showHint(.notice(notice), after: 0, for: 3) }
     }
 
     /// Réglages de l'app changés (micro choisi, écho et bruit) : la capture reprend avec eux.
@@ -554,15 +563,7 @@ final class SessionController: NSObject, ObservableObject {
 
     /// Une session d'invité : un invité d'une Station qui a accepté un code (`Share.join`).
     init(guest found: ShareFound, store: HostStore, opening: Opening, onFinish: @escaping (SessionController) -> Void) {
-        var host = Host(name: found.computer, address: found.target.host, consolePort: found.target.port, username: "")
-        // Pas d'écran virtuel, la souris du bureau, rien de partagé : l'image
-        // est celle de l'hôte ; seul le repli du transport vient d'ici.
-        host.settings.apply(.jeu)
-        host.settings.display = .physical
-        host.settings.mouse = .desktop
-        host.settings.clipboard = false
-        host.settings.keepLastImage = false
-        self.host = host
+        host = Host.visitor(guest: found)
         self.store = store
         self.opening = opening
         self.onFinish = onFinish
@@ -579,14 +580,7 @@ final class SessionController: NSObject, ObservableObject {
     /// « Regarder » un ordinateur du compte : la session d'un invité spectateur,
     /// qui entre au départ (`start`), étapes titrées « Regarder {nom} ».
     init(watch computer: Host, store: HostStore, opening: Opening, onFinish: @escaping (SessionController) -> Void) {
-        var host = Host(name: computer.name, address: computer.address, consolePort: computer.consolePort, username: "")
-        // Comme un invité : l'image de l'ordinateur telle quelle, rien de partagé.
-        host.settings.apply(.jeu)
-        host.settings.display = .physical
-        host.settings.mouse = .desktop
-        host.settings.clipboard = false
-        host.settings.keepLastImage = false
-        self.host = host
+        host = Host.visitor(watch: computer)
         self.store = store
         self.opening = opening
         self.onFinish = onFinish
@@ -602,16 +596,7 @@ final class SessionController: NSObject, ObservableObject {
     /// Une session d'emprunt : l'ordinateur d'un ami, par un code de prêt ou un
     /// compte d'ami. L'emprunt se fait au départ de la session (`start`).
     init(borrow source: BorrowSource, store: HostStore, opening: Opening, onFinish: @escaping (SessionController) -> Void) {
-        let name = LendText.computerOf(source.hostHint.isEmpty ? source.target.host : source.hostHint)
-        var host = Host(name: name, address: source.target.host, consolePort: source.target.port, username: "")
-        // L'écran virtuel que la Station fait à la taille de ce Mac, profil Jeu,
-        // la souris du bureau, sans presse-papiers ; rien n'est gardé ensuite.
-        host.settings.apply(.jeu)
-        host.settings.display = .match
-        host.settings.mouse = .auto
-        host.settings.clipboard = false
-        host.settings.keepLastImage = false
-        self.host = host
+        host = Host.visitor(borrow: source)
         self.store = store
         self.opening = opening
         self.onFinish = onFinish
@@ -807,7 +792,8 @@ final class SessionController: NSObject, ObservableObject {
 
     /// Fenêtre plus visible (autre espace, réduite dans le Dock, recouverte) :
     /// plus de rendu (`nextDrawable` y attendrait jusqu'à 1 s par image) et débit plafonné
-    /// à 20 Mb/s ; au retour, rendu et débit du profil reviennent.
+    /// à celui d'un ordinateur en arrière-plan (20 Mbit/s, le cœur) ; au retour, rendu et
+    /// débit du profil reviennent.
     private func occlusionChanged(_ surface: ScreenSurface) {
         guard window != nil else { return }
         // Plusieurs écrans : chaque fenêtre arrête et reprend son propre rendu
@@ -823,8 +809,7 @@ final class SessionController: NSObject, ObservableObject {
         let hidden = surfaces.allSatisfy(\.occluded)
         guard hidden != occluded else { return }
         occluded = hidden
-        engine?.setOccluded(hidden)
-        engine?.setBitrateCap(hidden ? Self.occludedBitrate : nil)
+        engine?.setBackground(hidden)
         let which = multiScreen ? "toutes les fenêtres" : "fenêtre"
         KyberLog.app.notice("\(which, privacy: .public) \(hidden ? "occultée(s) : rendu arrêté, débit réduit" : "visible(s) : rendu et débit repris", privacy: .public)")
     }
@@ -1340,19 +1325,7 @@ final class SessionController: NSObject, ObservableObject {
     /// `wired` : ce Mac est relié par câble, pour « Auto » et PyroWave
     /// (docs/pyrowave-client-mac.md).
     private var engineSettings: SessionEngine.Settings {
-        let s = host.settings
-        let codec = codecOverride ?? s.codec
-        return SessionEngine.Settings(
-            profile: codecOverride == nil ? s.profile?.rawValue : nil,
-            codec: codec,
-            yuv444: s.yuv444 && ConnectionSettings.decodes444(codec),
-            mbps: codecOverride == nil ? s.bitrateMbps : min(s.bitrateMbps, PyroWaveSession.hevcMbps),
-            reliable: s.transport == .reliable,
-            hdr: s.hdr,
-            wired: NetworkLink.shared.wired,
-            adaptive: s.adaptive,
-            encoderMax: s.encoderMax
-        )
+        host.settings.engineSettings(codecOverride: codecOverride)
     }
 
     // MARK: - PyroWave
@@ -1467,7 +1440,7 @@ final class SessionController: NSObject, ObservableObject {
     private func resolutionLowered(_ mode: LoweredMode?, _ text: String?) {
         guard let mode else { return }
         KyberLog.app.notice("PyroWave : définition ramenée à \(mode.width)×\(mode.height) (\(mode.mbps) Mbit/s)")
-        showHint(.notice(text ?? PyroWaveText.lowered(width: mode.width, height: mode.height, mbps: mode.mbps)), after: 0, for: PyroWaveSession.bannerSeconds)
+        showHint(.notice(text ?? PyroWaveRules.loweredText(width: mode.width, height: mode.height, refresh: mode.refresh, mbps: mode.mbps)), after: 0, for: PyroWaveSession.bannerSeconds)
     }
 
     /// « Passer en HEVC » : l'image repart en HEVC pour cette session.
@@ -1758,7 +1731,11 @@ final class SessionController: NSObject, ObservableObject {
         // Le micro retenu pour cet ordinateur, si le système le permet encore ;
         // autorisation retirée depuis : coupé pour cette session, avec l'avis.
         params.microphone = settings.microphone && MicrophoneAccess.status == .granted
-        if settings.microphone, MicrophoneAccess.status == .denied { showHint(.notice(MicText.permission), after: 2, for: 6) }
+        if settings.microphone, MicrophoneAccess.status == .denied {
+            micUI.denied()
+            showHint(.notice(MicText.permission), after: 2, for: 6)
+        }
+        refreshMic()
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(settings.audio.channels) canaux, \(settings.consoleProfile, privacy: .public)")
         do {
             try engine.start(params)
@@ -2178,10 +2155,8 @@ final class SessionController: NSObject, ObservableObject {
         let plan = SessionEngine.sessionPlan(request, profile: host.settings.profile?.rawValue,
                                              virtualDisplay: virtualDisplay, codec: host.settings.codec) ?? []
         let rate = plan.reduce(0.0) { $0 + Double($1.width * $1.height * $1.refresh) }
-        guard rate > 0, host.settings.profile != nil else { return host.settings.bitrate(width: m.width, height: m.height, refresh: m.refresh) }
-        let scale = pow(rate / ConnectionSettings.referencePixelRate, 0.75)
-        let mbps = (Double(host.settings.bitrateMbps) * min(max(scale, 0.4), 3)).rounded()
-        return min(max(Int(mbps), ConnectionSettings.minBitrate), ConnectionSettings.maxBitrate)
+        guard rate > 0 else { return host.settings.bitrate(width: m.width, height: m.height, refresh: m.refresh) }
+        return host.settings.bitrate(pixelRate: rate)
     }
 
     /// Résultat de la remise en état par la console, après le retour à l'accueil.

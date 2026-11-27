@@ -282,7 +282,7 @@ final class AppModel: ObservableObject {
     }
 
     private func known(_ c: Candidate) -> Bool {
-        store.hosts.contains { HostStore.sameFingerprint($0.consoleFingerprint, c.expected) || ($0.address == c.address && $0.consolePort == c.port) }
+        store.hosts.contains { Fingerprint.same($0.consoleFingerprint, c.expected) || ($0.address == c.address && $0.consolePort == c.port) }
     }
 
     /// « Se connecter » : la session de cet ordinateur dans sa fenêtre. Déjà
@@ -736,7 +736,7 @@ struct KyberNowApp: App {
                     Toggle(MicText.label, isOn: Binding(get: { target?.micOn == true },
                                                         set: { _ in app.sessions.commandTarget?.toggleMicrophone() }))
                     .keyboardShortcut("v", modifiers: [.control, .option, .command])
-                    .disabled(target?.isLive != true || target?.micState.refusal != nil)
+                    .disabled(target?.isLive != true || target?.mic.reason != nil)
                 }
                 Button("Statistiques") {
                     if let ps = app.playstation.keySession { return ps.toggleStatsPanel() }

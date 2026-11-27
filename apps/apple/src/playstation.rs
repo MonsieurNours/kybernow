@@ -68,13 +68,15 @@ fn found_json(found: &[Console]) -> String {
 /// `system_version`, `running_app`. Bloque : hors du fil de l'interface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_search(direct_json: *const c_char, wait_ms: u32) -> *mut c_char {
-    let direct: Vec<Ipv4Addr> = serde_json::from_str::<Vec<String>>(&text(direct_json))
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|a| a.parse().ok())
-        .collect();
-    let found = discovery::search(Duration::from_millis(wait_ms.clamp(200, 10_000) as u64), &direct).unwrap_or_default();
-    give(found_json(&found))
+    kybernow_core::ffi_guard!(null => {
+        let direct: Vec<Ipv4Addr> = serde_json::from_str::<Vec<String>>(&text(direct_json))
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|a| a.parse().ok())
+            .collect();
+        let found = discovery::search(Duration::from_millis(wait_ms.clamp(200, 10_000) as u64), &direct).unwrap_or_default();
+        give(found_json(&found))
+    })
 }
 
 /// Cherche une seule console à `address` (sans diffusion), pendant
@@ -83,9 +85,11 @@ pub unsafe extern "C" fn kn_ps_search(direct_json: *const c_char, wait_ms: u32) 
 /// retenir). Bloque.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_search_at(address: *const c_char, wait_ms: u32) -> *mut c_char {
-    let Some(at) = parse_addr(address) else { return give("[]".into()) };
-    let found = discovery::search_at(Duration::from_millis(wait_ms.clamp(200, 10_000) as u64), false, &[at]).unwrap_or_default();
-    give(found_json(&found))
+    kybernow_core::ffi_guard!(null => {
+        let Some(at) = parse_addr(address) else { return give("[]".into()) };
+        let found = discovery::search_at(Duration::from_millis(wait_ms.clamp(200, 10_000) as u64), false, &[at]).unwrap_or_default();
+        give(found_json(&found))
+    })
 }
 
 // MARK: - Hors de chez soi (docs/relais.md, « Consoles PlayStation »)
@@ -100,8 +104,10 @@ pub const KN_PS_NOT_SEEN: i32 = 40;
 /// `−404` : Station d'avant les consoles.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_consoles(c: *const KnConsole, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    console_result(c.0.consoles(), out, error)
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        console_result(c.0.consoles(), out, error)
+    })
 }
 
 /// Une console jointe par une Station et le relais (opaque pour Swift).
@@ -117,74 +123,88 @@ pub struct KnPsRemote {
 /// `−404` (Station d'avant les consoles), `KN_PS_NOT_SEEN`. Bloque.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_remote_open(c: *const KnConsole, host_id: *const c_char, out: *mut *mut KnPsRemote, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    match Remote::open(&c.0, &text(host_id)) {
-        Ok(remote) => {
-            if !out.is_null() {
-                unsafe { *out = Box::into_raw(Box::new(KnPsRemote { remote })) };
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        match Remote::open(&c.0, &text(host_id)) {
+            Ok(remote) => {
+                if !out.is_null() {
+                    unsafe { *out = Box::into_raw(Box::new(KnPsRemote { remote })) };
+                }
+                KN_OK
             }
-            KN_OK
+            Err(RemoteError::NotSeen) => {
+                give_to(error, RemoteError::NotSeen.to_string());
+                KN_PS_NOT_SEEN
+            }
+            Err(RemoteError::NotRelayed) => {
+                give_to(error, RemoteError::NotRelayed.to_string());
+                KN_ERROR
+            }
+            Err(RemoteError::Console(e)) => failure(e, error),
         }
-        Err(RemoteError::NotSeen) => {
-            give_to(error, RemoteError::NotSeen.to_string());
-            KN_PS_NOT_SEEN
-        }
-        Err(RemoteError::NotRelayed) => {
-            give_to(error, RemoteError::NotRelayed.to_string());
-            KN_ERROR
-        }
-        Err(RemoteError::Console(e)) => failure(e, error),
-    }
+    })
 }
 
 /// L'adresse de la console par le relais, à passer aux autres `kn_ps_*`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_remote_address(r: *const KnPsRemote) -> *mut c_char {
-    match unsafe { r.as_ref() } {
-        Some(r) => give(r.remote.endpoint().to_text()),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match unsafe { r.as_ref() } {
+            Some(r) => give(r.remote.endpoint().to_text()),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// L'état de la console vu par la Station au dernier signe de vie : `ready`,
 /// `standby`, `unknown` ; nul si elle ne la voit plus.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_remote_state(r: *const KnPsRemote) -> *mut c_char {
-    match unsafe { r.as_ref() }.and_then(|r| r.remote.seen()) {
-        Some(c) => give(c.state),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match unsafe { r.as_ref() }.and_then(|r| r.remote.seen()) {
+            Some(c) => give(c.state),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Le chemin (JSON de `on_route` : `transport`, `relay`, `rtt_client`,
 /// `rtt_station`) : puce « Par le relais », ligne « Chemin » des statistiques.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_remote_route(r: *const KnPsRemote) -> *mut c_char {
-    match unsafe { r.as_ref() } {
-        Some(r) => give(serde_json::to_string(&r.remote.route_info()).unwrap_or_default()),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match unsafe { r.as_ref() } {
+            Some(r) => give(serde_json::to_string(&r.remote.route_info()).unwrap_or_default()),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_remote_free(r: *mut KnPsRemote) {
-    if !r.is_null() {
-        drop(unsafe { Box::from_raw(r) });
-    }
+    kybernow_core::ffi_guard!({
+        if !r.is_null() {
+            drop(unsafe { Box::from_raw(r) });
+        }
+    })
 }
 
 /// Page de connexion au compte Sony (à ouvrir dans une fenêtre web ; à
 /// libérer par `kn_string_free`).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_login_url() -> *mut c_char {
-    give(psn::LOGIN_URL.to_string())
+    kybernow_core::ffi_guard!(null => {
+        give(psn::LOGIN_URL.to_string())
+    })
 }
 
 /// Vrai pour l'adresse de retour de Sony : la fenêtre web s'arrête là et
 /// passe l'adresse à `kn_ps_account`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_is_redirect(url: *const c_char) -> bool {
-    psn::is_redirect(&text(url))
+    kybernow_core::ffi_guard!({
+        psn::is_redirect(&text(url))
+    })
 }
 
 /// Identifiant du compte d'après l'adresse de retour de Sony (deux
@@ -193,18 +213,20 @@ pub unsafe extern "C" fn kn_ps_is_redirect(url: *const c_char) -> bool {
 /// pour le journal>"}`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_account(redirect_url: *const c_char) -> *mut c_char {
-    let url = text(redirect_url);
-    let result = match psn::code_from_redirect(&url) {
-        None => json!({ "error": psn::PsnError::NoCode.to_string() }),
-        Some(code) => match psn::account(&code) {
-            Ok(a) => json!({ "account": a.id.to_base64(), "online_id": a.online_id }),
-            Err(e) => {
-                log::warn!("PlayStation : identifiant du compte non lu : {e}");
-                json!({ "error": e.to_string() })
-            }
-        },
-    };
-    give(result.to_string())
+    kybernow_core::ffi_guard!(null => {
+        let url = text(redirect_url);
+        let result = match psn::code_from_redirect(&url) {
+            None => json!({ "error": psn::PsnError::NoCode.to_string() }),
+            Some(code) => match psn::account(&code) {
+                Ok(a) => json!({ "account": a.id.to_base64(), "online_id": a.online_id }),
+                Err(e) => {
+                    log::warn!("PlayStation : identifiant du compte non lu : {e}");
+                    json!({ "error": e.to_string() })
+                }
+            },
+        };
+        give(result.to_string())
+    })
 }
 
 /// Associe la console (`target` : celui de `kn_ps_search`, `account` :
@@ -214,38 +236,42 @@ pub unsafe extern "C" fn kn_ps_account(redirect_url: *const c_char) -> *mut c_ch
 /// "detail": "…"}` (`no_answer` : écran « Associer un appareil » fermé).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_regist(address: *const c_char, target: *const c_char, account: *const c_char, pin: u32) -> *mut c_char {
-    let fail = |code: &str, detail: String| give(json!({ "error": code, "detail": detail }).to_string());
-    let Some(addr) = parse_addr(address) else { return fail("other", "adresse illisible".into()) };
-    let Ok(target) = serde_json::from_value::<regist::TargetName>(serde_json::Value::String(text(target))) else {
-        return fail("other", "cible illisible".into());
-    };
-    let Some(id) = PsnId::from_base64(&text(account)) else { return fail("account", "identifiant illisible".into()) };
-    match regist::regist_at(&addr, target.into(), &id, pin) {
-        Ok(r) => give(json!({ "registered": r }).to_string()),
-        Err(e) => {
-            log::warn!("PlayStation : association refusée : {e}");
-            let code = match &e {
-                RegistError::NoAnswer | RegistError::Refused => "no_answer",
-                RegistError::Rejected { reason: Some(regist::REASON_REGIST_FAILED), .. } => "wrong_code",
-                RegistError::Rejected { reason: Some(regist::REASON_INVALID_PSN_ID), .. } => "account",
-                RegistError::Network(_) => "network",
-                _ => "other",
-            };
-            fail(code, e.to_string())
+    kybernow_core::ffi_guard!(null => {
+        let fail = |code: &str, detail: String| give(json!({ "error": code, "detail": detail }).to_string());
+        let Some(addr) = parse_addr(address) else { return fail("other", "adresse illisible".into()) };
+        let Ok(target) = serde_json::from_value::<regist::TargetName>(serde_json::Value::String(text(target))) else {
+            return fail("other", "cible illisible".into());
+        };
+        let Some(id) = PsnId::from_base64(&text(account)) else { return fail("account", "identifiant illisible".into()) };
+        match regist::regist_at(&addr, target.into(), &id, pin) {
+            Ok(r) => give(json!({ "registered": r }).to_string()),
+            Err(e) => {
+                log::warn!("PlayStation : association refusée : {e}");
+                let code = match &e {
+                    RegistError::NoAnswer | RegistError::Refused => "no_answer",
+                    RegistError::Rejected { reason: Some(regist::REASON_REGIST_FAILED), .. } => "wrong_code",
+                    RegistError::Rejected { reason: Some(regist::REASON_INVALID_PSN_ID), .. } => "account",
+                    RegistError::Network(_) => "network",
+                    _ => "other",
+                };
+                fail(code, e.to_string())
+            }
         }
-    }
+    })
 }
 
 /// Réveille une console associée (`registered_json` : ce que rend
 /// `kn_ps_regist`). Vrai si le paquet est parti.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_wake(address: *const c_char, registered_json: *const c_char) -> bool {
-    let (Some(addr), Ok(r)) = (parse_addr(address), serde_json::from_str::<Registered>(&text(registered_json))) else {
-        return false;
-    };
-    let model = if matches!(r.target, regist::TargetName::Ps5V1) { Model::Ps5 } else { Model::Ps4 };
-    let Some(cred) = r.wake_credential() else { return false };
-    discovery::wake_at(&addr, model, cred).is_ok()
+    kybernow_core::ffi_guard!({
+        let (Some(addr), Ok(r)) = (parse_addr(address), serde_json::from_str::<Registered>(&text(registered_json))) else {
+            return false;
+        };
+        let model = if matches!(r.target, regist::TargetName::Ps5V1) { Model::Ps5 } else { Model::Ps4 };
+        let Some(cred) = r.wake_credential() else { return false };
+        discovery::wake_at(&addr, model, cred).is_ok()
+    })
 }
 
 /// État d'une partie (`on_state`).
@@ -314,84 +340,86 @@ pub unsafe extern "C" fn kn_ps_start(
     hevc_decoder: bool,
     cb: *const KnPsCallbacks,
 ) -> *mut KnPsPlay {
-    let (Some(addr), Ok(r), Some(cb)) = (parse_addr(address), serde_json::from_str::<Registered>(&text(registered_json)), unsafe { cb.as_ref() }) else {
-        return std::ptr::null_mut();
-    };
-    let cb = *cb;
-    // La partie s'arrête en attendant ses fils (`kn_ps_stop`) : l'app garde
-    // elle-même son `userdata`, rien à rendre ici.
-    let owner = crate::Owner::new(cb.userdata, None);
-    let sink = |packet_cb: KnPacketCb| -> Option<Arc<dyn PacketHandler>> {
-        let f = packet_cb?;
-        let stream = STREAMS.fetch_add(1, Ordering::Relaxed);
-        Some(Arc::new(Sink { cb: f, userdata: cb.userdata, stream, screen: 0, _owner: owner.clone() }))
-    };
-    let Some(video) = sink(cb.video_packet) else { return std::ptr::null_mut() };
-    let audio = sink(cb.audio_packet);
-    let settings = serde_json::from_str::<PlaySettings>(&text(settings_json)).unwrap_or_default();
-    let on_state = Box::new(move |state: PlayState| {
-        // Toute la structure (Send) est prise, pas seulement ses champs.
-        let cb: KnPsCallbacks = cb;
-        let Some(f) = cb.on_state else { return };
-        let detail_text;
-        let (code, w, h, hdr, detail) = match &state {
-            PlayState::Connecting => (KN_PS_CONNECTING, 0, 0, false, ""),
-            PlayState::Streaming { width, height, hdr } => (KN_PS_STREAMING, *width, *height, *hdr, ""),
-            PlayState::CantDisplay(true) => (KN_PS_CANT_DISPLAY, 0, 0, false, ""),
-            PlayState::CantDisplay(false) => (KN_PS_CAN_DISPLAY, 0, 0, false, ""),
-            PlayState::Ended(end) => {
-                let (code, d) = match end {
-                    PlayEnd::Stopped => (KN_PS_END_STOPPED, String::new()),
-                    PlayEnd::InUse => (KN_PS_END_IN_USE, String::new()),
-                    PlayEnd::NotPaired => (KN_PS_END_NOT_PAIRED, String::new()),
-                    PlayEnd::Unreachable(s) => (KN_PS_END_UNREACHABLE, s.clone()),
-                    PlayEnd::Remote(s) => (KN_PS_END_REMOTE, s.clone()),
-                };
-                detail_text = d;
-                (code, 0, 0, false, detail_text.as_str())
-            }
+    kybernow_core::ffi_guard!(null => {
+        let (Some(addr), Ok(r), Some(cb)) = (parse_addr(address), serde_json::from_str::<Registered>(&text(registered_json)), unsafe { cb.as_ref() }) else {
+            return std::ptr::null_mut();
         };
-        let c = std::ffi::CString::new(detail.replace('\0', " ")).unwrap_or_default();
-        unsafe { f(cb.userdata, code, w, h, hdr, c.as_ptr()) };
-    });
-    let on_pad = Box::new(move |e: PadEvent| {
-        let cb: KnPsCallbacks = cb;
-        match e {
-            PadEvent::Menu => {
-                if let Some(f) = cb.on_menu {
-                    unsafe { f(cb.userdata) };
-                }
-            }
-            PadEvent::Navigate(k) => {
-                if let Some(f) = cb.on_navigate {
-                    let key = match k {
-                        PadKey::Left => crate::input::KN_PAD_KEY_LEFT,
-                        PadKey::Right => crate::input::KN_PAD_KEY_RIGHT,
-                        PadKey::Up => crate::input::KN_PAD_KEY_UP,
-                        PadKey::Down => crate::input::KN_PAD_KEY_DOWN,
-                        PadKey::Accept => crate::input::KN_PAD_KEY_ACCEPT,
-                        PadKey::Back => crate::input::KN_PAD_KEY_BACK,
-                    };
-                    unsafe { f(cb.userdata, key) };
-                }
-            }
-        }
-    });
-    let play = Play::start(addr, &r, PlayOptions { settings, hevc_decoder }, video, audio, on_state, on_pad);
-    if cb.on_keyboard.is_some() {
-        play.set_on_keyboard(Some(Box::new(move |e: KeyboardEvent| {
+        let cb = *cb;
+        // La partie s'arrête en attendant ses fils (`kn_ps_stop`) : l'app garde
+        // elle-même son `userdata`, rien à rendre ici.
+        let owner = crate::Owner::new(cb.userdata, None);
+        let sink = |packet_cb: KnPacketCb| -> Option<Arc<dyn PacketHandler>> {
+            let f = packet_cb?;
+            let stream = STREAMS.fetch_add(1, Ordering::Relaxed);
+            Some(Arc::new(Sink { cb: f, userdata: cb.userdata, stream, screen: 0, _owner: owner.clone() }))
+        };
+        let Some(video) = sink(cb.video_packet) else { return std::ptr::null_mut() };
+        let audio = sink(cb.audio_packet);
+        let settings = serde_json::from_str::<PlaySettings>(&text(settings_json)).unwrap_or_default();
+        let on_state = Box::new(move |state: PlayState| {
+            // Toute la structure (Send) est prise, pas seulement ses champs.
             let cb: KnPsCallbacks = cb;
-            let Some(f) = cb.on_keyboard else { return };
-            let (code, t) = match e {
-                KeyboardEvent::Open(t) => (KN_PS_KEYBOARD_OPEN, t),
-                KeyboardEvent::Text(t) => (KN_PS_KEYBOARD_TEXT, t),
-                KeyboardEvent::Closed => (KN_PS_KEYBOARD_CLOSED, String::new()),
+            let Some(f) = cb.on_state else { return };
+            let detail_text;
+            let (code, w, h, hdr, detail) = match &state {
+                PlayState::Connecting => (KN_PS_CONNECTING, 0, 0, false, ""),
+                PlayState::Streaming { width, height, hdr } => (KN_PS_STREAMING, *width, *height, *hdr, ""),
+                PlayState::CantDisplay(true) => (KN_PS_CANT_DISPLAY, 0, 0, false, ""),
+                PlayState::CantDisplay(false) => (KN_PS_CAN_DISPLAY, 0, 0, false, ""),
+                PlayState::Ended(end) => {
+                    let (code, d) = match end {
+                        PlayEnd::Stopped => (KN_PS_END_STOPPED, String::new()),
+                        PlayEnd::InUse => (KN_PS_END_IN_USE, String::new()),
+                        PlayEnd::NotPaired => (KN_PS_END_NOT_PAIRED, String::new()),
+                        PlayEnd::Unreachable(s) => (KN_PS_END_UNREACHABLE, s.clone()),
+                        PlayEnd::Remote(s) => (KN_PS_END_REMOTE, s.clone()),
+                    };
+                    detail_text = d;
+                    (code, 0, 0, false, detail_text.as_str())
+                }
             };
-            let c = std::ffi::CString::new(t.replace('\0', "")).unwrap_or_default();
-            unsafe { f(cb.userdata, code, c.as_ptr()) };
-        })));
-    }
-    Box::into_raw(Box::new(KnPsPlay { play }))
+            let c = std::ffi::CString::new(detail.replace('\0', " ")).unwrap_or_default();
+            unsafe { f(cb.userdata, code, w, h, hdr, c.as_ptr()) };
+        });
+        let on_pad = Box::new(move |e: PadEvent| {
+            let cb: KnPsCallbacks = cb;
+            match e {
+                PadEvent::Menu => {
+                    if let Some(f) = cb.on_menu {
+                        unsafe { f(cb.userdata) };
+                    }
+                }
+                PadEvent::Navigate(k) => {
+                    if let Some(f) = cb.on_navigate {
+                        let key = match k {
+                            PadKey::Left => crate::input::KN_PAD_KEY_LEFT,
+                            PadKey::Right => crate::input::KN_PAD_KEY_RIGHT,
+                            PadKey::Up => crate::input::KN_PAD_KEY_UP,
+                            PadKey::Down => crate::input::KN_PAD_KEY_DOWN,
+                            PadKey::Accept => crate::input::KN_PAD_KEY_ACCEPT,
+                            PadKey::Back => crate::input::KN_PAD_KEY_BACK,
+                        };
+                        unsafe { f(cb.userdata, key) };
+                    }
+                }
+            }
+        });
+        let play = Play::start(addr, &r, PlayOptions { settings, hevc_decoder }, video, audio, on_state, on_pad);
+        if cb.on_keyboard.is_some() {
+            play.set_on_keyboard(Some(Box::new(move |e: KeyboardEvent| {
+                let cb: KnPsCallbacks = cb;
+                let Some(f) = cb.on_keyboard else { return };
+                let (code, t) = match e {
+                    KeyboardEvent::Open(t) => (KN_PS_KEYBOARD_OPEN, t),
+                    KeyboardEvent::Text(t) => (KN_PS_KEYBOARD_TEXT, t),
+                    KeyboardEvent::Closed => (KN_PS_KEYBOARD_CLOSED, String::new()),
+                };
+                let c = std::ffi::CString::new(t.replace('\0', "")).unwrap_or_default();
+                unsafe { f(cb.userdata, code, c.as_ptr()) };
+            })));
+        }
+        Box::into_raw(Box::new(KnPsPlay { play }))
+    })
 }
 
 /// Le décodeur a perdu sa référence : une image clé est demandée à la
@@ -399,50 +427,62 @@ pub unsafe extern "C" fn kn_ps_start(
 /// ou l'arrivée d'une image clé.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_keyframe_lost(play: *mut KnPsPlay) {
-    if let Some(p) = unsafe { play.as_ref() } {
-        p.play.key_frame_lost();
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(p) = unsafe { play.as_ref() } {
+            p.play.key_frame_lost();
+        }
+    })
 }
 
 /// Le décodeur a retrouvé une image clé.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_keyframe_recovered(play: *mut KnPsPlay) {
-    if let Some(p) = unsafe { play.as_ref() } {
-        p.play.key_frame_recovered();
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(p) = unsafe { play.as_ref() } {
+            p.play.key_frame_recovered();
+        }
+    })
 }
 
 /// Touche du clavier (usage USB HID, la place de la touche : table kVK →
 /// HID de l'app), traduite en manette d'après la disposition de la console.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_key(play: *mut KnPsPlay, usage: u16, pressed: bool) {
-    if let Some(p) = unsafe { play.as_ref() } {
-        p.play.key(usage, pressed);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(p) = unsafe { play.as_ref() } {
+            p.play.key(usage, pressed);
+        }
+    })
 }
 
 /// Bouton de la souris : 0 gauche, 1 droit, 2 milieu, 3 et 4 latéraux.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_mouse_button(play: *mut KnPsPlay, button: u8, pressed: bool) {
-    if let Some(p) = unsafe { play.as_ref() } {
-        p.play.mouse_button(button, pressed);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(p) = unsafe { play.as_ref() } {
+            p.play.mouse_button(button, pressed);
+        }
+    })
 }
 
 /// Déplacement brut de la souris capturée (comptes, y vers le bas).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_mouse_move(play: *mut KnPsPlay, dx: f32, dy: f32) {
-    if let Some(p) = unsafe { play.as_ref() } {
-        p.play.mouse_move(dx, dy);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(p) = unsafe { play.as_ref() } {
+            p.play.mouse_move(dx, dy);
+        }
+    })
 }
 
 /// Tout relâcher : fenêtre qui perd le clavier, souris rendue.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_release_all(play: *mut KnPsPlay) {
-    if let Some(p) = unsafe { play.as_ref() } {
-        p.play.release_all();
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(p) = unsafe { play.as_ref() } {
+            p.play.release_all();
+        }
+    })
 }
 
 /// Intensités de la DualSense, de 0 à 100 % (vibrations HD et simples,
@@ -450,29 +490,37 @@ pub unsafe extern "C" fn kn_ps_release_all(play: *mut KnPsPlay) {
 /// partie.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_set_intensities(play: *mut KnPsPlay, rumble: u8, triggers: u8) {
-    if let Some(p) = unsafe { play.as_ref() } {
-        p.play.set_intensities(rumble, triggers);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(p) = unsafe { play.as_ref() } {
+            p.play.set_intensities(rumble, triggers);
+        }
+    })
 }
 
 /// Clavier de la console ouvert : le texte entier de son champ (UTF-8), à
 /// chaque changement. Faux s'il n'est pas parti (pas de canal de contrôle).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_keyboard_text(play: *mut KnPsPlay, utf8: *const c_char) -> bool {
-    let Some(p) = (unsafe { play.as_ref() }) else { return false };
-    p.play.keyboard_text(&text(utf8))
+    kybernow_core::ffi_guard!({
+        let Some(p) = (unsafe { play.as_ref() }) else { return false };
+        p.play.keyboard_text(&text(utf8))
+    })
 }
 
 /// Entrée : le texte du clavier de la console est validé.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_keyboard_accept(play: *mut KnPsPlay) -> bool {
-    unsafe { play.as_ref() }.is_some_and(|p| p.play.keyboard_accept())
+    kybernow_core::ffi_guard!({
+        unsafe { play.as_ref() }.is_some_and(|p| p.play.keyboard_accept())
+    })
 }
 
 /// Échap : le texte du clavier de la console est refusé.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_keyboard_reject(play: *mut KnPsPlay) -> bool {
-    unsafe { play.as_ref() }.is_some_and(|p| p.play.keyboard_reject())
+    kybernow_core::ffi_guard!({
+        unsafe { play.as_ref() }.is_some_and(|p| p.play.keyboard_reject())
+    })
 }
 
 /// Vibrations HD : l'app a ouvert (`true`) ou fermé la carte son d'une
@@ -481,7 +529,9 @@ pub unsafe extern "C" fn kn_ps_keyboard_reject(play: *mut KnPsPlay) -> bool {
 /// simples. Une seule sortie pour l'app.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_haptics_set_output(on: bool) {
-    dualsense::hd_haptics().set_output(on);
+    kybernow_core::ffi_guard!({
+        dualsense::hd_haptics().set_output(on);
+    })
 }
 
 /// Fil temps réel de la carte son de la DualSense : `frames` images de
@@ -490,41 +540,51 @@ pub extern "C" fn kn_ps_haptics_set_output(on: bool) {
 /// pour les voies 3 et 4 d'une DualSense), du silence ailleurs. Sans verrou.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_haptics_fill(out: *mut f32, frames: usize, channels: usize, first: usize) {
-    if out.is_null() || frames == 0 || channels == 0 {
-        return;
-    }
-    let out = unsafe { std::slice::from_raw_parts_mut(out, frames * channels) };
-    dualsense::hd_haptics().fill(out, frames, channels, first);
+    kybernow_core::ffi_guard!({
+        if out.is_null() || frames == 0 || channels == 0 {
+            return;
+        }
+        let out = unsafe { std::slice::from_raw_parts_mut(out, frames * channels) };
+        dualsense::hd_haptics().fill(out, frames, channels, first);
+    })
 }
 
 /// Les réglages par défaut d'une console (JSON, à libérer) : Auto, 60 i/s,
 /// plein écran.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_default_settings() -> *mut c_char {
-    give(serde_json::to_string(&PlaySettings::default()).unwrap_or_default())
+    kybernow_core::ffi_guard!(null => {
+        give(serde_json::to_string(&PlaySettings::default()).unwrap_or_default())
+    })
 }
 
 /// Vrai si les réglages s'écartent d'Auto (« Personnalisé » à l'accueil).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_settings_custom(settings_json: *const c_char) -> bool {
-    serde_json::from_str::<PlaySettings>(&text(settings_json)).is_ok_and(|s| s.is_custom())
+    kybernow_core::ffi_guard!({
+        serde_json::from_str::<PlaySettings>(&text(settings_json)).is_ok_and(|s| s.is_custom())
+    })
 }
 
 /// La disposition par défaut du clavier et de la souris (JSON, à libérer).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_default_layout() -> *mut c_char {
-    give(serde_json::to_string(&Layout::default()).unwrap_or_default())
+    kybernow_core::ffi_guard!(null => {
+        give(serde_json::to_string(&Layout::default()).unwrap_or_default())
+    })
 }
 
 /// Pose la disposition de la console (JSON de `kn_ps_default_layout`, tel
 /// que l'app le garde). Faux si le JSON est illisible (disposition gardée).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_set_layout(play: *mut KnPsPlay, layout_json: *const c_char) -> bool {
-    let (Some(p), Ok(layout)) = (unsafe { play.as_ref() }, serde_json::from_str::<Layout>(&text(layout_json))) else {
-        return false;
-    };
-    p.play.set_layout(layout);
-    true
+    kybernow_core::ffi_guard!({
+        let (Some(p), Ok(layout)) = (unsafe { play.as_ref() }, serde_json::from_str::<Layout>(&text(layout_json))) else {
+            return false;
+        };
+        p.play.set_layout(layout);
+        true
+    })
 }
 
 /// La barre ou le menu de l'app s'ouvre (`true`) ou se ferme : tant qu'ils
@@ -532,9 +592,11 @@ pub unsafe extern "C" fn kn_ps_set_layout(play: *mut KnPsPlay, layout_json: *con
 /// navigue dans l'app (`on_navigate`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_set_captured(play: *mut KnPsPlay, on: bool) {
-    if let Some(p) = unsafe { play.as_ref() } {
-        p.play.set_captured(on);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(p) = unsafe { play.as_ref() } {
+            p.play.set_captured(on);
+        }
+    })
 }
 
 /// Statistiques depuis l'appel précédent (une fois par seconde), JSON à
@@ -542,27 +604,33 @@ pub unsafe extern "C" fn kn_ps_set_captured(play: *mut KnPsPlay, on: bool) {
 /// `mbps`, `lost`, `recovered`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_stats(play: *mut KnPsPlay) -> *mut c_char {
-    let Some(p) = (unsafe { play.as_ref() }) else { return std::ptr::null_mut() };
-    give(serde_json::to_string(&p.play.stats()).unwrap_or_default())
+    kybernow_core::ffi_guard!(null => {
+        let Some(p) = (unsafe { play.as_ref() }) else { return std::ptr::null_mut() };
+        give(serde_json::to_string(&p.play.stats()).unwrap_or_default())
+    })
 }
 
 /// Met la console en mode repos (la partie se termine ensuite).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_goto_bed(play: *mut KnPsPlay) {
-    if let Some(p) = unsafe { play.as_ref() } {
-        p.play.goto_bed();
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(p) = unsafe { play.as_ref() } {
+            p.play.goto_bed();
+        }
+    })
 }
 
 /// Arrête la partie, attend sa fin et la libère (le dernier `on_state` est
 /// une fin). Ne pas appeler depuis un rappel de la partie.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_stop(play: *mut KnPsPlay) {
-    if play.is_null() {
-        return;
-    }
-    let mut p = unsafe { Box::from_raw(play) };
-    p.play.stop();
+    kybernow_core::ffi_guard!({
+        if play.is_null() {
+            return;
+        }
+        let mut p = unsafe { Box::from_raw(play) };
+        p.play.stop();
+    })
 }
 
 // MARK: - Envoi entre appareils (docs/playstation.md, « Plusieurs appareils »)
@@ -577,20 +645,24 @@ pub struct KnPsHandoff {
 /// par `kn_ps_handoff_stop`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_handoff_receive(name: *const c_char, platform: *const c_char) -> *mut KnPsHandoff {
-    match kybernow_core::playstation::handoff::Receiver::start(&text(name), &text(platform)) {
-        Ok(receiver) => Box::into_raw(Box::new(KnPsHandoff { receiver })),
-        Err(e) => {
-            log::warn!("PlayStation : attente d'un envoi impossible ({e})");
-            std::ptr::null_mut()
+    kybernow_core::ffi_guard!(null => {
+        match kybernow_core::playstation::handoff::Receiver::start(&text(name), &text(platform)) {
+            Ok(receiver) => Box::into_raw(Box::new(KnPsHandoff { receiver })),
+            Err(e) => {
+                log::warn!("PlayStation : attente d'un envoi impossible ({e})");
+                std::ptr::null_mut()
+            }
         }
-    }
+    })
 }
 
 /// Le code à 6 chiffres à afficher (texte à libérer).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_handoff_code(h: *mut KnPsHandoff) -> *mut c_char {
-    let Some(h) = (unsafe { h.as_ref() }) else { return std::ptr::null_mut() };
-    give(h.receiver.code())
+    kybernow_core::ffi_guard!(null => {
+        let Some(h) = (unsafe { h.as_ref() }) else { return std::ptr::null_mut() };
+        give(h.receiver.code())
+    })
 }
 
 /// Le prochain évènement, attendu `timeout_ms` au plus (bloque : hors du fil
@@ -599,34 +671,40 @@ pub unsafe extern "C" fn kn_ps_handoff_code(h: *mut KnPsHandoff) -> *mut c_char 
 /// s'il n'y a rien.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_handoff_next(h: *mut KnPsHandoff, timeout_ms: u32) -> *mut c_char {
-    use kybernow_core::playstation::handoff::Event;
-    let Some(h) = (unsafe { h.as_ref() }) else { return std::ptr::null_mut() };
-    match h.receiver.next(Duration::from_millis(timeout_ms as u64)) {
-        Some(Event::Received(bundle)) => give(json!({ "event": "received", "bundle": bundle }).to_string()),
-        Some(Event::NewCode(code)) => give(json!({ "event": "new_code", "code": code }).to_string()),
-        Some(Event::Expired) => give(json!({ "event": "expired" }).to_string()),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        use kybernow_core::playstation::handoff::Event;
+        let Some(h) = (unsafe { h.as_ref() }) else { return std::ptr::null_mut() };
+        match h.receiver.next(Duration::from_millis(timeout_ms as u64)) {
+            Some(Event::Received(bundle)) => give(json!({ "event": "received", "bundle": bundle }).to_string()),
+            Some(Event::NewCode(code)) => give(json!({ "event": "new_code", "code": code }).to_string()),
+            Some(Event::Expired) => give(json!({ "event": "expired" }).to_string()),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Arrête l'attente et la libère.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_handoff_stop(h: *mut KnPsHandoff) {
-    if !h.is_null() {
-        drop(unsafe { Box::from_raw(h) });
-    }
+    kybernow_core::ffi_guard!({
+        if !h.is_null() {
+            drop(unsafe { Box::from_raw(h) });
+        }
+    })
 }
 
 /// Les appareils du réseau qui attendent un envoi, cherchés `wait_ms`
 /// (bloque). JSON à libérer : `[{"name","platform","address":"ip:port"}]`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_handoff_discover(wait_ms: u32) -> *mut c_char {
-    let list = kybernow_core::playstation::handoff::discover(Duration::from_millis(wait_ms as u64), &[]).unwrap_or_default();
-    let v: Vec<_> = list
-        .iter()
-        .map(|w| json!({ "name": w.name, "platform": w.platform, "address": w.addr.to_string() }))
-        .collect();
-    give(serde_json::Value::Array(v).to_string())
+    kybernow_core::ffi_guard!(null => {
+        let list = kybernow_core::playstation::handoff::discover(Duration::from_millis(wait_ms as u64), &[]).unwrap_or_default();
+        let v: Vec<_> = list
+            .iter()
+            .map(|w| json!({ "name": w.name, "platform": w.platform, "address": w.addr.to_string() }))
+            .collect();
+        give(serde_json::Value::Array(v).to_string())
+    })
 }
 
 /// Envoie le paquet (JSON du contrat) à `address` (`ip:port` de
@@ -634,15 +712,17 @@ pub unsafe extern "C" fn kn_ps_handoff_discover(wait_ms: u32) -> *mut c_char {
 /// JSON à libérer : `{"ok":true}` ou `{"error":"refused"|"unreachable","detail":"…"}`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_handoff_send(address: *const c_char, code: *const c_char, bundle: *const c_char) -> *mut c_char {
-    use kybernow_core::playstation::handoff::{SendError, send};
-    let Ok(to) = text(address).parse::<std::net::SocketAddr>() else {
-        return give(json!({ "error": "unreachable", "detail": "adresse illisible" }).to_string());
-    };
-    match send(to, &text(code), &text(bundle)) {
-        Ok(()) => give(json!({ "ok": true }).to_string()),
-        Err(SendError::Refused) => give(json!({ "error": "refused", "detail": "" }).to_string()),
-        Err(SendError::Unreachable(d)) => give(json!({ "error": "unreachable", "detail": d }).to_string()),
-    }
+    kybernow_core::ffi_guard!(null => {
+        use kybernow_core::playstation::handoff::{SendError, send};
+        let Ok(to) = text(address).parse::<std::net::SocketAddr>() else {
+            return give(json!({ "error": "unreachable", "detail": "adresse illisible" }).to_string());
+        };
+        match send(to, &text(code), &text(bundle)) {
+            Ok(()) => give(json!({ "ok": true }).to_string()),
+            Err(SendError::Refused) => give(json!({ "error": "refused", "detail": "" }).to_string()),
+            Err(SendError::Unreachable(d)) => give(json!({ "error": "unreachable", "detail": d }).to_string()),
+        }
+    })
 }
 
 // MARK: - Manettes lues par l'app (Apple TV, iPhone, iPad)
@@ -654,50 +734,64 @@ pub unsafe extern "C" fn kn_ps_handoff_send(address: *const c_char, code: *const
 /// d'ordinateur gardent `kn_input_gamepad_*`.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_plug(pad: u32, vendor_id: i32, product_id: i32) {
-    kybernow_core::gamepads::plug(pad, u16::try_from(vendor_id).ok(), u16::try_from(product_id).ok());
+    kybernow_core::ffi_guard!({
+        kybernow_core::gamepads::plug(pad, u16::try_from(vendor_id).ok(), u16::try_from(product_id).ok());
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_unplug(pad: u32) {
-    kybernow_core::gamepads::unplug(pad);
+    kybernow_core::ffi_guard!({
+        kybernow_core::gamepads::unplug(pad);
+    })
 }
 
 /// `button` : valeur kynput (`KYNPUT_GAMEPAD_BUTTON_*`, comme `kn_input_gamepad_button`).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_button(pad: u32, button: u32, pressed: bool) {
-    if let Some(b) = kybernow_core::input::PadButton::from_u32(button) {
-        kybernow_core::gamepads::button(pad, b, pressed);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(b) = kybernow_core::input::PadButton::from_u32(button) {
+            kybernow_core::gamepads::button(pad, b, pressed);
+        }
+    })
 }
 
 /// `axis` : valeur kynput (`KYNPUT_GAMEPAD_AXIS_*`) ; sticks de -32768 à
 /// 32767 (vers le bas : positif), gâchettes de 0 à 32767.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_axis(pad: u32, axis: u32, value: i16) {
-    if let Some(a) = kybernow_core::input::PadAxis::from_u32(axis) {
-        kybernow_core::gamepads::axis(pad, a, value);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(a) = kybernow_core::input::PadAxis::from_u32(axis) {
+            kybernow_core::gamepads::axis(pad, a, value);
+        }
+    })
 }
 
 /// Clic du pavé tactile.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_touch_click(pad: u32, pressed: bool) {
-    kybernow_core::gamepads::global().touch_click(pad, pressed);
+    kybernow_core::ffi_guard!({
+        kybernow_core::gamepads::global().touch_click(pad, pressed);
+    })
 }
 
 /// Doigt `finger` (0 ou 1) posé en (`x`, `y`), de 0 à 1 depuis le coin haut
 /// gauche du pavé, ou levé (`down` faux).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_touch(pad: u32, finger: u32, down: bool, x: f32, y: f32) {
-    let at = down.then(|| (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)));
-    kybernow_core::gamepads::global().touch_finger(pad, finger as usize, at);
+    kybernow_core::ffi_guard!({
+        let at = down.then(|| (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)));
+        kybernow_core::gamepads::global().touch_finger(pad, finger as usize, at);
+    })
 }
 
 /// Mesure du gyroscope (`gyro` : rad/s) ou de l'accéléromètre (m/s²), dans
 /// le repère de SDL ; `timestamp_us` croissant.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_sensor(pad: u32, gyro: bool, x: f32, y: f32, z: f32, timestamp_us: u64) {
-    kybernow_core::gamepads::global().sensor(pad, gyro, [x, y, z], timestamp_us);
+    kybernow_core::ffi_guard!({
+        kybernow_core::gamepads::global().sensor(pad, gyro, [x, y, z], timestamp_us);
+    })
 }
 
 /// Retour d'une partie vers une manette lue par l'app : vibration (`effect`
@@ -731,6 +825,8 @@ impl kybernow_core::gamepads::AppFeedback for PadFeedback {
 /// d'ordinateur joue déjà ses vibrations par la chaîne d'entrées).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_ps_pad_set_feedback(cb: KnPsPadFeedback, userdata: *mut c_void) {
-    let f = cb.map(|cb| Arc::new(PadFeedback { cb, userdata }) as Arc<dyn kybernow_core::gamepads::AppFeedback>);
-    kybernow_core::gamepads::set_app_feedback(f);
+    kybernow_core::ffi_guard!({
+        let f = cb.map(|cb| Arc::new(PadFeedback { cb, userdata }) as Arc<dyn kybernow_core::gamepads::AppFeedback>);
+        kybernow_core::gamepads::set_app_feedback(f);
+    })
 }

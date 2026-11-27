@@ -330,20 +330,14 @@ final class PlayStationSession: ObservableObject {
 
     private func startStats() {
         guard statsTask == nil else { return }
-        statsTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                guard let self, !Task.isCancelled, let play = self.play else { return }
-                if let remote = self.remote {
-                    let route = remote.route
-                    if route != self.path { self.path = route }
-                }
-                self.upscale = play.upscaleReport
-                guard let s = play.stats() else { continue }
-                self.lostTotal += s.lost
-                self.repairedTotal += s.recovered
-                self.stats = s
-            }
+        statsTask = PlayStationPart.statsLoop(play: { [weak self] in self?.play }, remote: { [weak self] in self?.remote }) { [weak self] second in
+            guard let self else { return }
+            if let route = second.route, route != self.path { self.path = route }
+            self.upscale = second.upscale
+            guard let s = second.stats else { return }
+            self.lostTotal += s.lost
+            self.repairedTotal += s.recovered
+            self.stats = s
         }
     }
 
@@ -416,12 +410,8 @@ final class PlayStationSession: ObservableObject {
         streamView.consolePointerLock = false
         guard let play else { return }
         self.play = nil
-        let remote = self.remote
-        self.remote = nil
-        DispatchQueue.global(qos: .userInitiated).async {
-            play.stop()
-            withExtendedLifetime(remote) {}
-        }
+        PlayStationPart.stop(play, keeping: remote)
+        remote = nil
     }
 
     /// « Se déconnecter », « Fermer » : la partie s'arrête et l'accueil revient.

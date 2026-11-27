@@ -379,6 +379,11 @@ public final class SessionEngine: @unchecked Sendable {
     /// PyroWave : le réseau sature depuis 5 s (bandeau « Le réseau sature »,
     /// « Passer en HEVC ») ; une fois par session, pour l'hôte seulement.
     public var onPyroWaveStrained: (() -> Void)?
+    /// PyroWave n'a pas pu démarrer sur cet appareil (`pyrowaveFailed`) :
+    /// l'image repart dans ce format pour la session ; le texte est l'avis
+    /// bref de link-ui (« Image en HEVC : PyroWave n'a pas pu démarrer sur
+    /// cet appareil. »), à montrer une fois.
+    public var onPyroWaveFallback: ((VideoCodec, String) -> Void)?
     /// L'encodeur de l'ordinateur a refusé l'image au départ : le débit a dû
     /// redescendre jusqu'à ce plafond (Mbit/s par écran), à garder pour cet
     /// ordinateur (`Settings.encoderMax`) ; rien à l'écran.
@@ -488,6 +493,8 @@ public final class SessionEngine: @unchecked Sendable {
     private var receivedCodecValue: VideoCodec?
     private var padCaptured = false
     private var occluded = false
+    /// PyroWave n'a pas pu s'ouvrir dans cette session (dit une fois au cœur).
+    private var pyrowaveFailed = false
     private var vsync = true
     private var topMarker = false
     private var volume: Float = 1
@@ -694,6 +701,12 @@ public final class SessionEngine: @unchecked Sendable {
             let me = SessionEngine.from(ud)
             DispatchQueue.main.async { me.microphoneChanged(state) }
         }
+        platform.on_pyrowave_fallback = { ud, codec, text in
+            let format = VideoCodec(rawValue: codec.map { String(cString: $0) } ?? "") ?? .hevc
+            let line = text.map { String(cString: $0) } ?? ""
+            let me = SessionEngine.from(ud)
+            DispatchQueue.main.async { me.onPyroWaveFallback?(format, line) }
+        }
         platform.on_route = { ud, route in
             guard let info = RouteInfo(json: route.map { String(cString: $0) }) else { return }
             let me = SessionEngine.from(ud)
@@ -721,8 +734,8 @@ public final class SessionEngine: @unchecked Sendable {
         session = s
         let hidden = occluded
         lock.unlock()
-        // Fenêtre déjà cachée au départ : la veille d'image du cœur attend.
-        if hidden { kn_session_set_hidden(s, true) }
+        // Fenêtre déjà cachée au départ : débit plafonné, la veille d'image du cœur attend.
+        if hidden { kn_session_set_background(s, true) }
         // Le micro retenu pour cet ordinateur (proposé même coupé : l'ordinateur répond dès le début).
         kn_session_set_microphone(s, p.microphone)
         hasSession = true
@@ -1135,11 +1148,6 @@ public final class SessionEngine: @unchecked Sendable {
         return kn_session_watch_display(s)
     }
 
-    /// Plafond de débit (fenêtre occultée) ; nil le retire.
-    public func setBitrateCap(_ cap: UInt32?) {
-        if let s = live { kn_session_set_bitrate_cap(s, cap ?? 0) }
-    }
-
     /// PyroWave (« Définition ramenée ») : le débit que l'appareil sait tenir
     /// vers l'ordinateur, en Mbit/s ; nil : inconnu.
     public func setLinkMbps(_ mbps: UInt32?) {
@@ -1224,17 +1232,34 @@ public final class SessionEngine: @unchecked Sendable {
         renderers.forEach { $0.topMarker = on }
     }
 
-    /// Fenêtre occultée ou réduite : plus de rendu (le décodeur continue).
-    public func setOccluded(_ occluded: Bool) {
+    /// PyroWave ne s'ouvre pas sur cet appareil : le cœur relance l'image,
+    /// pour cette session, dans le format de repli (`kn_session_pyrowave_failed`,
+    /// une fois) ; son avis vient par `onPyroWaveFallback`.
+    private func pyrowaveUnavailable() {
         lock.lock()
-        self.occluded = occluded
+        let first = !pyrowaveFailed
+        pyrowaveFailed = true
+        let s = session
+        lock.unlock()
+        guard first, let s else { return }
+        kn_session_pyrowave_failed(s)
+    }
+
+    /// L'image n'est plus regardée (fenêtre cachée ou réduite sur Mac, app en
+    /// arrière-plan sur iPhone, iPad et Apple TV), puis l'est de nouveau
+    /// (TRANS-40, `Session::set_background` du cœur) : plus de rendu (le
+    /// décodeur continue), débit plafonné à celui de cet appareil (20 Mbit/s
+    /// sur Mac, 8 sur iPhone, iPad et Apple TV, `CoreValues.backgroundBitrate`)
+    /// et image figée qui n'est pas une panne ; tout revient au retour.
+    public func setBackground(_ background: Bool) {
+        lock.lock()
+        self.occluded = background
         let renderers = videos.map { ($0.value.renderer, streamScreens[$0.key]) }
         let screens = occludedScreens
         let s = session
         lock.unlock()
-        for (renderer, screen) in renderers { renderer.paused = occluded || screen.map(screens.contains) == true }
-        // Image figée exprès : pas une panne pour le cœur.
-        if let s { kn_session_set_hidden(s, occluded) }
+        for (renderer, screen) in renderers { renderer.paused = background || screen.map(screens.contains) == true }
+        if let s { kn_session_set_background(s, background) }
     }
 
     /// Multi-écrans : la fenêtre d'un écran est occultée (autre espace,
@@ -1587,6 +1612,7 @@ public final class SessionEngine: @unchecked Sendable {
         pipeline.decoder.onRecovered = { [weak self] in
             if let s = self?.live { kn_session_keyframe_recovered(s) }
         }
+        pipeline.decoder.onPyroWaveUnavailable = { [weak self] in self?.pyrowaveUnavailable() }
         videos[stream] = pipeline
         streamScreens[stream] = screen
         if primary { shownStream = stream }

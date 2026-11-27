@@ -32,10 +32,15 @@ public enum Core {
             }
         }
         kn_set_language(LanguageChoice.effective)
+        // Le décodeur PyroWave de KyberKit lit l'en-tête `KNPW` version 2
+        // (métadonnées HDR10, `PyroWaveConfig`) : la Station l'envoie (KYB-29).
+        kn_pyrowave_set_header(2)
         // Mac, iPhone et iPad ont un micro (docs/micro.md) ; jamais l'Apple TV.
         #if os(macOS) || os(iOS)
         kn_set_device_has_microphone(true)
         #endif
+        // Les fins de l'app que le système rapporte, pour « Envoyer le journal ».
+        AppJournal.watchExits()
     }()
 
     /// Chaîne rendue par le cœur, libérée après lecture.

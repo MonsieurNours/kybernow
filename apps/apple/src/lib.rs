@@ -38,10 +38,13 @@ pub mod autotest;
 pub mod camera;
 pub mod input;
 pub mod invite;
+pub mod journal;
 pub mod lend;
+pub mod micro;
 pub mod playstation;
 pub mod recording;
 pub mod relay;
+pub mod rules;
 pub mod share;
 pub mod welcome;
 
@@ -72,17 +75,21 @@ fn give_to(out: *mut *mut c_char, s: String) {
 /// Libère une chaîne rendue par le cœur.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_string_free(s: *mut c_char) {
-    if !s.is_null() {
-        drop(unsafe { CString::from_raw(s) });
-    }
+    kybernow_core::ffi_guard!({
+        if !s.is_null() {
+            drop(unsafe { CString::from_raw(s) });
+        }
+    })
 }
 
 /// Libère des octets rendus par le cœur (`kn_console_preview`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_bytes_free(data: *mut u8, len: usize) {
-    if !data.is_null() {
-        drop(unsafe { Vec::from_raw_parts(data, len, len) });
-    }
+    kybernow_core::ffi_guard!({
+        if !data.is_null() {
+            drop(unsafe { Vec::from_raw_parts(data, len, len) });
+        }
+    })
 }
 
 // MARK: - Langue et journal
@@ -91,7 +98,9 @@ pub unsafe extern "C" fn kn_bytes_free(data: *mut u8, len: usize) {
 /// vers la console.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_set_language(tag: *const c_char) {
-    i18n::set_current(Lang::from_tag(&text(tag)));
+    kybernow_core::ffi_guard!({
+        i18n::set_current(Lang::from_tag(&text(tag)));
+    })
 }
 
 /// Rappel du journal : niveau (1 erreur, 2 avertissement, 3 information,
@@ -124,18 +133,22 @@ impl log::Log for Logger {
 /// Branche le journal du cœur (à appeler une fois, avant tout le reste).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_set_log_callback(cb: KnLogCb) {
-    *LOG_CB.lock().unwrap_or_else(|e| e.into_inner()) = cb;
-    static ONCE: OnceLock<()> = OnceLock::new();
-    ONCE.get_or_init(|| {
-        let _ = log::set_logger(&LOGGER);
-        log::set_max_level(log::LevelFilter::Info);
-    });
+    kybernow_core::ffi_guard!({
+        *LOG_CB.lock().unwrap_or_else(|e| e.into_inner()) = cb;
+        static ONCE: OnceLock<()> = OnceLock::new();
+        ONCE.get_or_init(|| {
+            let _ = log::set_logger(&LOGGER);
+            log::set_max_level(log::LevelFilter::Info);
+        });
+    })
 }
 
 /// Maintenant, sur l'horloge des mesures de Kyber (µs, CLOCK_MONOTONIC).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_now_micros() -> i64 {
-    latency::now_micros()
+    kybernow_core::ffi_guard!({
+        latency::now_micros()
+    })
 }
 
 // MARK: - Console
@@ -155,29 +168,35 @@ pub unsafe extern "C" fn kn_console_new(
     password: *const c_char,
     pinned: *const c_char,
 ) -> *mut KnConsole {
-    Box::into_raw(Box::new(KnConsole(Arc::new(Console::new(
-        &text(host),
-        port,
-        &text(user),
-        &text(password),
-        optional(pinned),
-    )))))
+    kybernow_core::ffi_guard!(null => {
+        Box::into_raw(Box::new(KnConsole(Arc::new(Console::new(
+            &text(host),
+            port,
+            &text(user),
+            &text(password),
+            optional(pinned),
+        )))))
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_free(c: *mut KnConsole) {
-    if !c.is_null() {
-        drop(unsafe { Box::from_raw(c) });
-    }
+    kybernow_core::ffi_guard!({
+        if !c.is_null() {
+            drop(unsafe { Box::from_raw(c) });
+        }
+    })
 }
 
 /// Empreinte du certificat présenté par la console (nulle avant tout contact).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_fingerprint_seen(c: *const KnConsole) -> *mut c_char {
-    match unsafe { c.as_ref() }.and_then(|c| c.0.fingerprint_seen()) {
-        Some(fp) => give(fp),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match unsafe { c.as_ref() }.and_then(|c| c.0.fingerprint_seen()) {
+            Some(fp) => give(fp),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Codes de retour des appels à la console : `KN_OK`, `KN_ERROR` (console
@@ -233,8 +252,10 @@ fn console_result<T: serde::Serialize>(r: Result<T, ConsoleError>, out: *mut *mu
 /// quand la liste n'est pas vide, et le rend à `kn_wake`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_info(c: *const KnConsole, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    console_result(c.0.info(), out, error)
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        console_result(c.0.info(), out, error)
+    })
 }
 
 /// Manettes que voit le lecteur du cœur en ce moment (SDL sur Mac, celles
@@ -243,11 +264,13 @@ pub unsafe extern "C" fn kn_console_info(c: *const KnConsole, out: *mut *mut c_c
 /// −1 : le lecteur SDL du cœur ne tourne pas encore (Mac, hors partie).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_gamepads_count() -> i32 {
-    use kybernow_core::gamepads;
-    if gamepads::sdl_compiled() && !gamepads::sdl_running() {
-        return -1;
-    }
-    gamepads::global().pads().len() as i32
+    kybernow_core::ffi_guard!(-1 => {
+        use kybernow_core::gamepads;
+        if gamepads::sdl_compiled() && !gamepads::sdl_running() {
+            return -1;
+        }
+        gamepads::global().pads().len() as i32
+    })
 }
 
 /// L'ordinateur crée les manettes de l'appareil, d'après `info_json`
@@ -256,7 +279,9 @@ pub extern "C" fn kn_gamepads_count() -> i32 {
 /// docs/link-ui.md, « Manettes indisponibles ».
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_gamepads_available(info_json: *const c_char) -> bool {
-    serde_json::from_str::<kybernow_core::console::Info>(&text(info_json)).map_or(true, |i| i.gamepads_available())
+    kybernow_core::ffi_guard!({
+        serde_json::from_str::<kybernow_core::console::Info>(&text(info_json)).map_or(true, |i| i.gamepads_available())
+    })
 }
 
 /// Premier contact sans compte : la poignée de main suffit à voir le
@@ -264,15 +289,17 @@ pub unsafe extern "C" fn kn_gamepads_available(info_json: *const c_char) -> bool
 /// `out` : l'info si le compte est accepté, sinon nul.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_probe(c: *const KnConsole, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    match c.0.probe() {
-        Ok(Some(i)) => {
-            give_to(out, serde_json::to_string(&i).unwrap_or_default());
-            KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        match c.0.probe() {
+            Ok(Some(i)) => {
+                give_to(out, serde_json::to_string(&i).unwrap_or_default());
+                KN_OK
+            }
+            Ok(None) => KN_OK,
+            Err(e) => failure(e, error),
         }
-        Ok(None) => KN_OK,
-        Err(e) => failure(e, error),
-    }
+    })
 }
 
 /// Aperçu JPEG de l'écran de l'ordinateur ; `data` vide si la console ne
@@ -285,25 +312,27 @@ pub unsafe extern "C" fn kn_console_preview(
     len: *mut usize,
     error: *mut *mut c_char,
 ) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    match c.0.preview(width) {
-        Ok(bytes) => {
-            let mut bytes = bytes;
-            bytes.shrink_to_fit();
-            let n = bytes.len();
-            let ptr = if n == 0 { std::ptr::null_mut() } else { Box::leak(bytes.into_boxed_slice()).as_mut_ptr() };
-            unsafe {
-                if !data.is_null() {
-                    *data = ptr;
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        match c.0.preview(width) {
+            Ok(bytes) => {
+                let mut bytes = bytes;
+                bytes.shrink_to_fit();
+                let n = bytes.len();
+                let ptr = if n == 0 { std::ptr::null_mut() } else { Box::leak(bytes.into_boxed_slice()).as_mut_ptr() };
+                unsafe {
+                    if !data.is_null() {
+                        *data = ptr;
+                    }
+                    if !len.is_null() {
+                        *len = n;
+                    }
                 }
-                if !len.is_null() {
-                    *len = n;
-                }
+                KN_OK
             }
-            KN_OK
+            Err(e) => failure(e, error),
         }
-        Err(e) => failure(e, error),
-    }
+    })
 }
 
 /// Demande d'accès par code à six chiffres ; `device_json` : l'appareil
@@ -316,21 +345,23 @@ pub unsafe extern "C" fn kn_console_pair_request(
     out: *mut *mut c_char,
     error: *mut *mut c_char,
 ) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    let device: DeviceInfo = match serde_json::from_str(&text(device_json)) {
-        Ok(d) => d,
-        Err(e) => {
-            give_to(error, e.to_string());
-            return KN_ERROR;
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        let device: DeviceInfo = match serde_json::from_str(&text(device_json)) {
+            Ok(d) => d,
+            Err(e) => {
+                give_to(error, e.to_string());
+                return KN_ERROR;
+            }
+        };
+        match c.0.pair_request(&text(code), &device) {
+            Ok(id) => {
+                give_to(out, id);
+                KN_OK
+            }
+            Err(e) => failure(e, error),
         }
-    };
-    match c.0.pair_request(&text(code), &device) {
-        Ok(id) => {
-            give_to(out, id);
-            KN_OK
-        }
-        Err(e) => failure(e, error),
-    }
+    })
 }
 
 /// État d'une demande d'appairage, en JSON : `status` (`pending`,
@@ -342,22 +373,24 @@ pub unsafe extern "C" fn kn_console_pair_status(
     out: *mut *mut c_char,
     error: *mut *mut c_char,
 ) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    match c.0.pair_status(&text(id)) {
-        Ok(s) => {
-            let v = match s {
-                PairStatus::Pending => serde_json::json!({ "status": "pending" }),
-                PairStatus::Refused => serde_json::json!({ "status": "refused" }),
-                PairStatus::Expired => serde_json::json!({ "status": "expired" }),
-                PairStatus::Accepted { username, password } => {
-                    serde_json::json!({ "status": "accepted", "username": username, "password": password })
-                }
-            };
-            give_to(out, v.to_string());
-            KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        match c.0.pair_status(&text(id)) {
+            Ok(s) => {
+                let v = match s {
+                    PairStatus::Pending => serde_json::json!({ "status": "pending" }),
+                    PairStatus::Refused => serde_json::json!({ "status": "refused" }),
+                    PairStatus::Expired => serde_json::json!({ "status": "expired" }),
+                    PairStatus::Accepted { username, password } => {
+                        serde_json::json!({ "status": "accepted", "username": username, "password": password })
+                    }
+                };
+                give_to(out, v.to_string());
+                KN_OK
+            }
+            Err(e) => failure(e, error),
         }
-        Err(e) => failure(e, error),
-    }
+    })
 }
 
 // MARK: - Station (rubrique « Station » des réglages d'un ordinateur)
@@ -408,14 +441,16 @@ pub unsafe extern "C" fn kn_console_station_restart(
     out: *mut *mut c_char,
     error: *mut *mut c_char,
 ) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    match c.0.station_restart(optional(device_id).as_deref(), force) {
-        Ok(()) => {
-            give_to(out, serde_json::json!({ "ok": true }).to_string());
-            KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        match c.0.station_restart(optional(device_id).as_deref(), force) {
+            Ok(()) => {
+                give_to(out, serde_json::json!({ "ok": true }).to_string());
+                KN_OK
+            }
+            Err(e) => station_failure(e, out, error),
         }
-        Err(e) => station_failure(e, out, error),
-    }
+    })
 }
 
 /// Lance la mise à jour de la Station vers la version de `station.update`
@@ -432,14 +467,16 @@ pub unsafe extern "C" fn kn_console_station_update(
     out: *mut *mut c_char,
     error: *mut *mut c_char,
 ) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    match c.0.station_update(optional(device_id).as_deref(), force) {
-        Ok(version) => {
-            give_to(out, serde_json::json!({ "version": version }).to_string());
-            KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        match c.0.station_update(optional(device_id).as_deref(), force) {
+            Ok(version) => {
+                give_to(out, serde_json::json!({ "version": version }).to_string());
+                KN_OK
+            }
+            Err(e) => station_failure(e, out, error),
         }
-        Err(e) => station_failure(e, out, error),
-    }
+    })
 }
 
 /// Demande à la Station de vérifier ses mises à jour tout de suite
@@ -450,15 +487,17 @@ pub unsafe extern "C" fn kn_console_station_update(
 /// (20 s au plus), hors du fil principal.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_station_check(c: *const KnConsole, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    match c.0.station_check() {
-        Ok(Some(station)) => {
-            give_to(out, serde_json::to_string(&station).unwrap_or_default());
-            KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        match c.0.station_check() {
+            Ok(Some(station)) => {
+                give_to(out, serde_json::to_string(&station).unwrap_or_default());
+                KN_OK
+            }
+            Ok(None) => KN_OK,
+            Err(e) => failure(e, error),
         }
-        Ok(None) => KN_OK,
-        Err(e) => failure(e, error),
-    }
+    })
 }
 
 /// Mise à jour des Stations proposée par l'app (`station_offer::evaluate`) :
@@ -472,7 +511,9 @@ pub unsafe extern "C" fn kn_console_station_check(c: *const KnConsole, out: *mut
 /// `kn_string_free`. Calcul local, sans réseau.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_station_offer_evaluate(input_json: *const c_char) -> *mut c_char {
-    give(kybernow_core::station_offer::evaluate_json(&text(input_json)))
+    kybernow_core::ffi_guard!(null => {
+        give(kybernow_core::station_offer::evaluate_json(&text(input_json)))
+    })
 }
 
 /// Premier lancement après une mise à jour de l'app
@@ -482,17 +523,21 @@ pub unsafe extern "C" fn kn_station_offer_evaluate(input_json: *const c_char) ->
 /// s'afficher.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_station_offer_app_updated(last_launched: *const c_char, current: *const c_char) -> bool {
-    kybernow_core::station_offer::app_updated(optional(last_launched).as_deref(), &text(current))
+    kybernow_core::ffi_guard!({
+        kybernow_core::station_offer::app_updated(optional(last_launched).as_deref(), &text(current))
+    })
 }
 
 /// Adresse d'Admin à ouvrir dans le navigateur (`https://adresse:port/`,
 /// IPv6 entre crochets) ; à libérer par `kn_string_free`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_admin_url(c: *const KnConsole) -> *mut c_char {
-    match unsafe { c.as_ref() } {
-        Some(c) => give(c.0.admin_url()),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match unsafe { c.as_ref() } {
+            Some(c) => give(c.0.admin_url()),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 // MARK: - Réveil par le réseau
@@ -513,14 +558,16 @@ pub const KN_WAKE_NO_TARGET: i32 = 20;
 /// Rapide, mais hors du fil principal comme tout envoi réseau.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_wake(targets_json: *const c_char) -> i32 {
-    match wake::send(&wake::targets_from_json(&text(targets_json))) {
-        Ok(_) => KN_OK,
-        Err(wake::WakeError::NoTarget) => KN_WAKE_NO_TARGET,
-        Err(e) => {
-            log::warn!("réveil : {e}");
-            KN_ERROR
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        match wake::send(&wake::targets_from_json(&text(targets_json))) {
+            Ok(_) => KN_OK,
+            Err(wake::WakeError::NoTarget) => KN_WAKE_NO_TARGET,
+            Err(e) => {
+                log::warn!("réveil : {e}");
+                KN_ERROR
+            }
         }
-    }
+    })
 }
 
 // MARK: - Paquets d'image et de son
@@ -775,7 +822,7 @@ pub const KN_TARGET_LOWERED: u32 = 1;
 pub const KN_TARGET_MANUAL: u32 = 2;
 /// PyroWave, débit adaptatif en pause (« 320 Mbit/s · PyroWave, adaptatif en pause »).
 pub const KN_TARGET_PYROWAVE_PAUSED: u32 = 3;
-/// Plafonné par l'app, `kn_session_set_bitrate_cap` (« 20 Mbit/s · fenêtre cachée »).
+/// Plafonné par l'app, `kn_session_set_background` (« 20 Mbit/s · fenêtre cachée »).
 pub const KN_TARGET_APP_CAPPED: u32 = 4;
 /// Flux allégé après un repli (« 15 Mbit/s · flux allégé »).
 pub const KN_TARGET_FALLBACK: u32 = 5;
@@ -785,17 +832,21 @@ pub const KN_TARGET_FALLBACK: u32 = 5;
 /// pour une raison inconnue. À libérer par `kn_string_free`.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_target_bitrate_text(bitrate: u32, profile: u32, reason: u32) -> *mut c_char {
-    match kybernow_core::adaptive::TargetReason::from_code(reason) {
-        Some(reason) => give(kybernow_core::adaptive::TargetBitrate { bitrate, profile, reason }.text(i18n::current())),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match kybernow_core::adaptive::TargetReason::from_code(reason) {
+            Some(reason) => give(kybernow_core::adaptive::TargetBitrate { bitrate, profile, reason }.text(i18n::current())),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Le libellé de la ligne : « Débit visé » / “Target bitrate”. À libérer
 /// par `kn_string_free`.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_target_bitrate_label() -> *mut c_char {
-    give(kybernow_core::adaptive::TargetBitrate::label(i18n::current()))
+    kybernow_core::ffi_guard!(null => {
+        give(kybernow_core::adaptive::TargetBitrate::label(i18n::current()))
+    })
 }
 
 impl From<&Second> for KnSecond {
@@ -1019,6 +1070,12 @@ pub struct KnPlatform {
     /// et le dernier flux lâché par Kyber), d'un fil quelconque ; nul : l'app
     /// le garde et le rend elle-même. Ajouté en dernier.
     pub release_userdata: Option<unsafe extern "C" fn(userdata: *mut c_void)>,
+    /// PyroWave n'a pas pu démarrer sur l'appareil (après
+    /// `kn_session_pyrowave_failed`) : l'image repart en `codec` (`hevc`,
+    /// `av1`, `h264`) pour cette session, le réglage ne change pas ; `text` :
+    /// l'avis bref de link-ui (« Image en HEVC : PyroWave n'a pas pu démarrer
+    /// sur cet appareil. »), à montrer une fois. Ajouté après `release_userdata`.
+    pub on_pyrowave_fallback: Option<unsafe extern "C" fn(userdata: *mut c_void, codec: *const c_char, text: *const c_char)>,
 }
 
 struct ApplePlatform {
@@ -1193,20 +1250,20 @@ impl Platform for ApplePlatform {
             report_error: report_error_c.as_ref().map(|c| c.as_ptr()).unwrap_or(std::ptr::null()),
         };
         unsafe { f(self.cb.userdata, &s) };
-        if matches!(status, Status::StationRestarting) {
-            if let Some(notice) = self.cb.on_notice {
-                let n = KnNotice {
-                    kind: KN_NOTICE_STATION_RESTARTING,
-                    width: 0,
-                    height: 0,
-                    back: false,
-                    level: 0,
-                    bitrate_mbps: 0,
-                    has_mode: false,
-                    error: std::ptr::null(),
-                };
-                unsafe { notice(self.cb.userdata, &n) };
-            }
+        if matches!(status, Status::StationRestarting)
+            && let Some(notice) = self.cb.on_notice
+        {
+            let n = KnNotice {
+                kind: KN_NOTICE_STATION_RESTARTING,
+                width: 0,
+                height: 0,
+                back: false,
+                level: 0,
+                bitrate_mbps: 0,
+                has_mode: false,
+                error: std::ptr::null(),
+            };
+            unsafe { notice(self.cb.userdata, &n) };
         }
     }
 
@@ -1285,6 +1342,13 @@ impl Platform for ApplePlatform {
     /// Gardée pour `KN_STATUS_ENDING`, qui suit tout de suite.
     fn on_ending(&self, error: Option<&str>) {
         *self.ending_error.lock().unwrap_or_else(|e| e.into_inner()) = error.map(str::to_string);
+    }
+
+    fn on_pyrowave_fallback(&self, codec: Codec, text: &str) {
+        let Some(f) = self.cb.on_pyrowave_fallback else { return };
+        let codec = CString::new(codec.key()).unwrap_or_default();
+        let c = CString::new(text.replace('\0', " ")).unwrap_or_default();
+        unsafe { f(self.cb.userdata, codec.as_ptr(), c.as_ptr()) };
     }
 
     fn on_notice(&self, notice: &Notice) {
@@ -1419,21 +1483,23 @@ pub unsafe extern "C" fn kn_session_start(
     platform: *const KnPlatform,
     error: *mut *mut c_char,
 ) -> *mut KnSession {
-    let Some(cb) = (unsafe { platform.as_ref() }) else { return std::ptr::null_mut() };
-    let (params, screens) = match SessionParams::from_json(&text(params_json)) {
-        Ok(p) => p,
-        Err(e) => {
-            give_to(error, e);
-            return std::ptr::null_mut();
-        }
-    };
-    let owner = Owner::new(cb.userdata, cb.release_userdata);
-    let platform = Arc::new(ApplePlatform { cb: *cb, owner, streams: AtomicU64::new(0), ending_error: Mutex::new(None) });
-    let session = match screens {
-        Some(screens) => Session::start_with_screens(params, screens, platform),
-        None => Session::start(params, platform),
-    };
-    Box::into_raw(Box::new(KnSession { session }))
+    kybernow_core::ffi_guard!(null => {
+        let Some(cb) = (unsafe { platform.as_ref() }) else { return std::ptr::null_mut() };
+        let (params, screens) = match SessionParams::from_json(&text(params_json)) {
+            Ok(p) => p,
+            Err(e) => {
+                give_to(error, e);
+                return std::ptr::null_mut();
+            }
+        };
+        let owner = Owner::new(cb.userdata, cb.release_userdata);
+        let platform = Arc::new(ApplePlatform { cb: *cb, owner, streams: AtomicU64::new(0), ending_error: Mutex::new(None) });
+        let session = match screens {
+            Some(screens) => Session::start_with_screens(params, screens, platform),
+            None => Session::start(params, platform),
+        };
+        Box::into_raw(Box::new(KnSession { session }))
+    })
 }
 
 fn with<R>(s: *const KnSession, f: impl FnOnce(&Session) -> R) -> Option<R> {
@@ -1445,46 +1511,60 @@ fn with<R>(s: *const KnSession, f: impl FnOnce(&Session) -> R) -> Option<R> {
 /// possible pendant 15 min).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_stop(s: *const KnSession) {
-    with(s, |s| s.stop());
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.stop());
+    })
 }
 
 /// Session d'emprunt : « Rendre l'ordinateur » (après sa confirmation) : le
 /// prêt finit, puis la session, sans erreur. Sans effet hors d'un emprunt.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_give_back(s: *const KnSession) {
-    with(s, |s| s.give_back());
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.give_back());
+    })
 }
 
 /// Attend la fin du fil de session (console prévenue). Jamais depuis un rappel.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_wait(s: *const KnSession) {
-    with(s, |s| s.wait());
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.wait());
+    })
 }
 
 /// Libère la session (après `kn_session_wait`, ou l'état terminé reçu).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_free(s: *mut KnSession) {
-    if !s.is_null() {
-        drop(unsafe { Box::from_raw(s) });
-    }
+    kybernow_core::ffi_guard!({
+        if !s.is_null() {
+            drop(unsafe { Box::from_raw(s) });
+        }
+    })
 }
 
 /// Une image clé demandée une fois (plateforme qui tient sa propre veille).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_request_keyframe(s: *const KnSession) {
-    with(s, |s| s.request_keyframe());
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.request_keyframe());
+    })
 }
 
 /// Le décodeur a perdu une image de référence : image clé redemandée toutes
 /// les 300 ms jusqu'à `kn_session_keyframe_recovered`, flux relancé à 1,5 s.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_keyframe_lost(s: *const KnSession) {
-    with(s, |s| s.keyframe_lost());
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.keyframe_lost());
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_keyframe_recovered(s: *const KnSession) {
-    with(s, |s| s.keyframe_recovered());
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.keyframe_recovered());
+    })
 }
 
 /// Autres réglages pendant la session (profil depuis la barre), même JSON que
@@ -1492,15 +1572,11 @@ pub unsafe extern "C" fn kn_session_keyframe_recovered(s: *const KnSession) {
 /// format, le 4:4:4 ou le transport changent.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_set_settings(s: *const KnSession, settings_json: *const c_char) -> i32 {
-    let Ok(settings) = StreamSettings::from_json(&text(settings_json)) else { return KN_ERROR };
-    with(s, |s| s.set_settings(settings));
-    KN_OK
-}
-
-/// Plafond de débit (bit/s) le temps que la fenêtre est occultée ; 0 le retire.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_set_bitrate_cap(s: *const KnSession, cap: u32) {
-    with(s, |s| s.set_bitrate_cap((cap > 0).then_some(cap)));
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Ok(settings) = StreamSettings::from_json(&text(settings_json)) else { return KN_ERROR };
+        with(s, |s| s.set_settings(settings));
+        KN_OK
+    })
 }
 
 /// PyroWave (docs/pyrowave.md, « Définition ramenée ») : le débit que
@@ -1509,39 +1585,42 @@ pub unsafe extern "C" fn kn_session_set_bitrate_cap(s: *const KnSession, cap: u3
 /// chaque changement durable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_set_link_mbps(s: *const KnSession, mbps: u32) {
-    with(s, |s| s.set_link_mbps((mbps > 0).then_some(mbps)));
-}
-
-/// L'app fige l'image (arrière-plan, fenêtre cachée) ou la reprend : la
-/// veille « aucune image » attend le retour.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_set_hidden(s: *const KnSession, hidden: bool) {
-    with(s, |s| s.set_hidden(hidden));
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.set_link_mbps((mbps > 0).then_some(mbps)));
+    })
 }
 
 /// Taille des images décodées par l'app (à chaque changement).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_decoded_size(s: *const KnSession, width: u32, height: u32) {
-    with(s, |s| s.decoded_size(width, height));
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.decoded_size(width, height));
+    })
 }
 
 /// Sans écran virtuel : afficher un autre écran de l'ordinateur.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_pick_display(s: *const KnSession, id: u32) {
-    with(s, |s| s.pick_display(id));
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.pick_display(id));
+    })
 }
 
 /// L'écran de l'appareil a changé de mode : la console refait l'écran
 /// virtuel à ce mode, puis l'image repart dessus.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_set_mode(s: *const KnSession, mode: KnMode) {
-    with(s, |s| s.set_mode(Mode { width: mode.width, height: mode.height, refresh: mode.refresh }));
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.set_mode(Mode { width: mode.width, height: mode.height, refresh: mode.refresh }));
+    })
 }
 
 /// « Remettre » : la console remet le mode demandé au début de la session.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_restore_mode(s: *const KnSession) {
-    with(s, |s| s.restore_mode());
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.restore_mode());
+    })
 }
 
 /// KyberNow Share, session d'invité : la « Qualité de l'image » choisie
@@ -1552,9 +1631,11 @@ pub unsafe extern "C" fn kn_session_restore_mode(s: *const KnSession) {
 /// `KN_ERROR` pour un code inconnu ; sans effet pour un hôte.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_set_share_quality(s: *const KnSession, quality: i32) -> i32 {
-    let Some(q) = ShareQuality::from_code(quality) else { return KN_ERROR };
-    with(s, |s| s.set_share_quality(q));
-    KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(q) = ShareQuality::from_code(quality) else { return KN_ERROR };
+        with(s, |s| s.set_share_quality(q));
+        KN_OK
+    })
 }
 
 /// Multi-écrans : les écrans de l'appareil ont changé (même JSON que
@@ -1562,9 +1643,11 @@ pub unsafe extern "C" fn kn_session_set_share_quality(s: *const KnSession, quali
 /// effet sur une session ouverte sans `screens`. `KN_ERROR` si illisible.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_set_screens(s: *const KnSession, screens_json: *const c_char) -> i32 {
-    let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return KN_ERROR };
-    with(s, |s| s.set_screens(screens));
-    KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return KN_ERROR };
+        with(s, |s| s.set_screens(screens));
+        KN_OK
+    })
 }
 
 /// HDR (docs/hdr.md) : le choix « HDR » changé en session (barre, menu de
@@ -1574,7 +1657,9 @@ pub unsafe extern "C" fn kn_session_set_screens(s: *const KnSession, screens_jso
 /// `kn_session_set_settings` garde ce choix.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_set_hdr(s: *const KnSession, hdr: bool) {
-    with(s, |s| s.set_hdr(hdr));
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.set_hdr(hdr));
+    })
 }
 
 /// HDR : les valeurs d'un écran de l'appareil, en nits (docs/hdr.md,
@@ -1597,6 +1682,13 @@ impl From<HdrLuminance> for KnHdrLuminance {
     }
 }
 
+/// Les valeurs par défaut du cœur (aussi la valeur rendue après une panique).
+impl Default for KnHdrLuminance {
+    fn default() -> Self {
+        HdrLuminance::default().into()
+    }
+}
+
 impl From<KnHdrLuminance> for HdrLuminance {
     fn from(l: KnHdrLuminance) -> Self {
         Self { max: l.max, full_frame: l.full_frame, min: l.min, sdr_white: l.sdr_white }
@@ -1607,7 +1699,9 @@ impl From<KnHdrLuminance> for HdrLuminance {
 /// 0 nit, blanc du bureau à 203 nits.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_hdr_luminance_default() -> KnHdrLuminance {
-    HdrLuminance::default().into()
+    kybernow_core::ffi_guard!({
+        HdrLuminance::default().into()
+    })
 }
 
 /// Les valeurs bornées comme le cœur les envoie (maximale de 100 à 10 000
@@ -1615,7 +1709,9 @@ pub extern "C" fn kn_hdr_luminance_default() -> KnHdrLuminance {
 /// de 80 à 480) : pour l'écran « Réglage du HDR ».
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_hdr_luminance_clamp(luminance: KnHdrLuminance) -> KnHdrLuminance {
-    HdrLuminance::from(luminance).clamped().into()
+    kybernow_core::ffi_guard!({
+        HdrLuminance::from(luminance).clamped().into()
+    })
 }
 
 /// HDR : l'écran de l'appareil `screen` (index dans `screens.list` ; 0 pour
@@ -1627,8 +1723,10 @@ pub extern "C" fn kn_hdr_luminance_clamp(luminance: KnHdrLuminance) -> KnHdrLumi
 /// le choix reste.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_screen_hdr_changed(s: *const KnSession, screen: u32, hdr: bool, luminance: *const KnHdrLuminance) {
-    let luminance = unsafe { luminance.as_ref() }.map(|l| HdrLuminance::from(*l));
-    with(s, |s| s.screen_hdr_changed(screen as usize, hdr, luminance));
+    kybernow_core::ffi_guard!({
+        let luminance = unsafe { luminance.as_ref() }.map(|l| HdrLuminance::from(*l));
+        with(s, |s| s.screen_hdr_changed(screen as usize, hdr, luminance));
+    })
 }
 
 /// Regarder : « Écran » choisi dans la barre (`display` : un `id` de
@@ -1637,21 +1735,27 @@ pub unsafe extern "C" fn kn_session_screen_hdr_changed(s: *const KnSession, scre
 /// regarde, ou si `joined.watch.switch` est faux.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_watch_screen(s: *const KnSession, display: u32) {
-    with(s, |s| s.watch_screen(display));
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.watch_screen(display));
+    })
 }
 
 /// Regarder : l'écran regardé (à cocher dans « Écran ») ; 0 hors d'une
 /// session de qui regarde.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_watch_display(s: *const KnSession) -> u32 {
-    with(s, |s| s.watch_display()).flatten().unwrap_or(0)
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.watch_display()).flatten().unwrap_or(0)
+    })
 }
 
 /// HDR : un écran au moins a été en HDR pendant la session (« HDR » de la
 /// dernière session, après le format).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_hdr_used(s: *const KnSession) -> bool {
-    with(s, |s| s.hdr_used()).unwrap_or(false)
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.hdr_used()).unwrap_or(false)
+    })
 }
 
 /// HDR : la puce de l'accueil, la ligne de Réglages › Image et celle de la
@@ -1672,20 +1776,24 @@ pub unsafe extern "C" fn kn_hdr_state(
     capabilities_json: *const c_char,
     screen_hdr: bool,
 ) -> *mut c_char {
-    let Ok(info) = serde_json::from_str::<kybernow_core::console::Info>(&text(info_json)) else { return std::ptr::null_mut() };
-    let Ok(settings) = StreamSettings::from_json(&text(settings_json)) else { return std::ptr::null_mut() };
-    let Ok(caps) = serde_json::from_str::<Capabilities>(&text(capabilities_json)) else { return std::ptr::null_mut() };
-    match serde_json::to_string(&profile::hdr_state(&info, &settings, caps, screen_hdr)) {
-        Ok(json) => give(json),
-        Err(_) => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        let Ok(info) = serde_json::from_str::<kybernow_core::console::Info>(&text(info_json)) else { return std::ptr::null_mut() };
+        let Ok(settings) = StreamSettings::from_json(&text(settings_json)) else { return std::ptr::null_mut() };
+        let Ok(caps) = serde_json::from_str::<Capabilities>(&text(capabilities_json)) else { return std::ptr::null_mut() };
+        match serde_json::to_string(&profile::hdr_state(&info, &settings, caps, screen_hdr)) {
+            Ok(json) => give(json),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Réglage « Écrans » : faux avec une définition sur mesure ou sans écran
 /// virtuel ; il est alors inactif, sur « Cet écran ».
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_screens_setting_enabled(custom_resolution: bool, virtual_display: bool) -> bool {
-    DisplaysChoice { setting: DisplaysSetting::Auto, profile: None, custom_resolution, virtual_display }.setting_enabled()
+    kybernow_core::ffi_guard!({
+        DisplaysChoice { setting: DisplaysSetting::Auto, profile: None, custom_resolution, virtual_display }.setting_enabled()
+    })
 }
 
 /// Les écrans que prendra la session pour ces écrans de l'appareil (même JSON
@@ -1705,19 +1813,21 @@ pub unsafe extern "C" fn kn_screens_session_plan(
     virtual_display: bool,
     codec: *const c_char,
 ) -> *mut c_char {
-    let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return std::ptr::null_mut() };
-    let codec = Codec::parse(&text(codec)).unwrap_or(Codec::Hevc);
-    let Some(plan) = screens::session_plan(&screens, Profile::parse(&text(profile)), virtual_display, codec) else { return std::ptr::null_mut() };
-    let list: Vec<serde_json::Value> = plan
-        .iter()
-        .map(|p| {
-            serde_json::json!({
-                "device": p.device, "width": p.mode.width, "height": p.mode.height,
-                "refresh": p.mode.refresh, "x": p.x, "y": p.y, "primary": p.primary,
+    kybernow_core::ffi_guard!(null => {
+        let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return std::ptr::null_mut() };
+        let codec = Codec::parse(&text(codec)).unwrap_or(Codec::Hevc);
+        let Some(plan) = screens::session_plan(&screens, Profile::parse(&text(profile)), virtual_display, codec) else { return std::ptr::null_mut() };
+        let list: Vec<serde_json::Value> = plan
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "device": p.device, "width": p.mode.width, "height": p.mode.height,
+                    "refresh": p.mode.refresh, "x": p.x, "y": p.y, "primary": p.primary,
+                })
             })
-        })
-        .collect();
-    give(serde_json::Value::Array(list).to_string())
+            .collect();
+        give(serde_json::Value::Array(list).to_string())
+    })
 }
 
 /// Plusieurs ordinateurs : les écrans d'une session ouverte pendant qu'une
@@ -1727,11 +1837,13 @@ pub unsafe extern "C" fn kn_screens_session_plan(
 /// s'ouvre la nouvelle. Nul si illisible. À libérer par `kn_string_free`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_screens_for_extra_session(screens_json: *const c_char) -> *mut c_char {
-    let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return std::ptr::null_mut() };
-    match serde_json::to_string(&screens::screens_for_extra_session(&screens)) {
-        Ok(json) => give(json),
-        Err(_) => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return std::ptr::null_mut() };
+        match serde_json::to_string(&screens::screens_for_extra_session(&screens)) {
+            Ok(json) => give(json),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// La fenêtre d'une session de plus (`kn_screens_extra_session_window`).
@@ -1756,35 +1868,45 @@ pub struct KnExtraWindow {
 /// (même JSON que `kn_session_start`). Faux si illisible ou sans cet écran.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_screens_extra_session_window(screens_json: *const c_char, out: *mut KnExtraWindow) -> bool {
-    let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return false };
-    let (Some(screen), Some(out)) = (screens.list.get(screens.current), unsafe { out.as_mut() }) else { return false };
-    let w = screens::extra_session_window(screen);
-    *out = KnExtraWindow { x: w.x, y: w.y, width: w.width, height: w.height, mode: w.mode.into() };
-    true
+    kybernow_core::ffi_guard!({
+        let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return false };
+        let (Some(screen), Some(out)) = (screens.list.get(screens.current), unsafe { out.as_mut() }) else { return false };
+        let w = screens::extra_session_window(screen);
+        *out = KnExtraWindow { x: w.x, y: w.y, width: w.width, height: w.height, mode: w.mode.into() };
+        true
+    })
 }
 
 /// Image `pts` reçue, décodée puis montrée (µs, `kn_now_micros`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_frame_displayed(s: *const KnSession, pts: u64, received: i64, decoded: i64, at: i64) {
-    with(s, |s| s.frame_displayed(pts, received, decoded, at));
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.frame_displayed(pts, received, decoded, at));
+    })
 }
 
 /// Image remplacée par une plus récente avant d'être montrée.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_frame_skipped(s: *const KnSession, pts: u64) {
-    with(s, |s| s.latency().skipped(pts));
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.latency().skipped(pts));
+    })
 }
 
 /// Paquet d'image reçu (débit).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_bytes_received(s: *const KnSession, bytes: usize) {
-    with(s, |s| s.latency().received_bytes(bytes));
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.latency().received_bytes(bytes));
+    })
 }
 
 /// Trou dans le flux.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_hole(s: *const KnSession) {
-    with(s, |s| s.latency().hole());
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.latency().hole());
+    })
 }
 
 // MARK: - Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md)
@@ -1796,8 +1918,10 @@ pub unsafe extern "C" fn kn_session_hole(s: *const KnSession) {
 /// sans prévenir.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_attach_audio(s: *const KnSession, audio: *const audio::KnAudio) {
-    let Some(a) = (unsafe { audio.as_ref() }) else { return };
-    with(s, |s| s.attach_audio(&a.0));
+    kybernow_core::ffi_guard!({
+        let Some(a) = (unsafe { audio.as_ref() }) else { return };
+        with(s, |s| s.attach_audio(&a.0));
+    })
 }
 
 // MARK: - Micro de l'appareil (docs/micro.md)
@@ -1807,7 +1931,9 @@ pub unsafe extern "C" fn kn_session_attach_audio(s: *const KnSession, audio: *co
 /// la session donne son état par `on_microphone`. Une fois au lancement.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_set_device_has_microphone(has: bool) {
-    kybernow_core::micro::set_device_has_microphone(has);
+    kybernow_core::ffi_guard!({
+        kybernow_core::micro::set_device_has_microphone(has);
+    })
 }
 
 /// « Micro » allumé (vrai) ou coupé : le choix retenu par l'app pour cet
@@ -1816,7 +1942,9 @@ pub extern "C" fn kn_set_device_has_microphone(has: bool) {
 /// relance rien ; l'état suit par `on_microphone`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_set_microphone(s: *const KnSession, on: bool) {
-    with(s, |s| s.set_microphone(on));
+    kybernow_core::ffi_guard!({
+        with(s, |s| s.set_microphone(on));
+    })
 }
 
 /// Échantillons du micro, flottants mono (`count`), à `rate_hz` (n'importe
@@ -1825,11 +1953,13 @@ pub unsafe extern "C" fn kn_session_set_microphone(s: *const KnSession, on: bool
 /// ne prend pas le micro.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_push_microphone(s: *const KnSession, samples: *const f32, count: usize, rate_hz: u32) {
-    if samples.is_null() || count == 0 || rate_hz == 0 {
-        return;
-    }
-    let samples = unsafe { std::slice::from_raw_parts(samples, count) };
-    with(s, |s| s.push_microphone(samples, rate_hz));
+    kybernow_core::ffi_guard!({
+        if samples.is_null() || count == 0 || rate_hz == 0 {
+            return;
+        }
+        let samples = unsafe { std::slice::from_raw_parts(samples, count) };
+        with(s, |s| s.push_microphone(samples, rate_hz));
+    })
 }
 
 /// Inscrit la session dans le registre des sessions de l'app, `name` : le
@@ -1839,8 +1969,10 @@ pub unsafe extern "C" fn kn_session_push_microphone(s: *const KnSession, samples
 /// inscrite ; -1 au-delà de quatre sessions (`kn_focus_max`) ou sans session.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_focus_register(s: *const KnSession, name: *const c_char) -> i64 {
-    let name = text(name);
-    with(s, |s| focus::global().register(s, &name).map_or(-1, |id| id.as_u64() as i64)).unwrap_or(-1)
+    kybernow_core::ffi_guard!({
+        let name = text(name);
+        with(s, |s| focus::global().register(s, &name).map_or(-1, |id| id.as_u64() as i64)).unwrap_or(-1)
+    })
 }
 
 fn focus_id(id: i64) -> Option<FocusId> {
@@ -1852,72 +1984,90 @@ fn focus_id(id: i64) -> Option<FocusId> {
 /// la session qui l'avait juste avant la reprend.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_focus_unregister(id: i64) {
-    if let Some(id) = focus_id(id) {
-        focus::global().unregister(id);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(id) = focus_id(id) {
+            focus::global().unregister(id);
+        }
+    })
 }
 
 /// La fenêtre de cette session passe au premier plan : elle devient active.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_focus_activate(id: i64) {
-    if let Some(id) = focus_id(id) {
-        focus::global().activate(id);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(id) = focus_id(id) {
+            focus::global().activate(id);
+        }
+    })
 }
 
 /// « Garder le son » : la session reste audible sans être active.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_focus_set_keep_sound(id: i64, keep: bool) {
-    if let Some(id) = focus_id(id) {
-        focus::global().set_keep_sound(id, keep);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(id) = focus_id(id) {
+            focus::global().set_keep_sound(id, keep);
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_focus_keep_sound(id: i64) -> bool {
-    focus_id(id).is_some_and(|id| focus::global().keep_sound(id))
+    kybernow_core::ffi_guard!({
+        focus_id(id).is_some_and(|id| focus::global().keep_sound(id))
+    })
 }
 
 /// La session active (-1 : aucune).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_focus_active() -> i64 {
-    focus::global().active().map_or(-1, |id| id.as_u64() as i64)
+    kybernow_core::ffi_guard!({
+        focus::global().active().map_or(-1, |id| id.as_u64() as i64)
+    })
 }
 
 /// « Ordinateur suivant » : la session ouverte après l'active, dans l'ordre
 /// d'ouverture (-1 : aucune). À l'app de faire passer sa fenêtre devant.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_focus_next() -> i64 {
-    focus::global().next().map_or(-1, |id| id.as_u64() as i64)
+    kybernow_core::ffi_guard!({
+        focus::global().next().map_or(-1, |id| id.as_u64() as i64)
+    })
 }
 
 /// Sessions inscrites.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_focus_count() -> u32 {
-    focus::global().count() as u32
+    kybernow_core::ffi_guard!({
+        focus::global().count() as u32
+    })
 }
 
 /// Sessions au plus (4).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_focus_max() -> u32 {
-    focus::MAX_SESSIONS as u32
+    kybernow_core::ffi_guard!({
+        focus::MAX_SESSIONS as u32
+    })
 }
 
 /// Latence de la session : médiane des secondes et 95e centile (ms). Faux
 /// sans mesure.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_latency(s: *const KnSession, median: *mut f64, p95: *mut f64) -> bool {
-    let Some((med, p)) = with(s, |s| s.latency().session()) else { return false };
-    let Some(med) = med else { return false };
-    unsafe {
-        if !median.is_null() {
-            *median = med;
+    kybernow_core::ffi_guard!({
+        let Some((med, p)) = with(s, |s| s.latency().session()) else { return false };
+        let Some(med) = med else { return false };
+        unsafe {
+            if !median.is_null() {
+                *median = med;
+            }
+            if !p95.is_null() {
+                *p95 = p.unwrap_or(med);
+            }
         }
-        if !p95.is_null() {
-            *p95 = p.unwrap_or(med);
-        }
-    }
-    true
+        true
+    })
 }
 
 #[cfg(test)]

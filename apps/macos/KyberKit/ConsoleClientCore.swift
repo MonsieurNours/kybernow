@@ -236,15 +236,8 @@ public enum StationOffer {
     public static func appUpdated(lastLaunched: String?, current: String = StationOffer.appVersion) -> Bool {
         kn_station_offer_app_updated(lastLaunched ?? "", current)
     }
-
-    /// L'avis attend au plus ce temps les vérifications des ordinateurs en ligne.
-    public static let noticeWait: TimeInterval = 10
-
-    /// Dernière version lancée à prendre quand l'app n'en a pas encore gardé
-    /// mais connaît déjà au moins un ordinateur : elle vient d'une version
-    /// d'avant cet avis, c'est une mise à jour et pas un premier lancement
-    /// (`station_offer::BEFORE_NOTICE` du cœur).
-    public static let beforeNotice = "0.11.2"
+    // L'attente de l'avis et la version d'avant lui : `CoreValues`
+    // (`station_notice_wait_secs`, `station_notice_before` du cœur).
 }
 
 /// Une carte réseau de l'ordinateur, pour le réveiller par le réseau

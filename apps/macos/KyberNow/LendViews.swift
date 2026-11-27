@@ -56,7 +56,7 @@ struct LendBarButton: View {
         .help(availability.reason ?? "")
         .preference(key: GlassMenuOpenKey.self, value: open)
         .popover(isPresented: $open, arrowEdge: .bottom) {
-            LendPanel(computer: session.host.name, lend: lend)
+            LendPanel(computer: session.host.name, os: session.host.os, lend: lend)
                 .preferredColorScheme(.dark)
         }
         .onChange(of: availability) { _, now in
@@ -78,6 +78,8 @@ struct LendBarButton: View {
 /// le lien »), et « Annuler le code ».
 struct LendPanel: View {
     let computer: String
+    /// Le système de la Station (l'avertissement en dépend).
+    var os: String?
     @ObservedObject var lend: LendHostModel
     @State private var copyResult: String?
     @State private var copied = false
@@ -91,7 +93,7 @@ struct LendPanel: View {
             if let reason = lend.availability.reason {
                 Notice(kind: .info, text: reason)
             } else {
-                if lend.showWarning { Notice(kind: .warn, text: LendText.warning) }
+                if lend.showWarning { Notice(kind: .warn, text: LendText.warning(os: os)) }
                 if !lend.requests.isEmpty { requests }
                 if let code = lend.code { created(code) } else { choices }
                 if let error = lend.error { Notice(kind: .danger, text: error) }

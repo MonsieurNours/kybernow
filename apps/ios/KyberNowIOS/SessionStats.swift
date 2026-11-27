@@ -121,7 +121,7 @@ struct SessionStatsView: View {
 
     private var lossesTile: StatsTile {
         let pct = frames30 > 0 ? Double(lost30) / frames30 * 100 : 0
-        return StatsTile(label: String(localized: "Pertes 30 s"), value: "\(lost30) · \(StatsFormat.percent(pct))", warn: lost30 > 0)
+        return StatsTile(label: String(localized: "Pertes 30 s"), value: "\(lost30) · \(LinkFormat.percent(pct))", warn: lost30 > 0)
     }
 
     /// PyroWave (docs/link-ui.md) : une image perdue est sautée ; leur part
@@ -129,7 +129,7 @@ struct SessionStatsView: View {
     private var lostFramesTile: StatsTile? {
         guard session.imageCodec == .pyrowave else { return nil }
         let pct = frames30 + Double(lost30) > 0 ? Double(lost30) / (frames30 + Double(lost30)) * 100 : 0
-        return StatsTile(label: PyroWaveText.lostFrames, value: PyroWaveText.percent(pct), warn: lost30 > 0)
+        return StatsTile(label: PyroWaveText.lostFrames, value: LinkFormat.percent(pct), warn: lost30 > 0)
     }
 
     /// PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. »
@@ -137,7 +137,7 @@ struct SessionStatsView: View {
         if let l = stats?.lowered {
             HStack(alignment: .top, spacing: 8) {
                 Icon("monitor", size: 15).foregroundStyle(Theme.warn)
-                Text(PyroWaveText.lowered(width: l.width, height: l.height, mbps: l.mbps))
+                Text(PyroWaveRules.loweredText(width: l.width, height: l.height, refresh: l.refresh, mbps: l.mbps))
                     .font(Theme.sans(12.5)).foregroundStyle(Theme.warnText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -148,11 +148,11 @@ struct SessionStatsView: View {
         let n = session.sessionLosses.frames
         let total = framesSinceStart
         let pct = total > 0 ? Double(n) / total * 100 : 0
-        return StatsTile(label: String(localized: "Depuis le début"), value: "\(n) · \(StatsFormat.percent(pct))", warn: false)
+        return StatsTile(label: String(localized: "Depuis le début"), value: "\(n) · \(LinkFormat.percent(pct))", warn: false)
     }
 
     private var rttTile: StatsTile {
-        StatsTile(label: String(localized: "Aller-retour"), value: stats?.rttMs.map { StatsFormat.ms($0) } ?? "—", warn: false)
+        StatsTile(label: String(localized: "Aller-retour"), value: stats?.rttMs.map { LinkFormat.ms($0) } ?? "—", warn: false)
     }
 
     /// « Chemin » : « Direct », « Par le relais » ou « Par le relais (TCP) » (le cœur le dit).
@@ -168,7 +168,7 @@ struct SessionStatsView: View {
     }
 
     private func signed(_ v: Double) -> String {
-        (v >= 0 ? "+" : "−") + StatsFormat.ms(abs(v))
+        (v >= 0 ? "+" : "−") + LinkFormat.ms(abs(v))
     }
 
     private var audioOff: Bool { session.host.settings.audio == .off || (session.audioStats?.channels ?? 0) == 0 }
@@ -204,7 +204,7 @@ struct SessionStatsView: View {
     private var sheetHeader: some View {
         HStack(alignment: .center, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(verbatim: stats?.latencyMs.map { StatsFormat.ms($0) } ?? "—")
+                Text(verbatim: stats?.latencyMs.map { LinkFormat.ms($0) } ?? "—")
                     .font(Theme.mono(22, .medium))
                     .foregroundStyle(stats?.latencyMs == nil ? Theme.faint : Theme.accentLight)
                     .contentTransition(.numericText())
@@ -238,7 +238,7 @@ struct SessionStatsView: View {
     /// le format quand l'image est en HDR.
     private var headerDetail: String {
         var parts = [String(localized: "médiane")]
-        if let p95 { parts.append("p95 " + StatsFormat.ms(p95, unit: false)) }
+        if let p95 { parts.append("p95 " + LinkFormat.ms(p95, unit: false)) }
         if !session.modeLabel.isEmpty { parts.append(session.modeLabel) }
         parts.append(codecName)
         if session.sessionHDR { parts.append(HDRText.label) }
@@ -248,11 +248,11 @@ struct SessionStatsView: View {
     private var sheetCurves: some View {
         VStack(alignment: .leading, spacing: 8) {
             StatsCurve(title: String(localized: "Latence · 30 s"),
-                       caption: String(localized: "\(StatsFormat.ms(budget)) = une image à \(Int((stats?.fps ?? 60).rounded())) i/s"),
+                       caption: String(localized: "\(LinkFormat.ms(budget)) = une image à \(Int((stats?.fps ?? 60).rounded())) i/s"),
                        values: latencies, floorTop: budget * 1.6, guide: budget, marks: lossMarks,
                        fill: false, height: 56)
             StatsCurve(title: String(localized: "Débit · 30 s"),
-                       caption: stats.map { StatsFormat.mbps($0.mbps) } ?? "—",
+                       caption: stats.map { LinkFormat.mbps($0.mbps) } ?? "—",
                        values: history.map { $0.mbps }, floorTop: 10, guide: nil, marks: [],
                        fill: true, height: 30, targets: targets)
             targetLine
@@ -269,7 +269,7 @@ struct SessionStatsView: View {
             tiles.append(StatsTile(label: String(localized: "Son"), value: String(localized: "sur l'ordinateur"), warn: false))
         } else {
             tiles.append(StatsTile(label: String(localized: "Son · \(session.route.name)"), value: audioLag.map(signed) ?? "—", warn: session.route.isLate || (audioLag ?? 0) > 40))
-            tiles.append(StatsTile(label: String(localized: "Tampon son"), value: session.audioStats.map { StatsFormat.ms($0.bufferMs) } ?? "—", warn: false))
+            tiles.append(StatsTile(label: String(localized: "Tampon son"), value: session.audioStats.map { LinkFormat.ms($0.bufferMs) } ?? "—", warn: false))
         }
         return VStack(alignment: .leading, spacing: 10) {
             StatsTileGrid(tiles: tiles, columns: 2, size: 15)
@@ -318,13 +318,13 @@ struct SessionStatsView: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Theme.eyebrow(String(localized: "Statistiques"), color: Theme.muted)
                 if let ms = stats?.latencyMs {
-                    Text(verbatim: StatsFormat.ms(ms))
+                    Text(verbatim: LinkFormat.ms(ms))
                         .font(Theme.mono(15, .medium))
                         .foregroundStyle(Theme.accentLight)
                         .contentTransition(.numericText())
                 }
             }
-            Text(verbatim: ([coverage].compactMap { $0 } + [String(localized: "depuis \(StatsFormat.duration(Date().timeIntervalSince(session.startedAt)))")]).joined(separator: " · "))
+            Text(verbatim: ([coverage].compactMap { $0 } + [String(localized: "depuis \(LinkFormat.duration(Date().timeIntervalSince(session.startedAt)))")]).joined(separator: " · "))
                 .font(Theme.mono(10.5))
                 .foregroundStyle(Theme.ghost)
                 .lineLimit(1)
@@ -338,11 +338,11 @@ struct SessionStatsView: View {
     private var panelCurves: some View {
         VStack(alignment: .leading, spacing: 8) {
             StatsCurve(title: String(localized: "Latence · 30 s"),
-                       caption: "p50 " + (stats?.latencyMs.map { StatsFormat.ms($0) } ?? "—") + (p95.map { " · p95 " + StatsFormat.ms($0, unit: false) } ?? ""),
+                       caption: "p50 " + (stats?.latencyMs.map { LinkFormat.ms($0) } ?? "—") + (p95.map { " · p95 " + LinkFormat.ms($0, unit: false) } ?? ""),
                        values: latencies, floorTop: budget * 1.6, guide: budget, marks: lossMarks,
                        fill: false, height: 62)
             StatsCurve(title: String(localized: "Débit · 30 s"),
-                       caption: stats.map { StatsFormat.mbps($0.mbps) } ?? "—",
+                       caption: stats.map { LinkFormat.mbps($0.mbps) } ?? "—",
                        values: history.map { $0.mbps }, floorTop: 10, guide: nil, marks: [],
                        fill: true, height: 32, targets: targets)
             targetLine
@@ -360,45 +360,10 @@ struct SessionStatsView: View {
         if audioOff {
             tiles.append(StatsTile(label: String(localized: "Son"), value: String(localized: "sur l'ordinateur"), warn: false))
         } else {
-            tiles.append(StatsTile(label: String(localized: "Son · tampon"), value: session.audioStats.map { StatsFormat.ms($0.bufferMs) } ?? "—", warn: (session.audioStats?.gaps ?? 0) > 0))
+            tiles.append(StatsTile(label: String(localized: "Son · tampon"), value: session.audioStats.map { LinkFormat.ms($0.bufferMs) } ?? "—", warn: (session.audioStats?.gaps ?? 0) > 0))
             tiles.append(StatsTile(label: String(localized: "Écart son − image"), value: audioLag.map(signed) ?? "—", warn: (audioLag ?? 0) > 40))
         }
         return tiles
-    }
-}
-
-// MARK: - Nombres
-
-/// Nombres des mesures et des réglages : virgule décimale en français, point
-/// en anglais, comme sur le Mac.
-enum StatsFormat {
-    private static var french: Bool { LanguageChoice.effective == "fr" }
-
-    static func decimal(_ value: Double, digits: Int = 1) -> String {
-        let text = String(format: "%.\(digits)f", value)
-        return french ? text.replacingOccurrences(of: ".", with: ",") : text
-    }
-
-    /// Une décimale sous 100 ms.
-    static func ms(_ value: Double, unit: Bool = true) -> String {
-        let text = value >= 100 ? String(Int(value.rounded())) : decimal(value)
-        return unit ? "\(text) ms" : text
-    }
-
-    static func mbps(_ value: Double) -> String {
-        (value >= 100 ? String(Int(value.rounded())) : decimal(value)) + " Mbit/s"
-    }
-
-    /// Pourcentage : deux décimales sous 0,1 %, une au-delà.
-    static func percent(_ value: Double) -> String {
-        if value == 0 { return "0 %" }
-        return decimal(value, digits: value < 0.1 ? 2 : 1) + " %"
-    }
-
-    static func duration(_ seconds: TimeInterval) -> String {
-        let minutes = Int(seconds / 60)
-        if minutes < 60 { return "\(max(1, minutes)) min" }
-        return "\(minutes / 60) h " + String(format: "%02d", minutes % 60)
     }
 }
 
@@ -458,7 +423,7 @@ private struct StatsStackedBar: View {
             RoundedRectangle(cornerRadius: 2).fill(stage.color).frame(width: 8, height: 8)
             Text(stage.name).font(Theme.sans(10.5)).foregroundStyle(Theme.muted)
             Spacer(minLength: 4)
-            Text(verbatim: stage.ms.map { StatsFormat.ms($0, unit: false) } ?? "—")
+            Text(verbatim: stage.ms.map { LinkFormat.ms($0, unit: false) } ?? "—")
                 .font(Theme.mono(10.5, .medium))
                 .foregroundStyle(stage.ms == nil ? Theme.ghost : Theme.text)
         }
@@ -511,7 +476,7 @@ private struct StatsCascade: View {
                                     }
                                 }
                                 .frame(width: barWidth, alignment: .leading)
-                                Text(verbatim: stage.ms.map { StatsFormat.ms($0, unit: false) } ?? "—")
+                                Text(verbatim: stage.ms.map { LinkFormat.ms($0, unit: false) } ?? "—")
                                     .font(Theme.mono(10.5))
                                     .foregroundStyle(stage.ms == nil ? Theme.ghost : Theme.text)
                                     .frame(width: Self.valueWidth, alignment: .trailing)
@@ -535,14 +500,14 @@ private struct StatsCascade: View {
                         p.addLine(to: CGPoint(x: x, y: CGFloat(stages.count) * 22 + 4))
                     }
                     .stroke(Theme.accentLight.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
-                    Text(verbatim: StatsFormat.ms(budget))
+                    Text(verbatim: LinkFormat.ms(budget))
                         .font(Theme.mono(9))
                         .foregroundStyle(Theme.faint)
                         .fixedSize()
                         .frame(width: 80, alignment: .trailing)
                         .position(x: x - 44, y: CGFloat(stages.count) * 22 + 10)
                     if total > 0 {
-                        Text(verbatim: StatsFormat.ms(total))
+                        Text(verbatim: LinkFormat.ms(total))
                             .font(Theme.mono(9))
                             .foregroundStyle(Theme.faint)
                             .fixedSize()

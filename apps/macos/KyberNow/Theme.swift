@@ -260,6 +260,97 @@ struct GlassMenu<Label: View>: View {
     }
 }
 
+/// Une commande passée dans le menu « Plus » de la barre (docs/link-ui.md,
+/// « Menu Plus ») : son nom et son état ; un menu (`submenu`) s'ouvre à sa
+/// place, une bascule (`action`) se fait tout de suite, une pastille sans
+/// action reste inactive.
+struct GlassMoreEntry: Identifiable {
+    let id: String
+    let title: String
+    var checked = false
+    var enabled = true
+    var help: String?
+    var submenu: [GlassMenuItem]?
+    var action: (() -> Void)?
+}
+
+/// Le menu « Plus » : trois points, « Plus de commandes » en infobulle ; une
+/// commande à menu montre le même menu que sa puce, avec un retour.
+struct GlassMoreMenu: View {
+    let entries: [GlassMoreEntry]
+    @State private var open = false
+    @State private var hovering = false
+    @State private var sub: String?
+
+    var body: some View {
+        Button {
+            sub = nil
+            open.toggle()
+        } label: {
+            Icon("dots-three", size: 18, bold: true)
+                .foregroundStyle(Theme.text2)
+                .frame(width: 38, height: 34)
+                .background(Color.white.opacity(hovering || open ? 0.07 : 0), in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(String(localized: "Plus de commandes"))
+        .accessibilityLabel(String(localized: "Plus"))
+        .preference(key: GlassMenuOpenKey.self, value: open)
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 2) {
+                if let sub, let entry = entries.first(where: { $0.id == sub }), let items = entry.submenu {
+                    row(title: entry.title, checked: false, icon: "arrow-left") { self.sub = nil }
+                    Divider().padding(.vertical, 2)
+                    ForEach(items) { item in
+                        row(title: item.title, checked: item.checked, enabled: item.enabled, help: item.help) {
+                            item.action()
+                            open = false
+                        }
+                    }
+                } else {
+                    ForEach(entries) { entry in
+                        row(title: entry.title, checked: entry.checked, enabled: entry.enabled && (entry.submenu != nil || entry.action != nil),
+                            help: entry.help, chevron: entry.submenu != nil) {
+                            if entry.submenu != nil {
+                                sub = entry.id
+                            } else {
+                                entry.action?()
+                                open = false
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(6)
+            .frame(minWidth: 220)
+            .preferredColorScheme(.dark)
+        }
+    }
+
+    private func row(title: String, checked: Bool, enabled: Bool = true, help: String? = nil, icon: String = "check",
+                     chevron: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Icon(icon, size: 14, bold: true)
+                    .foregroundStyle(Theme.accent)
+                    .opacity(icon == "check" ? (checked ? 1 : 0) : 1)
+                Text(title).font(Theme.sans(13.5, checked ? .semibold : .regular)).foregroundStyle(Theme.text)
+                Spacer(minLength: 16)
+                if chevron { Icon("arrow-right", size: 12, bold: true).foregroundStyle(Theme.muted) }
+            }
+            .opacity(enabled ? 1 : 0.45)
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .help(help ?? "")
+    }
+}
+
 // MARK: - Lumière (néon)
 
 /// Niveaux de la charte : 0 éteint (repos), 1 veille (survol, focus), 2 allumé (actif), 3 éclair (clic).

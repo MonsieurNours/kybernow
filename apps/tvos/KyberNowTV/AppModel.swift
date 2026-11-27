@@ -344,7 +344,7 @@ final class AppModel: ObservableObject {
     /// Annoncés sur le réseau et pas encore ajoutés.
     var newOnNetwork: [Discovery.Found] {
         discovery.found.filter { found in
-            !store.hosts.contains { $0.name == found.name || ($0.consoleFingerprint != nil && $0.consoleFingerprint == found.fingerprint) }
+            !store.hosts.contains { $0.name == found.name || Fingerprint.same($0.consoleFingerprint, found.fingerprint) }
         }
     }
 

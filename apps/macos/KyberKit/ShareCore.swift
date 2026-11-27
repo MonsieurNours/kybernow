@@ -223,7 +223,7 @@ public struct ShareState: Sendable, Equatable {
         case joined
         /// La Station se connecte au relais ou y réserve le code : `web` et
         /// `link` sont encore ceux du réseau. « Préparation du lien hors de
-        /// chez vous… », copie et QR code retenus, `relayLinkWait` au plus.
+        /// chez vous… », copie et QR code retenus, `CoreValues.relayLinkWait` au plus.
         case connecting
         /// « Pas encore joignable hors de chez vous. »
         case unreachable
@@ -238,17 +238,16 @@ public struct ShareState: Sendable, Equatable {
         }
     }
 
-    /// Le temps que l'app attend le lien du relais (`connecting`), compté
-    /// depuis qu'elle voit l'attente pour ce code ; au-delà, c'est comme
-    /// `unreachable` (`RELAY_LINK_WAIT` du cœur, docs/link-ui.md).
-    public static let relayLinkWait: TimeInterval = 10
 
     /// Ce que le panneau montre du relais, `connecting` vu depuis `waitingSince` :
     /// `connecting` les 10 premières secondes, `unreachable` ensuite.
     public static func relayPhase(_ relay: Relay?, waitingSince: Date?, now: Date = Date()) -> Relay? {
         guard relay == .connecting else { return relay }
         guard let waitingSince else { return .connecting }
-        return now.timeIntervalSince(waitingSince) < relayLinkWait ? .connecting : .unreachable
+        // L'attente du lien du relais, comptée depuis que l'app la voit pour
+        // ce code ; au-delà, comme `unreachable` (`relay_link_wait_secs` du
+        // cœur, docs/link-ui.md).
+        return now.timeIntervalSince(waitingSince) < CoreValues.current.relayLinkWait ? .connecting : .unreachable
     }
 
     public init(code: String, link: String, web: String = "", display: String? = nil, webLocal: String = "",

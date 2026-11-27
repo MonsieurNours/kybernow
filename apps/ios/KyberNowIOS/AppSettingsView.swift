@@ -9,6 +9,7 @@
 // On y arrive par le bouton « Réglages de l'app » de l'accueil.
 
 import AVFoundation
+import GameController
 import KyberKit
 import SwiftUI
 
@@ -46,6 +47,9 @@ private struct AppSettingsContent: View {
     @State private var micDevices: [MicDevice] = MicrophoneDevices.list()
     @State private var micVoice = MicrophonePrefs.voiceProcessing
     @Environment(\.openURL) private var openURL
+    /// « Envoyer le journal » : le fichier se prépare, puis la feuille de partage s'ouvre.
+    @State private var journalPreparing = false
+    @State private var journalFile: URL?
 
     private var isPad: Bool { DeviceDisplay.isPad }
 
@@ -61,6 +65,10 @@ private struct AppSettingsContent: View {
                     section(String(localized: "Langue")) { languageRow }
                     section(String(localized: "Réseau")) { networkRows }
                     section(MicText.label) { microphoneRows }
+                    // Clavier : l'iPad, et l'iPhone avec un clavier branché (il décrit le clavier, pas l'ordinateur).
+                    if isPad || GCKeyboard.coalesced != nil {
+                        section(KeyboardText.section) { keyboardRows }
+                    }
                     section(isPad ? String(localized: "Cet iPad") : String(localized: "Cet iPhone")) { deviceRows }
                     // Réglage du HDR : seulement sur un écran HDR ; les valeurs sont celles de l'appareil.
                     if HDRDisplay.isHDR(nil) {
@@ -92,6 +100,9 @@ private struct AppSettingsContent: View {
             micDevices = MicrophoneDevices.list()
         }
         .hdrCalibrationCover(isPresented: $calibrating)
+        .sheet(isPresented: Binding(get: { journalFile != nil }, set: { if !$0 { journalFile = nil } })) {
+            if let journalFile { ShareSheet(items: [journalFile]).ignoresSafeArea() }
+        }
         .sheet(isPresented: $addingAccount) {
             AddAccountSheet(accounts: accounts)
                 .presentationDragIndicator(.visible)
@@ -349,13 +360,48 @@ private struct AppSettingsContent: View {
                           on: prefs.allowCellular) { prefs.allowCellular.toggle() }
     }
 
-    private var aboutRows: some View {
+    /// « Disposition du clavier » puis « Clavier Apple ISO » (docs/link-ui.md,
+    /// « Réglages de l'app » › Clavier).
+    @ViewBuilder private var keyboardRows: some View {
+        SettingsChoiceRow(title: KeyboardText.layout, note: KeyboardText.layoutHelp,
+                          options: KeyboardLayout.allCases.map { ($0.rawValue, KeyboardText.label($0)) },
+                          current: prefs.keyboardLayout.rawValue) { v in
+            prefs.keyboardLayout = KeyboardLayout(rawValue: v) ?? .auto
+        }
+        SettingsToggleRow(title: KeyboardText.appleISO, note: KeyboardText.appleISOHelp, on: prefs.appleISOKeyboard) {
+            prefs.appleISOKeyboard.toggle()
+        }
+    }
+
+    /// À propos (en dernier) : la version, et « Envoyer le journal » par la
+    /// feuille de partage.
+    @ViewBuilder private var aboutRows: some View {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "—"
         let build = info?["CFBundleVersion"] as? String ?? ""
-        return SettingsValueRow(title: String(localized: "Version"),
-                                note: String(localized: "KyberNow Link pour l'iPhone et l'iPad"),
-                                value: build.isEmpty ? version : "\(version) (\(build))")
+        SettingsValueRow(title: JournalText.version,
+                         note: String(localized: "KyberNow Link pour l'iPhone et l'iPad"),
+                         value: build.isEmpty ? version : "\(version) (\(build))")
+        Button(action: sendJournal) {
+            HStack(spacing: 12) {
+                SettingsLabel(title: journalPreparing ? JournalText.preparing : JournalText.send, note: JournalText.help)
+                if journalPreparing { HomeSpinner(size: 14).frame(width: 18, height: 18) }
+            }
+            .modifier(SettingsRowBackground())
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(journalPreparing)
+        .accessibilityAddTraits(.isButton)
+    }
+
+    /// Le journal préparé, puis la feuille de partage (Mail, Messages, AirDrop…).
+    private func sendJournal() {
+        journalPreparing = true
+        Task { @MainActor in
+            defer { journalPreparing = false }
+            journalFile = try? await AppJournal.file()
+        }
     }
 }
 
@@ -609,4 +655,18 @@ struct AddAccountSheet: View {
         let accounts = accounts
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { accounts.signIn(relay: address) }
     }
+}
+
+// MARK: - Feuille de partage
+
+/// La feuille de partage du système (« Envoyer le journal ») : Mail,
+/// Messages, AirDrop, Fichiers…
+private struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

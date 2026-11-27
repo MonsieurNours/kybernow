@@ -83,7 +83,7 @@ struct SessionView: View {
         }
         // Prêter l'ordinateur, hôte : le panneau (durée, compte Steam, code, demandes).
         .sheet(isPresented: $session.lendSheet) {
-            LendPanelView(computer: session.host.name, lend: session.lend)
+            LendPanelView(computer: session.host.name, os: session.host.os, lend: session.lend)
                 .presentationDetents([.medium, .large])
                 .presentationBackground(Theme.bar)
         }
@@ -615,7 +615,7 @@ private struct Tab: View {
                 Icon("microphone", size: 12, bold: true).foregroundStyle(Theme.accentLight)
                     .padding(.horizontal, 6)
                     .frame(minHeight: 26)
-                    .accessibilityLabel(Text(verbatim: "\(MicText.label), \(MicText.tileOn)"))
+                    .accessibilityLabel(Text(verbatim: "\(MicText.label), \(session.micSubtitle)"))
             }
             if relay {
                 HStack(spacing: 5) {
@@ -878,7 +878,7 @@ struct SessionBar: View {
     /// il reste touchable et dit sa raison en avis.
     private var micItem: some View {
         let on = session.micOn
-        let refused = session.micState.refusal != nil
+        let refused = session.mic.reason != nil
         return Button { session.toggleMicrophone() } label: {
             VStack(spacing: 2) {
                 Icon(on ? "microphone" : "microphone-slash", size: 18).foregroundStyle(on ? Theme.accentLight : Theme.text2)
@@ -889,7 +889,7 @@ struct SessionBar: View {
             .opacity(refused ? 0.45 : 1)
         }
         .accessibilityLabel(Text(verbatim: "\(MicText.label), \(session.micSubtitle)"))
-        .accessibilityHint(Text(session.micState.refusal ?? ""))
+        .accessibilityHint(Text(session.mic.reason ?? ""))
         .accessibilityAddTraits(.isToggle)
     }
 
@@ -1401,15 +1401,18 @@ struct KeysMenu: View {
                 (String(localized: "⌥ ⌘ Échap"), String(localized: "Forcer à quitter"), [HID.alt, HID.gui], HID.escape),
             ]
         }
+        // Les dix entrées de link-ui (« Touches »), dans cet ordre, chacune avec son indication.
         return [
-            ("Ctrl + Alt + Suppr", String(localized: "Écran de sécurité"), [HID.control, HID.alt], HID.delete),
-            ("Alt + Tab", String(localized: "Changer de fenêtre"), [HID.alt], HID.tab),
-            ("⊞ + D", String(localized: "Afficher le bureau"), [HID.gui], HID.d),
-            (String(localized: "Impr. écran"), String(localized: "Capture"), [], HID.printScreen),
-            ("Alt + F4", String(localized: "Fermer la fenêtre"), [HID.alt], HID.f(4)),
-            ("⊞ + L", String(localized: "Verrouiller l'ordinateur"), [HID.gui], HID.l),
-            ("Ctrl + Maj + Échap", String(localized: "Gestionnaire des tâches"), [HID.control, HID.shift], HID.escape),
-            ("F11", String(localized: "Plein écran"), [], HID.f(11)),
+            (String(localized: "Ctrl + Alt + Suppr"), String(localized: "verrouiller, changer"), [HID.control, HID.alt], HID.delete),
+            (String(localized: "Touche ⊞ seule"), String(localized: "menu Démarrer"), [], HID.gui),
+            ("Alt + Tab", String(localized: "changer d'app"), [HID.alt], HID.tab),
+            (String(localized: "Impr. écran"), String(localized: "capture"), [], HID.printScreen),
+            ("⊞ + D", String(localized: "bureau"), [HID.gui], HID.d),
+            ("⊞ + L", String(localized: "verrouiller"), [HID.gui], HID.l),
+            ("Alt + F4", String(localized: "fermer la fenêtre"), [HID.alt], HID.f(4)),
+            (String(localized: "Échap"), "", [], HID.escape),
+            (String(localized: "Gestionnaire des tâches"), String(localized: "Ctrl + Maj + Échap"), [HID.control, HID.shift], HID.escape),
+            ("F11", String(localized: "plein écran"), [], HID.f(11)),
         ]
     }
 
@@ -1428,7 +1431,7 @@ struct KeysMenu: View {
                         } label: {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(s.0).font(Theme.mono(13, .medium)).foregroundStyle(Theme.text)
-                                Text(s.1).font(Theme.sans(12)).foregroundStyle(Theme.muted)
+                                if !s.1.isEmpty { Text(s.1).font(Theme.sans(12)).foregroundStyle(Theme.muted) }
                             }
                             .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
                             .padding(.horizontal, 14)

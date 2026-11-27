@@ -540,7 +540,7 @@ struct AddHostCodePane: View {
                 switch state {
                 case let .accepted(username, password):
                     // L'empreinte annoncée (Bonjour) doit être celle vue.
-                    if let expected = r.candidate.expected, let seen = r.console.fingerprint, !AddHostFingerprint.same(expected, seen) { continue }
+                    if let expected = r.candidate.expected, let seen = r.console.fingerprint, !Fingerprint.same(expected, seen) { continue }
                     let check = ConsoleClient(host: r.candidate.address, port: r.candidate.port, username: username, password: password, fingerprint: r.console.fingerprint)
                     let info = try? await check.info()
                     var host = Host(name: info?.hostname ?? r.candidate.name, address: r.candidate.address, consolePort: r.candidate.port, username: username)
@@ -695,7 +695,7 @@ struct AddHostVerifyPane: View {
         self.candidate = candidate
     }
 
-    private var mismatch: Bool { candidate.expected != nil && seen != nil && !AddHostFingerprint.same(candidate.expected, seen) }
+    private var mismatch: Bool { candidate.expected != nil && seen != nil && !Fingerprint.same(candidate.expected, seen) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: wide ? 20 : 14) {
@@ -740,10 +740,10 @@ struct AddHostVerifyPane: View {
     }
 
     @ViewBuilder private func manual(_ fp: String) -> some View {
-        let groups = AddHostFingerprint.groups(fp)
+        let groups = Fingerprint.groups(fp)
         AddHostParagraph(String(localized: "Comparez ces quatre groupes avec ceux de KyberNow Admin (Appareils Link › Ajouter un appareil). Ils sont l'empreinte du certificat de l'ordinateur."))
         HStack(spacing: wide ? 12 : 8) {
-            ForEach(Array(groups.prefix(4).enumerated()), id: \.offset) { _, g in
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, g in
                 Text(verbatim: g)
                     .font(Theme.mono(wide ? 28 : 19, .medium))
                     .foregroundStyle(Theme.text)
@@ -756,10 +756,6 @@ struct AddHostVerifyPane: View {
         }
         .padding(.top, 6)
         .accessibilityElement(children: .combine)
-        Text(verbatim: "sha256 · " + groups.prefix(6).joined(separator: " ") + " …")
-            .font(Theme.mono(wide ? 12 : 11)).foregroundStyle(Theme.ghost)
-            .frame(maxWidth: wide ? nil : .infinity, alignment: wide ? .leading : .center)
-            .lineLimit(1).minimumScaleFactor(0.7)
         HStack(spacing: 12) {
             Icon("lock-simple", size: 20).foregroundStyle(Theme.accent)
             Text("Avec le QR code ou une annonce sur le réseau, cette étape se fait toute seule.")

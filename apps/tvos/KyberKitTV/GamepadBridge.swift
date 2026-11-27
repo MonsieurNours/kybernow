@@ -461,7 +461,7 @@ public final class GamepadBridge: ObservableObject {
 
     /// Partie sur console : touches tenues relâchées, axes au repos, doigts levés.
     private func consoleReleaseAll(_ slot: Slot) {
-        dropLongPress(slot, input: nil)
+        dropLongPress(slot)
         for b in combo.pressed(slot.id) { ConsolePads.button(slot.id, b, pressed: false) }
         for a in PadAxis.allCases { ConsolePads.axis(slot.id, a, 0) }
         ConsolePads.touchClick(slot.id, pressed: false)
@@ -841,7 +841,7 @@ public final class GamepadBridge: ObservableObject {
             }
         }
         if config.guideMode == .longPress, button == .start || button == .back {
-            longPress(slot, button, pressed: pressed, input: input)
+            longPress(slot, button, pressed: pressed)
             return
         }
         input.gamepadButton(id: slot.id, button, pressed: pressed)
@@ -872,7 +872,7 @@ public final class GamepadBridge: ObservableObject {
     /// 50 ms plus tard (un jeu XInput lit l'état une fois par image : un appui
     /// et un relâchement collés passeraient inaperçus). Le prix : Start et
     /// Select arrivent au jeu au relâchement.
-    private func longPress(_ slot: Slot, _ button: PadButton, pressed: Bool, input: InputPipeline?) {
+    private func longPress(_ slot: Slot, _ button: PadButton, pressed: Bool) {
         if pressed {
             if let pending = slot.tapRelease.removeValue(forKey: button) {
                 pending.cancel()
@@ -913,7 +913,7 @@ public final class GamepadBridge: ObservableObject {
 
     /// Oublie les appuis longs en cours (combinaison formée, menu, réglage
     /// changé) et relâche le Guide qu'ils tenaient.
-    private func dropLongPress(_ slot: Slot, input: InputPipeline?) {
+    private func dropLongPress(_ slot: Slot) {
         slot.deferred.values.forEach { $0.cancel() }
         slot.deferred.removeAll()
         for (button, release) in slot.tapRelease {
@@ -929,7 +929,7 @@ public final class GamepadBridge: ObservableObject {
         onQueue()
         guard mode != config.guideMode else { return }
         config.guideMode = mode
-        for slot in slots.values { dropLongPress(slot, input: input) }
+        for slot in slots.values { dropLongPress(slot) }
         applyHomeGesture()
     }
 
@@ -957,7 +957,7 @@ public final class GamepadBridge: ObservableObject {
         guard config.menuFromCombo, input != nil, let slot = slots.values.first(where: { $0.id == id }), !slot.isScreen else { return }
         KyberLog.app.notice("combinaison L1 + R1 + Start + Select")
         // Appui long sur Start ou Select en cours : il n'aboutit pas.
-        dropLongPress(slot, input: input)
+        dropLongPress(slot)
         requestMenu()
     }
 
@@ -1309,7 +1309,7 @@ public final class GamepadBridge: ObservableObject {
 
     private func releaseAll(_ slot: Slot, input: InputPipeline) {
         guard slot.active else { return }
-        dropLongPress(slot, input: input)
+        dropLongPress(slot)
         for b in combo.pressed(slot.id) { input.gamepadButton(id: slot.id, b, pressed: false) }
         input.gamepadAxesRest(id: slot.id)
     }

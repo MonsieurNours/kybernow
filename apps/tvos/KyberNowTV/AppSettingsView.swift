@@ -1,7 +1,8 @@
-// Réglages de l'app (docs/link-ui.md) : ce qui vaut sur cette Apple TV pour
-// tous les ordinateurs : iCloud, langue, test des manettes, et ce que
-// l'Apple TV sait faire (écran, décodage, sortie du son). Les réglages de
-// connexion, eux, vont par ordinateur (SettingsView).
+// Réglages de l'app (docs/link-ui.md, « Réglages de l'app ») : ce qui vaut
+// sur cette Apple TV pour tous les ordinateurs : iCloud, langue, test des
+// manettes, clavier branché, à propos (version, « Envoyer le journal »), et
+// ce que l'Apple TV sait faire (écran, décodage, sortie du son). Les réglages
+// de connexion, eux, vont par ordinateur (SettingsView).
 
 import AVFoundation
 import KyberKit
@@ -18,6 +19,8 @@ struct AppSettingsView: View {
     @State private var language = LanguageChoice.current
     private static let launchLanguage = LanguageChoice.current
     @State private var route = AudioRoute.current
+    /// « Envoyer le journal » : le panneau du QR code, ouvert.
+    @State private var journal: JournalSend?
     @FocusState private var focus: Target?
 
     enum Target: Hashable { case back, row(String) }
@@ -37,33 +40,44 @@ struct AppSettingsView: View {
             .focused($focus, equals: .back)
             .padding(.leading, 96).padding(.top, 56)
 
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Réglages de l'app").font(Theme.display(64, 660)).tracking(-64 * 0.035)
-                Text("Pour tous vos ordinateurs, sur cette Apple TV. L'image, le son et les commandes se règlent par ordinateur.")
-                    .font(Theme.sans(22)).foregroundStyle(Theme.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, 18)
-                accountsRow
-                replayRow
-                icloudRow
-                languageRow
-                padsRow
-                // « Réglage du HDR » : seulement sur un téléviseur HDR ; les valeurs sont celles du téléviseur.
-                if app.screenHDR { calibrationRow }
-                versionRow
+            // La liste défile sous le titre : elle tient plus qu'un écran.
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Réglages de l'app").font(Theme.display(64, 660)).tracking(-64 * 0.035)
+                    Text("Pour tous vos ordinateurs, sur cette Apple TV. L'image, le son et les commandes se règlent par ordinateur.")
+                        .font(Theme.sans(22)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 18)
+                    accountsRow
+                    replayRow
+                    icloudRow
+                    languageRow
+                    padsRow
+                    // « Réglage du HDR » : seulement sur un téléviseur HDR ; les valeurs sont celles du téléviseur.
+                    if app.screenHDR { calibrationRow }
+                    keyboardRow
+                    versionRow
+                    journalRow
+                }
+                .focusSection()
+                .frame(width: 1040, alignment: .leading)
+                .padding(.leading, 96).padding(.top, 170).padding(.bottom, 80)
             }
-            .focusSection()
-            .frame(width: 1040, alignment: .leading)
-            .padding(.leading, 96).padding(.top, 170)
+            .frame(width: 1040 + 96 + 40, alignment: .leading)
 
             deviceCard
                 .frame(width: 1920 - 1040 - 96 - 96 - 60)
                 .padding(.leading, 96 + 1040 + 60).padding(.top, 290)
         }
+        .overlay {
+            if let journal {
+                JournalPanel(send: journal) { self.journal = nil }
+            }
+        }
         .frame(width: 1920, height: 1080, alignment: .topLeading)
         .ignoresSafeArea()
         .defaultFocus($focus, .row("icloud"))
-        .onExitCommand { app.screen = .home }
+        .onExitCommand { if journal == nil { app.screen = .home } }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).receive(on: RunLoop.main)) { _ in
             route = AudioRoute.current
         }
@@ -188,12 +202,46 @@ struct AppSettingsView: View {
         return text
     }
 
+    /// Clavier branché : « Clavier Apple ISO », qui décrit le clavier, pas
+    /// l'ordinateur (docs/link-ui.md, « Réglages de l'app » › Clavier).
+    private var keyboardRow: some View {
+        Button { prefs.appleISOKeyboard.toggle() } label: {
+            HStack(spacing: 24) {
+                label(KeyboardText.appleISO, KeyboardText.appleISOHelp)
+                Toggle2(on: prefs.appleISOKeyboard)
+            }
+            .padding(.horizontal, 24).padding(.vertical, 10)
+            .frame(minHeight: 88)
+        }
+        .buttonStyle(GlassButton(radius: 18, scale: 1.03, fill: Color.white.opacity(0.04)))
+        .focused($focus, equals: .row("iso"))
+        .accessibilityValue(prefs.appleISOKeyboard ? Text("Activé") : Text("Désactivé"))
+    }
+
+    /// « Envoyer le journal » : par un QR code que le téléphone scanne.
+    private var journalRow: some View {
+        Button {
+            let send = JournalSend(relay: accounts.accounts.first?.relay)
+            journal = send
+            send.start()
+        } label: {
+            HStack(spacing: 24) {
+                label(JournalText.send, JournalText.helpTV)
+                Icon("arrow-right", size: 22, bold: true).foregroundStyle(Theme.faint)
+            }
+            .padding(.horizontal, 24).padding(.vertical, 10)
+            .frame(minHeight: 88)
+        }
+        .buttonStyle(GlassButton(radius: 18, scale: 1.03, fill: Color.white.opacity(0.04)))
+        .focused($focus, equals: .row("journal"))
+    }
+
     private var versionRow: some View {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "—"
         let build = info?["CFBundleVersion"] as? String ?? ""
         return HStack(spacing: 24) {
-            label(String(localized: "Version"), String(localized: "KyberNow Link pour l'Apple TV"))
+            label(JournalText.version, String(localized: "KyberNow Link pour l'Apple TV"))
             Text(verbatim: build.isEmpty ? version : "\(version) (\(build))").font(Theme.mono(19)).foregroundStyle(Theme.text2)
         }
         .padding(.horizontal, 24).padding(.vertical, 10)

@@ -2,8 +2,9 @@
 // décodé sur le GPU par le port Metal de PyroWave (apps/macos/PyroWave,
 // compilé dans KyberKit, module CPyroWave).
 //
-// Contrat avec la Station : un paquet de configuration de 16 octets
-// (`PyroWaveConfig`, renvoyé à chaque changement de définition) puis des
+// Contrat avec la Station : un paquet de configuration `KNPW` (version 1,
+// 16 octets, ou 2, 48 octets avec les métadonnées HDR10 ; `PyroWaveConfig`,
+// lu par le cœur, renvoyé à chaque changement de définition) puis des
 // paquets média, chacun une image complète (paquets PyroWave mis bout à
 // bout), toujours image clé. Une image perdue ou incomplète est sautée,
 // jamais demandée de nouveau : la suivante se décode seule.
@@ -29,83 +30,6 @@ import CoreVideo
 import Foundation
 import Metal
 @_implementationOnly import CPyroWave
-
-/// Paquet de configuration PyroWave (16 octets) : `"KNPW"` | version (1) |
-/// chroma (0 : 4:2:0, 1 : 4:4:4) | couleur (0 : SDR BT.709, 1 : HDR10
-/// BT.2020 PQ) | plage (0 : pleine, 1 : réduite) | largeur u32 LE | hauteur u32 LE.
-public struct PyroWaveConfig: Equatable, Sendable {
-    public var chroma444: Bool
-    public var hdr: Bool
-    public var fullRange: Bool
-    public var width: Int
-    public var height: Int
-
-    public init(chroma444: Bool, hdr: Bool, fullRange: Bool, width: Int, height: Int) {
-        self.chroma444 = chroma444
-        self.hdr = hdr
-        self.fullRange = fullRange
-        self.width = width
-        self.height = height
-    }
-
-    static let magic: [UInt8] = Array("KNPW".utf8)
-    static let size = 16
-
-    /// Lit un paquet de configuration ; nil s'il n'en est pas un (ou une
-    /// version inconnue, une définition hors des bornes du flux PyroWave).
-    public init?(_ data: UnsafeBufferPointer<UInt8>) {
-        guard data.count >= Self.size, Array(data[0..<4]) == Self.magic, data[4] == 1,
-              data[5] <= 1, data[6] <= 1, data[7] <= 1 else { return nil }
-        func u32(_ o: Int) -> Int { Int(data[o]) | Int(data[o + 1]) << 8 | Int(data[o + 2]) << 16 | Int(data[o + 3]) << 24 }
-        self.init(chroma444: data[5] == 1, hdr: data[6] == 1, fullRange: data[7] == 0, width: u32(8), height: u32(12))
-        guard valid else { return nil }
-    }
-
-    /// Repli si le paquet de configuration s'est perdu : définition et
-    /// chroma lues dans l'en-tête de séquence du flux (8 octets en tête d'un
-    /// paquet PyroWave, bit `extended`). Couleur et plage n'y sont pas
-    /// fiables (l'encodeur Metal ne les écrit pas) : SDR, plage pleine.
-    init?(sequenceHeader data: UnsafeBufferPointer<UInt8>) {
-        guard data.count >= 8 else { return nil }
-        let w0 = UInt32(data[0]) | UInt32(data[1]) << 8 | UInt32(data[2]) << 16 | UInt32(data[3]) << 24
-        let w1 = UInt32(data[4]) | UInt32(data[5]) << 8 | UInt32(data[6]) << 16 | UInt32(data[7]) << 24
-        guard w0 >> 31 == 1, (w1 >> 24) & 3 == 0 else { return nil } // extended, début d'image
-        self.init(chroma444: (w1 >> 26) & 1 == 1, hdr: false, fullRange: true,
-                  width: Int(w0 & 0x3FFF) + 1, height: Int((w0 >> 14) & 0x3FFF) + 1)
-        guard valid else { return nil }
-    }
-
-    var valid: Bool {
-        (1...16384).contains(width) && (1...16384).contains(height) && (chroma444 || (width % 2 == 0 && height % 2 == 0))
-    }
-
-    /// Les 16 octets du contrat (outils, tests).
-    public var bytes: [UInt8] {
-        func le(_ v: Int) -> [UInt8] { (0..<4).map { UInt8((v >> (8 * $0)) & 0xFF) } }
-        return Self.magic + [1, chroma444 ? 1 : 0, hdr ? 1 : 0, fullRange ? 0 : 1] + le(width) + le(height)
-    }
-
-    /// Format CoreVideo de sortie, l'un de ceux que lit le rendu.
-    var pixelFormat: OSType {
-        switch (chroma444, hdr, fullRange) {
-        case (false, false, false): return kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-        case (false, false, true): return kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-        case (true, false, false): return kCVPixelFormatType_444YpCbCr8BiPlanarVideoRange
-        case (true, false, true): return kCVPixelFormatType_444YpCbCr8BiPlanarFullRange
-        case (false, true, false): return kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
-        case (false, true, true): return kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
-        case (true, true, false): return kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange
-        case (true, true, true): return kCVPixelFormatType_444YpCbCr10BiPlanarFullRange
-        }
-    }
-
-    var chromaWidth: Int { chroma444 ? width : width / 2 }
-    var chromaHeight: Int { chroma444 ? height : height / 2 }
-
-    public var label: String {
-        "\(width)×\(height) \(chroma444 ? "4:4:4" : "4:2:0") \(hdr ? "HDR10" : "SDR") \(fullRange ? "pleine" : "réduite")"
-    }
-}
 
 /// Le GPU et les objets PyroWave partagés par tous les décodeurs : la
 /// création compile les pipelines de PyroWave (une fois par processus).
@@ -177,6 +101,11 @@ final class PyroWaveGPU: @unchecked Sendable {
 final class PyroWaveDecoder {
     /// Image prête (fil de fin du tampon de commandes).
     var onFrame: ((DecodedFrame) -> Void)?
+    /// PyroWave ne s'ouvre pas sur cet appareil (pas de GPU qui le décode,
+    /// décodeur ou mémoire refusés) : dit une fois, pour que le cœur relance
+    /// l'image dans le format de repli (`kn_session_pyrowave_failed`).
+    var onUnavailable: (() -> Void)?
+    private var unavailableTold = false
 
     /// Images au plus sur le GPU à la fois ; au-delà, l'image est sautée.
     static let maxInFlight = 3
@@ -386,10 +315,20 @@ final class PyroWaveDecoder {
 
     /// À appeler verrou pris.
     private func apply(_ new: PyroWaveConfig) {
-        guard new != config || decoder == nil else { return }
+        // Même image, d'autres métadonnées HDR10 : le décodeur reste.
+        if let config, decoder != nil, config.sameImage(new) {
+            if new != config {
+                self.config = new
+                attachments = new.attachments
+            }
+            return
+        }
         teardown()
         config = new
-        guard let gpu else { return }
+        guard let gpu else {
+            unavailable("aucun GPU qui décode PyroWave")
+            return
+        }
         var info = pyrowave_decoder_create_info()
         info.device = gpu.handle
         info.width = Int32(new.width)
@@ -399,6 +338,7 @@ final class PyroWaveDecoder {
         let result = pyrowave_decoder_create(&info, &handle)
         guard result == PYROWAVE_SUCCESS, let handle else {
             KyberLog.video.error("PyroWave : aucun décodeur pour \(new.label, privacy: .public) (\(String(cString: pyrowave_result_to_string(result)), privacy: .public))")
+            unavailable("décodeur refusé")
             return
         }
         let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .r16Unorm, width: new.chromaWidth, height: new.chromaHeight, mipmapped: false)
@@ -417,21 +357,22 @@ final class PyroWaveDecoder {
         else {
             KyberLog.video.error("PyroWave : mémoire refusée pour \(new.label, privacy: .public)")
             pyrowave_decoder_destroy(handle)
+            unavailable("mémoire refusée")
             return
         }
         decoder = handle
         chroma = (cb, cr)
         self.pool = pool
-        attachments = new.hdr ? [
-            kCVImageBufferYCbCrMatrixKey: kCVImageBufferYCbCrMatrix_ITU_R_2020,
-            kCVImageBufferColorPrimariesKey: kCVImageBufferColorPrimaries_ITU_R_2020,
-            kCVImageBufferTransferFunctionKey: kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ,
-        ] : [
-            kCVImageBufferYCbCrMatrixKey: kCVImageBufferYCbCrMatrix_ITU_R_709_2,
-            kCVImageBufferColorPrimariesKey: kCVImageBufferColorPrimaries_ITU_R_709_2,
-            kCVImageBufferTransferFunctionKey: kCVImageBufferTransferFunction_ITU_R_709_2,
-        ]
+        attachments = new.attachments
         KyberLog.video.notice("décodeur PyroWave \(new.label, privacy: .public)")
+    }
+
+    /// À appeler verrou pris : PyroWave ne s'ouvre pas ici, dit une fois.
+    private func unavailable(_ why: String) {
+        guard !unavailableTold else { return }
+        unavailableTold = true
+        KyberLog.video.error("PyroWave indisponible sur cet appareil : \(why, privacy: .public)")
+        onUnavailable?()
     }
 
     /// À appeler verrou pris : attend le GPU, libère le décodeur.

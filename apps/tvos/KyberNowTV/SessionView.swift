@@ -605,7 +605,7 @@ struct SessionFailure: View {
                         .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
                         .padding(.top, 30)
                 } else {
-                    Button("Retour à l'accueil", action: done)
+                    Button("Revenir à l'accueil", action: done)
                         .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
                         .padding(.top, 30)
                 }

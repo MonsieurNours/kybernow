@@ -468,19 +468,13 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
     /// additionnées depuis le début.
     private func startStats() {
         guard statsTask == nil else { return }
-        statsTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                guard let self, !Task.isCancelled, let play = self.play else { return }
-                if let remote = self.remote {
-                    let route = remote.route
-                    if route != self.path { self.path = route }
-                }
-                guard let s = play.stats() else { continue }
-                self.lostTotal += s.lost
-                self.repairedTotal += s.recovered
-                self.stats = s
-            }
+        statsTask = PlayStationPart.statsLoop(play: { [weak self] in self?.play }, remote: { [weak self] in self?.remote }) { [weak self] second in
+            guard let self else { return }
+            if let route = second.route, route != self.path { self.path = route }
+            guard let s = second.stats else { return }
+            self.lostTotal += s.lost
+            self.repairedTotal += s.recovered
+            self.stats = s
         }
     }
 
@@ -569,12 +563,8 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         guard let play else { return }
         self.play = nil
         // Par le relais, la Station reste jointe jusqu'à la fin de l'arrêt (DISCONNECT).
-        let remote = self.remote
-        self.remote = nil
-        DispatchQueue.global(qos: .userInitiated).async {
-            play.stop()
-            withExtendedLifetime(remote) {}
-        }
+        PlayStationPart.stop(play, keeping: remote)
+        remote = nil
     }
 
     private func captureChanged(_ captured: Bool) {

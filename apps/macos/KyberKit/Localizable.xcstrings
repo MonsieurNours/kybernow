@@ -12,7 +12,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ en attente : l'ordinateur ne voit que quatre manettes"
+            "value" : "%@ en attente : l'ordinateur ne voit que quatre manettes"
           }
         }
       }
@@ -92,7 +92,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L'ordinateur ne répond pas : la caméra est éteinte."
+            "value" : "L'ordinateur ne répond pas : la caméra est éteinte."
           }
         }
       }
@@ -145,54 +145,6 @@
         }
       }
     },
-    "connexion perdue" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "connection lost"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "connexion perdue"
-          }
-        }
-      }
-    },
-    "connexion à %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "connecting to %@"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "connexion à %@"
-          }
-        }
-      }
-    },
-    "démarrage de l'image" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "starting the picture"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "démarrage de l'image"
-          }
-        }
-      }
-    },
     "en attente" : {
       "localizations" : {
         "en" : {
@@ -205,22 +157,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "en attente"
-          }
-        }
-      }
-    },
-    "image illisible" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "unreadable picture"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "image illisible"
           }
         }
       }
@@ -252,7 +188,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur"
+            "value" : "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur"
           }
         }
       }

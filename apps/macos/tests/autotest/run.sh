@@ -26,8 +26,11 @@ cd "$WORK"
 for f in pyrowave_common.mm pyrowave_decoder.mm pyrowave_bitstream.cpp; do
     clang++ -std=c++17 -O2 -fobjc-arc -c "$PW/upstream/$f" -o "$f.o"
 done
-compile -O -I "$PW/module" -framework Metal -framework IOSurface -lc++ ./*.o -o autotest \
+# Le paquet de configuration de PyroWave est lu par le cœur (libkybernow de Vendor/).
+VENDOR="$HERE/../../Vendor"
+compile -O -I "$PW/module" -I "$VENDOR/KyberNow/include" -L "$VENDOR/Frameworks" -lkybernow -Xlinker -rpath -Xlinker "$VENDOR/Frameworks" \
+    -framework Metal -framework IOSurface -lc++ ./*.o -o autotest \
     "$HERE/main.swift" "$KIT/AutoTestBench.swift" "$KIT/VideoDecoder.swift" "$KIT/PyroWaveDecoder.swift" \
-    "$KIT/AV1.swift"
+    "$KIT/PyroWaveConfig.swift" "$KIT/AV1.swift"
 ./autotest "$SAMPLES"/hevc-420.kns "$SAMPLES"/hevc-444.kns "$SAMPLES"/av1-420.kns \
     "$SAMPLES"/h264-420.kns "$SAMPLES"/pyrowave-420.kns "$SAMPLES"/pyrowave-444.kns

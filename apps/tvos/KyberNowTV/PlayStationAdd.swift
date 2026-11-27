@@ -20,8 +20,6 @@ struct PlayStationPane: View {
     @State private var renaming: PSNAccount?
     @State private var newName = ""
     @State private var removing: PSNAccount?
-    /// L'appareil à qui envoyer, le temps de taper son code.
-    @State private var sendCode = ""
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {

@@ -6,7 +6,6 @@
 // « Personnalisé ». Ce qui vaut pour toute l'app (iCloud, langue, test des
 // manettes, ce que l'Apple TV sait décoder) est dans les Réglages de l'app.
 
-import CoreImage.CIFilterBuiltins
 import KyberKit
 import Network
 import SwiftUI
@@ -250,16 +249,37 @@ struct SettingsView: View {
     @ViewBuilder private func pictureRows(_ s: ConnectionSettings) -> some View {
         let tv = TVDisplay.native
         let mode = TVDisplay.mode(for: s)
-        let res = s.display == .custom ? TVDisplay.label(mode.width, mode.height) : "match"
+        // « Comme cet écran » ou « Sur mesure » (docs/link-ui.md, « Définition ») ;
+        // sur mesure, les définitions que la télécommande choisit sans clavier.
+        // Le téléviseur s'arrête à la 4K : « Au plus 4K » n'a pas de sens ici.
+        let custom = s.display == .custom && (mode.width, mode.height) != (tv.width, tv.height)
         seg("res", String(localized: "Définition"), String(localized: "Comme cet écran : \(LinkFormat.dims(tv.width, tv.height))"),
-            [("match", String(localized: "Comme cet écran"))] + plain(["4K", "1440p", "1080p"]), res) { v in
+            [("match", String(localized: "Comme cet écran")), ("custom", String(localized: "Sur mesure"))], custom ? "custom" : "match") { v in
             edit { st in
-                switch v {
-                case "4K": st.display = .custom; st.customWidth = 3840; st.customHeight = 2160
-                case "1440p": st.display = .custom; st.customWidth = 2560; st.customHeight = 1440
-                case "1080p": st.display = .custom; st.customWidth = 1920; st.customHeight = 1080
-                default:
-                    if st.customRefresh == tv.refresh { st.display = .match } else { st.display = .custom; st.customWidth = tv.width; st.customHeight = tv.height }
+                if v == "custom" {
+                    guard st.display != .custom || (st.customWidth, st.customHeight) == (tv.width, tv.height) else { return }
+                    st.display = .custom
+                    (st.customWidth, st.customHeight) = tv.width > 1920 ? (1920, 1080) : (1280, 720)
+                } else if st.customRefresh == tv.refresh {
+                    st.display = .match
+                } else {
+                    st.display = .custom
+                    st.customWidth = tv.width
+                    st.customHeight = tv.height
+                }
+            }
+        }
+        if custom {
+            seg("res.custom", String(localized: "Sur mesure"), String(localized: "L'écran virtuel de l'ordinateur prend cette définition"),
+                plain(["4K", "1440p", "1080p", "720p"]), TVDisplay.label(mode.width, mode.height)) { v in
+                edit { st in
+                    st.display = .custom
+                    switch v {
+                    case "4K": (st.customWidth, st.customHeight) = (3840, 2160)
+                    case "1440p": (st.customWidth, st.customHeight) = (2560, 1440)
+                    case "720p": (st.customWidth, st.customHeight) = (1280, 720)
+                    default: (st.customWidth, st.customHeight) = (1920, 1080)
+                    }
                 }
             }
         }
@@ -437,7 +457,7 @@ struct SettingsView: View {
                 let mode = TVDisplay.mode(for: st)
                 st.codec = .pyrowave
                 st.profile = nil
-                st.bitrateMbps = PyroWaveRate.mbps(width: mode.width, height: mode.height, refresh: mode.refresh, yuv444: st.yuv444)
+                st.bitrateMbps = PyroWaveRules.mbps(width: mode.width, height: mode.height, refresh: mode.refresh, yuv444: st.yuv444)
             default:
                 let wasPyroWave = st.codec == .pyrowave
                 st.codec = key == "h264" ? .h264 : .hevc
@@ -469,7 +489,7 @@ struct SettingsView: View {
                             Rectangle().fill(Theme.warn.opacity(0.35))
                         }
                         Rectangle().fill(warn ? Theme.warn : Theme.accent)
-                            .frame(width: geo.size.width * min(1, CGFloat(rate) / (pyro ? CGFloat(PyroWaveRate.max) : 400)))
+                            .frame(width: geo.size.width * min(1, CGFloat(rate) / CGFloat(ConnectionSettings.bitrateRange(s.codec).upperBound)))
                     }
                     .clipShape(Capsule())
                 }
@@ -479,11 +499,11 @@ struct SettingsView: View {
                     .font(Theme.sans(17)).foregroundStyle(warn ? Theme.warnText : Theme.muted)
             }
             HStack(spacing: 8) {
-                Button { edit { st in st.bitrateMbps = max(ConnectionSettings.minBitrate, rate - 10) } } label: { Text(verbatim: "−") }
+                Button { edit { st in st.bitrateMbps = max(ConnectionSettings.bitrateRange(st.codec).lowerBound, rate - 10) } } label: { Text(verbatim: "−") }
                     .buttonStyle(ChoiceButton(selected: false, height: 64, light: true))
                     .focused($focus, equals: .row("rate.less"))
                     .accessibilityLabel("Moins de débit")
-                Button { edit { st in st.bitrateMbps = min(ConnectionSettings.maxBitrate, rate + 10) } } label: { Text(verbatim: "+") }
+                Button { edit { st in st.bitrateMbps = min(ConnectionSettings.bitrateRange(st.codec).upperBound, rate + 10) } } label: { Text(verbatim: "+") }
                     .buttonStyle(ChoiceButton(selected: false, height: 64, light: true))
                     .focused($focus, equals: .row("rate.more"))
                     .accessibilityLabel("Plus de débit")
@@ -555,8 +575,12 @@ struct SettingsView: View {
         seg("order", String(localized: "Ordre des joueurs"), String(localized: "Fixe : chaque modèle garde sa place ; deux manettes identiques ne se distinguent pas"), [("power", String(localized: "Allumage")), ("fixed", String(localized: "Fixe"))], prefs.padOrderFixed ? "fixed" : "power") { v in
             prefs.padOrderFixed = v == "fixed"
         }
-        toggle("iso", String(localized: "Clavier Apple ISO"), String(localized: "Clavier Apple européen (touche @# ou §± sous Échap) : la touche sous Échap et celle près de Maj retrouvent leur place sur l'ordinateur"), prefs.appleISOKeyboard) {
-            prefs.appleISOKeyboard.toggle()
+        // La caméra de l'iPhone ou de l'iPad à côté (docs/webcam.md) : si
+        // l'ordinateur l'a déjà proposée, comme sur l'iPhone et le Mac (TRANS-39).
+        if host?.cameraOffered == true {
+            seg("camera", CameraText.resolution, CameraText.resolutionHelp, plain(["720p", "1080p"]), s.camera1080 ? "1080p" : "720p") { v in
+                edit { st in st.camera1080 = v == "1080p" }
+            }
         }
     }
 
@@ -590,7 +614,7 @@ struct SettingsView: View {
         fact(StatsText.system, info?.os ?? "—")
         fact(StatsText.graphics, info?.gpu ?? "—")
         fact(StatsText.address, "\(host.address):\(String(host.consolePort))")
-        fact(StatsText.fingerprint, host.consoleFingerprint.map(LinkFormat.fingerprint) ?? "—")
+        fact(StatsText.fingerprint, host.consoleFingerprint.map(Fingerprint.short) ?? "—")
         if status?.problem == .certificateChanged {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
@@ -598,7 +622,7 @@ struct SettingsView: View {
                     Text(LinkText.problem(.certificateChanged)).font(Theme.sans(21)).foregroundStyle(Theme.warnText)
                 }
                 if let presented {
-                    fact(StatsText.presented, LinkFormat.fingerprint(presented))
+                    fact(StatsText.presented, Fingerprint.short(presented))
                     Text(StatsText.compare).font(Theme.sans(18)).foregroundStyle(Theme.muted)
                         .fixedSize(horizontal: false, vertical: true)
                     Button(StatsText.trust) { store.trust(fingerprint: presented, for: host) }
@@ -736,10 +760,10 @@ struct SettingsView: View {
 
     /// QR code d'Admin : on l'ouvre sur son téléphone (le navigateur demande le mot de passe d'Admin).
     private func adminCode(_ host: Host) -> some View {
-        let url = adminURL(host)
+        let url = store.adminURL(for: host)?.absoluteString ?? ""
         return VStack(spacing: 16) {
-            if let qr = Self.qr(url) {
-                Image(uiImage: qr)
+            if let qr = Share.qrImage(for: url) {
+                Image(decorative: qr, scale: 1)
                     .interpolation(.none)
                     .resizable()
                     .frame(width: 216, height: 216)
@@ -757,19 +781,6 @@ struct SettingsView: View {
         .frame(width: 300)
     }
 
-    private func adminURL(_ host: Host) -> String {
-        if let url = store.console(for: host)?.adminURL { return url.absoluteString }
-        let address = host.address.contains(":") ? "[\(host.address)]" : host.address
-        return "https://\(address):\(String(host.consolePort))/"
-    }
-
-    private static func qr(_ text: String) -> UIImage? {
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(text.utf8)
-        filter.correctionLevel = "M"
-        guard let out = filter.outputImage, let cg = CIContext().createCGImage(out, from: out.extent) else { return nil }
-        return UIImage(cgImage: cg)
-    }
 
     /// Bouton d'action de la Station : titre, aide, icône.
     private func action(_ id: String, _ title: String, _ note: String, icon: String, run: @escaping () -> Void) -> some View {

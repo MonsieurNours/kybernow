@@ -47,6 +47,8 @@ final class VideoDecoder {
     /// L'image est repartie sur une image clé ou une image de reprise (émis
     /// une fois cette image décodée).
     var onRecovered: (() -> Void)?
+    /// PyroWave ne s'ouvre pas sur cet appareil (`PyroWaveDecoder.onUnavailable`).
+    var onPyroWaveUnavailable: (() -> Void)?
 
     private(set) var codec: Codec = .hevc
     /// Jeux de paramètres par (type de NAL, identifiant) : deux PPS qui
@@ -106,6 +108,7 @@ final class VideoDecoder {
         if c == .pyrowave {
             let decoder = pyrowave ?? PyroWaveDecoder()
             decoder.onFrame = { [weak self] frame in self?.deliver(frame) }
+            decoder.onUnavailable = { [weak self] in self?.onPyroWaveUnavailable?() }
             pyrowave = decoder
             waitingKey = false
         } else {
@@ -120,8 +123,8 @@ final class VideoDecoder {
         lock.lock()
         defer { lock.unlock() }
         if codec == .pyrowave {
-            // Paquet de configuration (16 octets du contrat) ou image entière.
-            if isConfig || PyroWaveConfig(data) != nil {
+            // Paquet de configuration (`KNPW`, version 1 ou 2) ou image entière.
+            if isConfig || PyroWaveConfig.isConfig(data) {
                 pyrowave?.configure(data)
             } else {
                 pyrowave?.decode(data, pts: pts, received: received)

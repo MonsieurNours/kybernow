@@ -422,8 +422,10 @@ public final class PlayStationPlay: @unchecked Sendable {
         renderers.forEach { $0.topMarker = on }
     }
 
-    /// Agrandissement de l'image (nil : filtre bilinéaire), tout de suite.
+    /// Agrandissement de l'image (nil : filtre bilinéaire), tout de suite ;
+    /// jamais sur un appareil qui ne le fait pas (`Upscaling.available`).
     public func setUpscale(_ u: UpscaleSettings?) {
+        let u = Upscaling.available ? u : nil
         lock.lock()
         upscale = u
         let renderers = videos.values.map(\.renderer)

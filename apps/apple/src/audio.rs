@@ -36,19 +36,23 @@ pub struct KnAudio(pub(crate) Arc<AudioEngine>);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_audio_new(order: u32) -> *mut KnAudio {
-    let order = match order {
-        KN_AUDIO_ORDER_WINDOWS => OutputOrder::Windows,
-        KN_AUDIO_ORDER_CORE_AUDIO => OutputOrder::CoreAudio,
-        _ => OutputOrder::Opus,
-    };
-    Box::into_raw(Box::new(KnAudio(Arc::new(AudioEngine::with_order(Arc::new(MonotonicClock::new()), order)))))
+    kybernow_core::ffi_guard!(null => {
+        let order = match order {
+            KN_AUDIO_ORDER_WINDOWS => OutputOrder::Windows,
+            KN_AUDIO_ORDER_CORE_AUDIO => OutputOrder::CoreAudio,
+            _ => OutputOrder::Opus,
+        };
+        Box::into_raw(Box::new(KnAudio(Arc::new(AudioEngine::with_order(Arc::new(MonotonicClock::new()), order)))))
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_audio_free(a: *mut KnAudio) {
-    if !a.is_null() {
-        drop(unsafe { Box::from_raw(a) });
-    }
+    kybernow_core::ffi_guard!({
+        if !a.is_null() {
+            drop(unsafe { Box::from_raw(a) });
+        }
+    })
 }
 
 fn bytes<'a>(data: *const u8, len: usize) -> &'a [u8] {
@@ -58,83 +62,101 @@ fn bytes<'a>(data: *const u8, len: usize) -> &'a [u8] {
 /// En-tête `OpusHead` du flux (paquet de configuration) : décodeur ouvert.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_audio_configure(a: *const KnAudio, data: *const u8, len: usize) {
-    if let Some(a) = unsafe { a.as_ref() } {
-        a.0.configure(bytes(data, len));
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(a) = unsafe { a.as_ref() } {
+            a.0.configure(bytes(data, len));
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_audio_decode(a: *const KnAudio, data: *const u8, len: usize) {
-    if let Some(a) = unsafe { a.as_ref() } {
-        let data = bytes(data, len);
-        if !data.is_empty() {
-            a.0.decode(data);
+    kybernow_core::ffi_guard!({
+        if let Some(a) = unsafe { a.as_ref() } {
+            let data = bytes(data, len);
+            if !data.is_empty() {
+                a.0.decode(data);
+            }
         }
-    }
+    })
 }
 
 /// Données perdues (`missing_samples` d'un trou) : raccord inventé par Opus.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_audio_conceal(a: *const KnAudio, samples: u32) {
-    if let Some(a) = unsafe { a.as_ref() } {
-        a.0.conceal(samples as usize);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(a) = unsafe { a.as_ref() } {
+            a.0.conceal(samples as usize);
+        }
+    })
 }
 
 /// Voies du flux (0 avant la configuration).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_audio_channels(a: *const KnAudio) -> u32 {
-    unsafe { a.as_ref() }.map_or(0, |a| a.0.channels() as u32)
+    kybernow_core::ffi_guard!({
+        unsafe { a.as_ref() }.map_or(0, |a| a.0.channels() as u32)
+    })
 }
 
 /// Fil temps réel de la sortie : `frames` images audio entrelacées de
 /// `channels` voies (celles de la sortie) écrites dans `out`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_audio_fill(a: *const KnAudio, out: *mut f32, frames: usize, channels: usize) {
-    if out.is_null() || frames == 0 || channels == 0 {
-        return;
-    }
-    let out = unsafe { std::slice::from_raw_parts_mut(out, frames * channels) };
-    match unsafe { a.as_ref() } {
-        Some(a) => a.0.fill(out, frames),
-        None => out.fill(0.0),
-    }
+    kybernow_core::ffi_guard!({
+        if out.is_null() || frames == 0 || channels == 0 {
+            return;
+        }
+        let out = unsafe { std::slice::from_raw_parts_mut(out, frames * channels) };
+        match unsafe { a.as_ref() } {
+            Some(a) => a.0.fill(out, frames),
+            None => out.fill(0.0),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_audio_set_volume(a: *const KnAudio, volume: f32) {
-    if let Some(a) = unsafe { a.as_ref() } {
-        a.0.set_volume(volume);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(a) = unsafe { a.as_ref() } {
+            a.0.set_volume(volume);
+        }
+    })
 }
 
 /// Latence de la sortie (tampon de la carte son et ce qu'elle annonce), en ms.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_audio_set_output_latency_ms(a: *const KnAudio, latency: f64) {
-    if let Some(a) = unsafe { a.as_ref() } {
-        a.0.set_output_latency_ms(latency);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(a) = unsafe { a.as_ref() } {
+            a.0.set_output_latency_ms(latency);
+        }
+    })
 }
 
 /// Mesures de la seconde écoulée, une fois prêtes (`false` sinon).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_audio_take_stats(a: *const KnAudio, out: *mut KnAudioStats) -> bool {
-    let (Some(a), Some(out)) = (unsafe { a.as_ref() }, unsafe { out.as_mut() }) else { return false };
-    let Some(s) = a.0.take_stats() else { return false };
-    *out = KnAudioStats {
-        channels: s.channels as u32,
-        buffer_ms: s.buffer_ms,
-        output_ms: s.output_ms,
-        gaps: s.gaps as u32,
-        output_channels: s.output_channels as u32,
-    };
-    true
+    kybernow_core::ffi_guard!({
+        let (Some(a), Some(out)) = (unsafe { a.as_ref() }, unsafe { out.as_mut() }) else { return false };
+        let Some(s) = a.0.take_stats() else { return false };
+        *out = KnAudioStats {
+            channels: s.channels as u32,
+            buffer_ms: s.buffer_ms,
+            output_ms: s.output_ms,
+            gaps: s.gaps as u32,
+            output_channels: s.output_channels as u32,
+        };
+        true
+    })
 }
 
 /// Fin du flux : plus rien n'est décodé, la sortie reçoit du silence.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_audio_stop(a: *const KnAudio) {
-    if let Some(a) = unsafe { a.as_ref() } {
-        a.0.stop();
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(a) = unsafe { a.as_ref() } {
+            a.0.stop();
+        }
+    })
 }

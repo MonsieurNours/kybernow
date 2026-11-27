@@ -9,7 +9,6 @@
 // celle de l'annonce Bonjour quand il y en a une).
 
 import Combine
-import CoreImage.CIFilterBuiltins
 import KyberKit
 import Network
 import SwiftUI
@@ -329,7 +328,7 @@ private struct LoginForm: View {
             if let error {
                 Text(error).font(Theme.sans(21)).foregroundStyle(Theme.dangerText)
             } else if let seen, candidate.expected == nil {
-                Text("Empreinte de la Station : \(LinkFormat.fingerprint(seen)). Comparez-la à celle de KyberNow Admin, Appareils Link › « Ajouter un appareil ».")
+                Text("Empreinte de la Station : \(Fingerprint.short(seen)). Comparez-la à celle de KyberNow Admin, Appareils Link › « Ajouter un appareil ».")
                     .font(Theme.mono(16)).foregroundStyle(Theme.muted)
             }
             HStack(spacing: 20) {
@@ -394,7 +393,8 @@ private struct CodePane: View {
     @State private var now = Date()
     @State private var unsupported = false
     @State private var refused: String?
-    @State private var consoleURL: String?
+    /// QR code d'Admin de la première Station trouvée.
+    @State private var adminQR: CGImage?
     @EnvironmentObject private var discovery: Discovery
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -441,8 +441,8 @@ private struct CodePane: View {
                 }
             }
             VStack(spacing: 18) {
-                if let qr = qrImage {
-                    Image(uiImage: qr)
+                if let qr = adminQR {
+                    Image(decorative: qr, scale: 1)
                         .interpolation(.none)
                         .resizable()
                         .frame(width: 216, height: 216)
@@ -481,23 +481,16 @@ private struct CodePane: View {
         refused = nil
     }
 
-    /// QR code d'Admin sur la première Station trouvée (sa page, sur le téléphone).
-    private var qrImage: UIImage? {
-        guard let consoleURL else { return nil }
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(consoleURL.utf8)
-        filter.correctionLevel = "M"
-        guard let out = filter.outputImage, let cg = CIContext().createCGImage(out, from: out.extent) else { return nil }
-        return UIImage(cgImage: cg)
-    }
-
     /// Demande envoyée à chaque Station trouvée, puis attente de la réponse.
     private func pairLoop() async {
         var requests: [(Candidate, ConsoleClient, String)] = []
         var anySupported = false
         for found in discovery.found {
             guard let c = await Discovery.resolve(found) else { continue }
-            if consoleURL == nil { consoleURL = "https://\(c.address):\(c.port)/" }
+            if adminQR == nil, let url = CoreAddress.adminURL(host: c.address, port: Int(c.port)) {
+                // QR code d'Admin sur la première Station trouvée (sa page, sur le téléphone), fait une fois.
+                adminQR = Share.qrImage(for: url.absoluteString)
+            }
             let console = ConsoleClient(host: c.address, port: c.port, username: "", password: "", fingerprint: nil)
             do {
                 let id = try await console.pairRequest(code: code)

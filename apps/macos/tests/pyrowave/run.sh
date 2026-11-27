@@ -29,8 +29,12 @@ cd "$WORK"
 for f in pyrowave_common.mm pyrowave_decoder.mm pyrowave_encoder.mm pyrowave_bitstream.cpp; do
     clang++ -std=c++17 -O2 -fobjc-arc -c "$PW/upstream/$f" -o "$f.o"
 done
-SWIFT=(-O -I "$PW/module" -framework Metal -framework IOSurface -lc++ ./*.o "$HERE/common.swift"
-       "$KIT/PyroWaveDecoder.swift" "$KIT/VideoDecoder.swift" "$KIT/AV1.swift")
+# Le paquet de configuration est lu par le cœur (PyroWaveConfig.swift,
+# libkybernow de Vendor/, faite par apps/apple/scripts/build-apple.sh).
+VENDOR="$HERE/../../Vendor"
+SWIFT=(-O -I "$PW/module" -I "$VENDOR/KyberNow/include" -L "$VENDOR/Frameworks" -lkybernow
+       -Xlinker -rpath -Xlinker "$VENDOR/Frameworks" -framework Metal -framework IOSurface -lc++ ./*.o "$HERE/common.swift"
+       "$KIT/PyroWaveDecoder.swift" "$KIT/PyroWaveConfig.swift" "$KIT/VideoDecoder.swift" "$KIT/AV1.swift")
 compile "${SWIFT[@]}" -o encode "$HERE/encode/main.swift"
 compile "${SWIFT[@]}" -o bench "$HERE/bench/main.swift"
 

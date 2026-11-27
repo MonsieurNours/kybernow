@@ -28,7 +28,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ : il faut une sortie qui le porte (ampli HDMI ou USB-C) ou l'audio spatial ; sinon, le son est mixé en stéréo."
+            "value" : "%@ : il faut une sortie qui le porte (ampli HDMI ou USB-C) ou l'audio spatial ; sinon, le son est mixé en stéréo."
           }
         }
       }
@@ -924,7 +924,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "120 Hz : cet iPad affiche au plus 60 images par seconde."
+            "value" : "120 Hz : cet iPad affiche au plus 60 images par seconde."
           }
         }
       }
@@ -940,7 +940,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "120 Hz : cet iPhone affiche au plus 60 images par seconde."
+            "value" : "120 Hz : cet iPhone affiche au plus 60 images par seconde."
           }
         }
       }
@@ -1004,7 +1004,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "AV1 : cet iPad ne le décode pas en matériel."
+            "value" : "AV1 : cet iPad ne le décode pas en matériel."
           }
         }
       }
@@ -1020,7 +1020,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "AV1 : cet iPhone ne le décode pas en matériel."
+            "value" : "AV1 : cet iPhone ne le décode pas en matériel."
           }
         }
       }
@@ -1036,7 +1036,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "AV1 : il faut une carte RTX 40 ou plus récente sur l'ordinateur."
+            "value" : "AV1 : il faut une carte RTX 40 ou plus récente sur l'ordinateur."
           }
         }
       }
@@ -1132,7 +1132,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Admin s'ouvre dans votre navigateur et demande son mot de passe. Le navigateur peut signaler le certificat : la Station signe elle-même sa connexion, c'est normal."
+            "value" : "Admin s'ouvre dans votre navigateur et demande son mot de passe. Le navigateur peut signaler le certificat : la Station signe elle-même sa connexion, c'est normal."
           }
         }
       }
@@ -1233,22 +1233,6 @@
         }
       }
     },
-    "Afficher le bureau" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show desktop"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Afficher le bureau"
-          }
-        }
-      }
-    },
     "Affichés dans KyberNow Admin, espace Appareils Link. Le port a été tiré au hasard à l'installation." : {
       "localizations" : {
         "en" : {
@@ -1292,7 +1276,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "AirPods, enceintes Bluetooth, AirPlay : une alerte au-delà de 40 ms ajoutées."
+            "value" : "AirPods, enceintes Bluetooth, AirPlay : une alerte au-delà de 40 ms ajoutées."
           }
         }
       }
@@ -1389,22 +1373,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ajouter un ordinateur ou une console"
-          }
-        }
-      }
-    },
-    "Ajoutez un ordinateur équipé de KyberNow Station : depuis votre Mac par iCloud, sur ce réseau, par un code à accepter sur l'ordinateur ou par son QR code." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add a computer running KyberNow Station: from your Mac through iCloud, on this network, with a code to accept on the computer, or with its QR code."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ajoutez un ordinateur équipé de KyberNow Station : depuis votre Mac par iCloud, sur ce réseau, par un code à accepter sur l'ordinateur ou par son QR code."
           }
         }
       }
@@ -1676,7 +1644,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Associée : %@"
+            "value" : "Associée : %@"
           }
         }
       }
@@ -1756,7 +1724,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aucun appareil en attente. Sur la télé ou l'autre appareil : Ajouter une console › Recevoir d'un autre appareil."
+            "value" : "Aucun appareil en attente. Sur la télé ou l'autre appareil : Ajouter une console › Recevoir d'un autre appareil."
           }
         }
       }
@@ -1772,7 +1740,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aucun compte : ajoutez-en un pour associer une console."
+            "value" : "Aucun compte : ajoutez-en un pour associer une console."
           }
         }
       }
@@ -1948,7 +1916,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto : %@ sur %@ ; 5.1 ou 7.1 vers un ampli ou en audio spatial."
+            "value" : "Auto : %@ sur %@ ; 5.1 ou 7.1 vers un ampli ou en audio spatial."
           }
         }
       }
@@ -1964,7 +1932,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto : HEVC. PyroWave est pris par Max et Auto, quand cet appareil est relié par câble."
+            "value" : "Auto : HEVC. PyroWave est pris par Max et Auto, quand cet appareil est relié par câble."
           }
         }
       }
@@ -1980,7 +1948,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto : HEVC. PyroWave est pris seulement quand cet appareil est relié par câble."
+            "value" : "Auto : HEVC. PyroWave est pris seulement quand cet appareil est relié par câble."
           }
         }
       }
@@ -1996,7 +1964,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto : PyroWave, car cet appareil est relié par câble. Sinon HEVC."
+            "value" : "Auto : PyroWave, car cet appareil est relié par câble. Sinon HEVC."
           }
         }
       }
@@ -2012,7 +1980,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto : la langue de l'iPad ; pour KyberNow Link seulement."
+            "value" : "Auto : la langue de l'iPad ; pour KyberNow Link seulement."
           }
         }
       }
@@ -2028,7 +1996,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto : la langue de l'iPhone ; pour KyberNow Link seulement."
+            "value" : "Auto : la langue de l'iPhone ; pour KyberNow Link seulement."
           }
         }
       }
@@ -2044,7 +2012,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto : souris des jeux quand un jeu est en plein écran sur l'ordinateur, souris du bureau le reste du temps."
+            "value" : "Auto : souris des jeux quand un jeu est en plein écran sur l'ordinateur, souris du bureau le reste du temps."
           }
         }
       }
@@ -2060,7 +2028,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto : stéréo, quelle que soit la sortie de ce Mac."
+            "value" : "Auto : stéréo, quelle que soit la sortie de ce Mac."
           }
         }
       }
@@ -2076,7 +2044,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon."
+            "value" : "Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon."
           }
         }
       }
@@ -2124,7 +2092,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avec PyroWave, presque sans coût : seul le débit monte."
+            "value" : "Avec PyroWave, presque sans coût : seul le débit monte."
           }
         }
       }
@@ -2188,7 +2156,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avec quel compte ?"
+            "value" : "Avec quel compte ?"
           }
         }
       }
@@ -2353,6 +2321,22 @@
         }
       }
     },
+    "bureau" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "desktop"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "bureau"
+          }
+        }
+      }
+    },
     "C'est bien cet ordinateur ?" : {
       "localizations" : {
         "en" : {
@@ -2364,7 +2348,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "C'est bien cet ordinateur ?"
+            "value" : "C'est bien cet ordinateur ?"
           }
         }
       }
@@ -2413,6 +2397,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Capture"
+          }
+        }
+      }
+    },
+    "capture" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "screenshot"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "capture"
           }
         }
       }
@@ -2518,7 +2518,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This is not a kybernow:// link."
+            "value" : "This isn't a KyberNow link."
           }
         },
         "fr" : {
@@ -2545,6 +2545,22 @@
         }
       }
     },
+    "Ce QR code a expiré." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This QR code has expired."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce QR code a expiré."
+          }
+        }
+      }
+    },
     "Ce que le clavier de l'appareil ne sait pas faire" : {
       "localizations" : {
         "en" : {
@@ -2557,6 +2573,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce que le clavier de l'appareil ne sait pas faire"
+          }
+        }
+      }
+    },
+    "Ce relais ne prend pas encore les journaux : il doit être mis à jour." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This relay doesn't take logs yet: it needs updating."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce relais ne prend pas encore les journaux : il doit être mis à jour."
           }
         }
       }
@@ -2620,7 +2652,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cet iPad décode les trois en matériel. HEVC : net à débit égal, recommandé."
+            "value" : "Cet iPad décode les trois en matériel. HEVC : net à débit égal, recommandé."
           }
         }
       }
@@ -2636,7 +2668,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cet iPad n'a pas de moteur haptique : seul le retour visuel reste."
+            "value" : "Cet iPad n'a pas de moteur haptique : seul le retour visuel reste."
           }
         }
       }
@@ -2652,7 +2684,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cet iPad ne décode pas le 4:4:4 en matériel : l'image reste en 4:2:0."
+            "value" : "Cet iPad ne décode pas le 4:4:4 en matériel : l'image reste en 4:2:0."
           }
         }
       }
@@ -2700,7 +2732,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cet iPhone décode les trois en matériel. HEVC : net à débit égal, recommandé."
+            "value" : "Cet iPhone décode les trois en matériel. HEVC : net à débit égal, recommandé."
           }
         }
       }
@@ -2716,7 +2748,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cet iPhone n'a pas de moteur haptique : seul le retour visuel reste."
+            "value" : "Cet iPhone n'a pas de moteur haptique : seul le retour visuel reste."
           }
         }
       }
@@ -2732,7 +2764,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cet iPhone ne décode pas le 4:4:4 en matériel : l'image reste en 4:2:0."
+            "value" : "Cet iPhone ne décode pas le 4:4:4 en matériel : l'image reste en 4:2:0."
           }
         }
       }
@@ -2817,18 +2849,18 @@
         }
       }
     },
-    "Changer de fenêtre" : {
+    "changer d'app" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Switch window"
+            "value" : "switch apps"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Changer de fenêtre"
+            "value" : "changer d'app"
           }
         }
       }
@@ -2860,7 +2892,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chemin : %@"
+            "value" : "Chemin : %@"
           }
         }
       }
@@ -2877,6 +2909,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cherche l'ordinateur à nouveau"
+          }
+        }
+      }
+    },
+    "Chiffré sur cet appareil : seul ce QR code l'ouvre. Il sert une fois, pendant une heure." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encrypted on this device: only this QR code opens it. It works once, for one hour."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chiffré sur cet appareil : seul ce QR code l'ouvre. Il sert une fois, pendant une heure."
           }
         }
       }
@@ -2956,7 +3004,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Clavier Apple européen (touche @# ou §± sous Échap) : la touche sous Échap et celle près de Maj retrouvent leur place sur l'ordinateur."
+            "value" : "Clavier Apple européen (touche @# ou §± sous Échap) : la touche sous Échap et celle près de Maj retrouvent leur place sur l'ordinateur."
           }
         }
       }
@@ -2972,7 +3020,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Clavier externe : ⌘C fait Ctrl+C sur l'ordinateur."
+            "value" : "Clavier externe : ⌘C fait Ctrl+C sur l'ordinateur."
           }
         }
       }
@@ -3116,7 +3164,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Code refusé : il change toutes les 5 minutes."
+            "value" : "Code refusé : il change toutes les 5 minutes."
           }
         }
       }
@@ -3132,7 +3180,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Code refusé : vérifiez-le sur %@."
+            "value" : "Code refusé : vérifiez-le sur %@."
           }
         }
       }
@@ -3260,7 +3308,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Comme cet écran : %@. Au plus 4K : %@, plus léger à encoder et à transporter."
+            "value" : "Comme cet écran : %@. Au plus 4K : %@, plus léger à encoder et à transporter."
           }
         }
       }
@@ -3276,7 +3324,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Comme cet écran : %@. Au plus 4K : pour un écran externe."
+            "value" : "Comme cet écran : %@. Au plus 4K : pour un écran externe."
           }
         }
       }
@@ -3340,7 +3388,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Complète : une manette Xbox entière. Simple : le stick gauche, la croix, A, B, X, Y et Menu. Le petit bouton en haut de la manette passe de l'une à l'autre."
+            "value" : "Complète : une manette Xbox entière. Simple : le stick gauche, la croix, A, B, X, Y et Menu. Le petit bouton en haut de la manette passe de l'une à l'autre."
           }
         }
       }
@@ -3388,7 +3436,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Compte : %@"
+            "value" : "Compte : %@"
           }
         }
       }
@@ -3628,7 +3676,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Copie impossible : sélectionnez le lien à la main."
+            "value" : "Copie impossible : sélectionnez le lien à la main."
           }
         }
       }
@@ -3660,7 +3708,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Couleurs complètes : le texte reste net, au prix d'un débit plus élevé."
+            "value" : "Couleurs complètes : le texte reste net, au prix d'un débit plus élevé."
           }
         }
       }
@@ -3836,7 +3884,39 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Câble Ethernet : jusqu'à 900 Mbit/s sur un réseau Gigabit."
+            "value" : "Câble Ethernet : jusqu'à 900 Mbit/s sur un réseau Gigabit."
+          }
+        }
+      }
+    },
+    "Ctrl + Alt + Suppr" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ctrl + Alt + Del"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ctrl + Alt + Suppr"
+          }
+        }
+      }
+    },
+    "Ctrl + Maj + Échap" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ctrl + Shift + Esc"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ctrl + Maj + Échap"
           }
         }
       }
@@ -3964,7 +4044,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deux canaux : au casque ou sur le haut-parleur."
+            "value" : "Deux canaux : au casque ou sur le haut-parleur."
           }
         }
       }
@@ -3980,7 +4060,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deux canaux : idéal au casque ou sur les haut-parleurs du Mac."
+            "value" : "Deux canaux : idéal au casque ou sur les haut-parleurs du Mac."
           }
         }
       }
@@ -4013,6 +4093,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Disposition"
+          }
+        }
+      }
+    },
+    "Disposition du clavier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keyboard layout"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disposition du clavier"
           }
         }
       }
@@ -4289,22 +4385,6 @@
         }
       }
     },
-    "Définition ramenée à %@ pour tenir dans %lld Mbit/s." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Resolution lowered to %@ to fit in %lld Mbit/s."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Définition ramenée à %@ pour tenir dans %lld Mbit/s."
-          }
-        }
-      }
-    },
     "Déjà sur cet iPad" : {
       "localizations" : {
         "en" : {
@@ -4348,7 +4428,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Déplacements bruts de la souris, sans l'accélération de macOS, pointeur caché : pour viser."
+            "value" : "Déplacements bruts de la souris, sans l'accélération de macOS, pointeur caché : pour viser."
           }
         }
       }
@@ -4412,7 +4492,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Empreinte vérifiée : c'est bien l'ordinateur annoncé."
+            "value" : "Empreinte vérifiée : c'est bien l'ordinateur annoncé."
           }
         }
       }
@@ -4444,7 +4524,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En PyroWave, il est en pause : la définition baisse à la place."
+            "value" : "En PyroWave, il est en pause : la définition baisse à la place."
           }
         }
       }
@@ -4476,7 +4556,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En Wi-Fi, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr."
+            "value" : "En Wi-Fi, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr."
           }
         }
       }
@@ -4556,7 +4636,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En données mobiles : environ %@ Go par heure à ce débit."
+            "value" : "En données mobiles : environ %@ Go par heure à ce débit."
           }
         }
       }
@@ -4684,7 +4764,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ensuite : l'empreinte à comparer, puis le compte."
+            "value" : "Ensuite : l'empreinte à comparer, puis le compte."
           }
         }
       }
@@ -4737,6 +4817,22 @@
         }
       }
     },
+    "Envoi du journal…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uploading the log…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoi du journal…"
+          }
+        }
+      }
+    },
     "Envoyer" : {
       "localizations" : {
         "en" : {
@@ -4765,6 +4861,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Envoyer à un appareil"
+          }
+        }
+      }
+    },
+    "Envoyer le journal" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send the log"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer le journal"
           }
         }
       }
@@ -4817,40 +4929,6 @@
         }
       }
     },
-    "Faire jouer" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Let play"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Faire jouer"
-          }
-        }
-      }
-    },
-    "Faire regarder" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Watch only"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Faire regarder"
-          }
-        }
-      }
-    },
     "Fermer" : {
       "localizations" : {
         "en" : {
@@ -4867,18 +4945,18 @@
         }
       }
     },
-    "Fermer la fenêtre" : {
+    "fermer la fenêtre" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Close window"
+            "value" : "close the window"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Fermer la fenêtre"
+            "value" : "fermer la fenêtre"
           }
         }
       }
@@ -5086,7 +5164,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gros débit en données mobiles : environ %@ Go par heure, et des images perdues si le réseau faiblit."
+            "value" : "Gros débit en données mobiles : environ %@ Go par heure, et des images perdues si le réseau faiblit."
           }
         }
       }
@@ -5182,7 +5260,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr."
+            "value" : "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr."
           }
         }
       }
@@ -5294,7 +5372,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Identifiant du compte non lu : réessayez, ou saisissez-le à la main."
+            "value" : "Identifiant du compte non lu : réessayez, ou saisissez-le à la main."
           }
         }
       }
@@ -5304,7 +5382,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Username or password rejected."
+            "value" : "Username or password refused."
           }
         },
         "fr" : {
@@ -5326,7 +5404,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Il est dans l'espace Appareils Link de KyberNow Admin. Le lien qu'il porte donne l'adresse, le port et l'empreinte : elle est vérifiée toute seule."
+            "value" : "Il est dans l'espace Appareils Link de KyberNow Admin. Le lien qu'il porte donne l'adresse, le port et l'empreinte : elle est vérifiée toute seule."
           }
         }
       }
@@ -5390,7 +5468,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Image · cet iPad : %@, %lld Hz"
+            "value" : "Image · cet iPad : %@, %lld Hz"
           }
         }
       }
@@ -5406,7 +5484,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Image · cet iPhone : %@, %lld Hz"
+            "value" : "Image · cet iPhone : %@, %lld Hz"
           }
         }
       }
@@ -5470,7 +5548,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Images perdues : %lld · réparées : %lld"
+            "value" : "Images perdues : %lld · réparées : %lld"
           }
         }
       }
@@ -5502,7 +5580,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Immédiat : un peu moins de délai ; l'image peut se couper dans les mouvements rapides."
+            "value" : "Immédiat : un peu moins de délai ; l'image peut se couper dans les mouvements rapides."
           }
         }
       }
@@ -5631,6 +5709,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Joueur"
+          }
+        }
+      }
+    },
+    "Journal" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Log"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Journal"
+          }
+        }
+      }
+    },
+    "Journal ouvert sur le téléphone." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Log opened on the phone."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Journal ouvert sur le téléphone."
           }
         }
       }
@@ -5886,7 +5996,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L'image ne passait pas : 4:2:0 pour cette session."
+            "value" : "L'image ne passait pas : 4:2:0 pour cette session."
           }
         }
       }
@@ -5902,7 +6012,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L'image ne passait pas : débit ramené à %lld Mbit/s pour cette session."
+            "value" : "L'image ne passait pas : débit ramené à %lld Mbit/s pour cette session."
           }
         }
       }
@@ -5950,7 +6060,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L'image reste figée ; la session reprend où elle était."
+            "value" : "L'image reste figée ; la session reprend où elle était."
           }
         }
       }
@@ -5966,7 +6076,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin."
+            "value" : "L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin."
           }
         }
       }
@@ -6030,7 +6140,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L'ordinateur n'a pas pu passer en HDR : image en SDR."
+            "value" : "L'ordinateur n'a pas pu passer en HDR : image en SDR."
           }
         }
       }
@@ -6062,7 +6172,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L'écran de l'ordinateur n'a pas pu être adapté : %@"
+            "value" : "L'écran de l'ordinateur n'a pas pu être adapté : %@"
           }
         }
       }
@@ -6078,7 +6188,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L'écran virtuel de l'ordinateur suit ; 60 Hz allège l'encodage et le réseau."
+            "value" : "L'écran virtuel de l'ordinateur suit ; 60 Hz allège l'encodage et le réseau."
           }
         }
       }
@@ -6126,7 +6236,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La Station a été réinstallée : vérifiez son empreinte dans les réglages."
+            "value" : "La Station a été réinstallée : vérifiez son empreinte dans les réglages."
           }
         }
       }
@@ -6238,7 +6348,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique de l'appareil. Coupé de lui-même si cet appareil est trop lent."
+            "value" : "La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique de l'appareil. Coupé de lui-même si cet appareil est trop lent."
           }
         }
       }
@@ -6254,7 +6364,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique du Mac. Coupé de lui-même si ce Mac est trop lent."
+            "value" : "La console envoie du 1080p au plus : l'image est agrandie aux pixels de votre écran par la puce graphique du Mac. Coupé de lui-même si ce Mac est trop lent."
           }
         }
       }
@@ -6312,13 +6422,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The console no longer recognizes this device: pair it again."
+            "value" : "The console no longer recognises this device: pair it again."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console ne reconnaît plus cet appareil : associez-la de nouveau."
+            "value" : "La console ne reconnaît plus cet appareil : associez-la de nouveau."
           }
         }
       }
@@ -6334,7 +6444,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console ne répond pas : gardez l'écran « Associer un appareil » ouvert."
+            "value" : "La console ne répond pas : gardez l'écran « Associer un appareil » ouvert."
           }
         }
       }
@@ -6430,7 +6540,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La plus haute que la console accepte : 1080p."
+            "value" : "La plus haute que la console accepte : 1080p."
           }
         }
       }
@@ -6590,7 +6700,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le 5.1 ou le 7.1 du jeu, autour de vous ; sans suivi de la tête."
+            "value" : "Le 5.1 ou le 7.1 du jeu, autour de vous ; sans suivi de la tête."
           }
         }
       }
@@ -6622,7 +6732,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le certificat de la Station ne correspond pas à celui annoncé : ce n'est peut-être pas votre ordinateur. Ne l'ajoutez pas."
+            "value" : "Le certificat de la Station ne correspond pas à celui annoncé : ce n'est peut-être pas votre ordinateur. Ne l'ajoutez pas."
           }
         }
       }
@@ -6846,7 +6956,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le pilote d'écran virtuel ne répond pas sur l'ordinateur : vous verrez ses écrans tels quels."
+            "value" : "Le pilote d'écran virtuel ne répond pas sur l'ordinateur : vous verrez ses écrans tels quels."
           }
         }
       }
@@ -6878,7 +6988,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le plus efficace, en 4:2:0 seulement : pas de texte net."
+            "value" : "Le plus efficace, en 4:2:0 seulement : pas de texte net."
           }
         }
       }
@@ -6894,7 +7004,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le pointeur du Mac, toujours : bureau, vidéos, jeux à la souris (stratégie, cartes)."
+            "value" : "Le pointeur du Mac, toujours : bureau, vidéos, jeux à la souris (stratégie, cartes)."
           }
         }
       }
@@ -6979,6 +7089,22 @@
         }
       }
     },
+    "Le relais ne répond pas : vérifiez la connexion à Internet, puis réessayez." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The relay isn't answering: check the internet connection, then try again."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le relais ne répond pas : vérifiez la connexion à Internet, puis réessayez."
+          }
+        }
+      }
+    },
     "Le son reste sur l'ordinateur : ses haut-parleurs ou son casque." : {
       "localizations" : {
         "en" : {
@@ -6990,7 +7116,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le son reste sur l'ordinateur : ses haut-parleurs ou son casque."
+            "value" : "Le son reste sur l'ordinateur : ses haut-parleurs ou son casque."
           }
         }
       }
@@ -7134,7 +7260,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les ordinateurs trouvés n'ont pas encore la version de KyberNow Station qui accepte les codes : mettez-la à jour sur l'ordinateur, ou passez par l'adresse."
+            "value" : "Les ordinateurs trouvés n'ont pas encore la version de KyberNow Station qui accepte les codes : mettez-la à jour sur l'ordinateur, ou passez par l'adresse."
           }
         }
       }
@@ -7395,6 +7521,22 @@
         }
       }
     },
+    "menu Démarrer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start menu"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "menu Démarrer"
+          }
+        }
+      }
+    },
     "Mesures : %lld %% des images" : {
       "localizations" : {
         "en" : {
@@ -7406,7 +7548,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mesures : %lld %% des images"
+            "value" : "Mesures : %lld %% des images"
           }
         }
       }
@@ -7422,7 +7564,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Met l'ordinateur en scène ; appui long : réglages, retirer"
+            "value" : "Met l'ordinateur en scène ; appui long : réglages, retirer"
           }
         }
       }
@@ -7598,7 +7740,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mot de passe introuvable : retirez puis ajoutez de nouveau l'ordinateur."
+            "value" : "Mot de passe introuvable : retirez puis ajoutez de nouveau l'ordinateur."
           }
         }
       }
@@ -7614,7 +7756,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mot de passe refusé : mettez-le à jour dans les réglages."
+            "value" : "Mot de passe refusé : mettez-le à jour dans les réglages."
           }
         }
       }
@@ -7763,6 +7905,22 @@
         }
       }
     },
+    "Nouveau QR code" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New QR code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouveau QR code"
+          }
+        }
+      }
+    },
     "Opacité" : {
       "localizations" : {
         "en" : {
@@ -7886,7 +8044,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ordinateurs et consoles : vos ordinateurs et leurs accès, vos comptes PlayStation et leurs consoles suivent votre Mac et vos autres appareils, sans rien taper. Mots de passe et associations dans le Trousseau iCloud, chiffré de bout en bout."
+            "value" : "Ordinateurs et consoles : vos ordinateurs et leurs accès, vos comptes PlayStation et leurs consoles suivent votre Mac et vos autres appareils, sans rien taper. Mots de passe et associations dans le Trousseau iCloud, chiffré de bout en bout."
           }
         }
       }
@@ -8094,7 +8252,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pas en AV1 : les décodeurs Apple ne lisent que le 4:2:0."
+            "value" : "Pas en AV1 : les décodeurs Apple ne lisent que le 4:2:0."
           }
         }
       }
@@ -8110,7 +8268,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pas encore d'adresse : connectez-vous une fois à cet ordinateur."
+            "value" : "Pas encore d'adresse : connectez-vous une fois à cet ordinateur."
           }
         }
       }
@@ -8238,7 +8396,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pavé tactile : tout l'écran déplace le pointeur ; toucher clique, deux doigts font le clic droit et la molette. Toucher direct : le pointeur va là où le doigt touche."
+            "value" : "Pavé tactile : tout l'écran déplace le pointeur ; toucher clique, deux doigts font le clic droit et la molette. Toucher direct : le pointeur va là où le doigt touche."
           }
         }
       }
@@ -8254,7 +8412,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pendant la barre, la manette pilote KyberNow Link ; le jeu ne reçoit rien."
+            "value" : "Pendant la barre, la manette pilote KyberNow Link ; le jeu ne reçoit rien."
           }
         }
       }
@@ -8355,6 +8513,22 @@
         }
       }
     },
+    "plein écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "full screen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "plein écran"
+          }
+        }
+      }
+    },
     "Plus de débit" : {
       "localizations" : {
         "en" : {
@@ -8431,6 +8605,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pour le reconnaître dans la liste."
+          }
+        }
+      }
+    },
+    "Pour les touches d'une partie sur console (ZQSD ou WASD). Auto suit le clavier physique branché quand iPadOS le dit, sinon la langue du premier clavier." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "For a console game's keys (ZQSD or WASD). Auto follows the plugged-in keyboard when iPadOS reports it, otherwise the first keyboard's language."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour les touches d'une partie sur console (ZQSD ou WASD). Auto suit le clavier physique branché quand iPadOS le dit, sinon la langue du premier clavier."
           }
         }
       }
@@ -8527,6 +8717,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Prendre la souris"
+          }
+        }
+      }
+    },
+    "Préparation du journal…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparing the log…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Préparation du journal…"
           }
         }
       }
@@ -9203,6 +9409,22 @@
         }
       }
     },
+    "relais.exemple.org:9443" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "relay.example.org:9443"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "relais.exemple.org:9443"
+          }
+        }
+      }
+    },
     "Relancez KyberNow Link pour changer de langue." : {
       "localizations" : {
         "en" : {
@@ -9262,7 +9484,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rendre l'ordinateur à %@ ?"
+            "value" : "Rendre l'ordinateur à %@ ?"
           }
         }
       }
@@ -9486,7 +9708,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Retirer %@ de cet appareil ? Vous pourrez l'ajouter à nouveau."
+            "value" : "Retirer %@ de cet appareil ? Vous pourrez l'ajouter à nouveau."
           }
         }
       }
@@ -9518,7 +9740,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Retirer l'ordinateur d'%@ de cet appareil ?"
+            "value" : "Retirer l'ordinateur d'%@ de cet appareil ?"
           }
         }
       }
@@ -9534,7 +9756,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Retirer l'ordinateur de %@ de cet appareil ?"
+            "value" : "Retirer l'ordinateur de %@ de cet appareil ?"
           }
         }
       }
@@ -9550,7 +9772,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Retirer le compte %@ ?"
+            "value" : "Retirer le compte %@ ?"
           }
         }
       }
@@ -9566,7 +9788,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Retirer le compte %@ et sa console ?"
+            "value" : "Retirer le compte %@ et sa console ?"
           }
         }
       }
@@ -9582,7 +9804,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Retirer le compte %@ et ses %lld consoles ?"
+            "value" : "Retirer le compte %@ et ses %lld consoles ?"
           }
         }
       }
@@ -9662,7 +9884,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reçu : %lld i/s · %@ Mbit/s"
+            "value" : "Reçu : %lld i/s · %@ Mbit/s"
           }
         }
       }
@@ -10099,6 +10321,38 @@
         }
       }
     },
+    "Scannez ce code avec votre téléphone pour ouvrir la page du compte." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scan this code with your phone to open the account's page."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scannez ce code avec votre téléphone pour ouvrir la page du compte."
+          }
+        }
+      }
+    },
+    "Scannez ce QR code avec votre téléphone, puis enregistrez ou partagez le journal." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scan this QR code with your phone, then save or share the log."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scannez ce QR code avec votre téléphone, puis enregistrez ou partagez le journal."
+          }
+        }
+      }
+    },
     "Se connecter" : {
       "localizations" : {
         "en" : {
@@ -10126,7 +10380,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Se connecter en données mobiles ?"
+            "value" : "Se connecter en données mobiles ?"
           }
         }
       }
@@ -10207,6 +10461,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sessions en données mobiles"
+          }
+        }
+      }
+    },
+    "Si l'app se ferme ou qu'une session se coupe, ce fichier texte raconte ce qui s'est passé. Il passe par votre téléphone : vous choisissez à qui l'envoyer." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If the app closes or a session cuts out, this text file tells what happened. It goes through your phone: you choose who to send it to."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si l'app se ferme ou qu'une session se coupe, ce fichier texte raconte ce qui s'est passé. Il passe par votre téléphone : vous choisissez à qui l'envoyer."
+          }
+        }
+      }
+    },
+    "Si l'app se ferme ou qu'une session se coupe, ce fichier texte raconte ce qui s'est passé. Joignez-le à votre message : vous choisissez à qui l'envoyer." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If the app closes or a session cuts out, this text file tells what happened. Attach it to your message: you choose who to send it to."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si l'app se ferme ou qu'une session se coupe, ce fichier texte raconte ce qui s'est passé. Joignez-le à votre message : vous choisissez à qui l'envoyer."
           }
         }
       }
@@ -10334,7 +10620,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Son · sortie : %@"
+            "value" : "Son · sortie : %@"
           }
         }
       }
@@ -10414,7 +10700,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Souris des jeux : déplacements bruts, pointeur caché, pour viser."
+            "value" : "Souris des jeux : déplacements bruts, pointeur caché, pour viser."
           }
         }
       }
@@ -10430,7 +10716,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Souris des jeux dès qu'un jeu est en plein écran sur l'ordinateur et cache son pointeur ; souris du bureau le reste du temps. Les navigateurs et lecteurs vidéo en plein écran gardent la souris du bureau."
+            "value" : "Souris des jeux dès qu'un jeu est en plein écran sur l'ordinateur et cache son pointeur ; souris du bureau le reste du temps. Les navigateurs et lecteurs vidéo en plein écran gardent la souris du bureau."
           }
         }
       }
@@ -10462,7 +10748,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Souris du bureau : le pointeur se pose où vous le placez, toujours."
+            "value" : "Souris du bureau : le pointeur se pose où vous le placez, toujours."
           }
         }
       }
@@ -10814,7 +11100,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché."
+            "value" : "Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché."
           }
         }
       }
@@ -10830,7 +11116,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur."
+            "value" : "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur."
           }
         }
       }
@@ -10846,7 +11132,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité."
+            "value" : "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité."
           }
         }
       }
@@ -10910,7 +11196,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sur votre Mac, votre PC ou votre téléphone : Ajouter un ordinateur ou une console › PlayStation › Envoyer à un appareil, puis saisissez ce code."
+            "value" : "Sur votre Mac, votre PC ou votre téléphone : Ajouter un ordinateur ou une console › PlayStation › Envoyer à un appareil, puis saisissez ce code."
           }
         }
       }
@@ -10974,7 +11260,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Synchronisé : l'image n'est jamais coupée."
+            "value" : "Synchronisé : l'image n'est jamais coupée."
           }
         }
       }
@@ -11075,6 +11361,22 @@
         }
       }
     },
+    "Terminé" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Done"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminé"
+          }
+        }
+      }
+    },
     "Terminer" : {
       "localizations" : {
         "en" : {
@@ -11118,7 +11420,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Texte net (4:4:4) testé au lancement : non."
+            "value" : "Texte net (4:4:4) testé au lancement : non."
           }
         }
       }
@@ -11134,7 +11436,23 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Texte net (4:4:4) testé au lancement : oui."
+            "value" : "Texte net (4:4:4) testé au lancement : oui."
+          }
+        }
+      }
+    },
+    "Touche ⊞ seule" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⊞ key alone"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Touche ⊞ seule"
           }
         }
       }
@@ -11262,7 +11580,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tout l'iPad est le pavé tactile : un doigt déplace le pointeur, toucher clique, deux doigts pour le clic droit et la molette. Le trackpad et le clavier vont aussi à l'ordinateur."
+            "value" : "Tout l'iPad est le pavé tactile : un doigt déplace le pointeur, toucher clique, deux doigts pour le clic droit et la molette. Le trackpad et le clavier vont aussi à l'ordinateur."
           }
         }
       }
@@ -11278,7 +11596,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tout l'iPhone est le pavé tactile : un doigt déplace le pointeur, toucher clique, deux doigts pour le clic droit et la molette."
+            "value" : "Tout l'iPhone est le pavé tactile : un doigt déplace le pointeur, toucher clique, deux doigts pour le clic droit et la molette."
           }
         }
       }
@@ -11294,7 +11612,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Toutes les manettes, PlayStation comprises, deviennent des manettes Xbox 360 sur l'ordinateur : celles que tous les jeux reconnaissent."
+            "value" : "Toutes les manettes, PlayStation comprises, deviennent des manettes Xbox 360 sur l'ordinateur : celles que tous les jeux reconnaissent."
           }
         }
       }
@@ -11363,6 +11681,22 @@
         }
       }
     },
+    "Trop d'envois : réessayez dans une heure." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Too many uploads: try again in an hour."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trop d'envois : réessayez dans une heure."
+          }
+        }
+      }
+    },
     "Trop de demandes en attente : réessayez dans un instant." : {
       "localizations" : {
         "en" : {
@@ -11374,7 +11708,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Trop de demandes en attente : réessayez dans un instant."
+            "value" : "Trop de demandes en attente : réessayez dans un instant."
           }
         }
       }
@@ -11486,7 +11820,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un clic à chaque appui ; un tic quand un stick quitte le centre, change de direction ou arrive en butée."
+            "value" : "Un clic à chaque appui ; un tic quand un stick quitte le centre, change de direction ou arrive en butée."
           }
         }
       }
@@ -11518,7 +11852,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station installée. Par VPN, passez par l'adresse ou le QR code."
+            "value" : "Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station installée. Par VPN, passez par l'adresse ou le QR code."
           }
         }
       }
@@ -11550,7 +11884,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Une manette Sony reste une DualShock 4 sur l'ordinateur (pavé tactile, barre lumineuse pour les jeux qui s'en servent) ; les autres restent des Xbox 360. Certains jeux anciens ne la voient pas."
+            "value" : "Une manette Sony reste une DualShock 4 sur l'ordinateur (pavé tactile, barre lumineuse pour les jeux qui s'en servent) ; les autres restent des Xbox 360. Certains jeux anciens ne la voient pas."
           }
         }
       }
@@ -11587,6 +11921,70 @@
         }
       }
     },
+    "verrouiller" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "lock"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "verrouiller"
+          }
+        }
+      }
+    },
+    "verrouiller, changer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "lock, switch user"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "verrouiller, changer"
+          }
+        }
+      }
+    },
+    "Votre ami joue dans votre session du Mac. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your friend plays in your Mac session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre ami joue dans votre session du Mac. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance."
+          }
+        }
+      }
+    },
+    "Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your friend plays in your session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance."
+          }
+        }
+      }
+    },
     "VPN ou réseau sans découverte" : {
       "localizations" : {
         "en" : {
@@ -11615,22 +12013,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "VPN, autre réseau"
-          }
-        }
-      }
-    },
-    "Verrouiller l'ordinateur" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lock the computer"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Verrouiller l'ordinateur"
           }
         }
       }
@@ -11795,38 +12177,6 @@
         }
       }
     },
-    "Vos ordinateurs, sur cet iPad" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your computers, on this iPad"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vos ordinateurs, sur cet iPad"
-          }
-        }
-      }
-    },
-    "Vos ordinateurs, sur cet iPhone" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your computers, on this iPhone"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vos ordinateurs, sur cet iPhone"
-          }
-        }
-      }
-    },
     "Vos propres réglages." : {
       "localizations" : {
         "en" : {
@@ -11870,7 +12220,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance."
+            "value" : "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance."
           }
         }
       }
@@ -11902,7 +12252,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Votre créneau : %@, %@ – %@"
+            "value" : "Votre créneau : %@, %@ – %@"
           }
         }
       }
@@ -12015,23 +12365,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vous pouvez jouer à la manette."
-          }
-        }
-      }
-    },
-    "Vous pouvez jouer." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You can play."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vous pouvez jouer."
           }
         }
       }
@@ -12431,7 +12764,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "pointillé : une image à %lld i/s"
+            "value" : "pointillé : une image à %lld i/s"
           }
         }
       }
@@ -12704,22 +13037,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Écran de %@ à %lld Hz, à la taille de cet écran, en HDR"
-          }
-        }
-      }
-    },
-    "Écran de sécurité" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Security screen"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Écran de sécurité"
           }
         }
       }
@@ -13055,7 +13372,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La page du relais s'ouvre : mot de passe, passkey ou double authentification s'y font, jamais dans l'app. Pas encore de compte : « Créer un compte » sur cette page."
+            "value" : "La page du relais s'ouvre : mot de passe, passkey ou double authentification s'y font, jamais dans l'app. Pas encore de compte : « Créer un compte » sur cette page."
           }
         }
       }
@@ -13071,7 +13388,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un code s'affiche : vous l'approuvez depuis votre téléphone."
+            "value" : "Un code s'affiche : vous l'approuvez depuis votre téléphone."
           }
         }
       }
@@ -13215,7 +13532,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Relais : %@"
+            "value" : "Relais : %@"
           }
         }
       }
@@ -13311,7 +13628,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Créer un compte, changer son mot de passe ou le supprimer : sur la page du compte."
+            "value" : "Créer un compte, changer son mot de passe ou le supprimer : sur la page du compte."
           }
         }
       }
@@ -13343,7 +13660,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Se déconnecter de %@ ? Ses ordinateurs quittent cet appareil ; ceux que vous avez appairés restent."
+            "value" : "Se déconnecter de %@ ? Ses ordinateurs quittent cet appareil ; ceux que vous avez appairés restent."
           }
         }
       }
@@ -13471,7 +13788,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "KyberNow Station %@ est disponible. Hors de chez vous, l'app ne peut pas mettre à jour la Station : faites-le une fois rentré."
+            "value" : "KyberNow Station %@ est disponible. Hors de chez vous, l'app ne peut pas mettre à jour la Station : faites-le une fois rentré."
           }
         }
       }
@@ -13551,7 +13868,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "KyberNow Link est passée en %@. Mettez aussi la Station à jour : environ une minute, une session en cours sera coupée."
+            "value" : "KyberNow Link est passée en %@. Mettez aussi la Station à jour : environ une minute, une session en cours sera coupée."
           }
         }
       }
@@ -13583,7 +13900,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "KyberNow Link est passée en %@. Mettez aussi vos ordinateurs à jour : environ une minute chacun, une session en cours sera coupée."
+            "value" : "KyberNow Link est passée en %@. Mettez aussi vos ordinateurs à jour : environ une minute chacun, une session en cours sera coupée."
           }
         }
       }
@@ -13919,7 +14236,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La page de %@ s'ouvre : votre mot de passe ne passe jamais par l'app."
+            "value" : "La page de %@ s'ouvre : votre mot de passe ne passe jamais par l'app."
           }
         }
       }
@@ -13935,7 +14252,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Créez votre compte dans le navigateur, puis revenez ici : « Connecter un compte »."
+            "value" : "Créez votre compte dans le navigateur, puis revenez ici : « Connecter un compte »."
           }
         }
       }
@@ -13951,7 +14268,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pas encore de compte ? Créez-le sur cette page."
+            "value" : "Pas encore de compte ? Créez-le sur cette page."
           }
         }
       }
@@ -13983,7 +14300,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installez KyberNow Station sur l'ordinateur à rejoindre : sur le même réseau, il apparaît ici tout seul. Un ami vous a donné un code ? Entrez-le."
+            "value" : "Installez KyberNow Station sur l'ordinateur à rejoindre : sur le même réseau, il apparaît ici tout seul. Un ami vous a donné un code ? Entrez-le."
           }
         }
       }
@@ -14031,7 +14348,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un ami vous ouvre son ordinateur : entrez le code qu'il vous a donné."
+            "value" : "Un ami vous ouvre son ordinateur : entrez le code qu'il vous a donné."
           }
         }
       }
@@ -14159,7 +14476,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hors de chez vous ?"
+            "value" : "Hors de chez vous ?"
           }
         }
       }
@@ -14175,7 +14492,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ n'est pas sur ce réseau. Pour le rejoindre d'où vous êtes, connectez un compte KyberNow : votre ordinateur vous suit partout, sans rien régler sur votre box."
+            "value" : "%@ n'est pas sur ce réseau. Pour le rejoindre d'où vous êtes, connectez un compte KyberNow : votre ordinateur vous suit partout, sans rien régler sur votre box."
           }
         }
       }
@@ -14207,7 +14524,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Retrouvez-le aussi hors de chez vous et sur vos autres appareils : connectez un compte KyberNow."
+            "value" : "Retrouvez-le aussi hors de chez vous et sur vos autres appareils : connectez un compte KyberNow."
           }
         }
       }
@@ -14224,118 +14541,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Micro"
-          }
-        }
-      }
-    },
-    "Micro coupé" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Microphone off"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Micro coupé"
-          }
-        }
-      }
-    },
-    "Micro : envoyé à l'ordinateur (%@)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Microphone: sent to the computer (%@)"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Micro : envoyé à l'ordinateur (%@)"
-          }
-        }
-      }
-    },
-    "Micro coupé (%@)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Microphone off (%@)"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Micro coupé (%@)"
-          }
-        }
-      }
-    },
-    "Envoyé" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "On"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Envoyé"
-          }
-        }
-      }
-    },
-    "Coupé" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Off"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Coupé"
-          }
-        }
-      }
-    },
-    "Envoi…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Connecting…"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Envoi…"
-          }
-        }
-      }
-    },
-    "Micro envoyé à %@." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Microphone sent to %@."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Micro envoyé à %@."
           }
         }
       }
