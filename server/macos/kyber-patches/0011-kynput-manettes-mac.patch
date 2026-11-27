@@ -1,9 +1,9 @@
 diff --git a/kynput/src/macos/host_gamepad.rs b/kynput/src/macos/host_gamepad.rs
 new file mode 100644
-index 0000000..c98ec56
+index 0000000..79de297
 --- /dev/null
 +++ b/kynput/src/macos/host_gamepad.rs
-@@ -0,0 +1,777 @@
+@@ -0,0 +1,787 @@
 +// Project Kyber: host_gamepad.rs
 +// Copyright © 2022-2026 Kyber SAS
 +// SPDX-License-Identifier: LicenseRef-Kyber-Commercial OR AGPL-3.0-or-later
@@ -525,9 +525,19 @@ index 0000000..c98ec56
 +    }
 +
 +    fn report(&mut self, id: u32) -> Result<()> {
-+        // Pas d'aide (absente, ou morte et pas encore relancée) : rien à dire.
++        // Pas d'aide : absente, ou morte en pleine partie. Relancée (au plus
++        // toutes les HELPER_RETRY) avec toutes les manettes, comme pour un
++        // branchement ; sinon les manettes restaient muettes jusqu'au
++        // prochain branchement.
 +        if self.helper.is_none() {
-+            return Ok(());
++            if self.devices.is_empty() || self.helper_failed.is_some_and(|t| t.elapsed() < HELPER_RETRY) {
++                return Ok(());
++            }
++            let all: Vec<(u32, Model)> = self.devices.iter().map(|(i, p)| (*i, p.model)).collect();
++            info!("Gamepads: helper started again, {} gamepads created again", all.len());
++            for (i, m) in all {
++                self.send(OP_CREATE, i, &m.create_payload(i))?;
++            }
 +        }
 +        // Horodatage des capteurs de la DualSense : en tiers de microseconde.
 +        let timestamp = (self.started.elapsed().as_micros() as u64 * 3) as u32;
