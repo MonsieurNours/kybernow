@@ -101,9 +101,9 @@ kyber_toolchain_check rustc cargo-c
 
 # Correctifs client de KyberNow (paquets vers l'app, presse-papiers, tampon de
 # réception), les mêmes que pour les apps Apple.
-# Le correctif kyclient de PyroWave (0025) seulement avec --kyber-pyrowave :
-# third_party/ est partagé par toutes les apps, et le cœur sans sa
-# fonctionnalité `pyrowave` ne compile pas contre lui (`fallback_codec`).
+# Le correctif kyclient de PyroWave (0025) par défaut (KYBER_PYROWAVE=1), sauf
+# avec --sans-pyrowave : il va avec la fonctionnalité `kyber-pyrowave` de
+# l'app, le cœur sans elle ne compile pas contre lui (`fallback_codec`).
 . "$ROOT/scripts/kyber-client-patches.sh"
 kyber_apply_app_patches "$KYSDK" || exit 1
 

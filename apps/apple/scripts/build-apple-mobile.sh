@@ -87,7 +87,7 @@ for target in "${TARGETS[@]}"; do
 done
 
 # Les correctifs de kyclient (tous, remis à l'origine puis reposés : le
-# cœur compile contre cette API), PyroWave (0025) seulement avec --kyber-pyrowave.
+# cœur compile contre cette API), PyroWave (0025) sauf avec --sans-pyrowave.
 KYSDK="$KYBER/kysdk"
 . "$ROOT/scripts/kyber-client-patches.sh"
 kyber_apply_app_patches "$KYSDK" || exit 1

@@ -19,10 +19,9 @@
 #   rustup toolchain install nightly-<KYBER_NIGHTLY> --profile minimal --component rust-src
 #
 # Le correctif kyclient de PyroWave (0025, `VideoCodec::PyroWave`,
-# `fallback_codec`) n'est posé qu'avec --kyber-pyrowave (comme
-# build-native.sh --kyber-pyrowave d'Android), tant qu'il n'est pas allumé
-# pour toutes les apps : third_party/ est partagé. Il va avec
-# `build-apple-mobile.sh tvos --kyber-pyrowave` (fonctionnalité `pyrowave` du cœur).
+# `fallback_codec`) est posé par défaut depuis la 0.11.1 (KYBER_PYROWAVE=1),
+# comme pour toutes les apps sauf webOS ; --sans-pyrowave l'écarte. Il va avec
+# la fonctionnalité `pyrowave` du cœur (`build-apple-mobile.sh tvos`, même option).
 #
 # Sortie : Vendor/include (en-têtes, module.modulemap) et
 # Vendor/KyberSDK.xcframework (une bibliothèque statique par plateforme).

@@ -12,8 +12,8 @@
 # correctif de la Station, posés aussi par son build.sh, car kycontroller lit
 # le même kyctl-common) :
 # 0022-kyclient : HDR par écran (VideoSessionConfig.hdr, requête de démarrage).
-# 0025-kyclient-pyrowave : seulement avec --kyber-pyrowave (ou
-#                 KYBER_PYROWAVE=1), comme build-apple.sh : sans la
+# 0025-kyclient-pyrowave : par défaut (KYBER_PYROWAVE=1), sauf avec
+#                 --sans-pyrowave, comme build-apple.sh : sans la
 #                 fonctionnalité pyrowave, le cœur ne compile pas avec lui.
 #
 # libkynput est construite sans son lecteur de manettes SDL : les manettes

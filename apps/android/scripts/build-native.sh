@@ -37,8 +37,8 @@
 # (la sonde dit « indisponible »).
 # Le correctif kyclient de PyroWave (0025, `VideoCodec::PyroWave`,
 # `fallback_codec`) et la fonctionnalité `pyrowave` du cœur vont ensemble
-# (apps/core/README.md, « PyroWave ») : seulement avec --kyber-pyrowave, tant
-# qu'ils ne sont pas allumés pour toutes les apps (kyber-desktop est partagé).
+# (apps/core/README.md, « PyroWave ») : allumés par défaut depuis la 0.11.1
+# (KYBER_PYROWAVE=1) ; --sans-pyrowave les écarte ensemble.
 #
 # S'arrête à la première erreur (correctif inapplicable, compilation ratée)
 # sans toucher aux bibliothèques déjà en place.
