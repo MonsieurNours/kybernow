@@ -66,7 +66,7 @@ pub struct MovePlan {
 /// Le nom d'un sujet de droit, comme la page d'un ordinateur l'écrit.
 fn subject_name(subject: &Subject) -> String {
     match subject {
-        Subject::Person { name, email, .. } => if name.is_empty() { email.clone() } else { name.clone() },
+        Subject::Person { name, email, .. } => super::store::shown_name(name, email),
         Subject::Invite { email } => email.clone(),
         Subject::Org { name, .. } => name.clone(),
         Subject::Group { name, org_name, .. } => format!("{org_name} › {name}"),

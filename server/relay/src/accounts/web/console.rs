@@ -157,7 +157,7 @@ pub(super) fn computers(cx: Cx<'_>, notice: Option<Notice>) -> Reply {
 /// Qui a accès, en mots : `(nom, détail)`.
 fn subject_words(cx: &Cx<'_>, subject: &Subject) -> (String, String) {
     match subject {
-        Subject::Person { name, email, .. } => (if name.is_empty() { email.clone() } else { name.clone() }, email.clone()),
+        Subject::Person { name, email, .. } => (super::super::store::shown_name(name, email), email.clone()),
         Subject::Invite { email } => (email.clone(), cx.tr("Invitation envoyée, pas encore de compte", "Invitation sent, no account yet")),
         Subject::Org { name, .. } => (name.clone(), cx.tr("Tous ses membres", "All its members")),
         Subject::Group { name, org_name, .. } => (format!("{org_name} › {name}"), cx.tr("Groupe", "Group")),
@@ -178,7 +178,7 @@ pub(super) fn people_rows(cx: &Cx<'_>, stations: &[StationRow]) -> Vec<Granted> 
         for g in all.remove(&s.id).unwrap_or_default() {
             let (key, name, detail) = match &g.subject {
                 Subject::Invite { email } => match db.account_by_email(email).ok().flatten().filter(|a| a.verified()) {
-                    Some(a) => (format!("compte:{}", a.id), if a.name.is_empty() { a.email.clone() } else { a.name.clone() }, a.email.clone()),
+                    Some(a) => (format!("compte:{}", a.id), a.display_name(), a.email.clone()),
                     None => (format!("adresse:{email}"), email.clone(), invite_state(cx.lang, g.sent_at, cx.now)),
                 },
                 Subject::Person { account, .. } => {
@@ -352,7 +352,7 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
             });
             let expired = g.expired(cx.now).then(|| cx.tr("échu", "expired"));
             let (name, mut detail) = match &g.subject {
-                Subject::Person { name, email, .. } => (if name.is_empty() { email.clone() } else { name.clone() }, vec![email.clone()]),
+                Subject::Person { name, email, .. } => (super::super::store::shown_name(name, email), vec![email.clone()]),
                 Subject::Invite { email } => (email.clone(), vec![invite_state(cx.lang, g.sent_at, cx.now)]),
                 Subject::Org { name, .. } => (name.clone(), vec![cx.tr("Tous ses membres", "All its members")]),
                 Subject::Group { name, org_name, .. } => (format!("{org_name} › {name}"), vec![cx.tr("Groupe", "Group")]),
@@ -365,7 +365,7 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
         // Les droits venus d'un groupe d'ordinateurs : « Par le groupe {groupe} », sans « Retirer ».
         for g in db.group_grants_on(&station.id).unwrap_or_default() {
             let name = match &g.subject {
-                Subject::Person { name, email, .. } => if name.is_empty() { email.clone() } else { name.clone() },
+                Subject::Person { name, email, .. } => super::super::store::shown_name(name, email),
                 Subject::Invite { email } => email.clone(),
                 Subject::Org { name, .. } => name.clone(),
                 Subject::Group { name, org_name, .. } => format!("{org_name} › {name}"),
@@ -388,10 +388,7 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
         let mut list = Vec::new();
         for (org, _) in db.orgs_of(account.id).unwrap_or_default() {
             if station.org != Some(org.id) {
-                let whole = match org.kind {
-                    super::super::orgs::Kind::Family => t(cx.lang, &format!("{} (toute la famille)", org.name), &format!("{} (the whole family)", org.name)),
-                    super::super::orgs::Kind::Team => t(cx.lang, &format!("{} (toute l'équipe)", org.name), &format!("{} (the whole team)", org.name)),
-                };
+                let whole = org.everyone(cx.lang);
                 list.push((org.public_id.clone(), whole));
             }
             for g in db.groups(org.id).unwrap_or_default() {
@@ -554,7 +551,7 @@ pub(super) fn add(cx: Cx<'_>) -> Reply {
     tracing::info!(station = %station.id, compte = target.is_some(), deja = had_access, "personne ajoutée à un ordinateur");
     send_shared(&cx, &account, &station, &email, target.as_ref(), !had_access, &rights, until);
     let notice = match &target {
-        Some(t) if had_access => Notice::AccessUpdated(if t.name.is_empty() { t.email.clone() } else { t.name.clone() }),
+        Some(t) if had_access => Notice::AccessUpdated(t.display_name()),
         _ => Notice::InviteSent,
     };
     people_page(cx, &account, &station, Some(notice), Kept::default())
@@ -575,7 +572,7 @@ fn send_shared(cx: &Cx<'_>, account: &Account, station: &StationRow, email: &str
     };
     let words = rights_words(lang, rights);
     let until = until.map(|e| end_date(lang, e));
-    let by = if account.name.is_empty() { account.email.clone() } else { account.name.clone() };
+    let by = account.display_name();
     cx.mail(email, lang, Message::ComputerShared { by: &by, computer: &station.name, rights: &words, until: until.as_deref(), has_account: target.is_some(), pending, link: &link });
 }
 
@@ -679,7 +676,7 @@ pub(super) fn remove(cx: Cx<'_>) -> Reply {
     }
     cx.audit(Some(account.id), "acces_retire");
     let to = match &grant.subject {
-        Subject::Person { name, email, .. } => if name.is_empty() { email.clone() } else { name.clone() },
+        Subject::Person { name, email, .. } => super::super::store::shown_name(name, email),
         Subject::Invite { email } => email.clone(),
         Subject::Org { name, .. } => name.clone(),
         Subject::Group { name, org_name, .. } => format!("{org_name} › {name}"),

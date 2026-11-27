@@ -174,6 +174,16 @@ pub struct Org {
     pub kind: Kind,
 }
 
+impl Org {
+    /// « {nom} (toute la famille) » ou « (toute l'équipe) » (REL-38 : un seul endroit).
+    pub fn everyone(&self, lang: crate::pages::Lang) -> String {
+        match self.kind {
+            Kind::Family => crate::pages::t(lang, &format!("{} (toute la famille)", self.name), &format!("{} (the whole family)", self.name)),
+            Kind::Team => crate::pages::t(lang, &format!("{} (toute l'équipe)", self.name), &format!("{} (the whole team)", self.name)),
+        }
+    }
+}
+
 /// Le genre d'une organisation, choisi à sa création.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {

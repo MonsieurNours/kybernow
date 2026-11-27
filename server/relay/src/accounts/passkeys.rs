@@ -396,7 +396,7 @@ impl Cx<'_> {
             challenge: challenge(&self.acc.keys, &create_purpose(account.id), &self.csrf_cookie, self.now),
             user_id: b64(&user),
             user_name: account.email.clone(),
-            display_name: if account.name.is_empty() { account.email.clone() } else { account.name.clone() },
+            display_name: account.display_name(),
             exclude: keys.iter().map(|k| b64(&k.credential)).collect(),
             password,
         })

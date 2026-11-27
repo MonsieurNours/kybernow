@@ -132,6 +132,11 @@ pub const AUDIT_SECS: i64 = 365 * 24 * 3600;
 /// Un compte jamais vérifié est effacé après ce temps (docs/juridique/README.md).
 pub const UNVERIFIED_SECS: i64 = 7 * 24 * 3600;
 
+/// Un nom montré : le nom, sinon l'adresse.
+pub fn shown_name(name: &str, email: &str) -> String {
+    if name.is_empty() { email.to_string() } else { name.to_string() }
+}
+
 /// Un compte.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
@@ -145,6 +150,11 @@ pub struct Account {
 }
 
 impl Account {
+    /// Son nom, sinon son adresse (REL-38 : un seul endroit).
+    pub fn display_name(&self) -> String {
+        shown_name(&self.name, &self.email)
+    }
+
     pub fn verified(&self) -> bool {
         self.verified_at.is_some()
     }

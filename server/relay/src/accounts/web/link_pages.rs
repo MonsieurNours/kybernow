@@ -112,10 +112,6 @@ fn refused(cx: Cx<'_>, here: &str, why: Refusal) -> Reply {
     cx.page(status, page)
 }
 
-/// Le nom d'une personne : son nom, sinon son adresse.
-fn display_name(a: &Account) -> String {
-    if a.name.is_empty() { a.email.clone() } else { a.name.clone() }
-}
 
 /// `GET/POST /compte/lien/<lien>` : « {nom} vous ouvre {ordinateur} », puis « Accepter ».
 pub(super) fn open(mut cx: Cx<'_>, token: &str, post: bool) -> Reply {
@@ -143,7 +139,7 @@ pub(super) fn open(mut cx: Cx<'_>, token: &str, post: bool) -> Reply {
     let Some(station) = station else { return refused(cx, &here, Refusal::Unreadable) };
     let creator = link.created_by.and_then(|c| acc.db().account(c).ok().flatten());
     let Some(creator) = creator.filter(|c| acc.can_manage(c, &station)) else { return refused(cx, &here, Refusal::Revoked) };
-    let by = display_name(&creator);
+    let by = creator.display_name();
     let Some((_, account)) = cx.full_session() else {
         // Mot de passe donné, code attendu : le code d'abord, puis le lien.
         if cx.session().is_some_and(|(s, _)| !s.mfa_done) {
@@ -202,7 +198,7 @@ fn accepted(cx: Cx<'_>, account: &Account, creator: &Account, station: &StationR
         tracing::warn!("journal des comptes : {e:#}");
     }
     if let Some(org) = station.org {
-        let detail = json!({ "station": station.name, "who": display_name(account), "rights": rights_text(rights) });
+        let detail = json!({ "station": station.name, "who": account.display_name(), "rights": rights_text(rights) });
         let _ = acc.db().org_log(org, Some(account), "lien_utilise", detail, Some(&cx.ip()), cx.now);
     }
     tracing::info!(station = %station.id, "lien d'accès utilisé");

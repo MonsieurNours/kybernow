@@ -89,15 +89,9 @@ fn show(cx: Cx<'_>, account: &Account, org: &Org, role: Role, tab: Tab, notice: 
         let members = db.members(org.id).unwrap_or_default();
         let groups = db.groups(org.id).unwrap_or_default();
         // « Ouvrir ce groupe » : toute la famille ou l'équipe, ses groupes de personnes, ses membres.
-        let mut group_targets = vec![(
-            "org".to_string(),
-            match org.kind {
-                Kind::Family => crate::pages::t(cx.lang, &format!("{} (toute la famille)", org.name), &format!("{} (the whole family)", org.name)),
-                Kind::Team => crate::pages::t(cx.lang, &format!("{} (toute l'équipe)", org.name), &format!("{} (the whole team)", org.name)),
-            },
-        )];
+        let mut group_targets = vec![("org".to_string(), org.everyone(cx.lang))];
         group_targets.extend(groups.iter().map(|g| (format!("grp:{}", g.id), crate::pages::t(cx.lang, &format!("Groupe {}", g.name), &format!("Group {}", g.name)))));
-        group_targets.extend(members.iter().map(|m| (format!("compte:{}", m.account), if m.name.is_empty() { m.email.clone() } else { m.name.clone() })));
+        group_targets.extend(members.iter().map(|m| (format!("compte:{}", m.account), crate::accounts::store::shown_name(&m.name, &m.email))));
         // « Inviter un membre » : les personnes connues qui n'en font pas encore partie.
         let known = if manage {
             let inside: Vec<&String> = members.iter().map(|m| &m.email).collect();
@@ -234,7 +228,7 @@ pub(super) fn invite(cx: Cx<'_>) -> Reply {
     if let Some(t) = &target
         && acc.db().org_role(org.id, t.id).ok().flatten().is_some()
     {
-        let name = if t.name.is_empty() { t.email.clone() } else { t.name.clone() };
+        let name = t.display_name();
         return show(cx, &account, &org, role, Tab::Members, Some(Notice::AlreadyMember(name)));
     }
     // Toujours une invitation, qu'un compte accepte dans son espace, et la même réponse (REL-11).
@@ -258,7 +252,7 @@ fn send_invite(cx: &Cx<'_>, account: &Account, org: &Org, email: &str, target: O
         Some(_) => cx.url(&format!("/compte/invitations?lang={}", lang.code())),
         None => cx.url(&format!("/compte/inscription?lang={}", lang.code())),
     };
-    let by = if account.name.is_empty() { account.email.clone() } else { account.name.clone() };
+    let by = account.display_name();
     let role_word = role_name(lang, wanted);
     cx.mail(email, lang, Message::OrgInvite { by: &by, org: &org.name, role: &role_word, has_account: target.is_some(), link: &link });
 }

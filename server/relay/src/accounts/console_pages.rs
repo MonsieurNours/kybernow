@@ -1527,7 +1527,7 @@ fn group_grant_who(v: &View<'_>, subject: &super::super::people::Subject, kind: 
             Lang::Fr => t(v.lang, &format!("Groupe {name}"), ""),
             Lang::En => format!("Group {name}"),
         },
-        Subject::Person { name, email, .. } => if name.is_empty() { email.clone() } else { name.clone() },
+        Subject::Person { name, email, .. } => crate::accounts::store::shown_name(name, email),
         Subject::Invite { email } => email.clone(),
     }
 }
