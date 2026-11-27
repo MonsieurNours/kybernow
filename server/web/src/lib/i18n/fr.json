@@ -50,6 +50,7 @@
       "noAudio": "Image sans le son : ce navigateur n'a pas pu démarrer l'audio.",
       "soundStopped": "Le son de l’ordinateur s’est interrompu.",
       "imageRestart": "L’image s’est interrompue sur l’ordinateur : relance ({n} sur {max})…",
+      "gpuLost": "La carte graphique s’est réinitialisée : l’image reprend…",
       "reconnecting": "Connexion perdue, nouvelle tentative ({attempt} sur {max})…"
     },
     "start": {

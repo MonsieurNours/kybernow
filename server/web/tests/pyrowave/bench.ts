@@ -4,7 +4,8 @@
 // sous-groupes, puis le chemin complet du client (toile WebGPU → VideoFrame).
 import { encodeConfig, parseConfig } from '../../src/link/pyrowave/bitstream.ts'
 import { PyroWaveDecoder, PyroWaveGPU } from '../../src/link/pyrowave/decoder.ts'
-import { installPyroWave, pyrowaveStats } from '../../src/link/pyrowave/live.ts'
+import { installPyroWave } from '../../src/link/pyrowave/live.ts'
+import { pyrowaveStats } from '../../src/link/pyrowave/stats.ts'
 import { compare, readTestFile, stats } from './compare.ts'
 
 const out = document.getElementById('out')!

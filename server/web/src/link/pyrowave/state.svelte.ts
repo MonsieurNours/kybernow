@@ -4,7 +4,6 @@
 import { engineKnowsPyroWave } from '../engine'
 import type { Info } from '../backend'
 import type { PyroWaveOffer } from '../plan'
-import { installPyroWave } from './live'
 import type { ProbeResult } from './probe'
 import { unavailable, type Unavailable } from './rules'
 
@@ -12,10 +11,13 @@ export const pyrowave = $state<{ probe: ProbeResult | null }>({ probe: null })
 
 let started: Promise<ProbeResult> | null = null
 
-/** Sonde au chargement de la page (une fois) ; installe le décodeur des sessions si elle passe. */
+/** Sonde (une fois par page) ; installe le décodeur des sessions si elle passe. Demandée seulement face à une Station
+ * qui propose PyroWave, pour l'hôte (WEB-17) : un invité ou un ami n'en a pas l'usage, et la sonde réveille la carte
+ * graphique « haute performance ». Le décodeur (shaders, image de test) se charge alors, à part du reste de la page. */
 export function probeAtLoad(): Promise<ProbeResult> {
   if (!started) {
-    started = installPyroWave()
+    started = import('./live')
+      .then((m) => m.installPyroWave())
       .catch((): ProbeResult => ({ ok: false, reason: 'adapter' }))
       .then((r) => {
         pyrowave.probe = r

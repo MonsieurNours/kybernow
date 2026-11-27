@@ -355,9 +355,10 @@ export class PyroWaveDecoder {
           const t = new BigUint64Array(rb.getMappedRange())
           this.lastGpuMs = Number(t[1] - t[0]) / 1e6
           rb.unmap()
-          rb.destroy()
         })
         .catch(() => {})
+        // Détruit aussi quand la lecture échoue (device perdu : WEB-02).
+        .finally(() => rb.destroy())
     }
     return { status: 'decoded', done }
   }

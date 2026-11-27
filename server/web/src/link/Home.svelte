@@ -11,7 +11,7 @@
   import { backend, type Info, type Live, type Preview } from './backend'
   import { supportedCodecs, type CodecSupport } from './engine'
   import { choose, preferredProtocol } from './plan'
-  import { offer } from './pyrowave/state.svelte'
+  import { offer, probeAtLoad } from './pyrowave/state.svelte'
   import { canFullscreen, deviceKind, isIsolated, measureRefresh, screenMode } from './device'
   import { isCustom, pickProfile, PROFILES, type Prefs, type Profile } from './prefs'
   import Mark from '../lib/Mark.svelte'
@@ -85,6 +85,8 @@
     const [l, i] = await Promise.all([backend.live().catch(() => null), backend.info().catch(() => null)])
     live = l
     if (i) info = i
+    // PyroWave proposé par la Station : la sonde de ce navigateur, une fois par page (WEB-17).
+    if (i?.pyrowave?.available) probeAtLoad()
     if (i?.lend?.available) lend = await adminLend.view().catch(() => lend)
   }
 

@@ -41,7 +41,7 @@
   import { leftText } from '../lib/lend'
   import { elapsedNow, readRecording, recordingClock, recordingNotice, recordingTooltip, type RecordingState } from '../lib/recording'
   import { offer, probeAtLoad } from './pyrowave/state.svelte'
-  import { pyrowaveStats, type PyroWaveStats } from './pyrowave/live'
+  import { onGpuLost, pyrowaveStats, type PyroWaveStats } from './pyrowave/stats'
   import { MicCapture, micOn, micro, probeMicrophone, setMicOn } from './micro.svelte'
   import type { EngineMicState } from './engine'
 
@@ -892,8 +892,9 @@
         supportedCodecs(),
         backend.ticket(),
         backend.info().catch(() => null),
-        probeAtLoad(),
       ])
+      // La sonde PyroWave, face à une Station qui le propose seulement (déjà faite par l'accueil, le plus souvent).
+      if (info?.pyrowave?.available) await probeAtLoad()
       if (stale(gen)) return
       screen = screenMode(refresh)
       codecList = codecs
@@ -1159,6 +1160,15 @@
   /** Combinaison d'un menu ou des touches à l'écran, envoyée telle quelle (sans « Ctrl agit comme ⌘ »). */
   function sendMacCombo(c: Combo) {
     sendKey(canvas(), c.key, c.code, new Set(c.mods))
+  }
+
+  /** La carte graphique perdue pendant une session PyroWave (veille, pilote) : l'image est relancée une fois le
+   * nouveau device prêt (2 s au plus), au lieu de rester figée sans message (WEB-01). */
+  async function onPyroWaveGpuLost() {
+    if (phase !== 'live') return
+    const m = await import('./pyrowave/live')
+    await m.pyrowaveReady(2000)
+    restartVideo(t('session.notice.gpuLost'))
   }
 
   /** Relance de l'image sans recharger la page ni se déconnecter. */
@@ -2063,7 +2073,10 @@
       if (isTouch && touchMode === 'trackpad') cursor = touch.cursor
     }
 
+    const offGpuLost = onGpuLost(() => void onPyroWaveGpuLost())
+
     return () => {
+      offGpuLost()
       clearInterval(metrics)
       clearInterval(seconds)
       clearInterval(sampler)

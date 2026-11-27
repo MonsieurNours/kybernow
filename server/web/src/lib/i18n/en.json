@@ -50,6 +50,7 @@
       "noAudio": "Picture without sound: this browser couldn’t start the audio.",
       "soundStopped": "The computer’s sound stopped.",
       "imageRestart": "The picture stopped on the computer: restarting ({n} of {max})…",
+      "gpuLost": "The graphics card was reset: the picture is resuming…",
       "reconnecting": "Connection lost, retrying ({attempt} of {max})…"
     },
     "start": {
