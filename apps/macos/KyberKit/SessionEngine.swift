@@ -400,7 +400,7 @@ public final class SessionEngine: @unchecked Sendable {
     /// Multi-écrans : les écrans pris par la session (principal en premier)
     /// et ceux que l'ordinateur n'a pas pu créer, à chaque démarrage de
     /// l'image ; avant que leurs images arrivent. Les vues de ces écrans
-    /// doivent être enregistrées (`register`) dans ce rappel.
+    /// doivent être données (`setScreenViews`) dans ce rappel.
     public var onScreens: (([StreamScreen], [Int]) -> Void)?
     /// Multi-écrans : la première image d'un écran est décodée.
     public var onScreenImage: ((Int) -> Void)?
@@ -1069,12 +1069,6 @@ public final class SessionEngine: @unchecked Sendable {
         #endif
     }
 
-    /// Un écran au moins a été en HDR pendant la session (« HDR » de la dernière session).
-    public var hdrUsed: Bool {
-        guard let s = live else { return false }
-        return kn_session_hdr_used(s)
-    }
-
     /// Les écrans de la session en HDR, au démarrage de l'image (rappel
     /// `on_hdr` du cœur) : chaque rendu le sait, puis l'app.
     func hdrStarted(_ screens: [Bool]) {
@@ -1121,14 +1115,6 @@ public final class SessionEngine: @unchecked Sendable {
         if let s = live { kn_session_set_link_mbps(s, mbps ?? 0) }
     }
 
-    /// Multi-écrans : la vue qui montre l'écran `screen` de cet appareil
-    /// (fil principal). Celle donnée à `init` sert aux écrans sans vue.
-    public func register(_ view: StreamView, screen: Int) {
-        lock.lock()
-        screenViews[screen] = view
-        lock.unlock()
-    }
-
     /// Multi-écrans : toutes les vues d'un coup, par écran de cet appareil
     /// (fil principal) ; les vues qui n'y sont plus sont détachées.
     public func setScreenViews(_ views: [Int: StreamView]) {
@@ -1139,17 +1125,6 @@ public final class SessionEngine: @unchecked Sendable {
         for v in old where v !== view && !views.values.contains(where: { $0 === v }) {
             v.detach()
             v.surface.show(nil)
-        }
-    }
-
-    /// Multi-écrans : plus aucune vue pour cet écran (fenêtre fermée).
-    public func unregister(screen: Int) {
-        lock.lock()
-        let old = screenViews.removeValue(forKey: screen)
-        lock.unlock()
-        if let old, old !== view {
-            old.detach()
-            old.surface.show(nil)
         }
     }
 
@@ -1254,14 +1229,6 @@ public final class SessionEngine: @unchecked Sendable {
         lock.unlock()
         renderers.forEach { $0.redraw() }
         if let s, !renderers.isEmpty { kn_session_request_keyframe(s) }
-    }
-
-    public func setVolume(_ volume: Float) {
-        lock.lock()
-        self.volume = volume
-        let players = Array(audios.values)
-        lock.unlock()
-        players.forEach { $0.volume = volume }
     }
 
     /// Latence de la session : médiane des secondes et 95e centile, en ms.

@@ -333,8 +333,6 @@ final class SessionController: NSObject, ObservableObject {
     private var compositing: AnyCancellable?
     /// Le passage (accueil ouvert en deux) sort de la composition une fois ouvert.
     private var sceneHide: Task<Void, Never>?
-    /// Fenêtre occultée (autre espace, réduite, recouverte) : rendu arrêté, débit baissé.
-    private var occlusionObserver: NSObjectProtocol?
     private var occluded = false
     private static let occludedBitrate: UInt32 = 20_000_000
     /// Délai entre le démarrage du flux et l'apparition : le décodeur et la
@@ -2322,8 +2320,6 @@ final class SessionController: NSObject, ObservableObject {
         // Seules les moitiés du passage restent à l'écran pendant la fermeture.
         chrome?.removeFromSuperview()
         chrome = nil
-        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
-        occlusionObserver = nil
         screenObservers.forEach { NotificationCenter.default.removeObserver($0) }
         screenObservers = []
         activeObservers.forEach { NotificationCenter.default.removeObserver($0) }

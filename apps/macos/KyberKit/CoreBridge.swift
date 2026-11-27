@@ -31,15 +31,6 @@ public enum Core {
         #endif
     }()
 
-    /// Langue choisie dans les réglages (`fr`, `en`) : messages du cœur et
-    /// `Accept-Language` vers la console.
-    public static func setLanguage(_ tag: String) {
-        kn_set_language(tag)
-    }
-
-    /// Maintenant, sur l'horloge des mesures de Kyber (µs).
-    static func nowMicros() -> Int64 { kn_now_micros() }
-
     /// Chaîne rendue par le cœur, libérée après lecture.
     static func take(_ p: UnsafeMutablePointer<CChar>?) -> String? {
         guard let p else { return nil }

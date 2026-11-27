@@ -374,22 +374,6 @@ struct ConnectionSettings: Codable, Hashable {
         return min(max(Int(mbps), Self.minBitrate), Self.maxBitrate)
     }
 
-    var options: StreamOptions { options(width: 0, height: 0, refresh: 0) }
-
-    func options(width: Int, height: Int, refresh: Int) -> StreamOptions {
-        var o = StreamOptions()
-        o.codec = codec
-        o.yuv444 = yuv444
-        o.bitrate = UInt32(bitrate(width: width, height: height, refresh: refresh)) * 1_000_000
-        o.reliable = transport == .reliable
-        o.audio = audio != .off
-        o.yuv444 = yuv444 && Self.decodes444(codec)
-        o.vsync = vsync
-        o.clipboard = clipboard
-        o.gamepadAsXbox360 = gamepad == .xbox360
-        return o
-    }
-
     var profileLabel: String { Profile.label(profile) }
 
     /// La puce « HDR » de cet ordinateur sur un écran HDR ou non : cachée,
@@ -416,18 +400,6 @@ struct ConnectionSettings: Codable, Hashable {
         }
     }
 
-    /// Si le mode de l'écran de l'ordinateur change en session (un jeu qui
-    /// passe en 1080p) : Jeu laisse faire, Bureau le fait remettre ; sinon
-    /// (`default`), la console décide (son réglage « Si un jeu change la
-    /// définition ») : dit explicitement, pour qu'un profil changé en session
-    /// défasse le choix du précédent.
-    var modePolicy: String {
-        switch profile {
-        case .jeu?: return "follow"
-        case .bureau?: return "restore"
-        default: return "default"
-        }
-    }
 }
 
 extension ConnectionSettings {

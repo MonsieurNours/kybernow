@@ -76,8 +76,6 @@ public struct ChainTimes: Sendable, Equatable {
 
     public init() {}
 
-    public var all: [Double] { [capture, encode, send, network, decode, display] }
-    public var sum: Double { all.reduce(0, +) }
 }
 
 protocol LatencyReporting: AnyObject {

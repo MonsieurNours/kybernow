@@ -207,8 +207,6 @@ final class PyroWaveDecoder {
 
     deinit { teardown() }
 
-    var available: Bool { gpu != nil }
-
     // MARK: - Paquets
 
     /// Paquet de configuration du contrat : (re)crée le décodeur s'il change.

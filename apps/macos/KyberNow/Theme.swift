@@ -125,9 +125,7 @@ enum Theme {
 
     // MARK: Formes et mouvement
 
-    static let radiusControl: CGFloat = 8
     static let radiusCard: CGFloat = 16
-    static let radiusSheet: CGFloat = 22
     /// Sortie : cubic-bezier(.2, .9, .1, 1).
     static let easeOut = Animation.timingCurve(0.2, 0.9, 0.1, 1, duration: 0.32)
     static let join = Animation.timingCurve(0.2, 0.9, 0.1, 1, duration: 0.42)
@@ -821,31 +819,6 @@ struct SettingsCard<Content: View>: View {
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .glass(Theme.radiusCard, tint: 0.55)
-    }
-}
-
-/// Bouton « i » qui ouvre une explication.
-struct InfoTip<Content: View>: View {
-    let label: String
-    @ViewBuilder var content: Content
-    @State private var open = false
-
-    var body: some View {
-        Button { open.toggle() } label: {
-            Icon("info", size: 18)
-                .foregroundStyle(Theme.faint)
-                .frame(width: 24, height: 24)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .popover(isPresented: $open, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 8) { content }
-                .font(Theme.sans(13))
-                .foregroundStyle(Theme.text2)
-                .padding(16)
-                .frame(width: 320, alignment: .leading)
-        }
     }
 }
 

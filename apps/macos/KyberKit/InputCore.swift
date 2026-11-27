@@ -95,9 +95,6 @@ public struct GamepadRumble: Sendable {
 /// chaque manette, tenues par le cœur : pour un pont de manettes qui la suit
 /// lui-même avant d'envoyer (GameController sur Apple TV et iOS).
 final class PadCombo: @unchecked Sendable {
-    static let buttons: Set<PadButton> = [.leftShoulder, .rightShoulder, .start, .back]
-    /// Les six axes à remettre au repos à la capture.
-    static let axes: [PadAxis] = PadAxis.allCases
 
     /// Combinaison formée pour cette manette, sur la file donnée.
     var onFormed: ((UInt32) -> Void)?
@@ -138,17 +135,6 @@ final class PadCombo: @unchecked Sendable {
         kn_combo_button(core, id, button.core, down)
     }
 
-    static func navigationKey(_ button: PadButton) -> PadKey? {
-        switch button {
-        case .dpadLeft: return .left
-        case .dpadRight: return .right
-        case .dpadUp: return .up
-        case .dpadDown: return .down
-        case .a: return .accept
-        case .b: return .back
-        default: return nil
-        }
-    }
 }
 
 /// Règles Auto / Bureau / Jeu (le cœur), avec la veille du plein écran.
