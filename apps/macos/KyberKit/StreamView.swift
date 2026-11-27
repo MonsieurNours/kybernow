@@ -248,12 +248,13 @@ public final class StreamView: NSView {
             }
         }
         if change.shape { applyCursorShape() }
-        updatePointerLayer()
+        // L'état reçu, sans relire le cœur à chaque mouvement (MAC-30).
+        updatePointerLayer(state)
     }
 
     /// Pointeur de l'ordinateur dessiné par l'app, en mode jeu seulement.
-    private func updatePointerLayer() {
-        let state = pointer.state
+    private func updatePointerLayer(_ known: PointerLayer.State? = nil) {
+        let state = known ?? pointer.state
         guard relative.active, !state.remoteHidden, let shape = state.shape, let host = state.remotePosition, let layout else {
             pointerLayer.isHidden = true
             return
@@ -264,7 +265,8 @@ public final class StreamView: NSView {
         var local = kynput_Position(x: 0, y: 0)
         kynput_video_layout_host_to_local(layout, &hostPos, &local)
         // La position annoncée est la pointe (point actif) ; vue non retournée : y vers le haut.
-        pointerLayer.contents = shape.image
+        // L'image seulement quand la forme change, pas à chaque mouvement.
+        if (pointerLayer.contents as AnyObject?) !== (shape.image as AnyObject) { pointerLayer.contents = shape.image }
         pointerLayer.contentsScale = window?.backingScaleFactor ?? 2
         pointerLayer.frame = PointerLayer.frame(shape: shape, local: CGPoint(x: local.x, y: local.y), factor: factor, flippedHeight: bounds.height)
         pointerLayer.isHidden = false

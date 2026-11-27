@@ -1416,7 +1416,8 @@ public final class SessionEngine: @unchecked Sendable {
         lock.unlock()
         let input = InputPipeline(displayID: display.id, hostSize: CGSize(width: display.width, height: display.height), pointer: primaryView.pointer, clipboard: clipboard)
         if !screens.isEmpty { input.setScreens(inputScreens(screens)) }
-        input.gamepad.onCombo = { [weak self] in DispatchQueue.main.async { self?.onGamepadCombo?() } }
+        // Déjà sur le fil principal (InputCore) : un seul saut avant la barre (MAC-30).
+        input.gamepad.onCombo = { [weak self] in self?.onGamepadCombo?() }
         input.gamepad.onNavigate = { [weak self] key in DispatchQueue.main.async { self?.onGamepadNavigate?(key) } }
         // Une seule image à la fois : deux chaînes d'entrées se disputeraient
         // les manettes (SDL n'en sert qu'une).
@@ -1649,7 +1650,7 @@ public final class SessionEngine: @unchecked Sendable {
         if let p = audios[stream] { return p }
         let player = AudioPlayer()
         player.volume = volume
-        player.onStats = { [weak self] stats in DispatchQueue.main.async { self?.onAudioStats?(stats) } }
+        player.onStats = { [weak self] stats in self?.onAudioStats?(stats) }
         // Son coupé ou rendu par la session (registre des sessions, plusieurs ordinateurs).
         if let session { kn_session_attach_audio(session, player.core) }
         audios[stream] = player

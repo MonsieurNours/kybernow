@@ -34,6 +34,7 @@ public struct AudioStats: Sendable {
 final class AudioPlayer: @unchecked Sendable {
     static let sampleRate = 48_000
 
+    /// Mesures, une fois par seconde, sur le fil principal.
     var onStats: ((AudioStats) -> Void)?
     var volume: Float = 1 { didSet { kn_audio_set_volume(engine, volume) } }
 
@@ -59,6 +60,22 @@ final class AudioPlayer: @unchecked Sendable {
 
     init() {
         engine = kn_audio_new(UInt32(KN_AUDIO_ORDER_OPUS))
+        // Les mesures du son, relues chaque seconde sur le fil principal :
+        // plus d'allocation ni d'appel à libdispatch sur le fil temps réel de
+        // la carte son (MAC-26).
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 1, repeating: 1)
+        timer.setEventHandler { [weak self] in self?.readStats() }
+        timer.resume()
+        statsTimer = timer
+    }
+
+    private var statsTimer: DispatchSourceTimer?
+
+    private func readStats() {
+        var s = KnAudioStats()
+        guard let onStats, kn_audio_take_stats(engine, &s) else { return }
+        onStats(AudioStats(channels: Int(s.channels), bufferMs: s.buffer_ms, outputMs: s.output_ms, gaps: Int(s.gaps), outputChannels: Int(s.output_channels)))
     }
 
     deinit {
@@ -94,6 +111,8 @@ final class AudioPlayer: @unchecked Sendable {
     }
 
     func stop() {
+        statsTimer?.cancel()
+        statsTimer = nil
         lock.lock()
         stopped = true
         channels = 0
@@ -188,11 +207,6 @@ final class AudioPlayer: @unchecked Sendable {
         guard let buffer = buffers.first, let out = buffer.mData?.assumingMemoryBound(to: Float.self) else { return }
         let outChannels = max(1, Int(buffer.mNumberChannels))
         kn_audio_fill(engine, out, UInt(frames), UInt(outChannels))
-        var s = KnAudioStats()
-        if kn_audio_take_stats(engine, &s), let onStats {
-            let stats = AudioStats(channels: Int(s.channels), bufferMs: s.buffer_ms, outputMs: s.output_ms, gaps: Int(s.gaps), outputChannels: Int(s.output_channels))
-            DispatchQueue.main.async { onStats(stats) }
-        }
     }
 
     #if os(macOS)
