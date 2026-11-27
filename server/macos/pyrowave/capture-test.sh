@@ -46,7 +46,10 @@ run() { # nom, options de capture-test
     local name=$1; shift
     echo "=== $name"
     if "$WORK/capture-test" -display "$DISPLAY_INDEX" -o "$WORK/$name.pyrowave" -src "$WORK/$name.yuv" "$@"; then
-        "$WORK/bench" "$WORK/$name.pyrowave" $([ -s "$WORK/$name.yuv" ] && echo "$WORK/$name.yuv") || status=1
+        # Image d'origine pour la comparaison, seulement si la capture l'a écrite.
+        local reference=()
+        [ -s "$WORK/$name.yuv" ] && reference=("$WORK/$name.yuv")
+        "$WORK/bench" "$WORK/$name.pyrowave" ${reference[@]+"${reference[@]}"} || status=1
     else
         status=1
     fi

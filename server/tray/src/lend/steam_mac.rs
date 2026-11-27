@@ -179,7 +179,9 @@ fn open_url(url: &str) {
 
 /// « Son compte Steam » : bascule Steam sur l'écran de connexion. `persist`
 /// écrit l'état sur le disque avant que rien ne bouge.
-pub fn switch(exe: &Path, persist: &mut dyn FnMut(&store::Steam) -> std::io::Result<()>) -> Result<store::Steam> {
+/// `lend` et `keeper` ne servent que sous Windows (ici, Admin tourne avec le
+/// compte de l'hôte : les fichiers sont renommés à côté).
+pub fn switch(exe: &Path, _lend: &str, _keeper: &dyn store::Keeper, persist: &mut dyn FnMut(&store::Steam) -> std::io::Result<()>) -> Result<store::Steam> {
     let was_running = running();
     if !shutdown(exe) {
         bail!("Steam ne se ferme pas");
@@ -190,6 +192,7 @@ pub fn switch(exe: &Path, persist: &mut dyn FnMut(&store::Steam) -> std::io::Res
         was_running,
         auto_login: get("AutoLoginUser"),
         files: store::existing(&store::steam_files(&data_dir(), Some(&support()))),
+        held: false,
     };
     persist(&saved).context("état du prêt")?;
     store::put_aside(&saved.files).context("comptes de Steam mis de côté")?;
@@ -201,11 +204,11 @@ pub fn switch(exe: &Path, persist: &mut dyn FnMut(&store::Steam) -> std::io::Res
 
 /// « Votre compte Steam » : rien ne change, on note seulement si Steam tournait.
 pub fn host(exe: &Path) -> store::Steam {
-    store::Steam { friend: false, exe: exe.to_string_lossy().into_owned(), was_running: running(), auto_login: None, files: Vec::new() }
+    store::Steam { friend: false, exe: exe.to_string_lossy().into_owned(), was_running: running(), auto_login: None, files: Vec::new(), held: false }
 }
 
 /// Fin du prêt : Steam comme avant.
-pub fn restore(saved: &store::Steam) -> Result<()> {
+pub fn restore(_lend: &str, saved: &store::Steam, _keeper: &dyn store::Keeper) -> Result<()> {
     let exe = PathBuf::from(&saved.exe);
     if !saved.friend {
         if running() {

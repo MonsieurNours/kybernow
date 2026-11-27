@@ -232,6 +232,11 @@ pub struct Guest {
     /// La qualité demandée, et le préréglage que Kyber reçoit pour elle.
     pub quality: Quality,
     pub preset: Preset,
+    /// Monte à chaque changement de préréglage (`kn_qrev` du jeton de Kyber,
+    /// `rev` de `POST /kybernow/quality`, correctif 0020) : une qualité
+    /// retenue par Kyber (poussée, ou baissée pour retard) cède à un jeton
+    /// plus récent, jamais à un vieux jeton encore valide.
+    pub qrev: u64,
     /// Dernier changement de qualité demandé (un par seconde au plus).
     last_quality: Option<Instant>,
     /// Une demande venue par le relais, pas encore acceptée par l'hôte.
@@ -679,6 +684,9 @@ impl Share {
         let mut s = self.state.lock().unwrap();
         let guest = s.open.as_mut()?.guests.iter_mut().find(|g| g.id == id && secret.is_none_or(|sec| same(sec, &g.secret)))?;
         guest.quality = quality;
+        if guest.preset != preset {
+            guest.qrev += 1;
+        }
         guest.preset = preset;
         Some(guest.clone())
     }
@@ -857,6 +865,7 @@ impl Share {
                     quality: Quality::Auto,
                     preset: Preset::Host,
                     last_quality: None,
+                    qrev: 0,
                     pending: true,
                     via_relay: true,
                     requested: now,
@@ -884,6 +893,7 @@ impl Share {
                     quality: Quality::Auto,
                     preset: Preset::Host,
                     last_quality: None,
+                    qrev: 0,
                     pending: false,
                     via_relay: false,
                     requested: now,
@@ -1098,6 +1108,7 @@ fn seat_trusted(open: &mut Open, name: String, device: String, app: String, brow
         quality: Quality::Auto,
         preset: Preset::Host,
         last_quality: None,
+        qrev: 0,
         pending: false,
         via_relay: relay,
         requested: now,

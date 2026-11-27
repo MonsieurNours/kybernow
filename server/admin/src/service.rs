@@ -5,8 +5,6 @@
 //! Sur les autres systèmes (développement sur Mac), un service simulé garde
 //! son état en mémoire pour pouvoir tester l'interface.
 
-use std::time::Duration;
-
 use anyhow::Result;
 use serde::Serialize;
 
@@ -32,8 +30,21 @@ pub trait ServiceControl: Send + Sync {
     }
 }
 
-/// Arrête le service, attend qu'il soit arrêté, puis le redémarre.
+/// Arrête le service, attend qu'il soit arrêté, puis le redémarre. Sous
+/// Windows, comme « Redémarrer la Station » (STWIN-45) : un service bloqué en
+/// cours d'arrêt est arrêté de force au bout de 30 s.
 pub async fn restart(control: &dyn ServiceControl) -> Result<()> {
+    #[cfg(windows)]
+    {
+        let _ = control;
+        tokio::task::spawn_blocking(|| crate::station::restart_service(KYBER_SERVICE)).await?
+    }
+    #[cfg(not(windows))]
+    restart_by_state(control).await
+}
+
+#[cfg(not(windows))]
+async fn restart_by_state(control: &dyn ServiceControl) -> Result<()> {
     if control.state()? != ServiceState::Stopped {
         control.stop()?;
     }
@@ -41,7 +52,7 @@ pub async fn restart(control: &dyn ServiceControl) -> Result<()> {
         if control.state()? == ServiceState::Stopped {
             return control.start();
         }
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
     anyhow::bail!("le service ne s'est pas arrêté au bout de 30 s")
 }

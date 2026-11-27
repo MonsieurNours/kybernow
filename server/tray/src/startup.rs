@@ -16,6 +16,7 @@ use windows_sys::Win32::UI::Shell::{SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, S
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
 use crate::i18n::t;
+use crate::wide;
 use crate::services::{self, ADMIN, KYBER};
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -23,10 +24,6 @@ const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const RUN_VALUE: &str = "KyberNow";
 /// Argument de la relance élevée.
 pub const ELEVATED_ARG: &str = "--start-with-computer";
-
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(Some(0)).collect()
-}
 
 /// L'état de la case : le serveur démarre-t-il avec l'ordinateur ?
 pub fn enabled() -> Option<bool> {

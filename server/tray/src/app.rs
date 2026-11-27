@@ -36,6 +36,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::console::{self, Client};
 use crate::i18n::{lang, list, t};
+use crate::wide;
 use crate::icons::Icons;
 use crate::status::{Look, Snapshot, describe};
 use crate::panel::Panel;
@@ -45,10 +46,6 @@ use crate::{password, qr, share, startup};
 
 /// Nom affiché : infobulle, boîtes de message, première ligne du menu.
 pub const TITLE: &str = "KyberNow Station";
-
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(Some(0)).collect()
-}
 
 /// Message d'erreur, depuis n'importe quel fil.
 pub fn alert(text: &str) {

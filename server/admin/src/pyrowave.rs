@@ -199,15 +199,10 @@ fn run_validation(kyber_dir: &Path, luid: Option<u64>) -> bool {
 
 #[cfg(windows)]
 fn run_tool(exe: &Path, dir: &Path, args: Vec<String>) -> std::io::Result<std::process::Output> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    std::process::Command::new(exe)
-        .args(args)
-        .current_dir(dir)
+    crate::proc::no_window(std::process::Command::new(exe).args(args).current_dir(dir))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .creation_flags(CREATE_NO_WINDOW)
         .output()
 }
 
@@ -276,26 +271,15 @@ fn run_validation(_kyber_dir: &Path, _luid: Option<u64>) -> bool {
     let node = node.trim_start_matches("/dev/dri/").to_string();
     let ids = render_node_ids(&Path::new("/sys/class/drm").join(&node).join("device"));
     // L'outil peut rester bloqué dans un pilote : 20 s au plus, puis arrêté.
-    use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
-    let mut child = match Command::new(&tool).args(linux_validation_args(ids)).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
-        Ok(c) => c,
-        Err(e) => {
+    let mut cmd = std::process::Command::new(&tool);
+    cmd.args(linux_validation_args(ids));
+    let code = match crate::proc::run(cmd, std::time::Duration::from_secs(20)) {
+        Ok(out) => out.code(),
+        Err(crate::proc::Failure::Spawn(e)) => {
             tracing::warn!("PyroWave : {} ne se lance pas ({e}), pas proposé", tool.display());
             return false;
         }
-    };
-    let deadline = Instant::now() + Duration::from_secs(20);
-    let code = loop {
-        match child.try_wait() {
-            Ok(Some(s)) => break s.code(),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
-        }
+        Err(crate::proc::Failure::Timeout { .. }) => None,
     };
     let card = ids.map(|(v, d)| format!("{v:04x}:{d:04x}")).unwrap_or_else(|| "première carte Vulkan".into());
     match code {
@@ -342,33 +326,16 @@ fn check_tool() -> Option<std::path::PathBuf> {
 }
 
 fn run_check(tool: &Path) -> bool {
-    use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
-    let mut child = match Command::new(tool).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
-        Ok(c) => c,
-        Err(e) => {
+    let (code, said) = match crate::proc::run(std::process::Command::new(tool), std::time::Duration::from_secs(20)) {
+        Ok(out) => (out.code(), out.stdout),
+        Err(crate::proc::Failure::Spawn(e)) => {
             tracing::warn!("PyroWave : {} ne se lance pas ({e}), pas proposé", tool.display());
             return false;
         }
+        Err(crate::proc::Failure::Timeout { .. }) => (None, String::new()),
     };
-    let deadline = Instant::now() + Duration::from_secs(20);
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(s)) => break Some(s),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
-        }
-    };
-    let mut said = String::new();
-    if let Some(mut out) = child.stdout.take() {
-        let _ = std::io::Read::read_to_string(&mut out, &mut said);
-    }
     let said = said.trim();
-    match status.and_then(|s| s.code()) {
+    match code {
         Some(0) => {
             tracing::info!("PyroWave : la puce convient ({said})");
             true

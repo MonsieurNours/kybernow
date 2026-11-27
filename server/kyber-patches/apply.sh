@@ -59,8 +59,8 @@ kyber_app_patches() {
 kyber_apply_server_patches() {
     # L'ordre de pose est celui des noms, octet par octet, quelle que soit la
     # langue du système : un même numéro est une famille (un correctif par
-    # dépôt ou par moteur), et 0085-kycontroller-micro-droits se pose sur
-    # 0085-kycontroller-flux-montant (« f » avant « m »).
+    # dépôt ou par moteur), et 0086-kycontroller-micro-droits se pose sur
+    # 0085-kycontroller-flux-montant (numéro suivant).
     local LC_ALL=C
     local p repo
     echo "==> Correctifs"

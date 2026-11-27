@@ -314,17 +314,19 @@ pub fn address_from_listen(listen: &str) -> Option<String> {
     Some(format!("{host}:{port}"))
 }
 
-/// Admin répond-il à `address`, dans la version attendue ? (Stations Mac et
-/// Linux : leur applicateur attend la nouvelle version ainsi.)
-#[cfg(unix)]
-pub fn admin_answers(address: &str, version: &str, timeout: Duration) -> Result<()> {
+/// Le contrôle de santé de toutes les Stations : Admin répond-il à
+/// `address`, dans la version attendue, et `also` (Windows : le service Kyber
+/// tourne) est-il vrai, avant `timeout` ? Certificat d'Admin auto-signé : seule
+/// la version compte ici. Une console d'avant la 0.2.6 (retour arrière sous
+/// Windows) ne donne pas sa version : sa réponse suffit.
+pub fn admin_answers(address: &str, version: &str, timeout: Duration, also: &dyn Fn() -> Result<(), String>) -> Result<()> {
     use std::time::Instant;
     let deadline = Instant::now() + timeout;
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(3)))
-        // Certificat d'Admin, auto-signé : seule la version compte ici.
         .tls_config(ureq::tls::TlsConfig::builder().disable_verification(true).build())
         .http_status_as_error(false)
+        // Jamais par un proxy (HTTPS_PROXY du système) : c'est l'ordinateur lui-même.
         .proxy(None)
         .build()
         .into();
@@ -335,16 +337,23 @@ pub fn admin_answers(address: &str, version: &str, timeout: Duration) -> Result<
             Ok(mut resp) => {
                 let body: Value = resp.body_mut().read_to_vec().ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
                 match body["version"].as_str() {
-                    Some(v) if v == version => return Ok(()),
-                    Some(v) => last = format!("Admin répond en version {v}"),
-                    None => last = "réponse sans version".into(),
+                    Some(v) if v == version => match also() {
+                        Ok(()) => return Ok(()),
+                        Err(why) => last = why,
+                    },
+                    Some(v) => last = format!("Admin répond en version {v} au lieu de {version}"),
+                    None if resp.status().is_success() => match also() {
+                        Ok(()) => return Ok(()),
+                        Err(why) => last = why,
+                    },
+                    None => last = format!("réponse inattendue d'Admin ({})", resp.status()),
                 }
             }
-            Err(e) => last = e.to_string(),
+            Err(e) => last = format!("Admin ne répond pas ({e})"),
         }
         std::thread::sleep(Duration::from_secs(2));
     }
-    bail!("KyberNow Admin ne répond pas en version {version} au bout de {} s ({last})", timeout.as_secs())
+    bail!("KyberNow Admin ne répond pas en version {version} au bout de {} s ({last}, {address})", timeout.as_secs())
 }
 
 /// Version dans `kybernow.json` (écrite d'un bloc : fichier temporaire puis renommage).
@@ -992,7 +1001,7 @@ mod windows {
             let _ = run("sc.exe", &["failureflag", service, "1"]);
         }
     }
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    use crate::proc::CREATE_NO_WINDOW;
     /// Noms affichés posés par l'installateur (`server/installer/i18n`,
     /// `install.serviceName`, `install.serviceDescription`,
     /// `install.trayShortcut`), repris ici pour les installations d'avant le
@@ -1207,41 +1216,7 @@ mod windows {
         }
 
         fn health(&mut self, address: &str, version: &str, timeout: Duration) -> Result<()> {
-            let deadline = Instant::now() + timeout;
-            let agent: ureq::Agent = ureq::Agent::config_builder()
-                .timeout_global(Some(Duration::from_secs(3)))
-                // Certificat de la console, auto-signé : seule la version compte ici.
-                .tls_config(ureq::tls::TlsConfig::builder().disable_verification(true).build())
-                .http_status_as_error(false)
-                // Jamais par un proxy (HTTPS_PROXY du système) : c'est l'ordinateur lui-même.
-                .proxy(None)
-                .build()
-                .into();
-            let url = format!("https://{address}/api/session");
-            let mut last = String::from("aucune réponse");
-            while Instant::now() < deadline {
-                match agent.get(&url).call() {
-                    Ok(mut resp) => {
-                        let body: serde_json::Value =
-                            resp.body_mut().read_to_vec().ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-                        match body["version"].as_str() {
-                            Some(v) if v == version => {
-                                if service_running("kyber") {
-                                    return Ok(());
-                                }
-                                last = "le serveur Kyber ne démarre pas".into();
-                            }
-                            Some(v) => last = format!("la console répond en version {v} au lieu de {version}"),
-                            // Console d'avant la 0.2.6 (retour arrière) : sa réponse suffit.
-                            None if resp.status().is_success() && service_running("kyber") => return Ok(()),
-                            None => last = format!("réponse inattendue de la console ({})", resp.status()),
-                        }
-                    }
-                    Err(e) => last = format!("la console ne répond pas ({e})"),
-                }
-                std::thread::sleep(Duration::from_secs(2));
-            }
-            bail!("{last} ({address}) après {} s", timeout.as_secs())
+            super::admin_answers(address, version, timeout, &|| if service_running("kyber") { Ok(()) } else { Err("le serveur Kyber ne démarre pas".into()) })
         }
 
         fn register_version(&mut self, version: &str) -> Result<()> {

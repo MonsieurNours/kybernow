@@ -27,6 +27,9 @@
 
 #[cfg(windows)]
 pub mod agent;
+/// Les écrans d'une Station Mac ou Linux, par l'agent `kybernow-display`.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod agent_backend;
 /// L'agent des écrans d'une Station Mac ou Linux, par lignes JSON, avec délai.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod agent_pipe;
@@ -1003,7 +1006,7 @@ impl Manager {
         // (docs/station-macos.md, jalon 3) ; sans lui, l'écran du Mac tel quel.
         #[cfg(target_os = "macos")]
         let backend: Box<dyn Backend> = match (crate::mac::is_station(), mac::agent_path()) {
-            (true, Some(path)) => Box::new(mac::MacBackend::new(path)),
+            (true, Some(path)) => Box::new(mac::backend(path)),
             (true, None) => {
                 tracing::warn!("agent des écrans virtuels introuvable (kybernow-display) : l'écran du Mac tel qu'il est");
                 Box::new(Absent)
@@ -1014,7 +1017,7 @@ impl Manager {
         // (docs/station-linux.md) ; sans lui, les écrans tels quels.
         #[cfg(target_os = "linux")]
         let backend: Box<dyn Backend> = match (crate::linux::is_station(), linux::agent_path()) {
-            (true, Some(path)) => Box::new(linux::LinuxBackend::new(path)),
+            (true, Some(path)) => Box::new(linux::backend(path)),
             (true, None) => {
                 tracing::warn!("agent des écrans introuvable (kybernow-display) : les écrans tels qu'ils sont");
                 Box::new(Absent)

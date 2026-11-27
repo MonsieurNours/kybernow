@@ -44,6 +44,26 @@ use serde_json::Value;
 
 use crate::i18n::{Lang, tr};
 
+/// Heure Unix, en secondes.
+pub fn unix_now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+}
+
+/// Une ligne du journal de l'agent, `<dir>/<name>.log` (l'agent n'a ni
+/// console ni fenêtre à lui pour le dire), recommencé au-delà de 1 Mo :
+/// l'ancien est gardé en `<name>.old.log`. Le dossier change selon le système.
+pub fn append_log(dir: &std::path::Path, name: &str, line: &str) {
+    use std::io::Write;
+    let _ = std::fs::create_dir_all(dir);
+    let path = dir.join(format!("{name}.log"));
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > 1 << 20) {
+        let _ = std::fs::rename(&path, dir.join(format!("{name}.old.log")));
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{} {line}", unix_now());
+    }
+}
+
 /// Phase du prêt vue par l'agent (`phase` de `GET /api/local/lend/console`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
@@ -418,11 +438,6 @@ pub fn clock_at(lang: Lang, unix: i64) -> Option<String> {
     system::local_clock(unix).map(|(h, m)| clock(lang, h, m))
 }
 
-#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-pub fn unix_now() -> i64 {
-    system::unix_now()
-}
-
 /// L'horloge du lanceur et du cache : « 16:40 » ; « 4:40 PM ».
 pub fn wall_clock(lang: Lang, hour: u32, minute: u32) -> String {
     match lang {
@@ -673,6 +688,40 @@ pub fn base64(bytes: &[u8]) -> String {
         }
     }
     out
+}
+
+/// L'inverse de [`base64`] (alphabet standard, avec ou sans `=`) ; `None`
+/// pour un texte qui n'en est pas.
+pub fn unbase64(text: &str) -> Option<Vec<u8>> {
+    let value = |c: u8| -> Option<u32> {
+        Some(match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        } as u32)
+    };
+    let text = text.trim_end_matches('=').as_bytes();
+    if text.len() % 4 == 1 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    for chunk in text.chunks(4) {
+        let mut n = 0u32;
+        for (i, c) in chunk.iter().enumerate() {
+            n |= value(*c)? << (18 - 6 * i);
+        }
+        out.push((n >> 16) as u8);
+        if chunk.len() > 2 {
+            out.push((n >> 8) as u8);
+        }
+        if chunk.len() > 3 {
+            out.push(n as u8);
+        }
+    }
+    Some(out)
 }
 
 #[cfg(test)]
@@ -958,5 +1007,10 @@ mod tests {
         assert_eq!(base64(b"foo"), "Zm9v");
         assert_eq!(base64(b"foobar"), "Zm9vYmFy");
         assert_eq!(base64(&[0xff, 0xfe, 0x00]), "//4A");
+        for bytes in [&b""[..], b"f", b"fo", b"foo", b"foobar", &[0xff, 0xfe, 0x00, 0x7f], &(0..=255).collect::<Vec<u8>>()] {
+            assert_eq!(unbase64(&base64(bytes)).as_deref(), Some(bytes));
+        }
+        assert_eq!(unbase64("Zm9v YmFy"), None);
+        assert_eq!(unbase64("Z"), None);
     }
 }

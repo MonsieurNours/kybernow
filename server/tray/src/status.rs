@@ -22,6 +22,32 @@ impl State {
     }
 }
 
+/// Après un redémarrage de la Station confié à Admin (STWIN-45) : son
+/// assistant arrête Admin puis Kyber et les relance. Attend qu'Admin se soit
+/// arrêté (20 s au plus : un assistant qui n'a rien fait ne bloque pas), puis
+/// que les deux tournent de nouveau ; un service arrêté en route n'est pas
+/// une erreur, seulement le délai dépassé.
+pub fn after_restart(state: &dyn Fn(&str) -> State, admin: &str, kyber: &str) -> anyhow::Result<()> {
+    use std::time::{Duration, Instant};
+    let until = |name: &str, done: &dyn Fn(State) -> bool, timeout: Duration| -> bool {
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            if done(state(name)) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(300));
+        }
+        false
+    };
+    until(admin, &|s| s != State::Running, Duration::from_secs(20));
+    for name in [kyber, admin] {
+        if !until(name, &|s| s == State::Running, Duration::from_secs(90)) {
+            anyhow::bail!(t("tray.errors.serviceTimeout", &[("service", &name), ("seconds", &90)]));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Look {
     /// Station en marche, aucune session.

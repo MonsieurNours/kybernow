@@ -143,11 +143,8 @@ pub fn run_agent(dir: &Path) -> anyhow::Result<()> {
 
 #[cfg(windows)]
 pub fn probe() -> Value {
-    use windows_sys::Win32::Foundation::{CloseHandle, RECT};
+    use windows_sys::Win32::Foundation::RECT;
     use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
-    };
     use windows_sys::Win32::UI::Shell::{QUNS_RUNNING_D3D_FULL_SCREEN, SHQueryUserNotificationState};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GetClassNameW, GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId,
@@ -180,17 +177,7 @@ pub fn probe() -> Value {
 
         let mut pid = 0u32;
         GetWindowThreadProcessId(hwnd, &mut pid);
-        let mut exe = String::new();
-        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if !process.is_null() {
-            let mut buf = [0u16; 520];
-            let mut len = buf.len() as u32;
-            if QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len) != 0 {
-                let path = String::from_utf16_lossy(&buf[..len as usize]);
-                exe = path.rsplit(['\\', '/']).next().unwrap_or("").to_lowercase();
-            }
-            CloseHandle(process);
-        }
+        let exe = crate::winproc::image_path(pid).map(|path| path.rsplit(['\\', '/']).next().unwrap_or("").to_lowercase()).unwrap_or_default();
 
         let fullscreen = d3d || (covers && !shell);
         let game = fullscreen && !NOT_GAMES.contains(&exe.as_str());

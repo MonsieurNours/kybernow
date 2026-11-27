@@ -13,7 +13,8 @@
 #   /usr/lib/kybernow-station/bin/       kyber-admin, kybernow-display, kybernow-tray, kybernow-station-setup
 #   /usr/lib/kybernow-station/runtime/   Kyber (bin, lib, share/kyber_config.toml)
 #   /usr/lib/systemd/user/               kybernow-admin.service, kybernow-kyber.service, kybernow-tray.service
-#   /usr/lib/systemd/system/             kybernow-station-update.socket et kybernow-station-update@.service
+#   /usr/lib/systemd/system/             kybernow-station-update.socket et kybernow-station-update@.service,
+#                                        kybernow-station-input.socket et kybernow-station-input@.service
 #                                        (service root des mises à jour, demandées par Admin)
 #   /usr/lib/udev/rules.d/               60-kybernow-uinput.rules (uinput, uhid, hidraw des DualSense)
 #   /usr/lib/modules-load.d/             kybernow-station.conf (uinput, uhid au démarrage)
@@ -79,6 +80,7 @@ install -m 644 "$KYBER_DIR/kyber_config.toml" "$LIB/runtime/share/kyber_config.t
 install -m 644 "$ROOT/server/linux/packaging/kybernow-admin.service" "$ROOT/server/linux/packaging/kybernow-kyber.service" \
     "$ROOT/server/linux/packaging/kybernow-tray.service" "$TREE/usr/lib/systemd/user/"
 install -m 644 "$ROOT/server/linux/packaging/kybernow-station-update.socket" "$ROOT/server/linux/packaging/kybernow-station-update@.service" \
+    "$ROOT/server/linux/packaging/kybernow-station-input.socket" "$ROOT/server/linux/packaging/kybernow-station-input@.service" \
     "$TREE/usr/lib/systemd/system/"
 install -m 644 "$ROOT/server/linux/packaging/60-kybernow-uinput.rules" "$TREE/usr/lib/udev/rules.d/"
 install -m 644 "$ROOT/server/linux/packaging/kybernow-station-modules.conf" "$TREE/usr/lib/modules-load.d/kybernow-station.conf"
@@ -104,14 +106,17 @@ SIZE_KB=$(du -sk "$TREE" | cut -f1)
 # root relance ensuite les services de l'utilisateur lui-même).
 POSTINST='#!/bin/sh
 set -e
-# Le socket des mises à jour est réservé au groupe kybernow-station et au
-# propriétaire de la Station (STLIN-02) : le groupe d abord, puis le compte
-# qui installe (sudo, pkexec), noté une fois pour toutes. Une mise à jour
-# faite par Admin (service root, ni sudo ni pkexec) garde le propriétaire noté.
+# Les sockets des mises à jour et de l entrée (prêt) sont réservés au groupe
+# kybernow-station et au propriétaire de la Station (STLIN-02, STLIN-05) : le
+# groupe d abord, puis le compte qui installe (sudo, pkexec), noté une fois
+# pour toutes. Une mise à jour faite par Admin (service root, ni sudo ni
+# pkexec) garde le propriétaire noté, et le reporte sur le socket de l entrée
+# d une Station d avant la 0.11.8.
 systemd-sysusers kybernow-station.conf 2>/dev/null || getent group kybernow-station >/dev/null || groupadd --system kybernow-station
 owner="${SUDO_USER:-}"
 [ -z "$owner" ] && [ -n "${PKEXEC_UID:-}" ] && owner="$(id -nu "$PKEXEC_UID" 2>/dev/null || true)"
 dropin=/etc/systemd/system/kybernow-station-update.socket.d
+input=/etc/systemd/system/kybernow-station-input.socket.d
 if [ -n "$owner" ] && [ "$owner" != root ] && id "$owner" >/dev/null 2>&1; then
     usermod -a -G kybernow-station "$owner" 2>/dev/null || gpasswd -a "$owner" kybernow-station >/dev/null 2>&1 || true
     if [ ! -f "$dropin/owner.conf" ]; then
@@ -120,7 +125,11 @@ if [ -n "$owner" ] && [ "$owner" != root ] && id "$owner" >/dev/null 2>&1; then
         { echo "# Propriétaire de la Station (compte qui l a installée)."; echo "[Socket]"; echo "SocketUser=$owner"; } > "$dropin/owner.conf"
     fi
 elif [ ! -f "$dropin/owner.conf" ]; then
-    echo "Mises à jour depuis Admin : ajoutez votre compte au groupe kybernow-station (sudo usermod -aG kybernow-station VOTRE_COMPTE), puis rouvrez la session."
+    echo "Mises à jour depuis Admin et prêt de l ordinateur : ajoutez votre compte au groupe kybernow-station (sudo usermod -aG kybernow-station VOTRE_COMPTE), puis rouvrez la session."
+fi
+if [ -f "$dropin/owner.conf" ] && [ ! -f "$input/owner.conf" ]; then
+    mkdir -p "$input"
+    cp "$dropin/owner.conf" "$input/owner.conf"
 fi
 udevadm control --reload 2>/dev/null || true
 modprobe uinput 2>/dev/null || true
@@ -128,10 +137,11 @@ modprobe uhid 2>/dev/null || true
 udevadm trigger --name-match=uinput 2>/dev/null || true
 udevadm trigger --name-match=uhid 2>/dev/null || true
 systemctl daemon-reload 2>/dev/null || true
-systemctl enable kybernow-station-update.socket 2>/dev/null || true
-# Relancé pour prendre les droits du socket (0660, groupe, propriétaire) ;
-# une demande déjà acceptée garde sa connexion.
-systemctl restart kybernow-station-update.socket 2>/dev/null || true
+systemctl enable kybernow-station-update.socket kybernow-station-input.socket 2>/dev/null || true
+# Relancés pour prendre les droits des sockets (0660, groupe, propriétaire) ;
+# une demande déjà acceptée garde sa connexion (une prise d entrée en cours
+# aussi).
+systemctl restart kybernow-station-update.socket kybernow-station-input.socket 2>/dev/null || true
 systemctl --global enable kybernow-admin.service kybernow-kyber.service kybernow-tray.service 2>/dev/null || true
 # Pare-feu actif : les ports de la Station ouverts (zone par défaut de
 # firewalld, ufw), comme sous Windows ; un pare-feu arrêté reste tel quel.
@@ -152,7 +162,7 @@ PRERM='#!/bin/sh
 set -e
 case "$1" in
     remove | purge | 0)
-        systemctl disable --now kybernow-station-update.socket 2>/dev/null || true
+        systemctl disable --now kybernow-station-update.socket kybernow-station-input.socket 2>/dev/null || true
         systemctl --global disable kybernow-admin.service kybernow-kyber.service kybernow-tray.service 2>/dev/null || true
         # Les sessions ouvertes gardaient la Station en marche, fichiers effacés.
         for u in $(loginctl list-users --no-legend 2>/dev/null | awk "{print \$2}"); do
@@ -182,7 +192,7 @@ case "$1" in
 esac
 case "$1" in
     purge | 0)
-        rm -rf /var/lib/kybernow-station /etc/systemd/system/kybernow-station-update.socket.d
+        rm -rf /var/lib/kybernow-station /etc/systemd/system/kybernow-station-update.socket.d /etc/systemd/system/kybernow-station-input.socket.d
         systemctl daemon-reload 2>/dev/null || true
         ;;
 esac
@@ -285,6 +295,8 @@ $(printf '%s' "$POSTRM" | sed 1d)
 /usr/lib/systemd/user/kybernow-tray.service
 /usr/lib/systemd/system/kybernow-station-update.socket
 /usr/lib/systemd/system/kybernow-station-update@.service
+/usr/lib/systemd/system/kybernow-station-input.socket
+/usr/lib/systemd/system/kybernow-station-input@.service
 /usr/lib/udev/rules.d/60-kybernow-uinput.rules
 /usr/lib/modules-load.d/kybernow-station.conf
 /usr/lib/sysusers.d/kybernow-station.conf

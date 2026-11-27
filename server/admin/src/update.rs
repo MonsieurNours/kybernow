@@ -829,7 +829,7 @@ pub fn spawn_detached(exe: &Path, args: &[std::ffi::OsString], cwd: &Path, outpu
 
     use anyhow::Context;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    use crate::proc::CREATE_NO_WINDOW;
     const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
     let output = std::fs::File::create(output).with_context(|| format!("création de {}", output.display()))?;
     let spawn = |flags: u32| -> std::io::Result<std::process::Child> {

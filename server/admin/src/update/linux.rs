@@ -653,13 +653,13 @@ mod system {
         }
 
         fn health(&mut self, address: &str, version: &str, timeout: Duration) -> Result<()> {
-            super::super::apply::admin_answers(address, version, timeout)
+            super::super::apply::admin_answers(address, version, timeout, &|| Ok(()))
         }
     }
 }
 
 /// Fichier du service root qui garde le compte propriétaire de la Station.
-const OWNER_FILE: &str = "proprietaire";
+pub const OWNER_FILE: &str = "proprietaire";
 
 /// Seul le compte de la Station (le premier à avoir demandé une mise à jour,
 /// noté par root) pilote le service root : un autre compte de l'ordinateur

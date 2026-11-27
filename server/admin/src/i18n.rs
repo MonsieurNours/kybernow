@@ -30,21 +30,12 @@ use axum::response::Response;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Lang {
-    #[default]
-    Fr,
-    En,
-}
+/// Langue, recherche des clés, `{nom}` : le tronc commun avec l'icône et
+/// l'installateur (`i18n/common.rs`).
+mod common;
+pub use common::{Lang, fill, lookup};
 
 impl Lang {
-    pub fn code(self) -> &'static str {
-        match self {
-            Lang::Fr => "fr",
-            Lang::En => "en",
-        }
-    }
-
     /// Langue d'un en-tête `Accept-Language` : la langue préférée (plus forte
     /// pondération, puis ordre), français si elle commence par « fr »,
     /// anglais sinon. Sans en-tête (ou vide) : français.
@@ -85,10 +76,6 @@ fn catalog(lang: Lang) -> &'static Value {
     }
 }
 
-fn lookup<'a>(root: &'a Value, key: &str) -> Option<&'a str> {
-    key.split('.').try_fold(root, |node, part| node.get(part))?.as_str()
-}
-
 /// Système de la Station (`/api/session`) : `macos`, `linux` ou `windows`.
 pub const PLATFORM: &str = if cfg!(target_os = "macos") {
     "macos"
@@ -110,31 +97,6 @@ fn text(lang: Lang, key: &str) -> &str {
         }
     }
     lookup(catalog(lang), key).or_else(|| lookup(&FR, key)).unwrap_or(key)
-}
-
-fn fill(template: &str, mut value_of: impl FnMut(&str) -> Option<String>) -> String {
-    let mut out = String::with_capacity(template.len());
-    let mut rest = template;
-    while let Some(start) = rest.find('{') {
-        out.push_str(&rest[..start]);
-        let after = &rest[start + 1..];
-        match after.find('}') {
-            Some(end) if !after[..end].is_empty() && after[..end].chars().all(|c| c.is_ascii_alphanumeric() || c == '_') => {
-                let name = &after[..end];
-                match value_of(name) {
-                    Some(v) => out.push_str(&v),
-                    None => out.push_str(&rest[start..start + end + 2]),
-                }
-                rest = &after[end + 1..];
-            }
-            _ => {
-                out.push('{');
-                rest = after;
-            }
-        }
-    }
-    out.push_str(rest);
-    out
 }
 
 /// Texte de `key` dans `lang`, `{nom}` remplacé par les paramètres.
@@ -399,45 +361,9 @@ pub fn notes_for(notes: &str, lang: Lang) -> String {
 mod tests {
     use super::*;
 
-    fn keys(node: &Value, prefix: &str, out: &mut Vec<(String, String)>) {
-        if let Some(o) = node.as_object() {
-            for (k, v) in o {
-                let key = if prefix.is_empty() { k.clone() } else { format!("{prefix}.{k}") };
-                match v {
-                    Value::Object(_) => keys(v, &key, out),
-                    other => out.push((key, other.as_str().unwrap_or_default().to_string())),
-                }
-            }
-        }
-    }
-
-    fn placeholders(text: &str) -> Vec<String> {
-        let mut found = Vec::new();
-        fill(text, |name| {
-            found.push(name.to_string());
-            Some(String::new())
-        });
-        found.sort();
-        found
-    }
-
     #[test]
     fn catalogues_alignes() {
-        let (mut fr, mut en) = (Vec::new(), Vec::new());
-        keys(&FR, "", &mut fr);
-        keys(&EN, "", &mut en);
-        let fr_keys: Vec<_> = fr.iter().map(|(k, _)| k.clone()).collect();
-        let en_keys: Vec<_> = en.iter().map(|(k, _)| k.clone()).collect();
-        for k in &fr_keys {
-            assert!(en_keys.contains(k), "absent de en.json : {k}");
-        }
-        for k in &en_keys {
-            assert!(fr_keys.contains(k), "absent de fr.json : {k}");
-        }
-        for (k, v) in &fr {
-            let english = &en.iter().find(|(e, _)| e == k).unwrap().1;
-            assert_eq!(placeholders(v), placeholders(english), "paramètres de {k}");
-        }
+        common::check_catalogs(&FR, &EN).unwrap();
     }
 
     #[test]

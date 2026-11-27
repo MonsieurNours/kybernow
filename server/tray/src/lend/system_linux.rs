@@ -6,10 +6,12 @@
 //!
 //! - « Crochets » : l'entrée **physique** (claviers, souris, pavés tactiles
 //!   et manettes branchés sur l'ordinateur) est prise en exclusivité
-//!   (`EVIOCGRAB` sur `/dev/input/event*`, il faut la règle udev du paquet) :
-//!   le compositeur ne la voit plus, l'agent n'y lit qu'Entrée et Échap pour
-//!   le cache. L'entrée de l'ami arrive par les appareils uinput de Kyber
-//!   (appareils virtuels), jamais pris ;
+//!   (`EVIOCGRAB` sur `/dev/input/event*`) par l'aide root du paquet
+//!   (`kyber-admin input serve`, voir `server/admin/src/linux_input.rs`) :
+//!   le compositeur ne la voit plus, l'agent n'en reçoit qu'Entrée et Échap
+//!   pour le cache, et l'aide la rend d'elle-même si l'agent s'arrête.
+//!   L'entrée de l'ami arrive par les appareils uinput de Kyber (appareils
+//!   virtuels), jamais pris ;
 //! - raccourcis du bureau (« barres des tâches ») : coupés pendant le prêt,
 //!   pour l'ami comme pour le clavier de l'ordinateur : sous GNOME, les
 //!   raccourcis de Mutter, du Shell et de gnome-settings-daemon (touche Super,
@@ -26,15 +28,15 @@
 //!   processus), le lanceur revient par le bouton « Accueil » ;
 //! - fenêtres « Ouvrir » : pas d'équivalent (limite connue, comme sur Mac).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::Write;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -61,20 +63,10 @@ pub fn dir() -> Option<PathBuf> {
 
 /// Une ligne du journal de l'agent (`~/.local/state/kybernow/console.log`).
 pub fn log(line: &str) {
-    let dir = xdg("XDG_STATE_HOME", ".local/state").join("kybernow");
-    let _ = std::fs::create_dir_all(&dir);
-    let path = dir.join("console.log");
-    if std::fs::metadata(&path).is_ok_and(|m| m.len() > 1 << 20) {
-        let _ = std::fs::rename(&path, dir.join("console.old.log"));
-    }
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "{} {line}", unix_now());
-    }
+    super::append_log(&xdg("XDG_STATE_HOME", ".local/state").join("kybernow"), "console", line);
 }
 
-pub fn unix_now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
-}
+pub use super::unix_now;
 
 /// Démarrage de l'ordinateur (`btime` de `/proc/stat`), en secondes Unix.
 pub fn boot_time() -> i64 {
@@ -143,82 +135,75 @@ pub fn lock_workstation() {
 
 // --- L'entrée physique de l'ordinateur ----------------------------------------
 
-/// `EVIOCGRAB` : `_IOW('E', 0x90, int)`.
-const EVIOCGRAB: libc::c_ulong = 0x4004_4590;
-const EV_KEY: u16 = 1;
-const KEY_ESC: u16 = 1;
-const KEY_ENTER: u16 = 28;
-const KEY_KPENTER: u16 = 96;
+/// Protocole et appareils, partagés avec l'aide root d'Admin.
+#[path = "../../../admin/src/linux_input.rs"]
+mod linux_input;
 
-/// `EVIOCGNAME(len)` : `_IOC(_IOC_READ, 'E', 0x06, len)`.
-fn eviocgname(len: usize) -> libc::c_ulong {
-    (2 << 30) | ((len as libc::c_ulong) << 16) | (0x45 << 8) | 0x06
-}
+use linux_input::{Event, Grabber, Key, PING_EVERY, Request};
 
-/// Les appareils d'entrée branchés sur l'ordinateur : pas ceux de uinput
-/// (Kyber, l'ami ; `devices/virtual`), pas les boutons et interrupteurs que
-/// logind garde (alimentation, mise en veille, rabat de l'écran).
-fn physical_devices() -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir("/sys/class/input") else { return Vec::new() };
-    let mut out: Vec<PathBuf> = entries
-        .flatten()
-        .filter(|e| e.file_name().to_string_lossy().starts_with("event"))
-        .filter(|e| std::fs::canonicalize(e.path()).is_ok_and(|p| !p.to_string_lossy().contains("/devices/virtual/")))
-        .filter(|e| {
-            let name = std::fs::read_to_string(e.path().join("device/name")).unwrap_or_default();
-            !["Power Button", "Sleep Button", "Lid Switch", "Video Bus"].iter().any(|n| name.contains(n))
-        })
-        .map(|e| Path::new("/dev/input").join(e.file_name()))
-        .collect();
-    out.sort();
-    out
-}
-
-fn device_name(fd: &OwnedFd) -> String {
-    let mut buf = [0u8; 128];
-    let n = unsafe { libc::ioctl(fd.as_raw_fd(), eviocgname(buf.len()), buf.as_mut_ptr()) };
-    if n <= 0 {
-        return String::new();
+fn cover_key(key: Key) -> CoverKey {
+    match key {
+        Key::Enter => CoverKey::Enter,
+        Key::Escape => CoverKey::Escape,
     }
-    String::from_utf8_lossy(&buf[..(n as usize).min(buf.len())]).trim_end_matches('\0').to_string()
 }
 
-/// Ouvre et prend un appareil en exclusivité.
-fn grab(path: &Path) -> std::io::Result<OwnedFd> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let file = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC).open(path)?;
-    let fd: OwnedFd = file.into();
-    if unsafe { libc::ioctl(fd.as_raw_fd(), EVIOCGRAB, 1 as libc::c_int) } != 0 {
-        return Err(std::io::Error::last_os_error());
+/// Une prise par l'aide root, jusqu'à `stop` (`true` : rendue à notre
+/// demande) ou jusqu'à la perte de la connexion (`false`).
+fn helper_grab(conn: linux_input::client::Connection, stop: &AtomicBool, sink: &(dyn Fn(CoverKey) + Send + Sync)) -> bool {
+    use std::io::BufRead;
+    let linux_input::client::Connection { mut stream, mut reader, .. } = conn;
+    if stream.set_read_timeout(Some(Duration::from_millis(200))).is_err() {
+        return false;
     }
-    Ok(fd)
-}
-
-/// Lit les évènements en attente : rend les touches du cache appuyées.
-fn read_keys(fd: &OwnedFd) -> (Vec<CoverKey>, bool) {
-    const SIZE: usize = std::mem::size_of::<libc::input_event>();
-    let mut keys = Vec::new();
-    let mut buf = [0u8; SIZE * 64];
+    let mut pinged = std::time::Instant::now();
+    let mut line = String::new();
     loop {
-        let n = unsafe { libc::read(fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
-        if n < 0 {
-            let gone = std::io::Error::last_os_error().raw_os_error() == Some(libc::ENODEV);
-            return (keys, gone);
+        if stop.load(Ordering::SeqCst) {
+            let _ = writeln!(stream, "release");
+            return true;
         }
-        if n == 0 {
-            return (keys, true);
+        if pinged.elapsed() >= PING_EVERY {
+            if writeln!(stream, "ping").is_err() {
+                return false;
+            }
+            pinged = std::time::Instant::now();
         }
-        for chunk in buf[..n as usize].chunks_exact(SIZE) {
-            let ev: libc::input_event = unsafe { std::ptr::read_unaligned(chunk.as_ptr().cast()) };
-            if ev.type_ == EV_KEY && ev.value == 1 {
-                match ev.code {
-                    KEY_ENTER | KEY_KPENTER => keys.push(CoverKey::Enter),
-                    KEY_ESC => keys.push(CoverKey::Escape),
+        // Une ligne entamée reste dans `line` jusqu'à sa fin.
+        match reader.read_line(&mut line) {
+            Ok(0) => return false,
+            Ok(_) if line.ends_with('\n') => {
+                match Event::parse(&line) {
+                    Some(Event::Key(key)) => sink(cover_key(key)),
+                    Some(Event::Devices(n)) => log(&format!("entrée de l'ordinateur : {n} appareil(s) pris par l'aide")),
+                    Some(Event::Error(e)) => {
+                        log(&format!("aide de l'entrée : {e}"));
+                        return false;
+                    }
                     _ => {}
                 }
+                line.clear();
             }
+            Ok(_) => {}
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut | std::io::ErrorKind::Interrupted) => {}
+            Err(_) => return false,
         }
     }
+}
+
+/// Prise directe, sans l'aide (installation dans le dossier de
+/// l'utilisateur) : marche si ce compte peut ouvrir `/dev/input/event*`.
+fn direct_grab(stop: &AtomicBool, sink: &(dyn Fn(CoverKey) + Send + Sync)) {
+    let mut grabber = Grabber::new();
+    let mut note = |line: String| log(&line);
+    while !stop.load(Ordering::SeqCst) {
+        grabber.rescan(&mut note);
+        let (keys, _) = grabber.poll(None, 200);
+        for key in keys {
+            sink(cover_key(key));
+        }
+    }
+    // Lâcher le `Grabber` rend chaque appareil au compositeur.
 }
 
 pub struct Hooks {
@@ -227,67 +212,47 @@ pub struct Hooks {
 }
 
 impl Hooks {
-    /// Prend l'entrée physique (relue toutes les 2 s : un clavier branché en
-    /// cours de prêt est pris aussi) ; Entrée et Échap vont au cache. Sans
-    /// droit sur `/dev/input` (règle udev absente), le prêt continue, l'entrée
-    /// de l'ordinateur n'est pas bloquée, et le journal le dit.
+    /// Prend l'entrée physique pour la durée du prêt ; Entrée et Échap vont
+    /// au cache. Par l'aide root du paquet (`kybernow-station-input.socket`) :
+    /// elle tient les appareils, et les rend d'elle-même si cet agent
+    /// s'arrête ou ne donne plus signe de vie. Connexion perdue en cours de
+    /// prêt : redemandée. Sans l'aide, prise directe ; sans droit sur
+    /// `/dev/input` non plus, le prêt continue, l'entrée de l'ordinateur
+    /// n'est pas bloquée (Admin l'a dit avant d'accorder le prêt), et le
+    /// journal le dit.
     pub fn start(sink: impl Fn(CoverKey) + Send + Sync + 'static) -> Result<Hooks> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop2 = stop.clone();
         let join = std::thread::spawn(move || {
-            let mut held: HashMap<PathBuf, OwnedFd> = HashMap::new();
-            let mut refused: HashSet<PathBuf> = HashSet::new();
-            let mut scan_at = std::time::Instant::now() - Duration::from_secs(10);
+            let mut lost = 0u32;
             while !stop2.load(Ordering::SeqCst) {
-                if scan_at.elapsed() >= Duration::from_secs(2) {
-                    scan_at = std::time::Instant::now();
-                    for path in physical_devices() {
-                        if held.contains_key(&path) || refused.contains(&path) {
-                            continue;
+                match linux_input::client::open(Request::Grab, Duration::from_secs(10)) {
+                    Ok(conn) => {
+                        log(&format!("entrée de l'ordinateur prise par l'aide root : {} appareil(s)", conn.devices));
+                        if helper_grab(conn, &stop2, &sink) {
+                            log("entrée de l'ordinateur rendue");
+                            return;
                         }
-                        match grab(&path) {
-                            Ok(fd) => {
-                                log(&format!("entrée de l'ordinateur prise : {} « {} »", path.display(), device_name(&fd)));
-                                held.insert(path, fd);
-                            }
-                            Err(e) => {
-                                log(&format!("entrée de l'ordinateur non bloquée : {} ({e})", path.display()));
-                                refused.insert(path);
-                            }
+                        lost += 1;
+                        log("aide de l'entrée perdue : nouvelle demande");
+                        std::thread::sleep(Duration::from_millis(500));
+                    }
+                    Err(e) if lost == 0 => {
+                        log(&format!("aide de l'entrée injoignable ({e}) : prise directe"));
+                        break;
+                    }
+                    Err(e) => {
+                        // Déjà prise par l'aide une fois : elle revient (relance de systemd).
+                        log(&format!("aide de l'entrée injoignable ({e}) : nouvel essai"));
+                        lost += 1;
+                        if lost > 10 {
+                            break;
                         }
+                        std::thread::sleep(Duration::from_secs(1));
                     }
-                }
-                let mut fds: Vec<libc::pollfd> = held.values().map(|fd| libc::pollfd { fd: fd.as_raw_fd(), events: libc::POLLIN, revents: 0 }).collect();
-                if fds.is_empty() {
-                    std::thread::sleep(Duration::from_millis(200));
-                    continue;
-                }
-                let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, 200) };
-                if n <= 0 {
-                    continue;
-                }
-                let ready: HashSet<i32> = fds.iter().filter(|p| p.revents != 0).map(|p| p.fd).collect();
-                let mut gone = Vec::new();
-                for (path, fd) in &held {
-                    if !ready.contains(&fd.as_raw_fd()) {
-                        continue;
-                    }
-                    let (keys, unplugged) = read_keys(fd);
-                    for key in keys {
-                        sink(key);
-                    }
-                    if unplugged {
-                        gone.push(path.clone());
-                    }
-                }
-                for path in gone {
-                    held.remove(&path);
                 }
             }
-            // Fermer le descripteur rend l'appareil au compositeur.
-            for (_, fd) in held.drain() {
-                unsafe { libc::ioctl(fd.as_raw_fd(), EVIOCGRAB, 0 as libc::c_int) };
-            }
+            direct_grab(&stop2, &sink);
         });
         Ok(Hooks { stop, join: Some(join) })
     }
@@ -534,9 +499,4 @@ mod tests {
         assert_eq!(empty_value("'Super_L'"), "''");
     }
 
-    #[test]
-    fn le_numero_de_eviocgname() {
-        // EVIOCGNAME(256) de linux/input.h : 0x81004506.
-        assert_eq!(eviocgname(256), 0x8100_4506);
-    }
 }

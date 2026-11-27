@@ -155,6 +155,7 @@
     "stationRestarted": "{name} restarted the Station",
     "stationRestartedAccount": "A device on account {account} restarted the Station",
     "stationRestartedAdmin": "Station restarted from Admin",
+    "stationRestartedTray": "Station restarted from the computer's icon",
     "stationUpdate": "{name} started the update to {version}",
     "stationUpdateAccount": "A device on account {account} started the update to {version}",
     "displayKeepsTurningOn": "Windows keeps turning a display of the computer back on: it stays on for the rest of the session",
@@ -263,7 +264,7 @@
     "locked": "Access away from home blocked for 10 min after too many attempts."
   },
   "lend": {
-    "inputNotLocked": "This computer's keyboard and mouse cannot be locked during the loan: whoever sits at the screen keeps control. Reinstall the KyberNow Station package (input udev rule), then sign in again.",
+    "inputNotLocked": "This computer's keyboard and mouse cannot be locked during the loan: whoever sits at the screen keeps control. Install KyberNow Station with its .deb or .rpm package, then sign in again.",
     "badSlot": "Unreadable time slot: one or more days, and an end time after the start time (“14:00”, “18:00”).",
     "passwordLength": "A friend's password has at least 6 characters.",
     "nameRequired": "Give this friend account a name.",
@@ -275,7 +276,12 @@
     "unknownRequest": "This request is no longer waiting.",
     "noLend": "No loan in progress.",
     "unknownFriend": "This friend account no longer exists.",
-    "unknownApp": "This app is no longer allowed."
+    "unknownApp": "This app is no longer allowed.",
+    "steamKept": "A previous loan's Steam accounts aren't put back yet.",
+    "steamBadFiles": "Unreadable Steam files.",
+    "steamNotNow": "The host's Steam accounts are put back at the end of the loan.",
+    "steamNone": "No Steam account to put back.",
+    "steamAgentOnly": "Reserved to KyberNow Station's console agent."
   },
   "macos": {
     "station": {

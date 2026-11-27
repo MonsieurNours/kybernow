@@ -343,27 +343,44 @@ impl Drop for Watch {
 
 pub use platform::{host_name, idle_secs, keep_awake, lock_session, session_state, spawn_console, steam_dir, watch};
 
-/// Le mode console existe ici : Windows, ou une Station Mac installée (pas le
-/// Mac de développement, où tout est simulé).
 /// Le clavier et la souris de l'ordinateur peuvent-ils être bloqués pendant
-/// un prêt ? Windows et Mac : toujours (crochets de l'agent). Linux : il faut
-/// pouvoir ouvrir `/dev/input/event*` (règle udev du paquet) pour les prendre
-/// (`EVIOCGRAB`) ; sans elle, le prêt marche, mais la personne devant
-/// l'ordinateur garde la main : Admin le dit avant d'accorder un prêt.
+/// un prêt ? Windows et Mac : toujours (crochets de l'agent). Linux : par
+/// l'aide root du paquet (`kybernow-station-input.socket`, voir
+/// `linux_input`), qui doit savoir ouvrir chaque appareil physique ; à
+/// défaut (installation dans le dossier de l'utilisateur, sans root), si ce
+/// compte peut ouvrir `/dev/input/event*` lui-même. Sinon le prêt marche,
+/// mais la personne devant l'ordinateur garde la main : Admin le dit avant
+/// d'accorder un prêt. Relu toutes les 30 s au plus (chaque question lance
+/// l'aide root).
 pub fn physical_input_lockable() -> bool {
     #[cfg(target_os = "linux")]
     {
-        use std::os::unix::ffi::OsStrExt;
-        let Ok(dir) = std::fs::read_dir("/dev/input") else { return false };
-        dir.flatten().filter(|e| e.file_name().as_bytes().starts_with(b"event")).any(|e| {
-            let Ok(c) = std::ffi::CString::new(e.path().as_os_str().as_bytes()) else { return false };
-            unsafe { libc::access(c.as_ptr(), libc::R_OK) == 0 }
-        })
+        use std::sync::Mutex;
+        use std::time::{Duration, Instant};
+        static LAST: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
+        if let Some((at, known)) = *LAST.lock().unwrap()
+            && at.elapsed() < Duration::from_secs(30)
+        {
+            return known;
+        }
+        let devices = crate::linux_input::physical_devices().len();
+        let by_helper = match crate::linux_input::client::open(crate::linux_input::Request::Probe, Duration::from_secs(2)) {
+            Ok(c) => Some(c.devices >= devices),
+            Err(e) => {
+                tracing::debug!("prêt : aide de l'entrée injoignable ({e})");
+                None
+            }
+        };
+        let known = devices == 0 || by_helper.unwrap_or_else(|| crate::linux_input::openable() >= devices);
+        *LAST.lock().unwrap() = Some((Instant::now(), known));
+        known
     }
     #[cfg(not(target_os = "linux"))]
     true
 }
 
+/// Le mode console existe ici : Windows, ou une Station Mac installée (pas le
+/// Mac de développement, où tout est simulé).
 pub fn console_supported() -> bool {
     #[cfg(target_os = "macos")]
     return crate::mac::is_station();
@@ -503,29 +520,7 @@ mod platform {
 
     /// (pid, pid du parent) de tous les processus.
     fn snapshot() -> Vec<(u32, u32)> {
-        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
-        use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-            CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
-        };
-        let mut out = Vec::new();
-        unsafe {
-            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-            if snap == INVALID_HANDLE_VALUE {
-                return out;
-            }
-            let mut entry: PROCESSENTRY32W = std::mem::zeroed();
-            entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-            if Process32FirstW(snap, &mut entry) != 0 {
-                loop {
-                    out.push((entry.th32ProcessID, entry.th32ParentProcessID));
-                    if Process32NextW(snap, &mut entry) == 0 {
-                        break;
-                    }
-                }
-            }
-            CloseHandle(snap);
-        }
-        out
+        crate::winproc::processes().into_iter().map(|p| (p.pid, p.parent)).collect()
     }
 
     fn session_of(pid: u32) -> Option<u32> {
@@ -534,38 +529,7 @@ mod platform {
         (unsafe { ProcessIdToSessionId(pid, &mut s) } != 0).then_some(s)
     }
 
-    fn image_path(pid: u32) -> Option<String> {
-        use windows_sys::Win32::Foundation::CloseHandle;
-        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW};
-        unsafe {
-            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if h.is_null() {
-                return None;
-            }
-            let mut buf = [0u16; 1024];
-            let mut len = buf.len() as u32;
-            let ok = QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len) != 0;
-            CloseHandle(h);
-            ok.then(|| String::from_utf16_lossy(&buf[..len as usize]))
-        }
-    }
-
-    /// L'instant de création d'un processus (FILETIME).
-    fn born(pid: u32) -> Option<u64> {
-        use windows_sys::Win32::Foundation::{CloseHandle, FILETIME};
-        use windows_sys::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-        unsafe {
-            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if h.is_null() {
-                return None;
-            }
-            let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
-            let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
-            let ok = GetProcessTimes(h, &mut created, &mut exited, &mut kernel, &mut user) != 0;
-            CloseHandle(h);
-            ok.then(|| (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
-        }
-    }
+    use crate::winproc::{created as born, image_path};
 
     fn terminate(pid: u32) -> bool {
         use windows_sys::Win32::Foundation::CloseHandle;
@@ -973,20 +937,11 @@ mod platform {
 
     /// Apps refusées pendant un prêt, même ouvertes par une app permise.
 
-    fn home() -> PathBuf {
-        std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
-    }
-
-    fn own_uid() -> u32 {
-        use std::os::unix::fs::MetadataExt;
-        std::fs::metadata(home()).map(|m| m.uid()).unwrap_or(u32::MAX)
-    }
+    use crate::system::{home, uid as own_uid};
 
     pub fn session_state() -> SessionState {
-        use std::os::unix::fs::MetadataExt;
         // Une autre session (ou la fenêtre de connexion) devant l'écran : pas la nôtre.
-        let console = std::fs::metadata("/dev/console").map(|m| m.uid()).unwrap_or(0);
-        if console != own_uid() {
+        if crate::mac::console_uid().unwrap_or(0) != own_uid() {
             return SessionState::None;
         }
         if crate::launch::platform_session_locked() { SessionState::Locked } else { SessionState::Open }
@@ -1171,14 +1126,7 @@ mod platform {
     use super::linux_rules::{desktop_apps, judge};
     use super::{Rules, SessionState, Watch, parents_first};
 
-    fn home() -> PathBuf {
-        std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
-    }
-
-    fn own_uid() -> u32 {
-        use std::os::unix::fs::MetadataExt;
-        std::fs::metadata("/proc/self").map(|m| m.uid()).unwrap_or(u32::MAX)
-    }
+    use crate::system::{home, uid as own_uid};
 
     fn output(cmd: &str, args: &[&str]) -> Option<String> {
         let out = Command::new(cmd).args(args).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
@@ -1310,7 +1258,7 @@ mod platform {
                     awake.push(child);
                 }
                 if let Ok(child) = Command::new("gnome-session-inhibit")
-                    .args(["--inhibit", "idle:suspend", "--reason", why, "--app-id", "fr.leslignesclaires.kybernow.station", "--inhibit-only"])
+                    .args(["--inhibit", "idle:suspend", "--reason", why, "--app-id", crate::mac::STATION_ID, "--inhibit-only"])
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())

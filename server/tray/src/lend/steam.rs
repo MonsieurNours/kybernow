@@ -1,10 +1,11 @@
 //! Steam pendant un prêt (`docs/pret.md`) :
 //! - « Son compte Steam » : Steam fermé (`steam.exe -shutdown`), les comptes
-//!   retenus mis de côté (`store::steam_files`) et la connexion automatique
-//!   (`HKCU\Software\Valve\Steam\AutoLoginUser`) effacée, puis Steam rouvert
-//!   en Big Picture sur l'écran de connexion ; à la fin, Steam fermé, les
-//!   fichiers de l'utilisateur remis, la connexion automatique rendue, Steam
-//!   rouvert s'il tournait avant ;
+//!   retenus confiés à Admin puis effacés (`store::steam_files`, STWIN-14) et
+//!   la connexion automatique (`HKCU\Software\Valve\Steam\AutoLoginUser`)
+//!   effacée, puis Steam rouvert en Big Picture sur l'écran de connexion ; à
+//!   la fin, Steam fermé, les fichiers de l'utilisateur rendus par Admin et
+//!   réécrits, la connexion automatique rendue, Steam rouvert s'il tournait
+//!   avant ;
 //! - « Votre compte Steam » : rien à basculer ; à la fin, Big Picture fermé
 //!   (ou Steam, s'il ne tournait pas avant le prêt).
 
@@ -129,8 +130,10 @@ fn local_app_data() -> Option<PathBuf> {
 
 /// « Son compte Steam » : bascule Steam sur l'écran de connexion. `persist`
 /// écrit l'état sur le disque avant que rien ne bouge (un agent tombé ensuite
-/// sera réparé).
-pub fn switch(exe: &Path, persist: &mut dyn FnMut(&store::Steam) -> std::io::Result<()>) -> Result<store::Steam> {
+/// sera réparé). Les comptes retenus de l'hôte sont confiés à Admin
+/// (`keeper`), puis effacés : l'ami, qui joue avec le même compte Windows,
+/// ne les trouve nulle part sur le disque (STWIN-14).
+pub fn switch(exe: &Path, lend: &str, keeper: &dyn store::Keeper, persist: &mut dyn FnMut(&store::Steam) -> std::io::Result<()>) -> Result<store::Steam> {
     let was_running = running();
     if !shutdown(exe) {
         bail!("Steam ne se ferme pas");
@@ -142,9 +145,13 @@ pub fn switch(exe: &Path, persist: &mut dyn FnMut(&store::Steam) -> std::io::Res
         was_running,
         auto_login: get("AutoLoginUser"),
         files: store::existing(&store::steam_files(dir, local_app_data().as_deref())),
+        held: true,
     };
     persist(&saved).context("état du prêt")?;
-    store::put_aside(&saved.files).context("comptes de Steam mis de côté")?;
+    let contents = store::contents(&saved.files).context("comptes de Steam illisibles")?;
+    keeper.keep(lend, &contents).context("comptes de Steam confiés à Admin")?;
+    drop(contents);
+    store::remove(&saved.files).context("comptes de Steam effacés")?;
     set("AutoLoginUser", Some(""))?;
     // Big Picture d'emblée, avec son écran de connexion (à la manette).
     launch(exe, "-gamepadui");
@@ -153,12 +160,15 @@ pub fn switch(exe: &Path, persist: &mut dyn FnMut(&store::Steam) -> std::io::Res
 
 /// « Votre compte Steam » : rien ne change, on note seulement si Steam tournait.
 pub fn host(exe: &Path) -> store::Steam {
-    store::Steam { friend: false, exe: exe.to_string_lossy().into_owned(), was_running: running(), auto_login: None, files: Vec::new() }
+    store::Steam { friend: false, exe: exe.to_string_lossy().into_owned(), was_running: running(), auto_login: None, files: Vec::new(), held: false }
 }
 
 /// Fin du prêt : Steam comme avant. Une erreur laisse l'état sur le disque,
-/// pour réessayer au prochain démarrage de l'icône.
-pub fn restore(saved: &store::Steam) -> Result<()> {
+/// pour réessayer au prochain démarrage de l'icône. Admin qui ne rend pas
+/// les comptes de l'hôte (il ne répond plus) : les fichiers de l'ami sont
+/// effacés quand même, et Steam reste fermé (il réécrirait ses fichiers en
+/// partant) jusqu'à ce qu'ils soient remis.
+pub fn restore(lend: &str, saved: &store::Steam, keeper: &dyn store::Keeper) -> Result<()> {
     let exe = PathBuf::from(&saved.exe);
     if !saved.friend {
         if running() {
@@ -173,7 +183,24 @@ pub fn restore(saved: &store::Steam) -> Result<()> {
     if !shutdown(&exe) {
         bail!("Steam ne se ferme pas");
     }
-    store::put_back(&saved.files).context("comptes de Steam remis")?;
+    if saved.held {
+        match keeper.back(lend) {
+            Ok(Some(kept)) => {
+                store::write_back(&saved.files, &kept).context("comptes de Steam remis")?;
+                keeper.restored(lend);
+            }
+            // Rien chez Admin : déjà remis (agent tombé avant d'effacer son état).
+            Ok(None) => system::log("comptes de Steam : rien à remettre chez Admin"),
+            Err(e) => {
+                let _ = store::remove(&saved.files);
+                let _ = set("AutoLoginUser", saved.auto_login.as_deref());
+                return Err(e).context("comptes de Steam pas rendus par Admin (ceux de l'ami effacés, Steam reste fermé)");
+            }
+        }
+    } else {
+        // État d'un agent d'avant la 0.11.8 : fichiers renommés à côté.
+        store::put_back(&saved.files).context("comptes de Steam remis")?;
+    }
     set("AutoLoginUser", saved.auto_login.as_deref())?;
     if saved.was_running {
         // Comme à l'ouverture de session : dans la zone de notification.

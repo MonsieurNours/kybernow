@@ -61,6 +61,7 @@ fn serve(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
     let (body, kind): (&'static [u8], &str) = match request.uri().path() {
         "/fonts/archivo.woff2" => (ARCHIVO, "font/woff2"),
         "/fonts/martian.woff2" => (MARTIAN, "font/woff2"),
+        "/common.js" => (crate::COMMON_JS.as_bytes(), "text/javascript; charset=utf-8"),
         _ => (HTML.as_bytes(), "text/html; charset=utf-8"),
     };
     Response::builder().header(CONTENT_TYPE, kind).body(Cow::Borrowed(body)).unwrap()

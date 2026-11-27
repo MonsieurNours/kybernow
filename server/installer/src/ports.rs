@@ -147,14 +147,10 @@ pub fn validate(port: u16, other: u16, excluded: &[(u16, u16)]) -> Option<String
 /// Programme qui écoute sur un port TCP, si Windows le révèle.
 #[cfg(windows)]
 pub fn owner(port: u16) -> Option<String> {
-    use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::NetworkManagement::IpHelper::{
         GetExtendedTcpTable, MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
     };
     use windows_sys::Win32::Networking::WinSock::AF_INET;
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
-    };
 
     let pid = unsafe {
         let mut size: u32 = 0;
@@ -175,20 +171,9 @@ pub fn owner(port: u16) -> Option<String> {
     if pid == 4 {
         return Some(t("ports.windowsHttp", &[]));
     }
-    unsafe {
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if handle.is_null() {
-            return Some(t("ports.process", &[("pid", &pid)]));
-        }
-        let mut buf = [0u16; 1024];
-        let mut len = buf.len() as u32;
-        let ok = QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len);
-        CloseHandle(handle);
-        if ok == 0 {
-            return Some(t("ports.process", &[("pid", &pid)]));
-        }
-        let path = String::from_utf16_lossy(&buf[..len as usize]);
-        Some(path.rsplit('\\').next().unwrap_or(&path).to_string())
+    match crate::winproc::image_path(pid) {
+        Some(path) => Some(path.rsplit('\\').next().unwrap_or(&path).to_string()),
+        None => Some(t("ports.process", &[("pid", &pid)])),
     }
 }
 

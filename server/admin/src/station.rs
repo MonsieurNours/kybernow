@@ -7,7 +7,9 @@
 //! assistant détaché (`kyber-admin restart-station`, commande cachée, en
 //! SYSTEM comme le service), sur le modèle de l'applicateur des mises à jour.
 //! L'assistant laisse partir la réponse, arrête Admin puis Kyber, et les
-//! redémarre dans l'ordre inverse : Kyber, puis Admin. Le service
+//! redémarre dans l'ordre inverse : Kyber, puis Admin. L'icône le demande à
+//! Admin (`POST /api/local/station/restart`), ou, s'il ne répond pas, lance
+//! elle-même cet assistant avec les droits de l'utilisateur. Le service
 //! `kyber-admin` n'a pas de relance automatique : l'assistant le relance même
 //! si un arrêt a échoué. Son journal (celui du dernier redémarrage) est
 //! `station\redemarrage.log` dans le dossier de données, sa sortie
@@ -168,7 +170,7 @@ pub fn run(data_dir: &Path) -> Result<()> {
     // Le journal ne garde que le dernier redémarrage.
     let _ = fs::remove_file(dir.join(LOG));
     let mut log = Journal::open(dir.join(LOG));
-    log.line("==> Redémarrage de KyberNow Station demandé depuis Admin");
+    log.line("==> Redémarrage de KyberNow Station");
     std::thread::sleep(GRACE);
     let mut sys = platform()?;
     let result = restart(sys.as_mut(), &mut log);
@@ -219,7 +221,7 @@ fn launch_assistant(data_dir: &Path) -> Result<Option<Child>> {
         std::thread::sleep(GRACE);
         // La session de la Station (celle d'Admin), pas celle devant l'écran (STMAC-06).
         let domain = crate::mac::launchd_domain();
-        for label in [crate::mac::KYBER_LABEL, "fr.leslignesclaires.kybernow.station.admin"] {
+        for label in [crate::mac::KYBER_LABEL, crate::mac::ADMIN_LABEL] {
             log.line(format!("launchctl kickstart -k {domain}/{label}"));
             match crate::mac::launchctl(&["kickstart", "-k", &format!("{domain}/{label}")]) {
                 Ok(out) if !out.status.success() => log.line(format!("    échec : {}", String::from_utf8_lossy(&out.stderr).trim())),
@@ -230,6 +232,15 @@ fn launch_assistant(data_dir: &Path) -> Result<Option<Child>> {
     });
     tracing::info!("redémarrage de la Station : Kyber puis Admin relancés par launchd");
     Ok(None)
+}
+
+/// Relance un seul service (Kyber, depuis Admin), avec le même arrêt que le
+/// redémarrage de la Station (de force s'il reste bloqué).
+#[cfg(windows)]
+pub fn restart_service(name: &str) -> Result<()> {
+    let mut services = windows::WindowsServices;
+    services.stop(name)?;
+    services.start(name)
 }
 
 #[cfg(windows)]

@@ -19,6 +19,7 @@ mod foreground;
 mod gamepads;
 mod gpu;
 mod i18n;
+mod input_service;
 mod invites;
 mod invites_api;
 mod kyber_config;
@@ -28,6 +29,7 @@ mod launch;
 mod lend;
 mod lend_api;
 mod lend_last;
+mod lend_steam;
 mod lend_sys;
 mod local_token;
 mod logs;
@@ -35,6 +37,7 @@ mod logs;
 mod linux;
 mod linux_apps;
 mod linux_gpu;
+mod linux_input;
 mod linux_net;
 mod linux_screen;
 #[cfg(not(windows))]
@@ -44,6 +47,7 @@ mod migrate;
 mod pairing;
 mod preview;
 mod probe;
+mod proc;
 mod pyrowave;
 /// Enregistrement des sessions (docs/enregistrement.md).
 mod recording;
@@ -62,6 +66,8 @@ mod tls;
 mod update;
 mod wake;
 #[cfg(windows)]
+mod winproc;
+#[cfg(windows)]
 mod winsvc;
 
 use std::future::Future;
@@ -78,6 +84,14 @@ use clap::{Args, Parser, Subcommand};
 
 use crate::kyber_config::KyberConfig;
 use crate::settings::Settings;
+
+/// `kyber-admin input …` (docs/station-linux.md, « Prêt de l'ordinateur »).
+#[derive(Subcommand)]
+enum InputAction {
+    /// Prend l'entrée physique pour l'agent de console qui l'a demandée, le
+    /// temps de sa connexion (`kybernow-station-input@.service`)
+    Serve,
+}
 
 #[derive(Parser)]
 #[command(version, about = "KyberNow Admin : interface web d'administration de KyberNow Station et de son serveur Kyber")]
@@ -172,6 +186,12 @@ enum Command {
     /// Redémarrage de KyberNow Station (Kyber et Admin), lancé par Admin (SYSTEM)
     #[command(hide = true)]
     RestartStation,
+    /// Entrée physique d'une Station Linux pendant un prêt (aide root lancée par systemd)
+    #[command(hide = true)]
+    Input {
+        #[command(subcommand)]
+        action: InputAction,
+    },
     /// Gestion du service Windows kyber-admin
     #[cfg(windows)]
     Service {
@@ -779,6 +799,10 @@ fn main() -> Result<()> {
         Some(Command::DisplayAgent { action }) => display_agent(action),
         Some(Command::Update { action }) => update::apply::run(action, &data_dir),
         Some(Command::RestartStation) => station::run(&data_dir),
+        #[cfg(target_os = "linux")]
+        Some(Command::Input { action: InputAction::Serve }) => input_service::serve(),
+        #[cfg(not(target_os = "linux"))]
+        Some(Command::Input { .. }) => anyhow::bail!("réservé à la Station Linux"),
         Some(Command::Migrate { dry_run }) => migrate::command(&data_dir, dry_run),
         Some(Command::AccountToken { rights, account, device, name, device_name }) => {
             println!("{}", accounts::test_token(&data_dir, &rights, &account, &device, &name, &device_name)?);

@@ -265,7 +265,7 @@ mod platform {
 
     use super::{Adapter, Card, parse_armed, select};
 
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    use crate::proc::CREATE_NO_WINDOW;
 
     pub fn cards(armed: Option<&[String]>) -> Vec<Card> {
         let mut adapters = interfaces();

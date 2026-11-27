@@ -5,18 +5,15 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
-use std::io::Write;
 use std::path::PathBuf;
 use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, mpsc};
 use std::thread::JoinHandle;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
 use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, SYSTEMTIME, WAIT_ABANDONED, WAIT_OBJECT_0, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
-use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
 use windows_sys::Win32::System::Shutdown::LockWorkStation;
@@ -41,9 +38,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use super::store::Window;
 use super::{CoverKey, Display, Mods, cover_key_of, keep};
 
-pub fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(Some(0)).collect()
-}
+pub use crate::wide;
 
 /// `%LOCALAPPDATA%\KyberNow\lend` : l'état du prêt et le journal de l'agent.
 pub fn dir() -> Option<PathBuf> {
@@ -53,20 +48,12 @@ pub fn dir() -> Option<PathBuf> {
 /// Une ligne du journal de l'agent (`agent.log`, recommencé au-delà de 1 Mo) :
 /// l'agent n'a ni console ni fenêtre à lui pour le dire.
 pub fn log(line: &str) {
-    let Some(dir) = dir() else { return };
-    let _ = std::fs::create_dir_all(&dir);
-    let path = dir.join("agent.log");
-    if std::fs::metadata(&path).is_ok_and(|m| m.len() > 1 << 20) {
-        let _ = std::fs::rename(&path, dir.join("agent.old.log"));
-    }
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "{} {line}", unix_now());
+    if let Some(dir) = dir() {
+        super::append_log(&dir, "agent", line);
     }
 }
 
-pub fn unix_now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
-}
+pub use super::unix_now;
 
 /// Démarrage de Windows, en secondes Unix (à une seconde près).
 pub fn boot_time() -> i64 {
@@ -519,31 +506,19 @@ pub fn close_loan_windows(born: &mut Born) -> usize {
     windows.len()
 }
 
+/// La liste des processus, partagée avec Admin.
+#[path = "../../../admin/src/winproc.rs"]
+mod winproc;
+
 /// Processus de ce nom (« steam.exe ») dans la session de l'agent.
 pub fn processes(name: &str) -> Vec<u32> {
     let mut session = 0u32;
     unsafe { ProcessIdToSessionId(me(), &mut session) };
-    let mut found = Vec::new();
-    unsafe {
-        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        if snap.is_null() || snap as isize == -1 {
-            return found;
-        }
-        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
-        entry.dwSize = size_of::<PROCESSENTRY32W>() as u32;
-        let mut ok = Process32FirstW(snap, &mut entry) != 0;
-        while ok {
-            let len = entry.szExeFile.iter().position(|c| *c == 0).unwrap_or(entry.szExeFile.len());
-            let exe = String::from_utf16_lossy(&entry.szExeFile[..len]);
-            let mut sid = u32::MAX;
-            if exe.eq_ignore_ascii_case(name) && ProcessIdToSessionId(entry.th32ProcessID, &mut sid) != 0 && sid == session {
-                found.push(entry.th32ProcessID);
-            }
-            ok = Process32NextW(snap, &mut entry) != 0;
-        }
-        CloseHandle(snap);
-    }
-    found
+    let in_session = |pid: &u32| {
+        let mut sid = u32::MAX;
+        unsafe { ProcessIdToSessionId(*pid, &mut sid) != 0 && sid == session }
+    };
+    winproc::by_name(name).into_iter().filter(in_session).collect()
 }
 
 pub fn kill(pid: u32) {
