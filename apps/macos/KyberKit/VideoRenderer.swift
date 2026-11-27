@@ -1005,12 +1005,21 @@ final class VideoRenderer {
         blit.synchronize(resource: target)
         blit.endEncoding()
         #endif
+        // Fil principal (fin de session) : 250 ms au plus. Un GPU occupé ou
+        // perdu laisse la fin sans dernière image plutôt que de figer l'app (MAC-25).
+        let done = DispatchSemaphore(value: 0)
+        commands.addCompletedHandler { _ in done.signal() }
         commands.commit()
-        commands.waitUntilCompleted()
+        guard done.wait(timeout: .now() + 0.25) == .success, commands.status == .completed else { return nil }
         let rowBytes = tw * 4
-        var bytes = [UInt8](repeating: 0, count: rowBytes * th)
-        target.getBytes(&bytes, bytesPerRow: rowBytes, from: MTLRegionMake2D(0, 0, tw, th), mipmapLevel: 0)
-        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+        // Lu directement dans le `Data` (une copie au lieu de deux).
+        var data = Data(count: rowBytes * th)
+        data.withUnsafeMutableBytes { raw in
+            if let base = raw.baseAddress {
+                target.getBytes(base, bytesPerRow: rowBytes, from: MTLRegionMake2D(0, 0, tw, th), mipmapLevel: 0)
+            }
+        }
+        guard let provider = CGDataProvider(data: data as CFData) else { return nil }
         return CGImage(width: tw, height: th, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: rowBytes,
                        space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo(rawValue: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.noneSkipFirst.rawValue),
                        provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)

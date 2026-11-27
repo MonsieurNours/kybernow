@@ -56,20 +56,29 @@ final class HostImagery: ObservableObject {
               pictures[host.id]?.source != .lastSession
         else { return }
         let file = url(host.id, .preview)
-        try? shot.jpeg.write(to: file, options: .atomic)
-        try? FileManager.default.setAttributes([.modificationDate: shot.capturedAt], ofItemAtPath: file.path)
+        Self.disk.async {
+            try? shot.jpeg.write(to: file, options: .atomic)
+            try? FileManager.default.setAttributes([.modificationDate: shot.capturedAt], ofItemAtPath: file.path)
+        }
         pictures[host.id] = Picture(image: image, date: shot.capturedAt, source: .preview)
     }
 
     /// Fin de session : la dernière image devient le fond de l'ordinateur sur l'accueil.
     func saveLast(_ cg: CGImage, for host: Host) {
-        guard host.settings.keepLastImage,
-              let data = NSBitmapImageRep(cgImage: cg).representation(using: .jpeg, properties: [.compressionFactor: 0.82])
-        else { return }
-        try? data.write(to: url(host.id, .lastSession), options: .atomic)
-        try? FileManager.default.removeItem(at: url(host.id, .preview))
+        guard host.settings.keepLastImage else { return }
         pictures[host.id] = Picture(image: NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height)), date: Date(), source: .lastSession)
+        // Encodage JPEG et écriture hors du fil principal : la fin de session
+        // (et la fin de l'app, une par session) n'attend plus le disque (MAC-25).
+        let last = url(host.id, .lastSession), preview = url(host.id, .preview)
+        Self.disk.async {
+            guard let data = NSBitmapImageRep(cgImage: cg).representation(using: .jpeg, properties: [.compressionFactor: 0.82]) else { return }
+            try? data.write(to: last, options: .atomic)
+            try? FileManager.default.removeItem(at: preview)
+        }
     }
+
+    /// Écritures des images, dans l'ordre (une fin, puis « oublier », etc.).
+    nonisolated static let disk = DispatchQueue(label: "fr.leslignesclaires.kybernow.images", qos: .utility)
 
     #if DEBUG
     /// Démonstration (`picture:<n>:last|preview`) : une image posée comme une
@@ -81,15 +90,16 @@ final class HostImagery: ObservableObject {
 
     /// « Garder la dernière image » désactivé : on l'efface tout de suite.
     func forgetLast(_ host: Host) {
-        try? FileManager.default.removeItem(at: url(host.id, .lastSession))
+        let last = url(host.id, .lastSession)
+        Self.disk.async { try? FileManager.default.removeItem(at: last) }
         if pictures[host.id]?.source == .lastSession { pictures[host.id] = nil }
         lastFetch[host.id] = nil
     }
 
     /// Ordinateur oublié : ses images aussi.
     func forget(_ host: Host) {
-        try? FileManager.default.removeItem(at: url(host.id, .lastSession))
-        try? FileManager.default.removeItem(at: url(host.id, .preview))
+        let files = [url(host.id, .lastSession), url(host.id, .preview)]
+        Self.disk.async { files.forEach { try? FileManager.default.removeItem(at: $0) } }
         pictures[host.id] = nil
     }
 }
