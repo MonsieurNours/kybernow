@@ -163,3 +163,23 @@ pub fn put_back_libraries(moved: &[(std::path::PathBuf, std::path::PathBuf)]) {
         }
     }
 }
+
+/// Code de sortie d'un outil, lisible dans un journal : un plantage
+/// (exception Windows, `0xC0000005` : accès mémoire interdit) n'est pas un
+/// refus ordinaire.
+pub fn exit_text(code: Option<i32>) -> String {
+    match code {
+        None => "arrêté sans code".to_string(),
+        Some(c) if c < 0 => {
+            let status = c as u32;
+            let what = match status {
+                0xC000_0005 => " : accès mémoire interdit",
+                0xC000_0409 => " : dépassement de tampon",
+                0xC000_0135 => " : bibliothèque introuvable",
+                _ => "",
+            };
+            format!("plantage 0x{status:08X}{what}")
+        }
+        Some(c) => format!("code {c}"),
+    }
+}

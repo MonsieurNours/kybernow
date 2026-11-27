@@ -352,7 +352,11 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
     if camera.is_file() {
         match run(&camera.display().to_string(), &["--install"]) {
             Ok(out) if out.status.success() => ctx.log("Caméra « KyberNow Camera » inscrite : la caméra de vos appareils sur cet ordinateur"),
-            Ok(out) => ctx.log(format!("ATTENTION : caméra « KyberNow Camera » non inscrite ({})", sys::text(&out).trim())),
+            Ok(out) => ctx.log(format!(
+                "ATTENTION : caméra « KyberNow Camera » non inscrite ({}) : {}",
+                crate::common::exit_text(out.status.code()),
+                sys::text(&out).trim()
+            )),
             Err(e) => ctx.log(format!("ATTENTION : caméra « KyberNow Camera » non inscrite ({e:#})")),
         }
     }

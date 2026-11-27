@@ -27,12 +27,21 @@ windows)
     CXXFLAGS=(-O2 -std=c++17 -Wall -static-libgcc -static-libstdc++)
     # Les deux DLL sont chargées hors du dossier de Kyber (Frame Server, l'app
     # qui filme) : rien d'autre que Windows à côté (runtime MinGW en statique).
+    for src in mfsource dshow; do
+        x86_64-w64-mingw32-g++ "${CXXFLAGS[@]}" -c -o "$OUTPUT/.$src.check.o" "$HERE/windows/$src.cpp"
+        "$HERE/check-pure-calls.sh" "$OUTPUT/.$src.check.o"
+        rm -f "$OUTPUT/.$src.check.o"
+    done
     x86_64-w64-mingw32-g++ "${CXXFLAGS[@]}" -static -shared -o "$OUTPUT/KyberNowCameraSource.dll" \
         "$HERE/windows/mfsource.cpp" "$HERE/windows/source.def" -lmfplat -lmfuuid -lole32 -luuid
     x86_64-w64-mingw32-g++ "${CXXFLAGS[@]}" -static -shared -o "$OUTPUT/KyberNowCameraFilter.dll" \
         "$HERE/windows/dshow.cpp" "$HERE/windows/filter.def" -lstrmiids -lole32 -loleaut32 -luuid
     OBJ="$(mktemp -d)"
     x86_64-w64-mingw32-g++ "${CXXFLAGS[@]}" -c -o "$OBJ/install.o" "$HERE/windows/install.cpp"
+    # Garde : une interface que seul Windows implémente, déclarée dans un
+    # espace de noms anonyme, est « dévirtualisée » par GCC en un appel direct
+    # à la méthode pure (`--install` plantait sous Windows 11 jusqu'à la 0.11.8).
+    "$HERE/check-pure-calls.sh" "$OBJ/install.o"
     for c in camera out_windows; do
         x86_64-w64-mingw32-gcc -O2 -Wall -c -o "$OBJ/$c.o" "$HERE/$c.c" -I"$HERE" -I"$ROOTFS/include"
     done

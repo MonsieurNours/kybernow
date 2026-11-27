@@ -17,9 +17,15 @@
 
 extern "C" void kn_log(const char *fmt, ...);
 
-namespace {
-
 // mfvirtualcamera.h (SDK 10.0.22000), absent de MinGW.
+//
+// À la portée globale, JAMAIS dans l'espace de noms anonyme : seul Windows
+// implémente cette interface. Dans l'espace anonyme, GCC (-O2) sait qu'aucune
+// classe de ce programme n'en hérite, « dévirtualise » `camera->Start(NULL)`
+// en un appel direct à la méthode pure (`__cxa_pure_virtual`, adresse hors
+// de tout module une fois lié) : `--install` plantait (0xc0000005) sous
+// Windows 11 depuis la 0.11.5, aucune caméra ne s'y inscrivait. build.sh
+// refuse désormais un objet qui appelle directement `__cxa_pure_virtual`.
 enum KnVirtualCameraType { KnSoftwareCameraSource = 0 };
 enum KnVirtualCameraLifetime { KnLifetimeSession = 0, KnLifetimeSystem = 1 };
 enum KnVirtualCameraAccess { KnAccessCurrentUser = 0, KnAccessAllUsers = 1 };
@@ -37,6 +43,8 @@ struct KnVirtualCamera : public IMFAttributes {
 
 typedef HRESULT(WINAPI *CreateVirtualCameraFn)(KnVirtualCameraType, KnVirtualCameraLifetime, KnVirtualCameraAccess,
                                                LPCWSTR, LPCWSTR, const GUID *, ULONG, KnVirtualCamera **);
+
+namespace {
 
 const GUID KSCATEGORY_VIDEO_CAMERA_ = { 0xe5323777, 0xf976, 0x4f5b, { 0x9b, 0x55, 0xb9, 0x46, 0x99, 0xc4, 0x6e, 0x44 } };
 const wchar_t *MARKER_KEY = L"SOFTWARE\\KyberNow\\Camera";
@@ -91,14 +99,20 @@ bool key_exists(const wchar_t *path)
 HRESULT virtual_camera(KnVirtualCamera **camera)
 {
     // Chargée une fois pour tout le processus : la caméra créée vit sur son code.
+    kn_log("step: loading mfsensorgroup.dll");
     static HMODULE lib = LoadLibraryW(L"mfsensorgroup.dll");
     if (!lib)
         return HRESULT_FROM_WIN32(GetLastError());
     auto create = (CreateVirtualCameraFn)GetProcAddress(lib, "MFCreateVirtualCamera");
     if (!create)
         return E_NOTIMPL;
-    return create(KnSoftwareCameraSource, KnLifetimeSystem, KnAccessAllUsers, KN_CAMERA_NAME_W,
-                  KN_SOURCE_CLSID_STR, &KSCATEGORY_VIDEO_CAMERA_, 1, camera);
+    kn_log("step: MFCreateVirtualCamera");
+    HRESULT hr = create(KnSoftwareCameraSource, KnLifetimeSystem, KnAccessAllUsers, KN_CAMERA_NAME_W,
+                        KN_SOURCE_CLSID_STR, &KSCATEGORY_VIDEO_CAMERA_, 1, camera);
+    kn_log("step: MFCreateVirtualCamera -> 0x%08lx, camera %p", (unsigned long)hr, (void *)*camera);
+    if (SUCCEEDED(hr) && !*camera)
+        hr = E_POINTER;
+    return hr;
 }
 
 int install_windows11(bool install)
@@ -120,6 +134,9 @@ int install_windows11(bool install)
             return 1;
         }
     }
+    // COM pour la caméra virtuelle (objet de Frame Server), avant Media Foundation.
+    kn_log("step: CoInitializeEx");
+    HRESULT com = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     // MFPlat chargée à la demande : un Windows N sans le Media Feature Pack
     // n'en a pas, et l'outil doit s'y lancer quand même (pour le dire).
     HMODULE mfplat = LoadLibraryW(L"mfplat.dll");
@@ -127,17 +144,25 @@ int install_windows11(bool install)
     typedef HRESULT(WINAPI * ShutdownFn)();
     auto startup = mfplat ? (StartupFn)GetProcAddress(mfplat, "MFStartup") : NULL;
     auto shutdown = mfplat ? (ShutdownFn)GetProcAddress(mfplat, "MFShutdown") : NULL;
-    if (!startup || !shutdown || FAILED(startup(MF_VERSION, MFSTARTUP_LITE))) {
+    kn_log("step: MFStartup");
+    if (!startup || !shutdown || FAILED(startup(MF_VERSION, MFSTARTUP_FULL))) {
         kn_log("Media Foundation unavailable (Windows N without the Media Feature Pack?)");
+        if (SUCCEEDED(com))
+            CoUninitialize();
         return 1;
     }
     KnVirtualCamera *camera = NULL;
     HRESULT hr = virtual_camera(&camera);
     if (SUCCEEDED(hr)) {
+        kn_log("step: %s", install ? "Start" : "Remove");
         hr = install ? camera->Start(NULL) : camera->Remove();
+        kn_log("step: %s -> 0x%08lx", install ? "Start" : "Remove", (unsigned long)hr);
         camera->Release();
     }
+    kn_log("step: MFShutdown");
     shutdown();
+    if (SUCCEEDED(com))
+        CoUninitialize();
     if (!install) {
         RegDeleteTreeW(HKEY_LOCAL_MACHINE, clsid_key);
         RegDeleteTreeW(HKEY_LOCAL_MACHINE, MARKER_KEY);

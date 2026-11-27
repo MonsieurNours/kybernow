@@ -135,7 +135,7 @@ fn no_window(cmd: &mut Command) {
 /// Attend la fin de `cmd` (`timeout` au plus) ; `None` s'il ne se lance pas ou dépasse.
 /// La sortie d'erreur est lue au fil de l'eau (un tube plein bloquerait
 /// l'aide), et un processus tué est attendu (pas de zombie).
-fn run(mut cmd: Command, timeout: Duration) -> Option<(Option<i32>, String)> {
+pub(crate) fn run(mut cmd: Command, timeout: Duration) -> Option<(Option<i32>, String)> {
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
     no_window(&mut cmd);
     let mut child = cmd.spawn().ok()?;

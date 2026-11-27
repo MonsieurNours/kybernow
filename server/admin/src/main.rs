@@ -5,6 +5,7 @@ mod accounts;
 mod activity;
 mod api;
 mod assets;
+mod camera_setup;
 mod store;
 mod audio;
 mod auth;
@@ -1115,7 +1116,11 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     // qui l'apporte, s'il manque (Windows, une fois par version, sans bloquer).
     {
         let (kd, dd) = (state.kyber_dir.clone(), state.data_dir.clone());
-        tokio::task::spawn_blocking(move || micro::ensure_on_new_version(&kd, &dd));
+        tokio::task::spawn_blocking(move || {
+            micro::ensure_on_new_version(&kd, &dd);
+            // Caméra de l'appareil : inscrite si une mise à jour ne l'a pas fait.
+            camera_setup::ensure_registered(&kd, &dd);
+        });
     }
 
     let app = Router::new()
