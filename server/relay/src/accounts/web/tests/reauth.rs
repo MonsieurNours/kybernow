@@ -91,3 +91,34 @@ fn inscription_sur_une_adresse_prise_ne_change_pas_le_compte_d_un_autre() {
     let r = victim.post("/compte/verifier?lang=fr", &[("action", "code"), ("code", &code)]);
     assert_eq!(location(&r), "/compte/bienvenue?lang=fr");
 }
+
+#[test]
+fn retour_vers_l_app_avec_pkce() {
+    // REL-09 : l'app donne un défi S256 ; le code ne s'échange qu'avec son vérificateur.
+    use super::lot2::api;
+    use serde_json::json;
+    let w = world(true);
+    let mut b = person(&w, "ana@exemple.org", "Ana", "192.0.2.10");
+    let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    let challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"; // RFC 7636, annexe B
+    assert!(crate::accounts::devices::verifier_matches(verifier, challenge));
+    let r = b.get(&format!("/compte/connexion?lang=fr&appareil=Mac&retour=kybernow://compte&etat=e1&code_challenge={challenge}&code_challenge_method=S256"));
+    let next = location(&r).to_string();
+    assert!(next.contains(&format!("code_challenge={challenge}")), "{next}");
+    let consent = b.get(&next);
+    assert!(html(&consent).contains(&format!(r#"name="code_challenge" value="{challenge}""#)));
+    let connect = |b: &mut Browser| {
+        let r = b.post("/compte/connecter-appareil?lang=fr&appareil=Mac", &[("etat", "e1"), ("code_challenge", challenge), ("action", "connecter")]);
+        between(html(&r), "kybernow://compte?code=", "&amp;etat=e1").to_string()
+    };
+    let code = connect(&mut b);
+    assert_eq!(api(&w, true, "/v1/devices/token", None, json!({ "code": code })).status, 400, "sans vérificateur");
+    let code = connect(&mut b);
+    assert_eq!(api(&w, true, "/v1/devices/token", None, json!({ "code": code, "code_verifier": "x".repeat(43) })).status, 400, "mauvais vérificateur");
+    let code = connect(&mut b);
+    assert_eq!(api(&w, true, "/v1/devices/token", None, json!({ "code": code, "code_verifier": verifier })).status, 200);
+    // Une app d'avant PKCE (sans défi) passe comme avant.
+    let r = b.post("/compte/connecter-appareil?lang=fr&appareil=Mac", &[("etat", "e2"), ("action", "connecter")]);
+    let code = between(html(&r), "kybernow://compte?code=", "&amp;etat=e2").to_string();
+    assert_eq!(api(&w, true, "/v1/devices/token", None, json!({ "code": code })).status, 200);
+}

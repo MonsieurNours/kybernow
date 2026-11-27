@@ -1090,15 +1090,16 @@ pub fn done(v: &View<'_>, here: &str, title: &str, text: &str) -> String {
 
 /// « Connecter KyberNow Link sur {appareil} ? » (fenêtre du système).
 /// `etat` : la valeur que l'app a donnée (`?etat=`), rendue telle quelle au retour.
-pub fn device_consent(v: &View<'_>, device: &str, email: &str, etat: &str) -> String {
+pub fn device_consent(v: &View<'_>, device: &str, email: &str, etat: &str, challenge: &str) -> String {
     let device = if device.is_empty() { v.tr("cet appareil", "this device") } else { device.to_string() };
     let title = match v.lang {
         Lang::Fr => t(v.lang, &format!("Connecter KyberNow Link sur {} ?", esc(&device)), ""),
         Lang::En => format!("Connect KyberNow Link on {}?", esc(&device)),
     };
     let inner = format!(
-        "<input type=\"hidden\" name=\"etat\" value=\"{etat}\">\n<button class=\"btn kn-primary\" type=\"submit\" name=\"action\" value=\"connecter\">{yes}</button>\n<button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"annuler\">{no}</button>",
+        "<input type=\"hidden\" name=\"etat\" value=\"{etat}\">{challenge}\n<button class=\"btn kn-primary\" type=\"submit\" name=\"action\" value=\"connecter\">{yes}</button>\n<button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"annuler\">{no}</button>",
         etat = esc(etat),
+        challenge = if challenge.is_empty() { String::new() } else { format!("\n<input type=\"hidden\" name=\"code_challenge\" value=\"{}\">", esc(challenge)) },
         yes = v.tr("Connecter", "Connect"),
         no = v.tr("Annuler", "Cancel"),
     );
@@ -1455,7 +1456,7 @@ mod tests {
             ("rattacher", attach(&v, "code", "PC du salon", "Ana", "ana@exemple.org", &[])),
             ("rattacher/organisation", attach(&v, "code", "PC du salon", "Ana", "ana@exemple.org", &[("org_abc".into(), "Les Lignes <Claires>".into())])),
             ("rattache", done(&v, "/compte/rattacher", "Titre", "Texte.")),
-            ("appareil", device_consent(&v, "iPad de Léa", "ana@exemple.org", "etat-1")),
+            ("appareil", device_consent(&v, "iPad de Léa", "ana@exemple.org", "etat-1", "")),
             ("tv", tv_entry(&v, "", Some(Notice::WrongCode))),
             ("tv/approuver", tv_approve(&v, "BCDF-GHJK", "Apple TV du salon", "ana@exemple.org")),
         ];
@@ -1661,7 +1662,7 @@ mod tests {
         assert_eq!(duration_words(Lang::En, 2 * 86_400 + 5), "2 days");
         assert_eq!(duration_words(Lang::Fr, 3 * 60), "3 minutes");
         let v = View { lang: Lang::Fr, csrf: "c", appareil: Some("iPad de Léa"), challenge: "" };
-        let consent = device_consent(&v, "iPad de Léa", "ana@exemple.org", "etat-1");
+        let consent = device_consent(&v, "iPad de Léa", "ana@exemple.org", "etat-1", "");
         assert!(consent.contains("Connecter KyberNow Link sur iPad de Léa\u{202F}?"));
         assert!(consent.contains("action=\"/compte/connecter-appareil?lang=fr&appareil=iPad%20de%20L%C3%A9a\""));
         let back = device_return(&v, "kybernow://compte?code=abc&etat=x\"y", true);

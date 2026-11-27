@@ -77,8 +77,12 @@ pub const INVITES_MIGRATION: &str = r#"
 /// `expires_at` est la plus lointaine de ses échéances (NULL si l'une n'en a
 /// pas) : les requêtes qui ne lisent que `expires_at` voient la ligne vivante
 /// tant qu'un de ses droits l'est, et le tri en Rust retire les droits échus.
+///
+/// Et `device_codes.challenge` : le défi PKCE (S256) d'un code de retour vers
+/// l'app, quand l'app en a donné un (REL-09, voir `super::devices`).
 pub const RIGHT_ENDS_MIGRATION: &str = r#"
     ALTER TABLE grants ADD COLUMN right_ends TEXT;
+    ALTER TABLE device_codes ADD COLUMN challenge TEXT;
 "#;
 
 /// L'échéance de chaque droit d'une ligne de `grants`.
