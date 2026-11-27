@@ -86,7 +86,15 @@ export class Heartbeat {
     if (!this.timer) this.timer = setInterval(() => this.beat(), this.period)
   }
 
+  /** Un signal à la fois, abandonné au bout d'une période (WEB-11). */
+  private beating = false
   private async beat() {
-    this.onResult(await sendHeartbeat(location.origin, this.body, this.target))
+    if (this.beating) return
+    this.beating = true
+    try {
+      this.onResult(await sendHeartbeat(location.origin, this.body, this.target, this.period))
+    } finally {
+      this.beating = false
+    }
   }
 }

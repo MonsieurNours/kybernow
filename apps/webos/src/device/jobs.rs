@@ -274,7 +274,7 @@ pub fn pair(targets: Vec<Target>, code: String, device: DeviceInfo, cancel: Arc<
             let c = Console::new(&t.address, t.port, "", "", t.fingerprint.clone());
             match c.pair_request(&code, &device) {
                 Ok(id) => {
-                    let _ = tx.send(Event::PairAsked { name: t.name.clone(), address: t.address.clone() });
+                    let _ = tx.send(Event::PairAsked { name: t.name.clone() });
                     pending.push((t, id));
                 }
                 Err(e) => log::warn!("code : {} refuse la demande ({e})", t.address),
@@ -687,6 +687,41 @@ pub fn borrow_cancel() {
     let Some(w) = BORROW_WAIT.lock().unwrap().take() else { return };
     w.cancel.store(true, Ordering::Relaxed);
     std::thread::Builder::new().name("lend-cancel".into()).spawn(move || lend::cancel(&w.pending)).ok();
+}
+
+/// Sortie de l'app (WEBOS-11) : une demande d'emprunt ou de place d'invité qui attend l'hôte est retirée avant de
+/// partir, 2 s au plus, pour que l'hôte n'accorde pas son ordinateur à un téléviseur parti.
+pub fn cancel_on_quit() {
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    let mut n = 0;
+    if let Some(w) = BORROW_WAIT.lock().unwrap().take() {
+        w.cancel.store(true, Ordering::Relaxed);
+        let done = done_tx.clone();
+        if std::thread::Builder::new().name("lend-cancel".into()).spawn(move || {
+            lend::cancel(&w.pending);
+            let _ = done.send(());
+        }).is_ok() {
+            n += 1;
+        }
+    }
+    if let Some(w) = JOIN_WAIT.lock().unwrap().take() {
+        w.cancel.store(true, Ordering::Relaxed);
+        let done = done_tx.clone();
+        if std::thread::Builder::new().name("share-cancel".into()).spawn(move || {
+            share::cancel(&w.pending);
+            let _ = done.send(());
+        }).is_ok() {
+            n += 1;
+        }
+    }
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    for _ in 0..n {
+        let left = until.saturating_duration_since(std::time::Instant::now());
+        if done_rx.recv_timeout(left).is_err() {
+            log::warn!("sortie : demande à l'hôte pas retirée à temps");
+            break;
+        }
+    }
 }
 
 /// « Revenir » : le dernier emprunt, refait (15 min après une fin sans le prêt, la Station le reconnaît).

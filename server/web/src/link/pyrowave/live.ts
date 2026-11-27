@@ -8,46 +8,7 @@
 import { configFromSequenceHeader, parseConfig, sameConfig, type PyroWaveConfig } from './bitstream'
 import { PyroWaveDecoder, type PyroWaveGPU } from './decoder'
 import { probePyroWave, pyrowaveGPU } from './probe'
-
-export interface PyroWaveStats {
-  /** Temps de décodage médian de la dernière seconde (arrivée → image prête), en ms. */
-  decodeMs: number | null
-  /** Images perdues ou sautées sur les 10 dernières secondes, en % des images attendues. */
-  lostPercent: number | null
-}
-
-interface Sample {
-  at: number
-  decodeMs: number
-}
-
-/** Ce que mesurent les décodeurs de la page (une session à la fois). */
-const window_: { samples: Sample[]; events: { at: number; lost: number; ok: number }[] } = { samples: [], events: [] }
-
-function note(lost: number, ok: number) {
-  const at = performance.now()
-  window_.events.push({ at, lost, ok })
-  while (window_.events.length && at - window_.events[0].at > 10_000) window_.events.shift()
-}
-
-export function pyrowaveStats(): PyroWaveStats {
-  const now = performance.now()
-  const recent = window_.samples.filter((s) => now - s.at < 1000).map((s) => s.decodeMs)
-  recent.sort((a, b) => a - b)
-  const events = window_.events.filter((e) => now - e.at < 10_000)
-  const lost = events.reduce((a, e) => a + e.lost, 0)
-  const ok = events.reduce((a, e) => a + e.ok, 0)
-  return {
-    decodeMs: recent.length ? recent[Math.floor(recent.length / 2)] : null,
-    lostPercent: lost + ok > 0 ? (100 * lost) / (lost + ok) : null,
-  }
-}
-
-/** Mesures remises à zéro (nouvelle session). */
-export function resetPyroWaveStats() {
-  window_.samples = []
-  window_.events = []
-}
+import { gpuLost, note, resetStats, sample } from './stats'
 
 class LiveDecoder {
   private config: PyroWaveConfig | null = null
@@ -60,6 +21,7 @@ class LiveDecoder {
   /** Intervalle entre deux images (pts), lissé : sert à compter les images perdues. */
   private interval: number | null = null
   private incidents = 0
+  private lostReported = false
 
   constructor(
     private gpu: PyroWaveGPU,
@@ -134,7 +96,18 @@ class LiveDecoder {
     }
     const gap = this.countGap(pts)
     const dec = this.decoder
-    if (!dec || !this.ctx || !this.canvas || this.gpu.lost) {
+    if (this.gpu.lost) {
+      // Carte graphique perdue (veille, pilote réinitialisé, processus GPU du navigateur) : la session relance
+      // l'image, avec un nouveau device (WEB-01), au lieu de garder une image figée sans rien dire.
+      note(gap + 1, 0)
+      if (!this.lostReported) {
+        this.lostReported = true
+        console.warn('KyberNow : PyroWave, carte graphique perdue ; relance de l’image')
+        gpuLost()
+      }
+      return false
+    }
+    if (!dec || !this.ctx || !this.canvas) {
       note(gap + 1, 0)
       return false
     }
@@ -150,9 +123,7 @@ class LiveDecoder {
     // rendu au moteur quand la carte graphique a fini.
     const bitmap = this.canvas.transferToImageBitmap()
     s.done!.then(() => {
-      const ms = performance.now() - t0
-      window_.samples.push({ at: performance.now(), decodeMs: ms })
-      if (window_.samples.length > 600) window_.samples.splice(0, 300)
+      sample(performance.now() - t0)
       let frame: VideoFrame | null = null
       try {
         frame = new VideoFrame(bitmap, { timestamp: pts })
@@ -167,6 +138,9 @@ class LiveDecoder {
         bitmap.close()
         if (!this.closed) this.incident(`image non rendue (${e})`)
       }
+    }).catch(() => {
+      // Device perdu pendant l'image (WEB-02) : l'image n'est pas rendue, son bitmap est fermé.
+      bitmap.close()
     })
     return true
   }
@@ -183,20 +157,52 @@ class LiveDecoder {
  * cherche (`__kybernowPyroWave`). Rend le résultat de la sonde. */
 export async function installPyroWave() {
   const result = await probePyroWave()
-  const gpu = result.ok ? await pyrowaveGPU() : null
+  let gpu = result.ok ? await pyrowaveGPU() : null
   if (gpu) {
+    let renewing: Promise<void> | null = null
+    // Le device perdu est remplacé aussitôt, en fond (WEB-01) : la relance de l'image qui suit le prend ; avant, le
+    // premier device restait pour toute la page et toutes les sessions suivantes tombaient en H.264.
+    const renew = (): Promise<void> => {
+      renewing ??= pyrowaveGPU()
+        .then((g) => {
+          gpu = g
+          if (g) watch(g)
+        })
+        .catch(() => {
+          gpu = null
+        })
+        .finally(() => {
+          renewing = null
+        })
+      return renewing
+    }
+    const watch = (g: PyroWaveGPU) => {
+      g.device.lost.then(() => {
+        if (gpu === g) renew()
+      })
+    }
+    watch(gpu)
     ;(globalThis as any).__kybernowPyroWave = {
       create(output: (frame: VideoFrame) => void) {
-        // Le device de la sonde (recréé s'il a été perdu entre-temps : il l'est
-        // alors au prochain démarrage de l'image).
-        if (gpu.lost) {
-          pyrowaveGPU().catch(() => {})
+        // Device perdu, pas encore remplacé : cette image part dans le format de repli ; la suivante reprend PyroWave.
+        if (!gpu || gpu.lost) {
+          renew()
           return null
         }
-        resetPyroWaveStats()
+        resetStats()
         return new LiveDecoder(gpu, output)
+      },
+      /** Le nouveau device est prêt (ou n'a pas pu l'être). */
+      ready(): Promise<void> {
+        return renewing ?? Promise.resolve()
       },
     }
   }
   return result
+}
+
+/** Attend le remplacement d'un device perdu, `ms` au plus (la session relance l'image ensuite). */
+export function pyrowaveReady(ms: number): Promise<void> {
+  const r: Promise<void> | undefined = (globalThis as any).__kybernowPyroWave?.ready?.()
+  return Promise.race([r ?? Promise.resolve(), new Promise<void>((ok) => setTimeout(ok, ms))])
 }

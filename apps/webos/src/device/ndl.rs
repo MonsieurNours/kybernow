@@ -99,6 +99,14 @@ static TV_UNLOADED: AtomicBool = AtomicBool::new(false);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 /// Les mires du « Réglage du HDR » tiennent le décodeur.
 static MIRES: AtomicBool = AtomicBool::new(false);
+/// Propriétaires du décodeur (WEBOS-02, WEBOS-15) : chaque fil d'image, chaque test du profil Auto en tire un
+/// (`owner`) ; `ensure` en fait le propriétaire du chargement, même gardé tel quel, et `unload_if` ne décharge que pour
+/// lui. Un fil d'image qui se termine après qu'un autre a repris le décodeur (image relancée) ne le lui retire plus.
+static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
+/// Le propriétaire des mires du « Réglage du HDR ».
+const MIRES_OWNER: u64 = u64::MAX;
+/// Avance du son 5.1 PCM au-delà de laquelle une trame est jetée (`crate::av_clock`).
+const AUDIO_MAX_LEAD_MS: i64 = 100;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -223,6 +231,10 @@ struct State {
     last_audio_pts: i64,
     /// Images envoyées au décodeur depuis le chargement (après confirmation).
     feeding: bool,
+    /// Le propriétaire du chargement en cours (`owner`).
+    owner: u64,
+    /// Du son réel a été donné au plan de son depuis le chargement (`play_audio`).
+    audio_started: bool,
 }
 
 static NDL: Mutex<Option<State>> = Mutex::new(None);
@@ -273,7 +285,7 @@ pub fn available() -> bool {
                     if api.render_length.is_some() { "lisible" } else { "absente" },
                     if sym::<*const c_void>(lib, "NDL_DirectVideoSetFrameDropThreshold").is_some() { "présent" } else { "absent" }
                 );
-                *g = Some(State { api, initialized: false, loaded: None, hdr: None, hdr_applied: false, plane: AudioPlane::OpusClock, last_pts: 0, last_audio_pts: 0, feeding: false });
+                *g = Some(State { api, initialized: false, loaded: None, hdr: None, hdr_applied: false, plane: AudioPlane::OpusClock, last_pts: 0, last_audio_pts: 0, feeding: false, owner: 0, audio_started: false });
                 true
             }
             None => {
@@ -319,11 +331,34 @@ pub fn hdr_capable() -> bool {
 /// Charge le décodeur pour un format, une taille et un HDR (`None` : SDR) ; le
 /// refait s'ils changent : un flux qui repasse en SDR recharge NDL, ce qui
 /// remet la dalle en SDR.
-pub fn ensure(kind: i32, width: u32, height: u32, hdr: Option<HdrMeta>) -> Result<(), String> {
+/// `owner` (tiré par `owner`) devient le propriétaire du chargement.
+pub fn ensure(owner: u64, kind: i32, width: u32, height: u32, hdr: Option<HdrMeta>) -> Result<(), String> {
     if MIRES.load(Ordering::Acquire) {
         return Err(BUSY.into());
     }
-    ensure_any(kind, width, height, hdr)
+    ensure_any(owner, wanted_plane(), kind, width, height, hdr)
+}
+
+/// Un nouveau propriétaire du décodeur (voir `NEXT_OWNER`).
+pub fn owner() -> u64 {
+    NEXT_OWNER.fetch_add(1, Ordering::AcqRel)
+}
+
+/// `owner` tient le chargement en cours.
+pub fn owns(owner: u64) -> bool {
+    NDL.lock().unwrap().as_ref().is_some_and(|st| st.loaded.is_some() && st.owner == owner)
+}
+
+/// Décharge le décodeur s'il est encore à `owner` ; rend vrai s'il l'a déchargé.
+pub fn unload_if(owner: u64) -> bool {
+    let mut g = NDL.lock().unwrap();
+    match g.as_mut() {
+        Some(st) if st.loaded.is_some() && st.owner == owner => {
+            unload_locked(st);
+            true
+        }
+        _ => false,
+    }
 }
 
 /// Les mires du « Réglage du HDR » prennent le décodeur (la session attend).
@@ -344,8 +379,9 @@ pub fn mires_active() -> bool {
 }
 
 /// Charge le décodeur pour une mire (voir `ensure`).
+/// Toujours avec le plan Opus stéréo (WEBOS-06) : le son d'une session d'avant n'y passe pas.
 pub fn ensure_mire(width: u32, height: u32, hdr: Option<HdrMeta>) -> Result<(), String> {
-    ensure_any(VIDEO_H265, width, height, hdr)
+    ensure_any(MIRES_OWNER, AudioPlane::OpusClock, VIDEO_H265, width, height, hdr)
 }
 
 /// Montre une mire (voir `play`).
@@ -353,10 +389,9 @@ pub fn play_mire(data: &[u8]) -> Result<Option<i32>, String> {
     play_any(data)
 }
 
-fn ensure_any(kind: i32, width: u32, height: u32, hdr: Option<HdrMeta>) -> Result<(), String> {
+fn ensure_any(owner: u64, plane: AudioPlane, kind: i32, width: u32, height: u32, hdr: Option<HdrMeta>) -> Result<(), String> {
     let mut g = NDL.lock().unwrap();
     let st = g.as_mut().ok_or("NDL absent")?;
-    let plane = wanted_plane();
     if TV_UNLOADED.swap(false, Ordering::AcqRel) && st.loaded.take().is_some() {
         // Déjà déchargé par le téléviseur : rien à décharger, tout à recharger.
         GENERATION.fetch_add(1, Ordering::AcqRel);
@@ -373,10 +408,13 @@ fn ensure_any(kind: i32, width: u32, height: u32, hdr: Option<HdrMeta>) -> Resul
             // En session : mêmes métadonnées à un détail près, gardées pour le prochain chargement, sans repasser
             // la dalle en HDR (elle y perdrait sa fréquence un moment).
         }
+        st.owner = owner;
         return Ok(());
     }
     unsafe {
         if st.loaded.take().is_some() {
+            // Déchargé par l'app : le rappel 0x17 qui suit n'est pas un déchargement du téléviseur (WEBOS-03).
+            LOAD_COMPLETED.store(false, Ordering::Release);
             (st.api.unload)();
         }
         if !st.initialized {
@@ -414,6 +452,7 @@ fn ensure_any(kind: i32, width: u32, height: u32, hdr: Option<HdrMeta>) -> Resul
             // Refusé (état invalide après un déchargement par le téléviseur…) :
             // le décodeur est réinitialisé, puis un nouvel essai.
             log::warn!("image : {e} ; réinitialisation de NDL");
+            LOAD_COMPLETED.store(false, Ordering::Release);
             (st.api.unload)();
             (st.api.quit)();
             st.initialized = false;
@@ -440,20 +479,32 @@ fn ensure_any(kind: i32, width: u32, height: u32, hdr: Option<HdrMeta>) -> Resul
         st.last_pts = 0;
         st.last_audio_pts = 0;
         st.feeding = false;
+        st.owner = owner;
+        st.audio_started = false;
         log::info!("image : NDL chargé ({}, {width} × {height}, son {plane:?}, {})", name(kind), if hdr.is_some() { "HDR" } else { "SDR" });
     }
     // Le plan de son, amorcé jusqu'à la confirmation du chargement : NDL cale
-    // alors les images sur leur horodatage.
+    // alors les images sur leur horodatage. Le verrou est relâché entre deux
+    // salves (WEBOS-08) : l'interface qui lit l'état du son ne fige pas.
     let generation = GENERATION.load(Ordering::Acquire);
+    let at = st.loaded.as_ref().map(|(_, at)| *at).unwrap_or_else(Instant::now);
+    drop(g);
     let mut primed = 0;
-    while !LOAD_COMPLETED.load(Ordering::Acquire) && st.loaded.as_ref().is_some_and(|(_, at)| at.elapsed() < PRIME_BUDGET) {
-        primed += prime(st);
+    while !LOAD_COMPLETED.load(Ordering::Acquire) && at.elapsed() < PRIME_BUDGET {
+        {
+            let mut g = NDL.lock().unwrap();
+            let Some(st) = g.as_mut() else { break };
+            if st.loaded.is_none() || GENERATION.load(Ordering::Acquire) != generation {
+                // Déchargé ou rechargé entre-temps par un autre : son amorce est la sienne.
+                return Ok(());
+            }
+            primed += prime(st);
+        }
         let until = Instant::now() + PRIME_RETRY;
         while Instant::now() < until && !LOAD_COMPLETED.load(Ordering::Acquire) {
             std::thread::sleep(Duration::from_millis(2));
         }
     }
-    let at = st.loaded.as_ref().map(|(_, at)| *at).unwrap_or_else(Instant::now);
     if LOAD_COMPLETED.load(Ordering::Acquire) {
         log::info!("image : NDL confirmé après {} ms ({primed} trames vides)", at.elapsed().as_millis());
     } else {
@@ -595,7 +646,15 @@ pub fn play_audio(data: &[u8]) -> Result<bool, String> {
     if !LOAD_COMPLETED.load(Ordering::Acquire) {
         return Ok(false);
     }
-    let pts = (at.elapsed().as_millis() as i64).max(st.last_audio_pts + 1);
+    // Horodaté d'après la durée du paquet (S16LE, 6 voies, 48 kHz), recalé sur l'horloge (WEBOS-04).
+    let step = ((data.len() / 12) as i64 * 1000 / 48_000).max(1);
+    let last = st.audio_started.then_some(st.last_audio_pts);
+    let now = (at.elapsed().as_millis() as i64).max(st.last_audio_pts + 1);
+    let Some(pts) = crate::av_clock::next_pts(last, now, step, AUDIO_MAX_LEAD_MS) else {
+        // Trop d'avance (rafale) : paquet jeté, le retard du son ne s'accumule pas.
+        return Ok(false);
+    };
+    st.audio_started = true;
     st.last_audio_pts = pts;
     if unsafe { (st.api.audio_play)(data.as_ptr() as *const c_void, data.len() as u32, pts) } != 0 {
         return Err(format!("NDL_DirectAudioPlay : {}", last_error(&st.api)));
@@ -666,13 +725,20 @@ pub const NOT_LOADED: &str = "NDL non chargé";
 /// Erreur de `ensure` et `play` pendant les mires du « Réglage du HDR ».
 pub const BUSY: &str = "décodeur pris par les mires du réglage du HDR";
 
-/// Décharge le décodeur (fin de l'image).
+/// Décharge le décodeur, quel qu'en soit le propriétaire (fin des mires, sortie de l'app). Un fil d'image ou un test
+/// rend le sien par `unload_if`.
 pub fn unload() {
     let mut g = NDL.lock().unwrap();
-    if let Some(st) = g.as_mut()
-        && st.loaded.take().is_some()
-    {
+    if let Some(st) = g.as_mut() {
+        unload_locked(st);
+    }
+}
+
+fn unload_locked(st: &mut State) {
+    if st.loaded.take().is_some() {
         GENERATION.fetch_add(1, Ordering::AcqRel);
+        // Déchargé par l'app : pas par le téléviseur (WEBOS-03).
+        LOAD_COMPLETED.store(false, Ordering::Release);
         unsafe {
             (st.api.unload)();
         }
@@ -709,9 +775,16 @@ pub fn bench(kind: i32, width: u32, height: u32, packets: &[(bool, &[u8])], budg
         return None;
     }
     let start = packets.iter().position(|(key, _)| *key)?;
-    // Le plan de son qui cale les images, comme pour une session en stéréo.
-    set_audio_plane(AudioPlane::OpusClock);
-    if let Err(e) = ensure(kind, width, height, None) {
+    // Le plan de son qui cale les images, comme pour une session en stéréo ; ce test tient le décodeur et ne rend
+    // que le sien (WEBOS-15).
+    let me = owner();
+    let unload = || {
+        unload_if(me);
+    };
+    if MIRES.load(Ordering::Acquire) {
+        return None;
+    }
+    if let Err(e) = ensure_any(me, AudioPlane::OpusClock, kind, width, height, None) {
         log::warn!("profil auto : {} {width} × {height} refusé ({e})", name(kind));
         unload();
         return None;

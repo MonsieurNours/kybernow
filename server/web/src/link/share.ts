@@ -9,6 +9,7 @@ import { JoinRefusal, type AutoCaps, type GuestJoin } from './backend'
 import { deviceName, measureRefresh } from './device'
 import type { ShareQuality } from '../lib/api'
 import { t } from '../lib/i18n/index.svelte'
+import { send } from '../lib/http'
 
 /** Ce que reçoit une session d'invité : la réponse de `join`, ce que ce navigateur décode, et la qualité demandée. */
 export interface GuestStart {
@@ -263,11 +264,5 @@ export function redact(text: unknown, secrets: string[] = []): string {
  * aussi une demande qui attend l'accord de l'hôte (« Annuler »).
  */
 export function leaveShare(join: Pick<GuestJoin, 'guest' | 'secret'>): Promise<unknown> {
-  return fetch('/api/share/leave', {
-    method: 'POST',
-    keepalive: true,
-    credentials: 'same-origin',
-    headers: { 'x-kyber-admin': '1', 'content-type': 'application/json', 'x-kybernow-guest': join.secret },
-    body: JSON.stringify({ guest: join.guest }),
-  }).catch(() => {})
+  return send('POST', '/api/share/leave', { guest: join.guest }, { keepalive: true, headers: { 'x-kybernow-guest': join.secret } }).catch(() => {})
 }

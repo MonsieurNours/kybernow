@@ -9,7 +9,7 @@
   import { onMount } from 'svelte'
   import Icon from '../lib/Icon.svelte'
   import { t } from '../lib/i18n/index.svelte'
-  import { backend, type Info } from './backend'
+  import { logout, streamUser, type Info } from './backend'
   import { cancelConfirm, run, station } from './station.svelte'
 
   let { info, onSignedOut }: { info: Info | null; onSignedOut: () => void } = $props()
@@ -17,9 +17,8 @@
   let account = $state<string | null>(null)
 
   onMount(() => {
-    backend
-      .ticket()
-      .then((ticket) => (account = ticket.user))
+    streamUser(info?.stream_user)
+      .then((user) => (account = user))
       .catch(() => {})
   })
 
@@ -32,7 +31,7 @@
   const canUpdate = $derived(!!st?.update.available && st.update.installable && !st.update.requires_setup)
 
   async function signOut() {
-    await fetch('/api/logout', { method: 'POST', headers: { 'x-kyber-admin': '1' }, credentials: 'same-origin' }).catch(() => {})
+    await logout()
     onSignedOut()
   }
 </script>

@@ -5,11 +5,11 @@
 import type { Mode } from '../device'
 
 /** 4:2:0 (SDR ou HDR10) : le haut de ce que donne PyroWave à netteté pleine. */
-export const BITS_PER_PIXEL = 1.5
+const BITS_PER_PIXEL = 1.5
 /** 4:4:4 : moitié plus. */
-export const BITS_PER_PIXEL_444 = 2.25
+const BITS_PER_PIXEL_444 = 2.25
 export const MIN_HEIGHT = 720
-export const MIN_REFRESH = 30
+const MIN_REFRESH = 30
 const REFRESH_STEPS = [120, 100, 60, 50, 30]
 
 /** Ce que la Station dit de PyroWave (`pyrowave` de `GET /api/stream/info`). */

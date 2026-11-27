@@ -1,7 +1,10 @@
 // Appels du client web à la console (même origine, session de la console).
 
 import { ApiError, type GuestImage, type ShareQuality, type ShareRole, type ShareView } from '../lib/api'
-import { langHeaders, t } from '../lib/i18n/index.svelte'
+import { t } from '../lib/i18n/index.svelte'
+import { send, type SendOptions } from '../lib/http'
+import { forgetTicket, ticket } from './ticket'
+export { streamUser, ticket, type Ticket } from './ticket'
 import type { Mode } from './device'
 import { viaRelay } from './plan'
 import { deviceId } from './prefs'
@@ -18,33 +21,8 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
  * `503`, `504`) ou d'un mandataire. `headers` et `signal` : en plus (le secret d'un invité, l'attente
  * qu'on annule).
  */
-async function request(
-  method: string,
-  path: string,
-  body?: unknown,
-  extra: { headers?: Record<string, string>; signal?: AbortSignal } = {},
-): Promise<{ res: Response; data: any; json: boolean }> {
-  // La console répond dans la langue de ce client (messages d'erreur).
-  const headers: Record<string, string> = { ...langHeaders(), ...extra.headers }
-  if (method !== 'GET') headers['x-kyber-admin'] = '1'
-  if (body !== undefined) headers['content-type'] = 'application/json'
-  const res = await fetch(path, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-    credentials: 'same-origin',
-    signal: extra.signal,
-  })
-  const text = await res.text()
-  let data: any = null
-  let json = true
-  try {
-    data = text ? JSON.parse(text) : null
-  } catch {
-    data = { error: text }
-    json = false
-  }
-  return { res, data, json }
+function request(method: string, path: string, body?: unknown, extra: SendOptions = {}): Promise<{ res: Response; data: any; json: boolean }> {
+  return send(method, path, body, extra)
 }
 
 /** Le relais (ou un mandataire) répond à la place d'Admin : une page d'erreur, pas du JSON. */
@@ -89,13 +67,6 @@ export interface Session {
   relay?: boolean
 }
 
-export interface Ticket {
-  token: string
-  user: string
-  expires_in: number
-  kyber_port: number | null
-  hostname: string | null
-}
 
 export interface Live {
   name: string
@@ -114,6 +85,8 @@ export interface StationInfo {
 /** `GET /api/stream/info` : ce que l'accueil et les réglages montrent de l'ordinateur. */
 export interface Info {
   hostname: string | null
+  /** Le compte de streaming de la Station (WEB-14), quand Admin le donne ; sinon lu par `streamUser`. */
+  stream_user?: string | null
   os?: string | null
   gpu: string | null
   virtual_display: { available: boolean; active: boolean }
@@ -240,7 +213,7 @@ export const backend = {
   stationRestart: (body: { device_id: string; force: boolean }) => station<{ ok: boolean }>('/api/stream/station/restart', body),
   stationUpdate: (body: { device_id: string; force: boolean }) => station<{ ok: boolean; version: string }>('/api/stream/station/update', body),
   login: (password: string) => call('POST', '/api/login', { password }),
-  ticket: () => call<Ticket>('GET', '/api/web/ticket'),
+  ticket: () => ticket(),
   live: async (): Promise<Live | null> => {
     const s = await call<{ activity?: { live: Live | null } }>('GET', '/api/status')
     return s.activity?.live ?? null
@@ -342,18 +315,8 @@ export const backend = {
 
   /** Change la « Qualité de l'image » d'un invité en cours de partage : Kyber relance son image seulement. */
   shareQuality: async (join: GuestJoin, quality: ShareQuality, auto?: AutoCaps): Promise<GuestImage> => {
-    const res = await fetch('/api/share/quality', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { ...langHeaders(), 'x-kyber-admin': '1', 'content-type': 'application/json', 'x-kybernow-guest': join.secret },
-      body: JSON.stringify({ guest: join.guest, quality, ...(auto ? { auto } : {}) }),
-    })
-    let data: any = null
-    try {
-      data = await res.json()
-    } catch {
-      // Réponse vide ou illisible.
-    }
+    const { res, data: raw, json } = await request('POST', '/api/share/quality', { guest: join.guest, quality, ...(auto ? { auto } : {}) }, { headers: { 'x-kybernow-guest': join.secret } })
+    const data = json ? raw : null
     if (res.status === 429) {
       // Un changement par seconde et par invité : la Station dit quand refaire la demande.
       const wait = Number(data?.retry_after ?? res.headers.get('retry-after'))
@@ -507,14 +470,20 @@ export const lend = {
  * se fermer derrière. Fermer la fenêtre, en revanche, ne rend pas l'ordinateur.
  */
 export function leaveLend(secret: string, body: { lend: string } | { request: string }): Promise<unknown> {
-  return fetch('/api/lend/leave', {
-    method: 'POST',
-    keepalive: true,
-    credentials: 'same-origin',
-    headers: { 'x-kyber-admin': '1', 'content-type': 'application/json', 'x-kybernow-lend': secret },
-    body: JSON.stringify(body),
-  }).catch(() => {})
+  return request('POST', '/api/lend/leave', body, { keepalive: true, headers: { 'x-kybernow-lend': secret } }).catch(() => {})
 }
+
+/** Fin de session à la fermeture de la page (`keepalive`) : la même que `backend.end`. */
+export function endOnUnload(extra: Extra = {}): void {
+  void request('POST', '/api/stream/end', endBody(null, extra), { keepalive: true }).catch(() => {})
+}
+
+/** Déconnexion de la console (le compte de ce navigateur). */
+export function logout(): Promise<unknown> {
+  forgetTicket()
+  return request('POST', '/api/logout').catch(() => {})
+}
+
 
 /** Champs en plus dans les corps du signal de vie et de la fin (par exemple
  * `device_id`) : la console ignore ceux qu'elle ne connaît pas. */

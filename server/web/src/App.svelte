@@ -15,6 +15,7 @@
   import System from './pages/System.svelte'
   import Mark from './lib/Mark.svelte'
   import Icon from './lib/Icon.svelte'
+  import { poll } from './lib/poll'
   import { isLent, lentLine } from './lib/lend'
 
   // Huit espaces, par intention.
@@ -90,9 +91,24 @@
   // Un appareil demande l'accès par code (Apple TV) : signalé partout.
   const pairRequests = $derived(status?.pair_requests ?? [])
 
+  /** Admin injoignable au chargement (Station qui redémarre, réseau coupé) : dit à l'écran, nouvel essai espacé
+   * (WEB-06) au lieu d'une roue sans fin. */
+  let unreachable = $state(false)
+  let retryTimer: ReturnType<typeof setTimeout> | undefined
+  let retryDelay = 2000
+
   async function loadSession() {
-    session = await api.session()
-    setPlatform((session as { platform?: string }).platform)
+    clearTimeout(retryTimer)
+    try {
+      session = await api.session()
+      unreachable = false
+      retryDelay = 2000
+      setPlatform((session as { platform?: string }).platform)
+    } catch {
+      unreachable = !session
+      retryTimer = setTimeout(loadSession, retryDelay)
+      retryDelay = Math.min(retryDelay * 2, 15000)
+    }
   }
 
   onMount(() => {
@@ -102,7 +118,10 @@
     loadSession()
     const onHash = () => (hash = location.hash.slice(2))
     window.addEventListener('hashchange', onHash)
-    return () => window.removeEventListener('hashchange', onHash)
+    return () => {
+      window.removeEventListener('hashchange', onHash)
+      clearTimeout(retryTimer)
+    }
   })
 
   // Une section demandée (#/systeme/journaux) : on la montre.
@@ -138,11 +157,10 @@
   })
 
   // État du serveur tant que l'on est connecté.
+  // Un tour à la fois, en pause onglet masqué (WEB-19).
   $effect(() => {
     if (!session?.authenticated) return
-    refreshStatus()
-    const timer = setInterval(refreshStatus, 3000)
-    return () => clearInterval(timer)
+    return untrack(() => poll(refreshStatus, 3000))
   })
 
   async function restartKyber(done = t('app.restartDone')) {
@@ -165,7 +183,10 @@
 </script>
 
 {#if !session}
-  <div class="loading"><Mark size={34} lit breathe /></div>
+  <div class="loading">
+    <Mark size={34} lit={!unreachable} breathe={!unreachable} />
+    {#if unreachable}<p class="unreachable" role="status">{t('common.unreachable')}</p>{/if}
+  </div>
 {:else if !session.authenticated}
   <Login
     configured={session.configured}
@@ -272,7 +293,7 @@
       {#each spaces as s (s.id)}
         <a href="#/{s.id}" class:current={s.id === current.id} aria-current={s.id === current.id ? 'page' : undefined}>
           {#if s.icon === 'link'}<Mark size={21} state="now" neutral="currentColor" />{:else}<Icon name={s.icon} size={22} />{/if}
-          {s.short}
+          <span class="label">{s.short}</span>
           {#if s.id === 'systeme' && updateBadge}<span class="pip" aria-label={t('app.updatePip')}></span>{/if}
           {#if s.id === 'appareils' && pairRequests.length}<span class="pip" aria-label={t('app.pairPip')}></span>{/if}
           {#if s.id === 'pret' && lendRequests.length}<span class="pip" aria-label={t('app.lendPip')}></span>{/if}
@@ -290,7 +311,16 @@
   .loading {
     min-height: 100vh;
     display: grid;
-    place-items: center;
+    place-content: center;
+    justify-items: center;
+    gap: 18px;
+  }
+
+  .unreachable {
+    margin: 0;
+    color: var(--muted);
+    text-align: center;
+    padding: 0 16px;
   }
 
   .shell {
@@ -487,6 +517,17 @@
     color: var(--bad-text);
   }
 
+  /* Téléphone étroit : les icônes seules, le libellé reste lu par les lecteurs d'écran (WEB-16). */
+  @media (max-width: 480px) {
+    .tabbar .label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+  }
+
   @media (max-width: 760px) {
     .shell {
       grid-template-columns: 1fr;
@@ -533,6 +574,8 @@
     .tabbar a {
       position: relative;
       flex: 1;
+      /* Huit onglets (WEB-16) : chacun peut rétrécir sous la largeur de son libellé. */
+      min-width: 0;
       min-height: 56px;
       display: flex;
       flex-direction: column;
@@ -542,6 +585,13 @@
       font-size: 10.5px;
       color: var(--faint);
       text-decoration: none;
+    }
+
+    .tabbar .label {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .tabbar a.current {

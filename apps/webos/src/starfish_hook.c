@@ -2,8 +2,9 @@
  * décodeur du téléviseur (NDL DirectMedia, chargé par dlopen dans ce
  * processus) pilote par des documents JSON. Le symbole, exporté par le
  * binaire, passe devant celui de libplayerAPIs pour les bibliothèques
- * chargées ensuite : le document est journalisé, puis remis au vrai Load
- * (tel quel : kybernow_starfish_rewrite rend NULL). */
+ * chargées ensuite : le document est journalisé, puis remis tel quel au
+ * vrai Load. Feed n'est plus intercepté (WEBOS-24) : il ne changeait rien,
+ * et son ABI std::string était devinée. */
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <stdlib.h>
@@ -15,12 +16,10 @@ typedef int (*starfish_load)(void *self, const char *payload, starfish_cb cb, vo
 typedef void (*starfish_cb3)(int type, long long num, const char *str);
 typedef int (*starfish_load3)(void *self, const char *payload, starfish_cb3 cb);
 
-/* Côté Rust : journal, réécriture (chaîne malloc, ou NULL pour garder), et
- * les événements du lecteur (rappel du chargement). */
+/* Côté Rust : journal du document et des événements du lecteur (rappel du
+ * chargement). */
 extern void kybernow_starfish_seen(const char *payload);
-extern char *kybernow_starfish_rewrite(const char *payload);
 extern void kybernow_starfish_event(int type, long long num, const char *str);
-extern long long kybernow_starfish_pts_scale(void);
 
 /* Le rappel du décodeur, un seul lecteur à la fois : vu avant d'être remis. */
 static starfish_cb3 g_cb3;
@@ -40,10 +39,7 @@ int _ZN17StarfishMediaAPIs4LoadEPKcPFvixS1_PvES2_(void *self, const char *payloa
         }
     }
     kybernow_starfish_seen(payload);
-    char *rewritten = kybernow_starfish_rewrite(payload);
-    int r = real(self, rewritten ? rewritten : payload, cb, data);
-    free(rewritten);
-    return r;
+    return real(self, payload, cb, data);
 }
 
 /* La variante sans données, celle qu'appelle le décodeur du téléviseur. */
@@ -56,45 +52,6 @@ int _ZN17StarfishMediaAPIs4LoadEPKcPFvixS1_E(void *self, const char *payload, st
         }
     }
     kybernow_starfish_seen(payload);
-    char *rewritten = kybernow_starfish_rewrite(payload);
     g_cb3 = cb;
-    int r = real(self, rewritten ? rewritten : payload, trampoline3);
-    free(rewritten);
-    return r;
-}
-
-/* Feed(const char *payload) rend une std::string : sur l'ABI ARM, l'adresse
- * du résultat vient en premier (r0), puis l'objet, puis le document. Le
- * document ({"bufferAddr":"…","bufferSize":N,"pts":T,"esData":E}) est
- * transmis tel quel, sauf l'horodatage, multiplié par
- * kybernow_starfish_pts_scale() (1 : tel quel aussi). */
-typedef void *(*starfish_feed)(void *ret, void *self, const char *payload);
-
-void *_ZN17StarfishMediaAPIs4FeedB5cxx11EPKc(void *ret, void *self, const char *payload) {
-    static starfish_feed real;
-    if (!real) {
-        real = (starfish_feed)dlsym(RTLD_NEXT, "_ZN17StarfishMediaAPIs4FeedB5cxx11EPKc");
-        if (!real) {
-            return ret;
-        }
-    }
-    long long scale = kybernow_starfish_pts_scale();
-    const char *key = payload ? strstr(payload, "\"pts\":") : NULL;
-    if (scale == 1 || !key) {
-        return real(ret, self, payload);
-    }
-    char buf[256];
-    const char *num = key + 6;
-    char *end;
-    long long pts = strtoll(num, &end, 10);
-    size_t head = (size_t)(num - payload);
-    if (head + 32 + strlen(end) >= sizeof buf) {
-        return real(ret, self, payload);
-    }
-    memcpy(buf, payload, head);
-    int n = snprintf(buf + head, sizeof buf - head, "%lld%s", pts * scale, end);
-    if (n < 0) {
-        return real(ret, self, payload);
-    }
-    return real(ret, self, buf);
+    return real(self, payload, trampoline3);
 }

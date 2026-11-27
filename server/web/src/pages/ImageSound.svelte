@@ -10,7 +10,9 @@
   import Icon from '../lib/Icon.svelte'
   import Segmented from '../lib/Segmented.svelte'
   import Switch from '../lib/Switch.svelte'
+  import { untrack } from 'svelte'
   import { i18n, t } from '../lib/i18n/index.svelte'
+  import { poll } from '../lib/poll'
 
   const PRESETS = [
     { width: 1920, height: 1080, refresh: 60 },
@@ -128,13 +130,14 @@
     }
   }
 
-  $effect(() => {
-    load()
-    loadMicro()
-    loadKyber()
-    const timer = setInterval(load, 2500)
-    return () => clearInterval(timer)
-  })
+  // Une fois à l'ouverture (WEB-08), relevé en pause onglet masqué (WEB-19).
+  $effect(() =>
+    untrack(() => {
+      loadMicro()
+      loadKyber()
+      return poll(load, 2500)
+    }),
+  )
 
   async function run<T>(fn: () => Promise<T>, ok?: string): Promise<T | null> {
     busy = true

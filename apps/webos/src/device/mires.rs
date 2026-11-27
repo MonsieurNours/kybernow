@@ -48,6 +48,7 @@ pub fn show(mire: Option<(Step, usize)>) {
 
 fn run() {
     let mut shown: Option<(Step, usize)> = None;
+    let mut meta_of: Option<((Step, usize), Option<crate::hdr::HdrMeta>)> = None;
     loop {
         let wanted = {
             let g = STATE.lock().unwrap();
@@ -72,7 +73,15 @@ fn run() {
         }
         // Chaque mire porte ses métadonnées HDR10 (le palier essayé, ou 1 000 nits) : redonnées au téléviseur à chaque
         // changement de mire (`ndl::ensure_mire`), sans recharger NDL.
-        let meta = crate::hdr::decide(&crate::hdr::scan_hevc(image), true, true);
+        // Lues une fois par mire (WEBOS-21 : la même mire est redonnée toutes les 100 ms).
+        let meta = match &meta_of {
+            Some((w, m)) if Some(*w) == wanted => *m,
+            _ => {
+                let m = crate::hdr::decide(&crate::hdr::scan_hevc(image), true, true);
+                meta_of = Some((wanted.unwrap_or((Step::Peak, 0)), m));
+                m
+            }
+        };
         if let Err(e) = ndl::ensure_mire(SIZE.0, SIZE.1, meta) {
             log::warn!("réglage du HDR : {e}");
             std::thread::sleep(REPEAT);

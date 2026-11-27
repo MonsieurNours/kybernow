@@ -174,6 +174,7 @@
       <label class="sr-only" for="lend-pw">{t('lend.friend.password')}</label>
       <input id="lend-pw" type="password" bind:value={password} placeholder={t('lend.friend.password')} autocomplete="current-password" required />
       <label class="remember"><input type="checkbox" bind:checked={remember} onchange={rememberChanged} />{t('lend.friend.remember')}</label>
+      {#if remember}<p class="remember-help">{t('lend.friend.rememberHelp')}</p>{/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <button type="submit" class="primary" disabled={busy || waiting || !login.trim() || !password}>{busy ? t('web.gate.wait') : t('web.gate.continue')}</button>
     </form>
@@ -246,6 +247,12 @@
     font-size: 14px;
     color: var(--text-2);
     cursor: pointer;
+  }
+
+  .remember-help {
+    margin: -6px 0 0;
+    font-size: 13px;
+    color: var(--text-2);
   }
 
   .remember input {

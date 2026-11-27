@@ -307,7 +307,18 @@ pub fn hint(cv: &mut Canvas, x: f32, y: f32, key: Key, s: &str) -> f32 {
 /// sont plus gros. Rend le côté du carré, ou rien si le texte est trop long pour un QR code.
 pub fn qr(cv: &mut Canvas, text: &str, x: f32, y: f32, side: f32) -> Option<f32> {
     use qrcodegen::{QrCode, QrCodeEcc};
-    let code = QrCode::encode_text(text, QrCodeEcc::Low).ok()?;
+    // Le dernier QR code calculé, gardé (WEBOS-20) : les écrans qui le montrent se redessinent souvent, son texte
+    // change rarement.
+    thread_local! {
+        static LAST: std::cell::RefCell<Option<(String, QrCode)>> = const { std::cell::RefCell::new(None) };
+    }
+    let code = LAST.with(|last| {
+        let mut last = last.borrow_mut();
+        if last.as_ref().is_none_or(|(t, _)| t != text) {
+            *last = Some((text.to_string(), QrCode::encode_text(text, QrCodeEcc::Low).ok()?));
+        }
+        last.as_ref().map(|(_, c)| c.clone())
+    })?;
     let n = code.size();
     let total = n + 8;
     let module = (side / total as f32).floor().max(1.0);

@@ -57,7 +57,7 @@ pub enum Event {
     /// Comptes KyberNow : un code, une connexion, les ordinateurs d'un compte (`accounts.rs`).
     Account(accounts::AccountEvent),
     Probed { address: String, port: u16, fingerprint: Result<String, String> },
-    PairAsked { name: String, address: String },
+    PairAsked { name: String },
     PairAccepted(crate::model::Host),
     /// Invitations : la réponse au mot de passe (numéro de l'essai) : l'ordinateur à garder, ou le texte du refus
     /// (`InviteError::text`).
@@ -204,6 +204,7 @@ pub fn run(args: &[String]) {
             return;
         }
     }
+    sdl::register_wake();
     let title = CString::new("KyberNow Link").unwrap();
     let window = unsafe {
         sdl::SDL_CreateWindow(title.as_ptr(), sdl::SDL_WINDOWPOS_UNDEFINED, sdl::SDL_WINDOWPOS_UNDEFINED, UI_W, UI_H, sdl::SDL_WINDOW_SHOWN | sdl::SDL_WINDOW_FULLSCREEN)
@@ -229,7 +230,17 @@ pub fn run(args: &[String]) {
     let store = Store::load();
     i18n::set_english(i18n::resolve(&store.app.language, &sdl::locale()));
     kybernow_core::i18n::set_current(if i18n::english() { kybernow_core::i18n::Lang::En } else { kybernow_core::i18n::Lang::Fr });
+    let damaged = store.damaged.clone();
     let mut app = App::new(store);
+    // Fichier de l'app illisible (WEBOS-01) : mis de côté, pas effacé ; l'utilisateur est prévenu.
+    match damaged.as_deref() {
+        Some("") => app.toast(tr(
+            "Fichier de l'app illisible : rien ne sera enregistré pour ne pas l'effacer",
+            "App file unreadable: nothing will be saved so it is not erased",
+        )),
+        Some(name) => app.toast(format!("{} {name}", tr("Fichier de l'app illisible, mis de côté :", "App file unreadable, set aside:"))),
+        None => {}
+    }
     let (panel, refresh) = sdl::panel();
     let decoder = ndl::available();
     app.tv = system::tv(panel, refresh, decoder, ndl::hdr_capable());
@@ -281,18 +292,16 @@ pub fn run(args: &[String]) {
     let mut cursor_shown = true;
     let mut quit = false;
     let mut rec_tick: Option<u64> = None;
+    // Redessin lent (curseur qui clignote, minute du code) et calcul des mises à jour des Stations : à leur rythme,
+    // pas à chaque tour de boucle (WEBOS-20).
+    let mut last_slow_draw = Instant::now();
+    let mut last_offers = Instant::now() - Duration::from_secs(60);
 
     while !quit {
         // Animations : l'arrivée en session, les capsules, les vibrations d'essai.
         let animating = app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages))
             || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             || app.session.as_ref().and_then(|s| s.notice.as_ref()).is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
-            || (app.screen == Screen::Gamepads)
-            || app.screen == Screen::Join
-            // Comptes KyberNow : l'attente du code (« Le code change dans {n} min. »).
-            || app.screen == Screen::Account
-            // L'accueil : l'attente du code de l'écran 2.
-            || app.welcome_code_shown()
             // Profil Auto : la roue du test, et le bandeau de la session qui s'efface.
             || (app.screen == Screen::AutoTest && app.auto.as_ref().is_some_and(|a| a.phase == crate::autotest::AutoPhase::Running))
             || app.auto_banner_visible()
@@ -303,6 +312,14 @@ pub fn run(args: &[String]) {
             || pads.mouse_active()
             // Mise à jour des Stations : l'attente du bandeau et de l'avis.
             || (app.screen == Screen::Home && app.station.as_ref().is_some_and(|s| s.phase != crate::app::StationPhase::Idle));
+        // Rejoindre (curseur qui clignote toutes les 530 ms), manettes, comptes et accueil (l'attente du code, à la minute) :
+        // un dessin toutes les 250 ms suffit, au lieu de 60 par seconde (1920 × 1080 au processeur à chaque fois).
+        // Manettes : leur état (batterie, branchement) relu à chaque dessin, au même rythme.
+        let slow = app.screen == Screen::Join || app.screen == Screen::Account || app.screen == Screen::Gamepads || app.welcome_code_shown();
+        if slow && last_slow_draw.elapsed() >= Duration::from_millis(250) {
+            last_slow_draw = Instant::now();
+            dirty = true;
+        }
         let timeout = if animating { 16 } else { 50 };
         let mut ev = sdl::SDL_Event::default();
         let mut actions: Vec<Action> = Vec::new();
@@ -326,18 +343,23 @@ pub fn run(args: &[String]) {
         {
             present = true;
         }
-        // Flèches répétées au stick (menus).
-        if let Some(n) = pads.repeat_nav() {
+        // Flèches répétées au stick (menus) ; en jeu, les axes vont à l'ordinateur : une direction tenue au moment de
+        // « Reprendre » est oubliée, sans quoi elle serait rejouée dans les menus toutes les 130 ms (WEBOS-09).
+        if in_game(&app) {
+            pads.clear_held();
+        } else if let Some(n) = pads.repeat_nav() {
             actions.extend(app.nav(n));
             dirty = true;
         }
 
+        let mut events_seen = false;
         while let Ok(e) = rx.try_recv() {
             // Le pointeur de l'ordinateur bouge : la fenêtre seule est recomposée.
             if matches!(e, Event::Pointer { .. }) {
                 present = true;
             } else {
                 dirty = true;
+                events_seen = true;
             }
             if let Event::Ps(e) = e {
                 playstation::handle(e, &mut app, &mut actions, &search, &mut playing, &mut pads);
@@ -351,10 +373,14 @@ pub fn run(args: &[String]) {
             actions.extend(app.poll_link());
             dirty |= app.pending_link.is_none();
         }
-        // Mise à jour des Stations : le calcul du cœur pour chaque ordinateur, les vérifications en arrière-plan, l'avis.
-        let (acts, changed) = offers.tick(&mut app, &tx);
-        actions.extend(acts);
-        dirty |= changed;
+        // Mise à jour des Stations : le calcul du cœur pour chaque ordinateur, les vérifications en arrière-plan, l'avis ;
+        // une fois par seconde, ou tout de suite après une réponse (WEBOS-20).
+        if events_seen || last_offers.elapsed() >= Duration::from_secs(1) {
+            last_offers = Instant::now();
+            let (acts, changed) = offers.tick(&mut app, &tx);
+            actions.extend(acts);
+            dirty |= changed;
+        }
         // Le bandeau après un appairage, à l'écran : compté comme vu (crate::welcome).
         if app.paired_banner_seen() {
             actions.push(Action::Save);
@@ -402,6 +428,24 @@ pub fn run(args: &[String]) {
                     _ => {}
                 }
             }
+        }
+
+        // Retour au premier plan (WEBOS-14) : rien n'a tourné pendant la veille. L'accueil se sonde et le réseau, les
+        // comptes se relisent tout de suite ; en session, le décodeur du téléviseur est rechargé à l'image clé
+        // suivante (le téléviseur a pu le décharger sans le dire : l'image resterait figée).
+        if FOREGROUND.swap(false, Ordering::AcqRel) {
+            log::info!("premier plan : reprise");
+            last_poll = Instant::now() - Duration::from_secs(60);
+            last_net = Instant::now() - Duration::from_secs(60);
+            perform(Action::AccountsRefresh, &mut app, &mut pads, &mut live, &tx, &mut pairing, &mut quit);
+            if let Some(l) = live.as_ref() {
+                esplayer::suspend();
+                ndl::unload();
+                if let Some(s) = l.handle.shared.session() {
+                    s.request_keyframe();
+                }
+            }
+            dirty = true;
         }
 
         // Fin de session : l'accueil, la dernière session enregistrée.
@@ -503,11 +547,13 @@ pub fn run(args: &[String]) {
             if show_ui {
                 app.pads = pads.infos();
                 app.hits = ui::draw(&app, &mut cv, &assets);
+                app.hits_for = Some((app.screen, app.dialog.is_some()));
                 unsafe {
                     sdl::SDL_UpdateTexture(video.ui, std::ptr::null(), cv.bytes().as_ptr() as *const _, UI_W * 4);
                 }
             } else {
                 app.hits.clear();
+                app.hits_for = None;
             }
             dirty = false;
             present = true;
@@ -538,6 +584,7 @@ pub fn run(args: &[String]) {
     for c in pairing.drain(..) {
         c.store(true, Ordering::Relaxed);
     }
+    jobs::cancel_on_quit();
     app.store.save();
     mires::show(None);
     esplayer::quit();
@@ -584,11 +631,21 @@ fn draw_frame(video: &Video, show_ui: bool, live: Option<&Live>, app: &App) {
     }
 }
 
+/// Les entrées vont à l'ordinateur (session à l'image, sans menu ni panneau ni confirmation par-dessus). Une partie
+/// sur une console n'est jamais « en jeu » ici : ses entrées passent par `playstation::handle_sdl`.
+fn in_game(app: &App) -> bool {
+    app.screen == Screen::Session && app.dialog.is_none() && app.session.as_ref().is_some_and(|s| s.ps.is_none() && !s.menu && !s.keys && !s.share_panel && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }))
+}
+
+/// Retour au premier plan, vu par `handle_sdl`, traité par la boucle.
+static FOREGROUND: AtomicBool = AtomicBool::new(false);
+
 #[allow(clippy::too_many_arguments)]
 fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: Option<&mut Live>, actions: &mut Vec<Action>, dirty: &mut bool, present: &mut bool, quit: &mut bool) {
     // Une partie sur une console n'est jamais « en jeu » ici : ses entrées passent par `playstation::handle_sdl`, et sa barre
     // ou son clavier se pilotent comme les menus.
-    let in_game = app.screen == Screen::Session && app.session.as_ref().is_some_and(|s| s.ps.is_none() && !s.menu && !s.keys && !s.share_panel && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }));
+    // Une confirmation arrivée en jeu est dessinée par-dessus l'image : OK et flèches sont à elle (WEBOS-12).
+    let in_game = in_game(app);
     let input = live.as_ref().and_then(|l| l.handle.shared.current_input());
     match ev.kind() {
         sdl::SDL_QUIT => *quit = true,
@@ -596,6 +653,12 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
             if let Some(p) = &input {
                 p.release_all();
             }
+        }
+        // Retour au premier plan (sortie de veille du téléviseur, retour depuis une autre app) : traité par la boucle
+        // (`resume_foreground`, WEBOS-14).
+        sdl::SDL_APP_DIDENTERFOREGROUND => {
+            FOREGROUND.store(true, Ordering::Release);
+            *dirty = true;
         }
         sdl::SDL_KEYDOWN | sdl::SDL_KEYUP => {
             let down = ev.kind() == sdl::SDL_KEYDOWN;
@@ -846,6 +909,10 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
         Event::Station { id, op, result } => app.station_answer(&id, op, result),
         Event::StationChecked { id, station } => offer::checked(app, &id, station),
         Event::Preview { id, jpeg } => {
+            // Ordinateur retiré pendant la sonde : son aperçu n'est pas recréé (WEBOS-17).
+            if app.store.host(&id).is_none() {
+                return;
+            }
             if let Some(img) = ui::canvas::decode_jpeg(&jpeg) {
                 let _ = std::fs::write(Store::image_path(&id), &jpeg);
                 app.images.insert(id, img);
@@ -869,17 +936,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 actions.push(Action::StartPairing);
             }
         }
-        Event::Probed { address, port, fingerprint } => {
-            app.add.busy = false;
-            match fingerprint {
-                Ok(fp) => {
-                    app.add.step = AddStep::Verify { address, port, fingerprint: fp };
-                    app.add.message = None;
-                    app.go(Screen::Add);
-                }
-                Err(e) => app.add.message = Some(e),
-            }
-        }
+        Event::Probed { address, port, fingerprint } => app.probed(address, port, fingerprint),
         Event::PairAsked { name, .. } => {
             app.add.message = Some(format!("{} {name} : {}", tr("Code présenté à", "Code shown to"), tr("acceptez-le dans Admin", "accept it in Admin")));
         }

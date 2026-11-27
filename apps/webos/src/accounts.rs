@@ -57,8 +57,6 @@ impl TvCodeUi {
 pub enum SignInFail {
     /// « Ce n'est pas moi » sur le téléphone : « Connexion refusée sur le téléphone. » et « Nouveau code ».
     Denied,
-    /// Abandonnée (« Retour ») : rien à dire.
-    Cancelled,
     /// Le texte du cœur (`AccountError::text`).
     Message(String),
 }
@@ -217,7 +215,6 @@ impl App {
                 vec![Action::Save, Action::AccountsRefresh]
             }
             Err(_) if !current => Vec::new(),
-            Err(SignInFail::Cancelled) => Vec::new(),
             Err(SignInFail::Denied) => {
                 let f = &mut self.accounts.flow;
                 f.busy = false;

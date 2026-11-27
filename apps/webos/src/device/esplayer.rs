@@ -61,8 +61,15 @@ static RELOADING: AtomicBool = AtomicBool::new(false);
 /// Rechargement raté : l'erreur, rendue par `feed` (le son repasse par SDL).
 static RELOAD_FAILED: Mutex<Option<String>> = Mutex::new(None);
 /// Change à chaque chargement et déchargement demandés : un rechargement en
-/// fond d'une session finie ou remplacée s'arrête là.
+/// fond d'une session finie ou remplacée s'arrête là. C'est aussi le jeton
+/// rendu par `load` (WEBOS-02) : `unload_if` ne décharge que le chargement
+/// courant.
 static EPOCH: AtomicU64 = AtomicU64::new(0);
+/// Mise en attente par la fin d'un fil d'image (`suspend`) : rechargée en fond
+/// à la trame suivante.
+static SUSPENDED: AtomicBool = AtomicBool::new(false);
+/// Avance au-delà de laquelle une trame est jetée (`crate::av_clock`, WEBOS-04).
+const MAX_LEAD_NS: i64 = 100_000_000;
 
 /// Erreur de `feed` pendant un rechargement : trame sautée.
 pub const RELOADING_ERR: &str = "rechargement en cours";
@@ -137,11 +144,41 @@ fn open() -> Result<(), String> {
 }
 
 /// Charge la chaîne audio E-AC-3 5.1 et l'amorce de `silence` (une trame)
-/// jusqu'à la confirmation ; faux si le téléviseur ne la confirme pas.
-pub fn load(silence: &[u8]) -> Result<(), String> {
+/// jusqu'à la confirmation, en fond (WEBOS-05 : jusqu'à ~5 s, NDL d'abord, à
+/// ne pas attendre dans le rappel des paquets). D'ici là, `feed` rend
+/// `RELOADING_ERR` (trame sautée) ; si le téléviseur ne la confirme pas,
+/// l'erreur. Rend le jeton du chargement, pour `unload_if`.
+pub fn load(silence: &[u8]) -> u64 {
     let epoch = EPOCH.fetch_add(1, Ordering::AcqRel) + 1;
     *RELOAD_FAILED.lock().unwrap() = None;
-    start(silence, epoch)
+    SUSPENDED.store(false, Ordering::Release);
+    RELOADING.store(true, Ordering::Release);
+    let silence = silence.to_vec();
+    let spawned = std::thread::Builder::new().name("kybernow-dolby".into()).spawn(move || {
+        let r = start(&silence, epoch);
+        finish(epoch, r.map_err(|e| e.to_string()), "");
+    });
+    if let Err(e) = spawned {
+        finish(epoch, Err(format!("chargement impossible ({e})")), "");
+    }
+    epoch
+}
+
+/// La fin d'un chargement en fond : sans effet s'il n'est plus le courant
+/// (WEBOS-07 : un rechargement périmé ne rouvre pas `feed` pendant celui d'une
+/// autre session).
+fn finish(epoch: u64, r: Result<(), String>, prefix: &str) {
+    if EPOCH.load(Ordering::Acquire) != epoch {
+        if let Err(e) = r {
+            log::info!("son : chargement de la chaîne Dolby abandonné ({e})");
+        }
+        return;
+    }
+    match r {
+        Ok(()) => {}
+        Err(e) => *RELOAD_FAILED.lock().unwrap() = Some(format!("{prefix}{e}")),
+    }
+    RELOADING.store(false, Ordering::Release);
 }
 
 /// Le chargement, pour `load` et pour un rechargement en fond : abandonné
@@ -249,16 +286,20 @@ fn start(silence: &[u8], epoch: u64) -> Result<(), String> {
 /// Erreur d'un chargement abandonné (`EPOCH` a changé).
 const CANCELLED: &str = "chargement abandonné";
 
-/// Une trame à la chaîne, horodatée à l'horloge du chargement (jamais en
-/// arrière) ; rend le code de `NDL_ES_Feed` s'il n'est pas 0.
-fn push(st: &mut State, frame: &[u8]) -> Result<(), c_int> {
+/// Une trame à la chaîne, horodatée d'après la durée des trames et recalée
+/// sur l'horloge du chargement (jamais en arrière, avance bornée :
+/// `crate::av_clock`) ; `Ok(false)` si elle est jetée (trop d'avance), le
+/// code de `NDL_ES_Feed` s'il n'est pas 0.
+fn push(st: &mut State, frame: &[u8]) -> Result<bool, c_int> {
     let Some(at) = st.loaded_at else { return Err(-3) };
-    let pts = (at.elapsed().as_nanos() as i64).max(st.last_pts_ns + FRAME_NS);
+    let last = (st.last_pts_ns > 0).then_some(st.last_pts_ns);
+    let now = (at.elapsed().as_nanos() as i64).max(1);
+    let Some(pts) = crate::av_clock::next_pts(last, now, FRAME_NS, MAX_LEAD_NS) else { return Ok(false) };
     st.last_pts_ns = pts;
     let doc = format!("{{\"bufferAddr\":\"{:#x}\",\"bufferSize\":{},\"pts\":{pts},\"esData\":2}}", frame.as_ptr() as usize, frame.len());
     let Ok(json) = CString::new(doc) else { return Err(-1) };
     match unsafe { (st.api.feed)(st.player, json.as_ptr()) } {
-        0 => Ok(()),
+        0 => Ok(true),
         n => Err(n),
     }
 }
@@ -276,14 +317,21 @@ pub fn feed(frame: &[u8]) -> Result<(), String> {
     let mut g = ES.lock().unwrap();
     let st = g.as_mut().ok_or("NDL_ES absent")?;
     if st.loaded_at.is_none() {
+        if SUSPENDED.swap(false, Ordering::AcqRel) {
+            return reload(st, "mise en attente avec l'image");
+        }
         return Err("chaîne Dolby pas chargée".into());
     }
     if TV_UNLOADED.load(Ordering::Acquire) {
         return reload(st, "déchargée par le téléviseur");
     }
     match push(st, frame) {
-        Ok(()) => {
+        Ok(true) => {
             st.fed = true;
+            Ok(())
+        }
+        Ok(false) => {
+            log::debug!("son : chaîne Dolby, trame jetée (trop d'avance)");
             Ok(())
         }
         Err(-2) => Err("tampon plein".into()),
@@ -306,12 +354,11 @@ fn reload(st: &mut State, why: &str) -> Result<(), String> {
     let epoch = EPOCH.load(Ordering::Acquire);
     RELOADING.store(true, Ordering::Release);
     let spawned = std::thread::Builder::new().name("kybernow-dolby".into()).spawn(move || {
-        match start(&silence, epoch) {
-            Ok(()) => log::info!("son : chaîne Dolby rechargée"),
-            Err(e) if EPOCH.load(Ordering::Acquire) != epoch => log::info!("son : rechargement de la chaîne Dolby abandonné ({e})"),
-            Err(e) => *RELOAD_FAILED.lock().unwrap() = Some(format!("rechargement : {e}")),
+        let r = start(&silence, epoch);
+        if r.is_ok() {
+            log::info!("son : chaîne Dolby rechargée");
         }
-        RELOADING.store(false, Ordering::Release);
+        finish(epoch, r, "rechargement : ");
     });
     if let Err(e) = spawned {
         RELOADING.store(false, Ordering::Release);
@@ -337,12 +384,43 @@ fn release(st: &mut State) {
     }
 }
 
-/// Décharge la chaîne (fin de session, repli) et arrête un rechargement en cours.
+/// Décharge la chaîne (sortie de l'app) et arrête un chargement en cours.
 pub fn unload() {
     EPOCH.fetch_add(1, Ordering::AcqRel);
+    RELOADING.store(false, Ordering::Release);
+    SUSPENDED.store(false, Ordering::Release);
     let mut g = ES.lock().unwrap();
     if let Some(st) = g.as_mut() {
         release(st);
+    }
+}
+
+/// Décharge la chaîne si `token` (rendu par `load`) est encore le chargement
+/// courant (fin de session, repli) : un puits d'une session remplacée ne
+/// décharge pas celle du puits suivant (WEBOS-02).
+pub fn unload_if(token: u64) {
+    if token == 0 || EPOCH.compare_exchange(token, token + 1, Ordering::AcqRel, Ordering::Acquire).is_err() {
+        return;
+    }
+    RELOADING.store(false, Ordering::Release);
+    SUSPENDED.store(false, Ordering::Release);
+    let mut g = ES.lock().unwrap();
+    if let Some(st) = g.as_mut() {
+        release(st);
+    }
+}
+
+/// La fin d'un fil d'image : le décodeur de jeu va être rendu, la chaîne
+/// Dolby doit l'être avant lui (le téléviseur recharge l'image d'abord). Elle
+/// est déchargée sans changer de jeton, et se recharge en fond à la trame
+/// suivante si le son continue (image relancée).
+pub fn suspend() {
+    let mut g = ES.lock().unwrap();
+    if let Some(st) = g.as_mut()
+        && st.loaded_at.is_some()
+    {
+        release(st);
+        SUSPENDED.store(true, Ordering::Release);
     }
 }
 

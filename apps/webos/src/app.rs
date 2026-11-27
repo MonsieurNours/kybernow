@@ -2359,6 +2359,8 @@ pub struct App {
     pub focus: Target,
     /// Les éléments choisissables du dernier dessin.
     pub hits: Vec<(Target, Rect)>,
+    /// L'écran du dernier dessin (et une confirmation ouverte ?), pour `hits`.
+    pub hits_for: Option<(Screen, bool)>,
     /// Pointeur de la Magic Remote (hors session), s'il est montré.
     pub pointer: Option<(f32, f32)>,
     pub live: HashMap<String, HostLive>,
@@ -2451,6 +2453,7 @@ impl App {
             screen: Screen::Home,
             focus: Target::Connect,
             hits: Vec::new(),
+            hits_for: None,
             pointer: None,
             live: HashMap::new(),
             images: HashMap::new(),
@@ -2493,6 +2496,7 @@ impl App {
     /// Un lien `kybernow://` donné au lancement : un lien d'invitation ouvre l'ajout « Avec un compte d'ami »
     /// (identifiant rempli, titre « {hôte} vous prête son ordinateur. ») ; un lien de partage, « Rejoindre un partage »
     /// (code rempli) ; un lien d'invitation illisible le dit en avis. Pendant une session, il attend qu'elle finisse.
+    #[cfg(any(test, not(feature = "device")))]
     pub fn open_link(&mut self, link: LinkUi) -> Vec<Action> {
         self.pending_link = Some(link);
         self.poll_link()
@@ -2591,7 +2595,12 @@ impl App {
 
     pub fn go(&mut self, screen: Screen) {
         self.screen = screen;
-        self.focus = match screen {
+        self.focus = self.focus_of(screen);
+    }
+
+    /// Le focus d'arrivée sur un écran.
+    fn focus_of(&self, screen: Screen) -> Target {
+        match screen {
             Screen::Home if self.selected_borrowed().is_some() => Target::Borrow,
             Screen::Home if self.selected_console().is_some() => Target::Ps(crate::ps::PsTarget::Primary),
             Screen::Home => {
@@ -2630,18 +2639,38 @@ impl App {
             Screen::Account => self.account_focus(),
             Screen::AutoTest => self.auto_focus(),
             Screen::Welcome => self.welcome_focus(),
-        };
+        }
+    }
+
+    /// La réponse de « Par adresse » (jusqu'à 5 s) : prise seulement si l'écran l'attend encore (WEBOS-13) ; repartie
+    /// ailleurs entre-temps (une session ouverte…), elle n'ouvre plus Ajouter par-dessus.
+    pub fn probed(&mut self, address: String, port: u16, fingerprint: Result<String, String>) {
+        let waiting = self.add.busy && self.screen == Screen::Add && self.add.step == AddStep::Address;
+        self.add.busy = false;
+        if !waiting {
+            return;
+        }
+        match fingerprint {
+            Ok(fp) => {
+                self.add.step = AddStep::Verify { address, port, fingerprint: fp };
+                self.add.message = None;
+                self.go(Screen::Add);
+            }
+            Err(e) => self.add.message = Some(e),
+        }
     }
 
     /// Pointeur de la Magic Remote déplacé : le focus suit ce qu'il survole.
+    /// Rend vrai si le focus a changé (WEBOS-20 : le dessin ne montre que lui ; le pointeur est celui du système).
     pub fn pointer_moved(&mut self, x: f32, y: f32) -> bool {
         self.pointer = Some((x, y));
-        if let Some((t, _)) = self.hits.iter().rev().find(|(_, r)| r.contains(x, y)) {
-            if self.focus != *t {
-                self.focus = *t;
-            }
+        if let Some((t, _)) = self.hits.iter().rev().find(|(_, r)| r.contains(x, y))
+            && self.focus != *t
+        {
+            self.focus = *t;
+            return true;
         }
-        true
+        false
     }
 
     /// Clic du pointeur : choisit ce qui est dessous.
@@ -2701,6 +2730,14 @@ impl App {
             }
             // Invitations : OK dans le champ ajoute l'ordinateur.
             Nav::Ok if self.typing_invitation() && self.focus == Target::InvitationPassword => self.activate(Target::InvitationGo),
+            // Le focus n'est pas à l'écran (une confirmation fermée qui le rend à une ligne d'un autre écran…) : OK le
+            // ramène sur le premier élément au lieu d'activer ce qu'on ne voit pas (WEBOS-12). Seulement si le dernier
+            // dessin est celui de cet écran : un OK dans la même rafale d'événements qu'un changement d'écran garde
+            // son effet.
+            Nav::Ok if self.hits_for == Some((self.screen, self.dialog.is_some())) && !self.hits.is_empty() && !self.hits.iter().any(|(t, _)| *t == self.focus) => {
+                self.focus = self.hits[0].0;
+                Vec::new()
+            }
             Nav::Ok => {
                 let t = self.focus;
                 self.activate(t)
@@ -2815,6 +2852,15 @@ impl App {
             return Vec::new();
         }
         match self.screen {
+            // Un emprunt en préparation ou qui attend l'accord de l'hôte : Retour l'annule d'abord, comme « Annuler »
+            // (WEBOS-11) ; l'hôte ne garde pas la demande d'un téléviseur parti.
+            Screen::Home if self.borrow.waiting => self.borrow_cancel(),
+            Screen::Home if self.borrow.busy => {
+                self.borrow.attempt += 1;
+                self.borrow.busy = false;
+                self.focus = Target::Borrow;
+                vec![Action::BorrowCancel]
+            }
             Screen::Home => vec![Action::Quit],
             Screen::Add => match self.add.step {
                 AddStep::Code => {
@@ -4497,6 +4543,7 @@ impl App {
     }
 
     /// Les captures et les essais : un réglage choisi comme avec OK.
+    #[cfg(any(test, not(feature = "device")))]
     pub fn adjust_for_preview(&mut self, s: Setting) -> Vec<Action> {
         self.adjust(s, 1)
     }
@@ -4620,6 +4667,8 @@ impl App {
             // Rendre l'ordinateur, retirer un ordinateur emprunté : le focus revient à leur bouton.
             Some(Dialog::GiveBack { .. }) => Target::Menu(MenuItem::Resume),
             Some(Dialog::Remove { host, .. }) if self.store.borrowed(&host).is_some() => Target::BorrowRemove,
+            // Ouverte par la réponse de la Station, quel que soit l'écran : la ligne des Réglages seulement s'ils sont là.
+            Some(Dialog::Force { .. }) if self.screen != Screen::Settings => self.focus_of(self.screen),
             Some(Dialog::Force { op: StationOp::Restart, .. }) => Target::Setting(Setting::Restart),
             Some(Dialog::Force { op: StationOp::Update, .. }) => Target::Setting(Setting::Update),
             Some(Dialog::SignOut { account, .. }) => Target::Setting(Setting::AccountSignOut(self.store.accounts.iter().position(|a| a.key() == account).unwrap_or(0) as u8)),
@@ -4695,6 +4744,10 @@ impl App {
     /// Un sondage d'Admin : état, système, Station ; suit le retour de la
     /// Station après un redémarrage ou une mise à jour.
     pub fn polled(&mut self, id: &str, p: Polled) -> bool {
+        // Ordinateur retiré pendant la sonde : rien n'est recréé pour lui (WEBOS-17).
+        if self.store.host(id).is_none() {
+            return false;
+        }
         let entry = self.live.entry(id.to_string()).or_default();
         entry.online = if p.online {
             Online::Online
@@ -4929,9 +4982,21 @@ fn cycle(i: usize, n: usize, dir: i32) -> usize {
 
 /// `192.168.1.20:24811` → adresse et port.
 pub fn parse_address(s: &str) -> Option<(String, u16)> {
-    let (a, p) = s.rsplit_once(':')?;
+    let s = s.trim();
+    // IPv6 : le port se donne après les crochets (`[fe80::1]:24811`) ; sans crochets, les deux-points sont ceux de
+    // l'adresse, il n'y a pas de port (TRANS-35 : `fe80::1` n'est pas l'hôte `fe80:` au port 1).
+    let (a, p) = if let Some(rest) = s.strip_prefix('[') {
+        let (a, after) = rest.split_once(']')?;
+        (a, after.strip_prefix(':')?)
+    } else {
+        let (a, p) = s.rsplit_once(':')?;
+        if a.contains(':') {
+            return None;
+        }
+        (a, p)
+    };
     let port: u16 = p.parse().ok()?;
-    let a = a.trim().trim_start_matches('[').trim_end_matches(']');
+    let a = a.trim();
     if a.is_empty() || port == 0 {
         return None;
     }
@@ -4947,6 +5012,57 @@ mod tests {
         assert_eq!(parse_address("192.168.1.20:24811"), Some(("192.168.1.20".into(), 24811)));
         assert_eq!(parse_address("192.168.1.20"), None);
         assert_eq!(parse_address(":24811"), None);
+        assert_eq!(parse_address("[fe80::1]:24811"), Some(("fe80::1".into(), 24811)));
+        assert_eq!(parse_address("fe80::1"), None);
+        assert_eq!(parse_address("[fe80::1]"), None);
+        assert_eq!(parse_address("pc.local:24811"), Some(("pc.local".into(), 24811)));
+    }
+
+    /// WEBOS-11 : Retour sur l'accueil annule d'abord une demande d'emprunt en attente, au lieu de quitter l'app.
+    #[test]
+    fn back_cancels_a_pending_borrow() {
+        let mut app = App::new(Store::default());
+        app.screen = Screen::Home;
+        app.borrow.waiting = true;
+        assert_eq!(app.nav(Nav::Back), vec![Action::BorrowCancel]);
+        assert!(!app.borrow.waiting);
+        app.borrow.busy = true;
+        assert_eq!(app.nav(Nav::Back), vec![Action::BorrowCancel]);
+        assert_eq!(app.nav(Nav::Back), vec![Action::Quit]);
+    }
+
+    /// WEBOS-13 : une réponse tardive de « Par adresse » n'ouvre pas Ajouter hors de l'écran qui l'attend.
+    #[test]
+    fn late_probe_ignored() {
+        let mut app = App::new(Store::default());
+        app.screen = Screen::Add;
+        app.add.step = AddStep::Address;
+        app.add.busy = true;
+        app.screen = Screen::Session;
+        app.probed("192.168.1.2".into(), 24811, Ok("sha256:aa".into()));
+        assert_eq!(app.screen, Screen::Session);
+        assert!(!app.add.busy);
+        app.screen = Screen::Add;
+        app.add.busy = true;
+        app.probed("192.168.1.2".into(), 24811, Ok("sha256:aa".into()));
+        assert!(matches!(app.add.step, AddStep::Verify { .. }));
+    }
+
+    /// WEBOS-12 : OK sur un focus absent de l'écran dessiné le ramène sur le premier élément, sans rien activer.
+    #[test]
+    fn ok_on_a_focus_not_on_screen() {
+        let mut app = App::new(Store::default());
+        app.screen = Screen::Home;
+        app.hits = vec![(Target::AddCard, Rect::new(100.0, 600.0, 200.0, 200.0))];
+        app.hits_for = Some((Screen::Home, false));
+        app.focus = Target::Setting(Setting::Restart);
+        assert!(app.nav(Nav::Ok).is_empty());
+        assert_eq!(app.focus, Target::AddCard);
+        // Dessin d'un autre écran : le focus n'est pas jugé d'après lui.
+        app.hits_for = Some((Screen::Settings, false));
+        app.focus = Target::Setting(Setting::Restart);
+        app.nav(Nav::Ok);
+        assert_ne!(app.focus, Target::AddCard);
     }
 
     #[test]

@@ -88,12 +88,12 @@ export function currentDisplayId(): number | null {
 }
 
 /** La connexion WebSocket des entrées est-elle ouverte ? */
-export function canSendPackets(): boolean {
+function canSendPackets(): boolean {
   return allowed && !!socket && socket.readyState === WebSocket.OPEN
 }
 
 /** Envoie un paquet kynput `[type][contenu]`. `false` sans connexion WebSocket. */
-export function sendPacket(type: number, payload: Uint8Array): boolean {
+function sendPacket(type: number, payload: Uint8Array): boolean {
   if (!allowed || !socket || socket.readyState !== WebSocket.OPEN) return false
   const msg = new Uint8Array(1 + payload.byteLength)
   msg[0] = type
@@ -105,16 +105,19 @@ export function sendPacket(type: number, payload: Uint8Array): boolean {
 /** Envoie une position absolue nous-mêmes. `false` si ce n'est pas possible
  * (pas de WebSocket : WebTransport, ou écran encore inconnu). */
 export function sendPosition(x: number, y: number): boolean {
-  if (displayId === null) return false
-  const payload = new Uint8Array(8)
-  const view = new DataView(payload.buffer)
-  view.setUint32(0, displayId)
-  view.setInt16(4, Math.max(-32768, Math.min(32767, Math.round(x))))
-  view.setInt16(6, Math.max(-32768, Math.min(32767, Math.round(y))))
-  if (!sendPacket(MOUSE_POSITION, payload)) return false
+  if (displayId === null || !canSendPackets()) return false
+  // Un seul paquet de 9 octets, réutilisé (WEB-18 : un par mouvement de souris) ; `send` le copie aussitôt.
+  POSITION[0] = MOUSE_POSITION
+  POSITION_VIEW.setUint32(1, displayId)
+  POSITION_VIEW.setInt16(5, Math.max(-32768, Math.min(32767, Math.round(x))))
+  POSITION_VIEW.setInt16(7, Math.max(-32768, Math.min(32767, Math.round(y))))
+  socket!.send(POSITION)
   injected.count++
   return true
 }
+
+const POSITION = new Uint8Array(9)
+const POSITION_VIEW = new DataView(POSITION.buffer)
 
 /** Tape du texte sur l'ordinateur, caractère par caractère (paquets
  * Unicode) : juste quelle que soit la disposition du clavier de l'ordinateur.

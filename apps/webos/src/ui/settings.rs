@@ -304,9 +304,14 @@ fn statistics(cv: &mut Canvas, h: &Host, x: f32, mut y: f32, w: f32) {
     }
 }
 
-/// Les quatre premiers groupes de l'empreinte (`sha256:9f:3a:…` → `9F 3A C2 71`).
-fn fingerprint_groups(fp: &str) -> String {
-    fp.trim_start_matches("sha256:").split(':').take(4).collect::<Vec<_>>().join(" ").to_uppercase()
+/// Les quatre premiers groupes de l'empreinte, comme dans les autres apps et dans Admin (docs/link-ui.md,
+/// TRANS-34) : `sha256:9f:3a:c2:71:0b:…` → `9F3A C271 0B… …`, seize chiffres en quatre groupes de quatre.
+pub fn fingerprint_groups(fp: &str) -> String {
+    let hex: String = fp.trim().trim_start_matches("sha256:").chars().filter(char::is_ascii_hexdigit).take(16).collect::<String>().to_uppercase();
+    if hex.is_empty() {
+        return "—".into();
+    }
+    hex.as_bytes().chunks(4).map(|c| std::str::from_utf8(c).unwrap_or_default()).collect::<Vec<_>>().join(" ")
 }
 
 /// Une latence : une décimale sous 100 ms, virgule en français.
@@ -718,7 +723,9 @@ mod tests {
         assert_eq!(duration(42 * 60 + 10), "42 min");
         assert_eq!(duration(3900), "1 h 05");
         assert_eq!(ms(8.94, true), "8,9 ms");
-        assert_eq!(fingerprint_groups("sha256:9f:3a:c2:71:0b"), "9F 3A C2 71");
+        assert_eq!(fingerprint_groups("sha256:7c:41:e0:9b:aa:bb:cc:dd:ee:ff"), "7C41 E09B AABB CCDD");
+        assert_eq!(fingerprint_groups("sha256:7C41E09BAABBCCDDEEFF"), "7C41 E09B AABB CCDD");
+        assert_eq!(fingerprint_groups("sha256:9f:3a"), "9F3A");
     }
 
     #[test]

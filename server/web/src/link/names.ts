@@ -7,7 +7,7 @@ import { i18n, t, type Params } from '../lib/i18n/index.svelte'
 const ELIDED = /^[aeiouyhàâäéèêëîïôöùûüÿæœ]/i
 
 /** Remplace « de {nom} » par « d'{nom} » quand le français le demande. */
-export function elide(text: string, name: string): string {
+function elide(text: string, name: string): string {
   if (i18n.lang !== 'fr' || !name || !ELIDED.test(name)) return text
   return text.replaceAll(`de ${name}`, `d'${name}`)
 }

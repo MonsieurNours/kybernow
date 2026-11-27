@@ -76,7 +76,6 @@ fn main() {
         println!("cargo:rustc-link-arg={}", hook.display());
         println!("cargo:rustc-link-arg=-Wl,--export-dynamic-symbol=_ZN17StarfishMediaAPIs4LoadEPKcPFvixS1_PvES2_");
         println!("cargo:rustc-link-arg=-Wl,--export-dynamic-symbol=_ZN17StarfishMediaAPIs4LoadEPKcPFvixS1_E");
-        println!("cargo:rustc-link-arg=-Wl,--export-dynamic-symbol=_ZN17StarfishMediaAPIs4FeedB5cxx11EPKc");
         // Encodeur E-AC-3 : libavcodec et libavutil (statiques, du rootfs) derrière src/eac3_shim.c.
         let prefix = PathBuf::from(env::var("PKG_CONFIG_LIBDIR").expect("PKG_CONFIG_LIBDIR")).join("../..");
         let prefix = prefix.canonicalize().unwrap_or(prefix);

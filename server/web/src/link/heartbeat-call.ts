@@ -32,12 +32,14 @@ export interface HeartbeatResult {
 }
 
 /** `origin` : celle de la page. Un Worker intégré (URL `blob:`) ne sait pas
- * résoudre une adresse relative : il lui faut l'adresse complète. */
-export async function sendHeartbeat(origin: string, body: unknown, target: HeartbeatTarget = HOST_TARGET): Promise<HeartbeatResult> {
+ * résoudre une adresse relative : il lui faut l'adresse complète. `timeout` (ms) : au-delà, le signal est
+ * abandonné (WEB-11 : derrière un relais lent, les signaux ne s'empilent plus). */
+export async function sendHeartbeat(origin: string, body: unknown, target: HeartbeatTarget = HOST_TARGET, timeout?: number): Promise<HeartbeatResult> {
   try {
     const res = await fetch(`${origin}${target.path}`, {
       method: 'POST',
       credentials: 'same-origin',
+      signal: timeout ? AbortSignal.timeout(timeout) : undefined,
       headers: { 'x-kyber-admin': '1', 'content-type': 'application/json', ...target.headers },
       body: JSON.stringify(body ?? {}),
     })

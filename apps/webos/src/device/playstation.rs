@@ -581,6 +581,8 @@ impl Playing {
                     send(&tx, PsEvent::Phase(Phase::Connecting));
                     let hooks = Arc::new(Hooks { play: play.clone(), shown: AtomicBool::new(false), tx: Mutex::new(tx.clone()) });
                     let shared = Shared::for_console(tx.clone(), refresh, hdr, hooks.clone());
+                    // Le son de la console passe par SDL : le plan Opus stéréo, pas celui d'une session 5.1 d'avant (WEBOS-06).
+                    super::ndl::set_audio_plane(super::ndl::AudioPlane::OpusClock);
                     let video: Arc<dyn PacketHandler> = VideoSink::new(shared.clone());
                     let audio: Arc<dyn PacketHandler> = AudioSink::new(false, false);
                     let tx_state = Mutex::new(tx.clone());

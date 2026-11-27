@@ -30,7 +30,29 @@ KYSDK="$KYBER/kysdk"
 OPUS_SRC="$THIRD_PARTY/opus-1.6.1"
 TARGET=armv7-unknown-linux-gnueabi
 PREFIX="$KYBER/rootfs-$TARGET"
-TOOLCHAIN_URL="https://github.com/openlgtv/buildroot-nc4/releases/latest/download/arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz"
+# Chaîne figée sur une version (TRANS-21 : `latest` changeait sous nos pieds).
+TOOLCHAIN_URL="https://github.com/openlgtv/buildroot-nc4/releases/download/2026.08-webos/arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz"
+# Dossiers temporaires de la construction : retirés à la sortie, même sur une erreur.
+TEMPS=()
+cleanup_temps() { [ ${#TEMPS[@]} -eq 0 ] || rm -rf "${TEMPS[@]}"; }
+trap cleanup_temps EXIT
+# Pose NEW_TEMP (appelée hors d'un `$(…)`, pour que le dossier soit retenu par `cleanup_temps`).
+new_temp() { NEW_TEMP="$(mktemp -d "${TMPDIR:-/tmp}/kybernow-$1.XXXXXX")"; TEMPS+=("$NEW_TEMP"); }
+# Télécharge `url` dans un fichier, vérifie son sha256 s'il est donné, l'extrait dans un dossier temporaire
+# (`tar` avec `flags`) et pose FETCHED sur ce dossier : une coupure ne laisse jamais de sources à moitié là.
+fetch_extract() {
+    local url="$1" flags="$2" sha="${3:-}" tmp
+    new_temp fetch
+    tmp="$NEW_TEMP"
+    curl -fsSL -o "$tmp/archive" "$url"
+    if [ -n "$sha" ]; then
+        echo "$sha  $tmp/archive" | shasum -a 256 -c - >/dev/null || { echo "Somme de contrôle fausse pour $url" >&2; exit 1; }
+    fi
+    mkdir "$tmp/out"
+    tar "$flags" -f "$tmp/archive" -C "$tmp/out"
+    rm -f "$tmp/archive"
+    FETCHED="$tmp/out"
+}
 . "$ROOT/scripts/kyber-toolchain.sh"
 
 COMMAND=build
@@ -62,8 +84,17 @@ if [ -z "${WEBOS_TOOLCHAIN:-}" ]; then
     if [ ! -x "$WEBOS_TOOLCHAIN/bin/arm-webos-linux-gnueabi-gcc" ]; then
         echo "==> chaîne webOS dans $TC_DIR"
         mkdir -p "$TC_DIR"
-        curl -fsSL "$TC_URL" | tar "$TC_TAR" -C "$TC_DIR"
+        fetch_extract "$TC_URL" "$TC_TAR"
+        rm -rf "$WEBOS_TOOLCHAIN"
+        mv "$FETCHED/arm-webos-linux-gnueabi_sdk-buildroot" "$WEBOS_TOOLCHAIN"
+        touch "$WEBOS_TOOLCHAIN/.kybernow-relocating"
+    fi
+    # Relogée juste après le téléchargement ; un relogement interrompu (le marqueur est encore là) est refait à la
+    # construction suivante (TRANS-21 : il ne l'était jamais). Une chaîne déjà en place, sans marqueur, n'est pas
+    # touchée (les arbres la partagent par un lien).
+    if [ -f "$WEBOS_TOOLCHAIN/.kybernow-relocating" ]; then
         (cd "$WEBOS_TOOLCHAIN" && ./relocate-sdk.sh >/dev/null)
+        rm -f "$WEBOS_TOOLCHAIN/.kybernow-relocating"
     fi
 fi
 export WEBOS_TOOLCHAIN
@@ -170,34 +201,38 @@ if [ ! -f "$PREFIX/lib/libopus.a" ]; then
         git clone -q --depth 1 --branch v1.6.1 https://github.com/xiph/opus.git "$OPUS_SRC"
     fi
     echo "==> libopus ($TARGET) dans $PREFIX"
-    build="$(mktemp -d "${TMPDIR:-/tmp}/kybernow-opus.XXXXXX")"
+    new_temp opus
+    build="$NEW_TEMP"
     cmake -S "$OPUS_SRC" -B "$build" -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_TOOLCHAIN_FILE="$WEBOS_TOOLCHAIN/share/buildroot/toolchainfile.cmake" \
         -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOPUS_BUILD_PROGRAMS=OFF -DOPUS_BUILD_TESTING=OFF \
         -DOPUS_BUILD_SHARED_LIBRARY=OFF -DOPUS_DRED=OFF -DOPUS_OSCE=OFF >/dev/null
     cmake --build "$build" --target install -j"$(nproc 2>/dev/null || echo 4)" >/dev/null
-    rm -rf "$build"
     [ -f "$PREFIX/lib/libopus.a" ] || { echo "libopus non construite" >&2; exit 1; }
 fi
 
 # Encodeur E-AC-3 (son 5.1 Dolby vers l'ampli) : FFmpeg 7.1.1 réduit à ses
 # encodeurs ac3 et eac3 (libavcodec + libavutil, statiques, ~1,4 Mo, LGPL).
 FFMPEG_VERSION=7.1.1
+FFMPEG_SHA256=733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1
 FFMPEG_SRC="$THIRD_PARTY/ffmpeg-$FFMPEG_VERSION"
 if [ ! -f "$PREFIX/lib/libavcodec.a" ]; then
     if [ ! -f "$FFMPEG_SRC/configure" ]; then
         echo "==> sources de FFmpeg $FFMPEG_VERSION dans $FFMPEG_SRC"
-        curl -fsSL "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" | tar xJ -C "$THIRD_PARTY"
+        fetch_extract "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" xJ "$FFMPEG_SHA256"
+        rm -rf "$FFMPEG_SRC"
+        mv "$FETCHED/ffmpeg-$FFMPEG_VERSION" "$FFMPEG_SRC"
     fi
     echo "==> libavcodec (encodeurs ac3 et eac3, $TARGET) dans $PREFIX"
-    build="$(mktemp -d "${TMPDIR:-/tmp}/kybernow-ffmpeg.XXXXXX")"
-    # static_assert : la glibc 2.12 du téléviseur ne le définit pas.
+    new_temp ffmpeg
+    build="$NEW_TEMP"
+    # static_assert : la glibc 2.12 du téléviseur ne le définit pas. armv7-a générique (WEBOS-29) : les téléviseurs
+    # vont du Cortex-A53 au A73, l'ordonnancement d'un seul d'entre eux ne vaut pas pour les autres.
     (cd "$build" && "$FFMPEG_SRC/configure" --enable-cross-compile --cross-prefix="$WEBOS_TOOLCHAIN/bin/arm-webos-linux-gnueabi-" \
-        --arch=armv7 --cpu=cortex-a73 --target-os=linux --sysroot="$SYSROOT" --prefix="$PREFIX" \
+        --arch=armv7 --cpu=armv7-a --target-os=linux --sysroot="$SYSROOT" --prefix="$PREFIX" \
         --disable-everything --disable-all --enable-avcodec --enable-avutil --enable-encoder=eac3 --enable-encoder=ac3 \
         --disable-programs --disable-doc --disable-network --disable-autodetect --enable-static --disable-shared --enable-pic --disable-debug \
         --extra-cflags="-mfpu=neon -O2 -Dstatic_assert=_Static_assert" >/dev/null && make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" >/dev/null && make install >/dev/null)
-    rm -rf "$build"
     [ -f "$PREFIX/lib/libavcodec.a" ] || { echo "libavcodec non construite" >&2; exit 1; }
 fi
 

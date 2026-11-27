@@ -165,7 +165,7 @@ export function engineSendsMicrophone(): boolean {
 export type EngineMicState = { state: 'idle' | 'waiting' | 'open' } | { state: 'refused'; reason: 'not_allowed' | 'no_device' | 'unsupported' | 'old_station' }
 
 /** Charge le moteur une fois (fichier JS + WebAssembly). */
-export function loadEngine(): Promise<Wasm> {
+function loadEngine(): Promise<Wasm> {
   if (!modulePromise) {
     hookConsole()
     const url = new URL('kyclient_wasm.js', new URL('/link/', location.origin)).href

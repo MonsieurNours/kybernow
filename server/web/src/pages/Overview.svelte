@@ -12,7 +12,9 @@
   import ShareCard from '../lib/ShareCard.svelte'
   import LendCard from '../lib/LendCard.svelte'
   import { countdown, isLent, lendAppName, lentLine, steamName, takingBack } from '../lib/lend'
+  import { untrack } from 'svelte'
   import { i18n, t, tn } from '../lib/i18n/index.svelte'
+  import { poll } from '../lib/poll'
 
   let display = $state<DisplayStatus | null>(null)
   let audio = $state<AudioStatus | null>(null)
@@ -92,30 +94,31 @@
     }
   }
 
-  $effect(() => {
-    loadPreview()
-    loadState()
-    loadLists()
-    const fast = setInterval(() => {
-      loadState()
-      now = Date.now() / 1000
-    }, 4000)
-    const slow = setInterval(loadLists, 10000)
-    const image = setInterval(loadPreview, 60000)
-    return () => {
-      clearInterval(fast)
-      clearInterval(slow)
-      clearInterval(image)
-      if (preview) URL.revokeObjectURL(preview.url)
-    }
-  })
+  // Une fois à l'ouverture (WEB-08 : relancé par ce que lisent les appels, le nettoyage révoquait l'aperçu affiché) ;
+  // relevés en pause onglet masqué (WEB-19).
+  $effect(() =>
+    untrack(() => {
+      const stops = [
+        poll(() => {
+          now = Date.now() / 1000
+          return loadState()
+        }, 4000),
+        poll(loadLists, 10000),
+        poll(loadPreview, 60000),
+      ]
+      return () => {
+        for (const stop of stops) stop()
+        if (preview) URL.revokeObjectURL(preview.url)
+      }
+    }),
+  )
 
   // Une session qui commence ou finit : la liste et le fil bougent.
   // La langue change : le fil est réécrit par le serveur dans la nouvelle langue.
   $effect(() => {
     void live?.device_id
     void i18n.lang
-    loadLists()
+    untrack(loadLists)
   })
 
   async function endSession() {
