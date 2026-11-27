@@ -58,6 +58,11 @@ pub struct InstallRecord {
     /// Ce que la désinstallation remet comme avant KyberNow.
     #[serde(default)]
     pub restore: Restore,
+    /// « Micro de vos appareils » choisi à l'installation : Admin n'installe
+    /// VB-CABLE après une mise à jour que s'il l'a été (absent : installation
+    /// d'avant la 0.11.8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub microphone: Option<bool>,
 }
 
 /// Réglages de Windows changés par l'installation, notés à la première
@@ -777,6 +782,7 @@ fn write_record(ctx: &Ctx, req: &InstallRequest, sudovda_thumbprint: Option<Stri
         sudovda_thumbprint,
         console_fingerprint: previous.and_then(|r| r.console_fingerprint),
         restore: ctx.restore.lock().unwrap().clone(),
+        microphone: Some(req.microphone),
     };
     write_durable(&ctx.dir.join("kybernow.json"), &serde_json::to_vec_pretty(&record)?)?;
     Ok(())

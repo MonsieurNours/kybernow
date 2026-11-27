@@ -250,9 +250,16 @@ pub fn request(req: &Request) -> Result<()> {
 
 fn request_at(socket: &Path, req: &Request) -> Result<()> {
     use std::os::unix::net::UnixStream;
-    let mut stream = UnixStream::connect(socket).with_context(|| {
-        format!("service des mises à jour injoignable ({}) : réinstallez le paquet kybernow-station", socket.display())
-    })?;
+    let mut stream = match UnixStream::connect(socket) {
+        Ok(s) => s,
+        // Socket réservé au compte de la Station (groupe kybernow-station).
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            bail!("ce compte n'a pas le droit de mettre à jour KyberNow Station ({}) : seul le compte qui l'utilise le peut", socket.display())
+        }
+        Err(e) => {
+            return Err(e).with_context(|| format!("service des mises à jour injoignable ({}) : réinstallez le paquet kybernow-station", socket.display()));
+        }
+    };
     // La vérification copie le paquet (jusqu'à quelques centaines de Mo).
     stream.set_read_timeout(Some(Duration::from_secs(300)))?;
     writeln!(stream, "{}", serde_json::to_string(req)?)?;
@@ -366,7 +373,9 @@ fn private_dir(dir: &Path) -> Result<()> {
 
 /// Prend une version dans `source` (dossier d'Admin) : manifeste, signature
 /// puis paquet copiés dans le dossier du service root et vérifiés là.
-pub fn stage(store: &Store, source: &Path, version: &str, checks: &Checks) -> Result<Manifest> {
+/// `accept` : contrôle du manifeste vérifié (canal, version installée),
+/// fait avant de copier le paquet (des dizaines de Mo).
+pub fn stage(store: &Store, source: &Path, version: &str, checks: &Checks, accept: &dyn Fn(&Manifest) -> Result<()>) -> Result<Manifest> {
     if !valid_version(version) {
         bail!("version inattendue : {version}");
     }
@@ -383,6 +392,7 @@ pub fn stage(store: &Store, source: &Path, version: &str, checks: &Checks) -> Re
         copy_limited(&source.join(manifest::MANIFEST), &dir.join(manifest::MANIFEST), limit, checks.reader)?;
         copy_limited(&source.join(manifest::SIGNATURE), &dir.join(manifest::SIGNATURE), limit, checks.reader)?;
         let m = verify_kept(&dir, version, checks.public_key)?;
+        accept(&m)?;
         let expected = m.file(checks.package)?;
         copy_limited(&source.join(checks.package), &dir.join(checks.package), expected.size, checks.reader)?;
         m.check_file(checks.package, &dir.join(checks.package))?;
@@ -432,15 +442,15 @@ pub fn prepare_apply(
         bail!("{version} n'est pas plus récente que la version installée ({installed})");
     }
     let source = user.data_dir().join("update");
-    let m = stage(store, &source.join(version), version, checks)?;
-    m.check_for(version, channel, &installed, checks.package).map_err(|r| anyhow::anyhow!("{}", r.message()))?;
+    let accept = |m: &Manifest| m.check_for(version, channel, &installed, checks.package).map_err(|r| anyhow::anyhow!("{}", r.message()));
+    stage(store, &source.join(version), version, checks, &accept)?;
     log.line(format!("    {version} : manifeste signé, paquet {} vérifié (taille, empreinte)", checks.package));
     let target = Prepared { version: version.to_string(), package: store.dir(version).join(checks.package) };
     // Le paquet de la version qui tourne, pour le retour arrière : déjà gardé,
     // ou téléchargé par Admin de sa version publiée.
     let fallback = match store.kept(&installed, checks.package).filter(|_| verify_kept(&store.dir(&installed), &installed, checks.public_key).is_ok()) {
         Some(package) => Some(Prepared { version: installed.clone(), package }),
-        None if source.join(&installed).join(checks.package).is_file() => match stage(store, &source.join(&installed), &installed, checks) {
+        None if source.join(&installed).join(checks.package).is_file() => match stage(store, &source.join(&installed), &installed, checks, &|_| Ok(())) {
             Ok(_) => Some(Prepared { version: installed.clone(), package: store.dir(&installed).join(checks.package) }),
             Err(e) => {
                 log.line(format!("    paquet de {installed} refusé ({e:#}) : pas de retour arrière possible"));
@@ -611,6 +621,8 @@ mod system {
                     Command::new("apt-get")
                         .env("DEBIAN_FRONTEND", "noninteractive")
                         .args(["install", "-y", "--allow-downgrades", "-o", "Dpkg::Options::=--force-confold"])
+                        // Attendre que les mises à jour automatiques (unattended-upgrades) aient fini.
+                        .args(["-o", "DPkg::Lock::Timeout=300"])
                         .arg(package),
                     log,
                 ),
@@ -745,6 +757,14 @@ pub fn serve() -> Result<()> {
         Err(e) => {
             eprintln!("demande refusée : {e:#}");
             answer(&mut stream, &Err(anyhow::anyhow!("{e:#}")));
+            // Rien ne reste d'une demande refusée (journal compris) dans le
+            // dossier du service root, sauf une version déjà gardée.
+            if let Ok(Request::Apply { version }) = serde_json::from_str::<Request>(line.trim())
+                && valid_version(&version)
+                && store.kept(&version, package).is_none()
+            {
+                let _ = fs::remove_dir_all(store.dir(&version));
+            }
             return Err(e);
         }
     };
@@ -983,6 +1003,20 @@ mod tests {
 
     fn fake(installed: &str) -> Fake {
         Fake { installed: Some(installed.into()), broken: None, fail_install: None, calls: vec![] }
+    }
+
+    /// Une bêta demandée sur le canal stable : refusée avant de copier le
+    /// paquet, et rien ne reste dans le dossier du service root.
+    #[test]
+    fn a_refused_channel_copies_nothing() {
+        let b = Bench::new("canal");
+        b.publish("0.12.0", Channel::Beta);
+        let (pk, package) = b.checks();
+        let checks = Checks { public_key: &pk, package, reader: None };
+        let mut log = b.log();
+        assert!(prepare_apply(&b.store, &mut fake("0.11.0"), &b.user, "0.12.0", Channel::Stable, &checks, &mut log).is_err());
+        let dir = b.store.dir("0.12.0");
+        assert!(!dir.join(PKG).exists() && !dir.join(manifest::MANIFEST).exists());
     }
 
     #[test]

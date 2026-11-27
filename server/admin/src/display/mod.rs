@@ -2424,7 +2424,7 @@ struct Absent;
 
 #[cfg(not(windows))]
 fn absent<T>() -> Result<T> {
-    Err(crate::i18n::Msg::new("display.noMacVirtualDisplay").into())
+    Err(crate::i18n::Msg::new("display.noVirtualDisplayAgent").into())
 }
 
 #[cfg(not(windows))]

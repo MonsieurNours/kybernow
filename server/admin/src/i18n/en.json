@@ -62,7 +62,7 @@
     "screensOrigin": "the main display must be at (0, 0)",
     "screensOverlap": "some displays overlap",
     "screensApart": "each display must share an edge with another display",
-    "noMacVirtualDisplay": "no virtual display on Mac yet: the session takes the Mac's display as it is"
+    "noVirtualDisplayAgent": "the virtual display helper (kybernow-display) is missing: the session takes the computer's display as it is"
   },
   "update": {
     "sessionConflict": "A device is connected: installing will end its session",
@@ -258,6 +258,7 @@
     "locked": "Access away from home blocked for 10 min after too many attempts."
   },
   "lend": {
+    "inputNotLocked": "This computer's keyboard and mouse cannot be locked during the loan: whoever sits at the screen keeps control. Reinstall the KyberNow Station package (input udev rule), then sign in again.",
     "badSlot": "Unreadable time slot: one or more days, and an end time after the start time (“14:00”, “18:00”).",
     "passwordLength": "A friend's password has at least 6 characters.",
     "nameRequired": "Give this friend account a name.",

@@ -345,6 +345,25 @@ pub use platform::{host_name, idle_secs, keep_awake, lock_session, session_state
 
 /// Le mode console existe ici : Windows, ou une Station Mac installée (pas le
 /// Mac de développement, où tout est simulé).
+/// Le clavier et la souris de l'ordinateur peuvent-ils être bloqués pendant
+/// un prêt ? Windows et Mac : toujours (crochets de l'agent). Linux : il faut
+/// pouvoir ouvrir `/dev/input/event*` (règle udev du paquet) pour les prendre
+/// (`EVIOCGRAB`) ; sans elle, le prêt marche, mais la personne devant
+/// l'ordinateur garde la main : Admin le dit avant d'accorder un prêt.
+pub fn physical_input_lockable() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let Ok(dir) = std::fs::read_dir("/dev/input") else { return false };
+        dir.flatten().filter(|e| e.file_name().as_bytes().starts_with(b"event")).any(|e| {
+            let Ok(c) = std::ffi::CString::new(e.path().as_os_str().as_bytes()) else { return false };
+            unsafe { libc::access(c.as_ptr(), libc::R_OK) == 0 }
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    true
+}
+
 pub fn console_supported() -> bool {
     #[cfg(target_os = "macos")]
     return crate::mac::is_station();

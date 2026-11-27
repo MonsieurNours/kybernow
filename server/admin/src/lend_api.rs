@@ -182,6 +182,10 @@ pub fn view(s: &AppState) -> Value {
     let mut v = s.lend.view(enabled(s));
     v["computer"] = json!(hostname());
     v["host"] = json!(host_name(s));
+    // Linux sans accès au clavier et à la souris : dit avant d'accorder un prêt.
+    let lockable = lend_sys::physical_input_lockable();
+    v["input_locked"] = json!(lockable);
+    v["input_warning"] = if lockable { Value::Null } else { json!(Msg::new("lend.inputNotLocked").render(crate::i18n::current())) };
     v["code"] = match s.lend.code() {
         Some(c) => {
             let links = crate::share_api::links(s, &c.code);
@@ -481,6 +485,9 @@ async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
         s.friends.touch(friend);
     }
     s.activity.event("info", Msg::new("events.lendStarted").with("name", loan.who.name.as_str()));
+    if !lend_sys::physical_input_lockable() {
+        s.activity.event("warn", Msg::new("lend.inputNotLocked"));
+    }
     s.relay.wake();
     true
 }
