@@ -1,30 +1,51 @@
 diff --git a/kyclient/src/kymux_backend/host_service.rs b/kyclient/src/kymux_backend/host_service.rs
-index 855a7ab..fad6175 100644
+index 855a7ab..7d4a417 100644
 --- a/kyclient/src/kymux_backend/host_service.rs
 +++ b/kyclient/src/kymux_backend/host_service.rs
-@@ -74,6 +74,7 @@ pub(crate) async fn start_stream(
+@@ -74,6 +74,8 @@ pub(crate) async fn start_stream(
                      codec: config.codec.into(),
                      yuv444: config.yuv444,
                      intra_refresh: config.intra_refresh,
 +                    fallback_codec: config.fallback_codec.map(Into::into),
++                    pyrowave_header: crate::pyrowave_header(&config.codec),
                  })
                  .collect(),
          )
 diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
-index e808c4f..b59fb3f 100644
+index e808c4f..0d1c3c3 100644
 --- a/kyclient/src/lib.rs
 +++ b/kyclient/src/lib.rs
-@@ -836,6 +836,9 @@ pub enum VideoCodec {
+@@ -836,6 +836,29 @@ pub enum VideoCodec {
      H264,
      HEVC,
      AV1,
 +    /// KyberNow (0025): PyroWave (docs/pyrowave.md), only from a Station
 +    /// that announces it; decoded by the page in WebGPU.
 +    PyroWave,
++}
++
++/// KyberNow (0025): the newest PyroWave configuration packet (`KNPW`
++/// version) this app's decoder reads, for the whole process: an app reads
++/// the same packets on every display. 1 until the app says more.
++static PYROWAVE_HEADER: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
++
++/// KyberNow (0025): sets the newest PyroWave configuration packet this app
++/// reads (2: the header with the HDR10 metadata, docs/kyber-changes.md).
++/// The Station sends version 1 to an app that never said so (0.11.7 and
++/// older read only its 16 bytes).
++pub fn set_pyrowave_header(version: u8) {
++    PYROWAVE_HEADER.store(version.max(1), std::sync::atomic::Ordering::Relaxed);
++}
++
++/// KyberNow (0025): what a start request tells the Station, with `codec`
++/// PyroWave only, and only above version 1 (an older Station ignores it).
++pub(crate) fn pyrowave_header(codec: &VideoCodec) -> Option<u8> {
++    let version = PYROWAVE_HEADER.load(std::sync::atomic::Ordering::Relaxed);
++    (*codec == VideoCodec::PyroWave && version >= 2).then_some(version)
  }
  
  impl From<VideoCodec> for kyctl_common::enums::VideoCodec {
-@@ -844,6 +847,7 @@ impl From<VideoCodec> for kyctl_common::enums::VideoCodec {
+@@ -844,6 +867,7 @@ impl From<VideoCodec> for kyctl_common::enums::VideoCodec {
              VideoCodec::H264 => Self::H264,
              VideoCodec::HEVC => Self::HEVC,
              VideoCodec::AV1 => Self::AV1,
@@ -32,7 +53,7 @@ index e808c4f..b59fb3f 100644
          }
      }
  }
-@@ -869,6 +873,9 @@ pub struct VideoSessionConfig {
+@@ -869,6 +893,9 @@ pub struct VideoSessionConfig {
      pub codec: VideoCodec,
      pub yuv444: bool,
      pub intra_refresh: Option<bool>,
@@ -42,7 +63,7 @@ index e808c4f..b59fb3f 100644
      pub player: VideoPlayerConfig,
  }
  
-@@ -935,6 +942,9 @@ impl StreamingSessionConfig {
+@@ -935,6 +962,9 @@ impl StreamingSessionConfig {
                  info!("\t\tcodec: {:?}", config.codec);
                  info!("\t\tyuv444: {}", config.yuv444);
                  info!("\t\tintra_refresh: {:?}", config.intra_refresh);
@@ -79,10 +100,10 @@ index f3ca6c0..4e0f8cd 100644
  
  #[derive(Clone, Debug, Deserialize, Serialize)]
 diff --git a/kyctl-common/src/kymux.rs b/kyctl-common/src/kymux.rs
-index 657785c..f26174c 100644
+index 657785c..39f1b59 100644
 --- a/kyctl-common/src/kymux.rs
 +++ b/kyctl-common/src/kymux.rs
-@@ -87,6 +87,11 @@ pub struct StartRequestVideo {
+@@ -87,6 +87,17 @@ pub struct StartRequestVideo {
      pub yuv444: bool,
      #[serde(skip_serializing_if = "Option::is_none")]
      pub intra_refresh: Option<bool>,
@@ -91,6 +112,12 @@ index 657785c..f26174c 100644
 +    /// codec packet says which one came.
 +    #[serde(default, skip_serializing_if = "Option::is_none")]
 +    pub fallback_codec: Option<VideoCodec>,
++    /// KyberNow (0025): with `codec` PyroWave, the newest configuration
++    /// packet (`KNPW` version, docs/kyber-changes.md) the client reads.
++    /// Missing (an app before 0.11.8): version 1, 16 bytes. An older
++    /// Station ignores it.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub pyrowave_header: Option<u8>,
  }
  
  #[derive(Debug, Deserialize, Serialize)]

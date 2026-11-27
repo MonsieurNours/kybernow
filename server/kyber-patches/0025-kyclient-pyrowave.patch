@@ -1,5 +1,5 @@
 diff --git a/kyclient-rs/src/lib.rs b/kyclient-rs/src/lib.rs
-index 804634f..e264c6b 100644
+index 804634f..864c51e 100644
 --- a/kyclient-rs/src/lib.rs
 +++ b/kyclient-rs/src/lib.rs
 @@ -131,6 +131,8 @@ pub enum VideoCodec {
@@ -27,23 +27,39 @@ index 804634f..e264c6b 100644
          }
      }
  }
-@@ -689,6 +693,11 @@ impl VideoSessionConfig {
+@@ -689,6 +693,13 @@ impl VideoSessionConfig {
          unsafe { sys::kyclient_video_session_config_set_hdr(self.ptr, hdr) }
      }
  
 +    /// KyberNow (0025): the codec the Station uses instead of PyroWave.
++    /// See also [`set_pyrowave_header`], for the whole app.
 +    pub fn set_fallback_codec(&self, codec: VideoCodec) {
 +        unsafe { sys::kyclient_video_session_config_set_fallback_codec(self.ptr, codec.to_u32()) }
 +    }
 +
++
      pub fn set_intra_refresh(&self, intra_refresh: bool) {
          unsafe { sys::kyclient_video_session_config_set_intra_refresh(self.ptr, intra_refresh) }
      }
+@@ -1236,6 +1247,13 @@ fn to_c_level_filter(level: log::LevelFilter) -> sys::kyclient_LogLevelFilter {
+     }
+ }
+ 
++/// KyberNow (0025): the newest PyroWave configuration packet (`KNPW`
++/// version, docs/kyber-changes.md) this app's decoder reads, for every
++/// session: 2 for the header with the HDR10 metadata. Never called: 1.
++pub fn set_pyrowave_header(version: u8) {
++    unsafe { sys::kyclient_set_pyrowave_header(version) }
++}
++
+ /// Call after the host logger is installed: the library inherits
+ /// `log::max_level()` as it is now.
+ pub fn init() {
 diff --git a/kyclient/src/capi.rs b/kyclient/src/capi.rs
-index 88d13f7..f2743a3 100644
+index 61bb302..16a2ba1 100644
 --- a/kyclient/src/capi.rs
 +++ b/kyclient/src/capi.rs
-@@ -834,6 +834,7 @@ pub unsafe extern "C" fn kyclient_video_session_config_default(
+@@ -833,6 +833,7 @@ pub unsafe extern "C" fn kyclient_video_session_config_default(
              yuv444: false,
              hdr: false,
              intra_refresh: None,
@@ -51,7 +67,7 @@ index 88d13f7..f2743a3 100644
              player: (*player).config.clone(),
          };
  
-@@ -914,6 +915,16 @@ pub extern "C" fn kyclient_video_session_config_set_codec(
+@@ -885,6 +886,24 @@ pub extern "C" fn kyclient_video_session_config_set_codec(
      config.config.codec = codec;
  }
  
@@ -65,36 +81,65 @@ index 88d13f7..f2743a3 100644
 +    config.config.fallback_codec = Some(codec);
 +}
 +
++/// KyberNow (0025): the newest PyroWave configuration packet (`KNPW`
++/// version, docs/kyber-changes.md) this app's decoder reads: 2 for the
++/// header with the HDR10 metadata. Never called: version 1, as before.
++#[unsafe(no_mangle)]
++pub extern "C" fn kyclient_set_pyrowave_header(version: u8) {
++    crate::set_pyrowave_header(version);
++}
++
  #[unsafe(no_mangle)]
  pub extern "C" fn kyclient_video_session_config_set_intra_refresh(
      config: &mut VideoSessionConfig,
 diff --git a/kyclient/src/kymux_backend/host_service.rs b/kyclient/src/kymux_backend/host_service.rs
-index 365d6b1..7187cf3 100644
+index 365d6b1..9e9e430 100644
 --- a/kyclient/src/kymux_backend/host_service.rs
 +++ b/kyclient/src/kymux_backend/host_service.rs
-@@ -75,6 +75,7 @@ pub(crate) async fn start_stream(
+@@ -75,6 +75,8 @@ pub(crate) async fn start_stream(
                      yuv444: config.yuv444,
                      hdr: config.hdr,
                      intra_refresh: config.intra_refresh,
 +                    fallback_codec: config.fallback_codec.map(Into::into),
++                    pyrowave_header: crate::pyrowave_header(&config.codec),
                  })
                  .collect(),
          )
 diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
-index c6e70c8..26a11ab 100644
+index 16ca206..cfec37a 100644
 --- a/kyclient/src/lib.rs
 +++ b/kyclient/src/lib.rs
-@@ -833,6 +833,9 @@ pub enum VideoCodec {
+@@ -801,6 +801,29 @@ pub enum VideoCodec {
      H264,
      HEVC,
      AV1,
 +    /// KyberNow (0025): PyroWave (docs/pyrowave.md), only from a Station
 +    /// that announces it. C: KYCLIENT_VIDEO_CODEC_PYRO_WAVE.
 +    PyroWave,
++}
++
++/// KyberNow (0025): the newest PyroWave configuration packet (`KNPW`
++/// version) this app's decoder reads, for the whole process: an app reads
++/// the same packets on every display. 1 until the app says more.
++static PYROWAVE_HEADER: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
++
++/// KyberNow (0025): sets the newest PyroWave configuration packet this app
++/// reads (2: the header with the HDR10 metadata, docs/kyber-changes.md).
++/// The Station sends version 1 to an app that never said so (0.11.7 and
++/// older read only its 16 bytes).
++pub fn set_pyrowave_header(version: u8) {
++    PYROWAVE_HEADER.store(version.max(1), std::sync::atomic::Ordering::Relaxed);
++}
++
++/// KyberNow (0025): what a start request tells the Station, with `codec`
++/// PyroWave only, and only above version 1 (an older Station ignores it).
++pub(crate) fn pyrowave_header(codec: &VideoCodec) -> Option<u8> {
++    let version = PYROWAVE_HEADER.load(std::sync::atomic::Ordering::Relaxed);
++    (*codec == VideoCodec::PyroWave && version >= 2).then_some(version)
  }
  
  impl From<VideoCodec> for kyctl_common::enums::VideoCodec {
-@@ -841,6 +844,7 @@ impl From<VideoCodec> for kyctl_common::enums::VideoCodec {
+@@ -809,6 +832,7 @@ impl From<VideoCodec> for kyctl_common::enums::VideoCodec {
              VideoCodec::H264 => Self::H264,
              VideoCodec::HEVC => Self::HEVC,
              VideoCodec::AV1 => Self::AV1,
@@ -102,7 +147,7 @@ index c6e70c8..26a11ab 100644
          }
      }
  }
-@@ -868,6 +872,9 @@ pub struct VideoSessionConfig {
+@@ -836,6 +860,9 @@ pub struct VideoSessionConfig {
      /// KyberNow: HDR10 for this display (PQ, BT.2020, 10-bit 4:2:0).
      pub hdr: bool,
      pub intra_refresh: Option<bool>,
@@ -127,10 +172,10 @@ index f3ca6c0..4e0f8cd 100644
  
  #[derive(Clone, Debug, Deserialize, Serialize)]
 diff --git a/kyctl-common/src/kymux.rs b/kyctl-common/src/kymux.rs
-index 5950328..972fb4d 100644
+index 5950328..5c5de3c 100644
 --- a/kyctl-common/src/kymux.rs
 +++ b/kyctl-common/src/kymux.rs
-@@ -91,6 +91,11 @@ pub struct StartRequestVideo {
+@@ -91,6 +91,17 @@ pub struct StartRequestVideo {
      pub hdr: bool,
      #[serde(skip_serializing_if = "Option::is_none")]
      pub intra_refresh: Option<bool>,
@@ -139,6 +184,12 @@ index 5950328..972fb4d 100644
 +    /// codec packet says which one came.
 +    #[serde(default, skip_serializing_if = "Option::is_none")]
 +    pub fallback_codec: Option<VideoCodec>,
++    /// KyberNow (0025): with `codec` PyroWave, the newest configuration
++    /// packet (`KNPW` version, docs/kyber-changes.md) the client reads.
++    /// Missing (an app before 0.11.8): version 1, 16 bytes. An older
++    /// Station ignores it.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub pyrowave_header: Option<u8>,
  }
  
  #[derive(Debug, Deserialize, Serialize)]
