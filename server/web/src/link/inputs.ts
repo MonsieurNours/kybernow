@@ -88,12 +88,12 @@ export function currentDisplayId(): number | null {
 }
 
 /** La connexion WebSocket des entrées est-elle ouverte ? */
-export function canSendPackets(): boolean {
+function canSendPackets(): boolean {
   return allowed && !!socket && socket.readyState === WebSocket.OPEN
 }
 
 /** Envoie un paquet kynput `[type][contenu]`. `false` sans connexion WebSocket. */
-export function sendPacket(type: number, payload: Uint8Array): boolean {
+function sendPacket(type: number, payload: Uint8Array): boolean {
   if (!allowed || !socket || socket.readyState !== WebSocket.OPEN) return false
   const msg = new Uint8Array(1 + payload.byteLength)
   msg[0] = type

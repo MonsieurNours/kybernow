@@ -7,7 +7,6 @@ type Message =
   | { type: 'start'; origin: string; body: unknown; period: number; target: HeartbeatTarget }
   | { type: 'body'; body: unknown }
   | { type: 'now' }
-  | { type: 'stop' }
 
 const scope = self as unknown as {
   postMessage(message: unknown): void
@@ -38,10 +37,6 @@ scope.onmessage = (e) => {
       break
     case 'now':
       beat()
-      break
-    case 'stop':
-      if (timer) clearInterval(timer)
-      timer = null
       break
   }
 }

@@ -16,7 +16,7 @@ export interface Fallbacks {
 export const NO_FALLBACK: Fallbacks = { h264: false, noAudio: false }
 
 /** Une raison du moteur qui désigne le son (lecteur audio, worklet) : on coupe le son d'abord. */
-export function blamesAudio(reason: string): boolean {
+function blamesAudio(reason: string): boolean {
   return /audio|worklet/i.test(reason)
 }
 

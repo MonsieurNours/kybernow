@@ -1,7 +1,9 @@
 // Vérifie les catalogues de langue (lancé par `npm run check`) :
 // - fr.json et en.json ont exactement les mêmes clés ;
 // - chaque texte a les mêmes paramètres {nom} dans les deux langues ;
-// - chaque clé littérale passée à t('…') / tn('…') dans src/ existe en français.
+// - chaque clé littérale passée à t('…') / tn('…') dans src/ existe en français ;
+// - chaque texte sert : sa clé est écrite quelque part dans src/ (entre guillemets, ou
+//   en préfixe d'un gabarit `share.role.${…}`), pluriels et versions Mac ou Linux compris.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -30,13 +32,17 @@ for (const [k, v] of a) {
 }
 for (const k of b.keys()) if (!a.has(k)) problems.push(`absent de fr.json : ${k}`)
 
-// Clés employées dans le code (littérales seulement).
+// Clés employées dans le code (littérales seulement), et tout ce qui peut en être une.
+const literals = new Set()
+const prefixes = new Set()
 function walk(d) {
   for (const name of readdirSync(d)) {
     const p = join(d, name)
     if (statSync(p).isDirectory()) walk(p)
     else if (/\.(svelte|ts)$/.test(name)) {
       const src = readFileSync(p, 'utf8')
+      for (const m of src.matchAll(/['"`]([A-Za-z]\w*(?:\.\w+)+)['"`]/g)) literals.add(m[1])
+      for (const m of src.matchAll(/`([A-Za-z]\w*(?:\.\w+)*\.?)\$\{/g)) prefixes.add(m[1])
       for (const m of src.matchAll(/\bt(n?)\(\s*'([\w.]+)'/g)) {
         const key = m[2]
         const ok = m[1] ? a.has(`${key}.one`) && a.has(`${key}.other`) : a.has(key)
@@ -46,6 +52,20 @@ function walk(d) {
   }
 }
 walk(join(root, 'src'))
+
+// Textes que rien n'emploie (WEB-23) : un pluriel compte par sa clé (`tn`), une version Mac ou Linux
+// par le texte d'origine.
+const PLURAL = /\.(zero|one|two|few|many|other)$/
+function used(key) {
+  if (literals.has(key)) return true
+  if (PLURAL.test(key) && literals.has(key.replace(PLURAL, ''))) return true
+  for (const p of prefixes) if (p && key.startsWith(p)) return true
+  return false
+}
+for (const key of a.keys()) {
+  const base = key.startsWith('macos.') || key.startsWith('linux.') ? key.slice(6) : key
+  if (!used(base)) problems.push(`texte inutilisé : ${key}`)
+}
 
 // Version Mac ou Linux d'un texte propre à Windows (`macos.<clé>`, `linux.<clé>`,
 // docs/i18n.md) : la clé doit exister.

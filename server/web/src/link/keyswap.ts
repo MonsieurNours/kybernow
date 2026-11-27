@@ -12,12 +12,6 @@ export function stationIsMac(os: string | null | undefined): boolean {
   return /^\s*macos/i.test(os ?? '')
 }
 
-/** « Ctrl agit comme ⌘ » pour cet ordinateur : seulement face à un Mac, et
- * allumé tant que l'utilisateur ne l'a pas éteint (`setting` absent : jamais changé). */
-export function controlAsCommand(setting: boolean | null | undefined, os: string | null | undefined): boolean {
-  return stationIsMac(os) && (setting ?? true)
-}
-
 const SWAP: Record<string, string> = {
   ControlLeft: 'MetaLeft',
   MetaLeft: 'ControlLeft',
@@ -26,7 +20,7 @@ const SWAP: Record<string, string> = {
 }
 
 /** Ctrl ↔ ⊞, à gauche comme à droite ; les autres touches inchangées. */
-export function swapControlCommand(code: string): string {
+function swapControlCommand(code: string): string {
   return SWAP[code] ?? code
 }
 

@@ -5,7 +5,6 @@
     "unreachable": "La Station ne répond pas. Nouvel essai dans un instant…",
     "language": "Langue",
     "langAuto": "Auto",
-    "langAutoHint": "Auto : la langue de ce navigateur ({lang}).",
     "langFr": "Français",
     "langEn": "English"
   },
@@ -1228,21 +1227,14 @@
       "preparing": "Préparation de l'ordinateur"
     },
     "page": {
-      "title": "Prêt",
-      "intro": "Prêtez l'ordinateur à un ami quand vous ne vous en servez pas : il joue depuis son appareil, avec les apps que vous choisissez. À la fin, tout revient comme avant, et votre session Windows reste ouverte.",
-      "switch": "Prêter l'ordinateur",
-      "switchHelp": "Tant que le prêt est activé, la session Windows doit rester ouverte : la Station empêche la mise en veille et le verrouillage automatique.",
-      "current": "Prêt en cours"
+      "title": "Prêt"
     },
     "apps": {
       "title": "Apps permises",
       "sub": "Ce que votre ami peut ouvrir depuis le lanceur. Le reste est bloqué.",
-      "steam": "Steam",
-      "steamHelp": "En Big Picture, avec le compte Steam choisi à chaque prêt.",
       "steamMissing": "Steam n'est pas installé sur cet ordinateur.",
       "add": "Ajouter une app",
       "remove": "Retirer {app}",
-      "none": "Aucune autre app pour l'instant.",
       "pickIntro": "Votre ami pourra l'ouvrir depuis le lanceur. Les apps et leurs icônes viennent du menu Démarrer de l'ordinateur.",
       "added": "{app} est permise.",
       "removed": "{app} n'est plus permise."
@@ -1278,8 +1270,6 @@
       "cancel": "Annuler",
       "saved": "Compte de {name} enregistré.",
       "deleted": "Compte de {name} supprimé.",
-      "empty": "Aucun compte d'ami pour l'instant.",
-      "lastUsed": "dernier emprunt {ago}",
       "never": "jamais emprunté"
     },
     "friend": {
@@ -1526,10 +1516,6 @@
     },
     "lend": {
       "warning": "Votre ami joue dans votre session du Mac. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
-      "page": {
-        "intro": "Prêtez le Mac à un ami quand vous ne vous en servez pas : il joue depuis son appareil, avec les apps que vous choisissez. À la fin, tout revient comme avant, et la session du Mac reste ouverte.",
-        "switchHelp": "Tant que le prêt est activé, la session du Mac doit rester ouverte : la Station empêche la mise en veille et le verrouillage automatique."
-      },
       "apps": {
         "pickIntro": "Votre ami pourra l'ouvrir depuis le lanceur. Les apps et leurs icônes viennent du dossier Applications du Mac."
       },
@@ -1675,10 +1661,6 @@
     },
     "lend": {
       "warning": "Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
-      "page": {
-        "intro": "Prêtez l'ordinateur à un ami quand vous ne vous en servez pas : il joue depuis son appareil, avec les apps que vous choisissez. À la fin, tout revient comme avant, et votre session reste ouverte.",
-        "switchHelp": "Tant que le prêt est activé, votre session doit rester ouverte : la Station empêche la mise en veille et le verrouillage automatique."
-      },
       "apps": {
         "pickIntro": "Votre ami pourra l'ouvrir depuis le lanceur. Les apps et leurs icônes viennent des applications installées de votre session."
       },
@@ -1700,20 +1682,12 @@
     "record_tooltip": "Enregistrer la session sur l'ordinateur ({shortcut})",
     "stop_tooltip": "Arrêter l'enregistrement ({shortcut})",
     "stop": "Arrêter l'enregistrement",
-    "on_computer": "Sur l'ordinateur",
-    "record_menu": "Enregistrer la session",
-    "stop_menu": "Arrêter l'enregistrement ({time})",
     "started": "Enregistrement lancé sur l'ordinateur.",
     "saved": "Enregistrement terminé : retrouvez-le dans Admin › Enregistrements.",
     "guest_pill": "Enregistrement",
     "guest_notice": "{name} enregistre la session.",
     "guest_stopped": "L'enregistrement est arrêté.",
     "disabled": "L'enregistrement est coupé sur cet ordinateur (Admin › Enregistrements).",
-    "codec": "PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264.",
-    "disk_full": "Moins de 2 Go libres sur l'ordinateur : impossible d'enregistrer.",
-    "folder": "Le dossier des enregistrements est inaccessible (Admin › Enregistrements).",
-    "lent": "{name} utilise l'ordinateur.",
-    "failed": "L'enregistrement n'a pas pu commencer.",
     "stopped_disk": "L'enregistrement s'est arrêté : le disque de l'ordinateur est plein.",
     "stopped_codec": "L'enregistrement s'est arrêté : PyroWave et AV1 ne s'enregistrent pas."
   },

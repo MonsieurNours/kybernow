@@ -5,7 +5,6 @@
     "unreachable": "The Station is not responding. Trying again shortly…",
     "language": "Language",
     "langAuto": "Auto",
-    "langAutoHint": "Auto: this browser’s language ({lang}).",
     "langFr": "Français",
     "langEn": "English"
   },
@@ -1228,21 +1227,14 @@
       "preparing": "Preparing the computer"
     },
     "page": {
-      "title": "Lending",
-      "intro": "Lend the computer to a friend while you're not using it: they play from their own device, with the apps you choose. Afterwards, everything goes back to how it was, and your Windows session stays open.",
-      "switch": "Lend the computer",
-      "switchHelp": "While lending is on, the Windows session must stay open: the Station keeps the computer from sleeping and locking on its own.",
-      "current": "Current loan"
+      "title": "Lending"
     },
     "apps": {
       "title": "Allowed apps",
       "sub": "What your friend can open from the launcher. Everything else is blocked.",
-      "steam": "Steam",
-      "steamHelp": "In Big Picture, with the Steam account chosen for each loan.",
       "steamMissing": "Steam isn't installed on this computer.",
       "add": "Add an app",
       "remove": "Remove {app}",
-      "none": "No other app yet.",
       "pickIntro": "Your friend can open it from the launcher. Apps and their icons come from the computer's Start menu.",
       "added": "{app} is allowed.",
       "removed": "{app} is no longer allowed."
@@ -1278,8 +1270,6 @@
       "cancel": "Cancel",
       "saved": "{name}'s account saved.",
       "deleted": "{name}'s account deleted.",
-      "empty": "No friend accounts yet.",
-      "lastUsed": "last borrowed {ago}",
       "never": "never borrowed"
     },
     "friend": {
@@ -1526,10 +1516,6 @@
     },
     "lend": {
       "warning": "Your friend plays in your Mac session. They don't see your desktop or your windows, but a game can read your files: lend to friends you trust.",
-      "page": {
-        "intro": "Lend the Mac to a friend when you're not using it: they play from their device, with the apps you choose. At the end, everything goes back as before, and the Mac session stays open.",
-        "switchHelp": "While lending is on, the Mac session must stay open: the Station prevents sleep and automatic locking."
-      },
       "apps": {
         "pickIntro": "Your friend can open it from the launcher. Apps and their icons come from the Mac's Applications folder."
       },
@@ -1675,10 +1661,6 @@
     },
     "lend": {
       "warning": "Your friend plays in your session. They don't see your desktop or your windows, but a game can read your files: lend to friends you trust.",
-      "page": {
-        "intro": "Lend the computer to a friend when you're not using it: they play from their device, with the apps you choose. At the end, everything goes back as before, and your session stays open.",
-        "switchHelp": "While lending is on, your session must stay open: the Station prevents sleep and automatic locking."
-      },
       "apps": {
         "pickIntro": "Your friend can open it from the launcher. Apps and their icons come from the applications installed in your session."
       },
@@ -1700,20 +1682,12 @@
     "record_tooltip": "Record the session on the computer ({shortcut})",
     "stop_tooltip": "Stop recording ({shortcut})",
     "stop": "Stop recording",
-    "on_computer": "On the computer",
-    "record_menu": "Record the session",
-    "stop_menu": "Stop recording ({time})",
     "started": "Recording started on the computer.",
     "saved": "Recording saved: find it in Admin › Recordings.",
     "guest_pill": "Recording",
     "guest_notice": "{name} is recording the session.",
     "guest_stopped": "Recording stopped.",
     "disabled": "Recording is turned off on this computer (Admin › Recordings).",
-    "codec": "PyroWave and AV1 can't be recorded: switch to HEVC or H.264.",
-    "disk_full": "Less than 2 GB free on the computer: can't record.",
-    "folder": "The recordings folder can't be reached (Admin › Recordings).",
-    "lent": "{name} is using the computer.",
-    "failed": "Recording could not start.",
     "stopped_disk": "Recording stopped: the computer's disk is full.",
     "stopped_codec": "Recording stopped: PyroWave and AV1 can't be recorded."
   },

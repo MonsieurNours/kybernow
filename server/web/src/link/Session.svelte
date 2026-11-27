@@ -1733,8 +1733,9 @@
   }
 
   // Micro de l'appareil vers l'ordinateur (docs/link-ui.md, « Micro ») : proposé quand ce navigateur
-  // encode l'Opus et que le moteur sait l'envoyer ; allumé ou coupé retenu pour chaque ordinateur.
-  void probeMicrophone()
+  // encode l'Opus et que le moteur sait l'envoyer ; allumé ou coupé retenu pour chaque ordinateur. Sonde
+  // seulement quand le moteur l'envoie (WEB-24 : sinon, une sonde par session pour une tuile cachée).
+  if (engineSendsMicrophone()) void probeMicrophone()
   /** Ce que l'ordinateur dit du micro (lu au moteur pendant la session). */
   let micEngine = $state<EngineMicState>({ state: 'idle' })
   /** La capture tourne (autorisation donnée, encodeur prêt). */
