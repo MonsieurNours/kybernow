@@ -30,6 +30,8 @@ export const currentWindow = () => tauri.window.getCurrentWindow()
 export type Values = {
   /** Débit réglé à la main (Mbit/s) : de `min` à `max` par pas de `step`, jusqu'à `max_pyrowave` en PyroWave. */
   manual_mbps: { min: number; step: number; max: number; max_pyrowave: number; lg_tv_max: number }
+  /** PyroWave quitté pour un autre format : le débit réglé à la main au plus (Mbit/s, `HEVC_AFTER_PYROWAVE_MBPS`). */
+  hevc_after_pyrowave_mbps: number
   /** Débit quand la fenêtre est cachée (bit/s), par appareil ; ce PC : `computer`. */
   background_bitrate: { computer: number }
   max_guests: number

@@ -463,7 +463,7 @@ struct SettingsView: View {
                 st.codec = key == "h264" ? .h264 : .hevc
                 st.profile = nil
                 // En quittant PyroWave, un débit d'HEVC.
-                if wasPyroWave { st.bitrateMbps = min(st.bitrateMbps, PyroWaveSession.hevcMbps) }
+                if wasPyroWave { st.bitrateMbps = CoreValues.mbpsAfterPyroWave(st.bitrateMbps) }
             }
         }
     }

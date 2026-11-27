@@ -160,85 +160,21 @@ pub extern "C" fn kn_pyrowave_lowered_text(width: u32, height: u32, refresh: u32
     })
 }
 
-/// Version la plus récente de l'en-tête `KNPW` que lit le décodeur de
-/// l'app, pour toute l'app (KYB-29) : 2, la version avec les métadonnées
-/// HDR10. Une Station qui ne connaît pas la demande envoie la version 1,
-/// lue elle aussi. Sans le correctif kyclient de PyroWave : sans effet.
-#[unsafe(no_mangle)]
-pub extern "C" fn kn_pyrowave_set_header(version: u8) {
-    kybernow_core::ffi_guard!({
-        #[cfg(feature = "kyber-pyrowave")]
-        kyclient::set_pyrowave_header(version);
-        #[cfg(not(feature = "kyber-pyrowave"))]
-        let _ = version;
-    })
-}
-
-/// Taille de l'en-tête `KNPW` version 2 (docs/kyber-changes.md, « En-tête
-/// KNPW version 2 »).
-const KNPW_V2_SIZE: usize = 48;
-
-/// Les métadonnées HDR10 de l'en-tête version 2 : écran de mastering et
-/// niveaux de lumière, chacun seulement si son drapeau est levé.
-fn knpw_v2_metadata(d: &[u8]) -> (Option<serde_json::Value>, Option<serde_json::Value>) {
-    if d.len() < KNPW_V2_SIZE || d[4] < 2 {
-        return (None, None);
-    }
-    let u16le = |o: usize| u16::from_le_bytes([d[o], d[o + 1]]);
-    let u32le = |o: usize| u32::from_le_bytes([d[o], d[o + 1], d[o + 2], d[o + 3]]);
-    let flags = d[16];
-    let mastering = (flags & 1 != 0).then(|| {
-        serde_json::json!({
-            // Rouge, vert, bleu, puis le blanc (unités de 0,00002).
-            "primaries": [u16le(20), u16le(22), u16le(24), u16le(26), u16le(28), u16le(30)],
-            "white": [u16le(32), u16le(34)],
-            // Unités de 0,0001 cd/m².
-            "max_luminance": u32le(36),
-            "min_luminance": u32le(40),
-        })
-    });
-    let light = (flags & 2 != 0).then(|| serde_json::json!({ "max_cll": u16le(44), "max_fall": u16le(46) }));
-    (mastering, light)
-}
-
-/// Les métadonnées HDR10 au format de CoreVideo (celui des SEI HEVC,
-/// gros-boutiste) : `kCVImageBufferMasteringDisplayColorVolumeKey` (24
-/// octets : primaires vert, bleu, rouge, puis le blanc, luminances max et
-/// min) et `kCVImageBufferContentLightLevelInfoKey` (4 octets : MaxCLL,
-/// MaxFALL), en base64.
-fn knpw_v2_sei(mastering: &Option<serde_json::Value>, light: &Option<serde_json::Value>) -> (Option<String>, Option<String>) {
+/// Le paquet de configuration en JSON pour Swift : les métadonnées HDR10 de
+/// la version 2 lues par le cœur (`Config::hdr10`), avec leur forme pour
+/// CoreVideo (SEI HEVC, `Mastering::sei`, `LightLevel::sei`) en base64.
+fn config_json(c: &pyrowave::Config, version: u8) -> String {
     use base64::Engine;
     let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
-    let mdcv = mastering.as_ref().map(|m| {
-        let p: Vec<u16> = (0..6).map(|i| m["primaries"][i].as_u64().unwrap_or(0) as u16).collect();
-        let w: Vec<u16> = (0..2).map(|i| m["white"][i].as_u64().unwrap_or(0) as u16).collect();
-        let mut out = Vec::with_capacity(24);
-        // KNPW : rouge, vert, bleu ; le SEI 137 : vert, bleu, rouge.
-        for i in [2, 3, 4, 5, 0, 1] {
-            out.extend_from_slice(&p[i].to_be_bytes());
-        }
-        out.extend_from_slice(&w[0].to_be_bytes());
-        out.extend_from_slice(&w[1].to_be_bytes());
-        out.extend_from_slice(&(m["max_luminance"].as_u64().unwrap_or(0) as u32).to_be_bytes());
-        out.extend_from_slice(&(m["min_luminance"].as_u64().unwrap_or(0) as u32).to_be_bytes());
-        b64(&out)
+    let mastering = c.hdr10.mastering.map(|m| {
+        serde_json::json!({ "primaries": m.primaries, "white": m.white, "max_luminance": m.max_luminance, "min_luminance": m.min_luminance })
     });
-    let cll = light.as_ref().map(|l| {
-        let mut out = Vec::with_capacity(4);
-        out.extend_from_slice(&(l["max_cll"].as_u64().unwrap_or(0) as u16).to_be_bytes());
-        out.extend_from_slice(&(l["max_fall"].as_u64().unwrap_or(0) as u16).to_be_bytes());
-        b64(&out)
-    });
-    (mdcv, cll)
-}
-
-fn config_json(c: &pyrowave::Config, version: u8, d: &[u8]) -> String {
-    let (mastering, light) = knpw_v2_metadata(d);
-    let (mastering_sei, light_sei) = knpw_v2_sei(&mastering, &light);
+    let light = c.hdr10.light.map(|l| serde_json::json!({ "max_cll": l.max_cll, "max_fall": l.max_fall }));
     serde_json::json!({
         "version": version, "chroma444": c.chroma444, "hdr": c.hdr, "full_range": c.full_range,
         "width": c.width, "height": c.height, "label": c.label(),
-        "mastering": mastering, "light": light, "mastering_sei": mastering_sei, "light_sei": light_sei,
+        "mastering": mastering, "light": light,
+        "mastering_sei": c.hdr10.mastering.map(|m| b64(&m.sei())), "light_sei": c.hdr10.light.map(|l| b64(&l.sei())),
     })
     .to_string()
 }
@@ -258,13 +194,11 @@ pub unsafe extern "C" fn kn_pyrowave_config(data: *const u8, len: usize) -> *mut
             return std::ptr::null_mut();
         }
         let d = unsafe { std::slice::from_raw_parts(data, len) };
-        let Some(c) = pyrowave::Config::parse(d) else { return std::ptr::null_mut() };
-        // Le cœur lit l'en-tête commun ; une version 2 doit avoir ses 48
-        // octets, sans quoi ses métadonnées seraient lues hors du paquet.
-        if d[4] >= 2 && d.len() < KNPW_V2_SIZE {
-            return std::ptr::null_mut();
+        // Le cœur lit tout le paquet, et refuse une version 2 de moins de 48 octets.
+        match (pyrowave::Config::parse(d), pyrowave::Config::version(d)) {
+            (Some(c), Some(version)) => give(config_json(&c, version)),
+            _ => std::ptr::null_mut(),
         }
-        give(config_json(&c, d[4], d))
     })
 }
 
@@ -289,7 +223,7 @@ pub unsafe extern "C" fn kn_pyrowave_config_from_sequence_header(data: *const u8
         }
         let d = unsafe { std::slice::from_raw_parts(data, len) };
         match pyrowave::Config::from_sequence_header(d) {
-            Some(c) => give(config_json(&c, 0, &[])),
+            Some(c) => give(config_json(&c, 0)),
             None => std::ptr::null_mut(),
         }
     })
@@ -303,7 +237,7 @@ pub unsafe extern "C" fn kn_pyrowave_config_bytes(chroma444: bool, hdr: bool, fu
         if out.is_null() {
             return;
         }
-        let bytes = pyrowave::Config { chroma444, hdr, full_range, width, height }.bytes();
+        let bytes = pyrowave::Config::new(chroma444, hdr, full_range, width, height).bytes();
         unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out, bytes.len()) };
     })
 }

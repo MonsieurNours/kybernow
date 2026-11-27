@@ -69,6 +69,9 @@ public struct CoreValues: Sendable {
     /// Débit de base de PyroWave, en 4:2:0 et en 4:4:4 (Mbit/s, 4K à 60 Hz).
     public let pyrowaveMbps: Int
     public let pyrowaveMbps444: Int
+    /// PyroWave quitté (« Passer en HEVC », autre format dans les réglages) :
+    /// le débit réglé à la main au plus (`rules::limits::HEVC_AFTER_PYROWAVE_MBPS`).
+    public let hevcAfterPyroWaveMbps: Int
     /// Débit réglé à la main sur cet appareil : le plus bas, le pas, le plus
     /// haut (HEVC, AV1, H.264), le plus haut en PyroWave (Mbit/s).
     public let manualMin: Int
@@ -110,6 +113,7 @@ public struct CoreValues: Sendable {
         max = profile("max")
         pyrowaveMbps = int(v["pyrowave_mbps"])
         pyrowaveMbps444 = int(v["pyrowave_mbps_444"])
+        hevcAfterPyroWaveMbps = int(v["hevc_after_pyrowave_mbps"])
         manualMin = int(manual["min"])
         manualStep = int(manual["step"])
         manualMax = int(device["max"])
@@ -123,6 +127,14 @@ public struct CoreValues: Sendable {
         adminPort = int(v["admin_port"])
         addressExample = v["address_example"] as? String ?? ""
         defaultRelay = v["default_relay"] as? String ?? ""
+    }
+
+    /// Un débit réglé à la main pour PyroWave, en quittant PyroWave : celui
+    /// de HEVC au plus, un débit qui tient en Wi-Fi ; le débit de PyroWave des
+    /// réglages, lui, reste pour la prochaine fois.
+    public static func mbpsAfterPyroWave(_ mbps: Int) -> Int {
+        let cap = current.hevcAfterPyroWaveMbps
+        return cap > 0 ? min(mbps, cap) : mbps
     }
 
     /// Le plus haut débit réglé à la main dans ce format.

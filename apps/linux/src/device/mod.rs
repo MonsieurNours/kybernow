@@ -884,11 +884,9 @@ pub fn run(args: &[String]) {
     if let Ok(v) = std::env::var("KYBERNOW_VIDEO") {
         sdl::hint("SDL_VIDEODRIVER", &v);
     }
-    // PyroWave : la sonde (device Vulkan, image de test) tourne sur un fil pendant que la fenêtre s'ouvre. Le
-    // décodeur lit l'en-tête `KNPW` version 2 (métadonnées HDR10 de la capture) : demandé à la Station.
+    // PyroWave : la sonde (device Vulkan, image de test) tourne sur un fil pendant que la fenêtre s'ouvre. L'en-tête
+    // `KNPW` version 2 (métadonnées HDR10 de la capture) est demandé à la Station par le cœur.
     system::pyrowave_probe_start();
-    #[cfg(feature = "pyrowave")]
-    kyclient::set_pyrowave_header(2);
     // HDR (docs/hdr.md) : sur un bureau Wayland dont la gestion des couleurs décrit une image PQ BT.2020 et dont un
     // écran est en HDR, SDL prend Wayland (seule voie du HDR ; X11 et Xwayland n'en ont pas), et la fenêtre peut être
     // transparente : l'image HDR, sur une sous-surface dessous, se voit par le trou que l'app y laisse.
@@ -3736,7 +3734,11 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             // « Passer en HEVC » : les réglages de la session en HEVC (le cœur relance l'image), le choix de
             // l'ordinateur reste PyroWave pour la prochaine session.
             let Some((host, profile, light)) = app.session_by(id).map(|s| (s.host.clone(), s.profile, s.light)) else { return };
-            let Some(h) = app.store.host(&host).cloned() else { return };
+            let Some(mut h) = app.store.host(&host).cloned() else { return };
+            // Un débit choisi pour PyroWave passe à celui de HEVC au plus (règle commune, `HEVC_AFTER_PYROWAVE_MBPS`).
+            if h.settings.mbps > 0 {
+                h.settings.mbps = kybernow_core::rules::limits::mbps_after_pyrowave(h.settings.mbps);
+            }
             if let Some(l) = lives.get_mut(id) {
                 log::info!("session : PyroWave → HEVC pour cette session");
                 let mode = session_mode_of(app, wins, l, &h);

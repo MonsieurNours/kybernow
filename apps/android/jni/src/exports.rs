@@ -554,6 +554,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetS
         let json = string(&mut env, &json);
         match session::parse_settings(&json) {
             Ok(s) => {
+                h.shared.set_wanted(&s);
                 h.session.set_settings(s);
                 JNI_TRUE
             }

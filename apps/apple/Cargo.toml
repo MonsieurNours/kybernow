@@ -8,9 +8,6 @@ rust-version.workspace = true
 
 [dependencies]
 kybernow-core = { path = "../core" }
-# `kyclient::set_pyrowave_header` (correctif 0025, KYB-29) : la même caisse
-# que celle du cœur.
-kyclient = { path = "../../third_party/kyber-desktop/kysdk/kyctl/kyclient", features = ["kymux"] }
 kynput-sys = "0.1.0"
 log = "0.4"
 base64 = "0.22"

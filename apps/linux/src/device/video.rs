@@ -363,14 +363,9 @@ impl Decoder {
                     self.announced(*c);
                     self.flow.codec(*c)
                 }
-                Msg::Config(bytes) => {
-                    self.note_pw_meta(bytes);
-                    self.flow.config(bytes)
-                }
+                Msg::Config(bytes) => self.flow.config(bytes),
                 Msg::Frame { key, data, resume, .. } => {
                     self.backlog.taken();
-                    // Le paquet de configuration PyroWave peut arriver comme un paquet média.
-                    self.note_pw_meta(data);
                     self.flow.frame(*key, data, *resume, Instant::now())
                 }
                 Msg::Hole => self.flow.lost(),
@@ -400,15 +395,6 @@ impl Decoder {
         }
     }
 
-    /// Les métadonnées HDR10 d'un paquet `KNPW` version 2 (la version 1 n'en a pas : rien ne change).
-    fn note_pw_meta(&mut self, data: &[u8]) {
-        if Config::is_config(data)
-            && let Some(m) = crate::hdr::knpw_metadata(data)
-        {
-            self.pw_meta = m;
-        }
-    }
-
     /// Exécute les étapes de la machine du cœur, dans l'ordre.
     fn apply(&mut self, steps: Vec<Step>, media: Option<&Media>) {
         for step in steps {
@@ -418,6 +404,8 @@ impl Decoder {
                     if self.pw_config != Some(c) {
                         log::info!("image : PyroWave {}", c.label());
                     }
+                    // Les métadonnées HDR10 de la capture (en-tête `KNPW` version 2, lues par le cœur).
+                    self.pw_meta = pw_meta(&c.hdr10);
                     self.pw_config = Some(c);
                 }
                 Step::Decode { head, first } => {
@@ -850,7 +838,7 @@ fn ffmpeg_sample(s: &kybernow_core::autotest::Sample, codec: c_int, hw: c_int, t
 
 /// L'image intra de l'extrait PyroWave décodée par Vulkan et relue (I420, BGRA en 4:4:4), en boucle, 1 s au plus.
 fn pyrowave_sample(s: &kybernow_core::autotest::Sample) -> Option<f64> {
-    let cfg = Config::from_sequence_header(&s.packets[0].data).unwrap_or(Config { chroma444: s.yuv444, hdr: false, full_range: true, width: s.width, height: s.height });
+    let cfg = Config::from_sequence_header(&s.packets[0].data).unwrap_or(Config::new(s.yuv444, false, true, s.width, s.height));
     let mut err = [0 as c_char; 256];
     let d = unsafe { kn_pw_open(cfg.width as c_int, cfg.height as c_int, cfg.chroma444 as c_int, 0, err.as_mut_ptr(), err.len() as c_int) };
     if d.is_null() {
@@ -1139,15 +1127,37 @@ fn bt709_8(y: u16, cb: u16, cr: u16) -> [u8; 3] {
     [r, g, b].map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8)
 }
 
+/// Les métadonnées HDR10 de l'en-tête `KNPW` version 2 (`Config::hdr10` du cœur) dans l'ordre de l'image HDR :
+/// minimum et maximum du mastering display (cd/m²), MaxCLL, MaxFALL ; 0 pour ce que le paquet n'a pas (version 1, SDR,
+/// drapeau à 0).
+fn pw_meta(h: &kybernow_core::pyrowave::ContentHdr) -> [f32; 4] {
+    let (min, max) = h.mastering.map_or((0.0, 0.0), |m| (m.min_nits() as f32, m.max_nits() as f32));
+    let (cll, fall) = h.light.map_or((0.0, 0.0), |l| (f32::from(l.max_cll), f32::from(l.max_fall)));
+    [min, max, cll, fall]
+}
+
 #[cfg(test)]
 mod pyrowave_tests {
     use super::*;
 
     #[test]
     fn format_de_l_image_pyrowave() {
-        let c = Config { chroma444: false, hdr: true, full_range: false, width: 2560, height: 1440 };
+        let c = Config::new(false, true, false, 2560, 1440);
         assert_eq!(pw_format(&c), Format::I010);
         assert_eq!(pw_format(&Config { chroma444: true, hdr: false, ..c }), Format::Bgra);
         assert_eq!(pw_format(&Config { hdr: false, ..c }), Format::I420);
+    }
+
+    /// Les métadonnées de l'en-tête version 2, lues par le cœur, dans l'ordre de l'image HDR.
+    #[test]
+    fn metadonnees_de_l_en_tete_pyrowave_v2() {
+        use kybernow_core::pyrowave::{ContentHdr, LightLevel, Mastering};
+        let mastering = Mastering { primaries: [35400, 14600, 8500, 39850, 6550, 2300], white: [15635, 16450], max_luminance: 16_000_000, min_luminance: 1 };
+        let m = pw_meta(&ContentHdr { mastering: Some(mastering), light: Some(LightLevel { max_cll: 1200, max_fall: 400 }) });
+        assert!((m[0] - 0.0001).abs() < 1e-9 && m[1] == 1600.0 && m[2] == 1200.0 && m[3] == 400.0, "{m:?}");
+        // Le niveau de lumière absent : MaxCLL et MaxFALL à 0, le mastering display gardé.
+        assert_eq!(pw_meta(&ContentHdr { mastering: Some(mastering), light: None })[1..], [1600.0, 0.0, 0.0]);
+        // Version 1, SDR : rien.
+        assert_eq!(pw_meta(&ContentHdr::default()), [0.0; 4]);
     }
 }

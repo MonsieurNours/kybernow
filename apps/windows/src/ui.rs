@@ -3912,9 +3912,10 @@ fn session_hevc(app: AppHandle, id: String) -> Result<(), String> {
     let pc = state.this_pc.locked().clone().unwrap_or_default();
     let settings = {
         let mut sent = sent.locked();
-        sent.settings.codec = kybernow_core::profile::Codec::Hevc;
-        // 4:4:4 en HEVC seulement si la carte le décode.
-        sent.settings.yuv444 = sent.settings.yuv444 && pc.hevc444;
+        // HEVC (4:4:4 seulement si la carte le décode), un débit réglé à la
+        // main pour PyroWave ramené à celui de HEVC, sans PyroWave repris par
+        // câble : la règle du cœur.
+        sent.settings = sent.settings.hevc_instead(pc.hevc444);
         sent.settings.clone()
     };
     let shown = {

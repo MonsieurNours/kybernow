@@ -7,10 +7,14 @@
 //! l'écran ; si plusieurs attendent, seule la plus récente est montrée, les
 //! autres sont écartées (comme sur les autres apps).
 //!
-//! Le jeu de paramètres (SPS/PPS, VPS, en-tête de séquence AV1) est gardé et
-//! placé devant chaque image clé qui démarre un décodeur : MediaCodec le lit
-//! dans le flux, sans `csd-0`, quel que soit le format. Une perte fait
-//! attendre la prochaine image clé (redemandée par le cœur).
+//! Ce qu'il faut faire de chaque paquet est décidé par la machine du cœur
+//! (`frames::FrameFlow`, la même que Windows, Linux et LG) : le jeu de
+//! paramètres (SPS/PPS, VPS, en-tête de séquence AV1) gardé et placé devant
+//! chaque image clé qui démarre un décodeur (MediaCodec le lit dans le flux,
+//! sans `csd-0`, quel que soit le format), l'attente d'une image clé ou d'une
+//! image de reprise après une perte, l'image clé redemandée au repos, le
+//! format jamais annoncé ouvert d'office. Ici : les étapes exécutées sur
+//! MediaCodec et sur PyroWave.
 //!
 //! PyroWave (`pwv1`, docs/pyrowave-client-android.md) passe à côté de
 //! MediaCodec : décodé par Vulkan et présenté sur la même surface par une
@@ -20,7 +24,7 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -29,13 +33,13 @@ use jni::objects::JValue;
 use ndk::media::media_codec::{DequeuedInputBufferResult, DequeuedOutputBufferInfoResult, MediaCodec, MediaCodecDirection};
 use ndk::media::media_format::MediaFormat;
 
+use kybernow_core::frames::{FrameFlow, Step};
 use kybernow_core::latency;
-use kybernow_core::media::{Packet, PacketHandler, ResumeGate, FOURCC_AV1, FOURCC_HEVC, FOURCC_PYROWAVE};
-
-use crate::media::MediaHost;
+use kybernow_core::media::{Packet, PacketHandler, FOURCC_AV1, FOURCC_HEVC, FOURCC_PYROWAVE};
 use kybernow_core::pyrowave::Config;
 
-use crate::pyrowave::{PwFormat, PwSession, Shown};
+use crate::media::MediaHost;
+use crate::pyrowave::{PwSession, Shown};
 
 const BUFFER_FLAG_KEY_FRAME: u32 = 1;
 
@@ -45,6 +49,9 @@ pub enum Msg {
     /// `resume` : image de reprise après une perte (docs/reprise-apres-perte.md).
     Frame { key: bool, pts: u64, data: Vec<u8>, received: i64, resume: Option<u64> },
     Hole,
+    /// Des images jetées avant le décodeur (file pleine) : seule une image
+    /// clé relance.
+    Dropped,
     /// La surface a changé (recréée, ou retirée en arrière-plan).
     Surface,
     Stop,
@@ -94,7 +101,7 @@ impl PacketHandler for VideoSink {
                         log::warn!("image : {MAX_QUEUED} images en attente, les suivantes sont jetées");
                     }
                     self.host.hole();
-                    self.send(Msg::Hole);
+                    self.send(Msg::Dropped);
                     return;
                 }
                 self.overflowing.store(false, Ordering::Release);
@@ -128,7 +135,6 @@ struct Decoder {
     codec: Arc<Codec>,
     stop: Arc<AtomicBool>,
     output: Option<JoinHandle<()>>,
-    config: Vec<u8>,
 }
 
 impl Drop for Decoder {
@@ -144,27 +150,31 @@ impl Drop for Decoder {
 /// Instant de réception de chaque image envoyée au décodeur (latence).
 type Received = Arc<Mutex<VecDeque<(u64, i64)>>>;
 
+/// Le repos du fil de l'image : la machine du cœur redemande alors l'image
+/// clé attendue (`FrameFlow::idle`).
+const IDLE: Duration = Duration::from_millis(100);
+
+/// Une image à décoder.
+struct Media {
+    pts: u64,
+    key: bool,
+    data: Vec<u8>,
+    received: i64,
+}
+
 struct DecodeLoop {
     host: Arc<dyn MediaHost>,
-    fourcc: u32,
-    config: Vec<u8>,
-    /// Le dernier paquet reçu était un jeu de paramètres (les suivants s'y ajoutent).
-    in_config: bool,
+    /// Ce qu'il faut faire de chaque paquet (`frames::FrameFlow` du cœur).
+    flow: FrameFlow,
     decoder: Option<Decoder>,
-    /// Après une perte ou un décodeur refait : rien avant une image clé.
-    waiting_key: bool,
-    /// Ce que le décodeur a reçu : reprise sans image clé possible.
-    gate: ResumeGate,
-    lost_reported: bool,
-    last_request: Option<Instant>,
     received: Received,
     /// PyroWave : la session d'affichage Vulkan (ouverte à la première image),
     /// le dernier paquet de configuration, un échec d'ouverture (réessayé avec
     /// la surface suivante) et le format dont le nom a été donné à Kotlin.
     pw: Option<PwSession>,
-    pw_format: Option<PwFormat>,
+    pw_config: Option<Config>,
     pw_failed: bool,
-    pw_announced: Option<PwFormat>,
+    pw_announced: Option<Config>,
     /// Le repli de la session a été demandé au cœur (une fois : `pyrowave_failed`).
     pw_fallback: bool,
     /// Le dernier changement de surface pris en compte (`SurfaceGate`).
@@ -175,19 +185,14 @@ struct DecodeLoop {
 
 impl DecodeLoop {
     fn new(host: Arc<dyn MediaHost>, queued: Arc<AtomicUsize>) -> Self {
+        let flow = FrameFlow::new(host.wanted());
         Self {
             host,
-            fourcc: 0,
-            config: Vec::new(),
-            in_config: false,
+            flow,
             decoder: None,
-            waiting_key: true,
-            gate: ResumeGate::default(),
-            lost_reported: false,
-            last_request: None,
             received: Arc::new(Mutex::new(VecDeque::with_capacity(64))),
             pw: None,
-            pw_format: None,
+            pw_config: None,
             pw_failed: false,
             pw_announced: None,
             pw_fallback: false,
@@ -197,7 +202,7 @@ impl DecodeLoop {
     }
 
     fn pyrowave(&self) -> bool {
-        self.fourcc == FOURCC_PYROWAVE
+        self.flow.fourcc() == FOURCC_PYROWAVE
     }
 
     fn run(mut self, rx: Receiver<Msg>) {
@@ -206,9 +211,14 @@ impl DecodeLoop {
         loop {
             let m = match pending.pop_front() {
                 Some(m) => m,
-                None => match rx.recv() {
+                None => match rx.recv_timeout(IDLE) {
                     Ok(m) => self.took(m),
-                    Err(_) => break,
+                    Err(RecvTimeoutError::Timeout) => {
+                        let steps = self.flow.idle(Instant::now());
+                        self.apply(steps, None);
+                        continue;
+                    }
+                    Err(RecvTimeoutError::Disconnected) => break,
                 },
             };
             // La surface a changé : avant toute image en file, le décodeur la
@@ -237,37 +247,35 @@ impl DecodeLoop {
                 }
                 m => m,
             };
+            // Le format que la session demande (profil changé, repli de
+            // PyroWave) : ouvert d'office s'il n'est jamais annoncé.
+            self.flow.set_wanted(self.host.wanted());
             match m {
                 Msg::Codec(c) => {
-                    self.fourcc = c;
                     self.decoder = None;
-                    self.gate.reset();
-                    self.config.clear();
-                    self.waiting_key = true;
                     self.pw = None;
-                    self.pw_format = None;
+                    self.pw_config = None;
                     self.pw_failed = false;
                     self.pw_announced = None;
+                    let steps = self.flow.codec(c);
+                    self.apply(steps, None);
                 }
-                Msg::Config(bytes) if self.pyrowave() => match PwFormat::parse(&bytes) {
-                    Some(f) => self.pw_format = Some(f),
-                    None => log::warn!("PyroWave : paquet de configuration illisible ({} octets)", bytes.len()),
-                },
                 Msg::Config(bytes) => {
-                    if !self.in_config {
-                        self.config.clear();
-                    }
-                    self.config.extend_from_slice(&bytes);
-                    self.in_config = true;
+                    let steps = self.flow.config(&bytes);
+                    self.apply(steps, None);
                 }
-                Msg::Frame { pts, data, received, .. } if self.pyrowave() => self.pyrowave_frame(pts, data, received),
                 Msg::Frame { key, pts, data, received, resume } => {
-                    self.in_config = false;
-                    self.frame(key, pts, data, received, resume);
+                    let steps = self.flow.frame(key, &data, resume, Instant::now());
+                    self.apply(steps, Some(Media { pts, key, data, received }));
                 }
-                // PyroWave : chaque image se décode seule, rien à attendre ni à demander.
-                Msg::Hole if self.pyrowave() => {}
-                Msg::Hole => self.lost(),
+                Msg::Hole => {
+                    let steps = self.flow.lost();
+                    self.apply(steps, None);
+                }
+                Msg::Dropped => {
+                    let steps = self.flow.dropped();
+                    self.apply(steps, None);
+                }
                 Msg::Surface => {}
                 Msg::Stop => break,
             }
@@ -285,34 +293,70 @@ impl DecodeLoop {
         m
     }
 
+    /// Exécute les étapes de la machine du cœur, dans l'ordre.
+    fn apply(&mut self, steps: Vec<Step>, media: Option<Media>) {
+        let mut media = media;
+        for step in steps {
+            match step {
+                Step::Open(fourcc) if fourcc == FOURCC_PYROWAVE => {
+                    // La session d'affichage s'ouvre à la première image (il lui faut la surface).
+                    self.pw = None;
+                    self.pw_failed = false;
+                }
+                Step::Open(_) => self.open_decoder(),
+                Step::Configure(c) => self.pw_config = Some(c),
+                Step::Decode { head, .. } => {
+                    let Some(m) = media.take() else { continue };
+                    if self.pyrowave() {
+                        self.pyrowave_frame(m);
+                    } else {
+                        self.feed(&head, m);
+                    }
+                }
+                Step::Skip => {}
+                Step::Lost => self.host.keyframe_lost(),
+                // Sans surface (arrière-plan), rien à demander : la surface
+                // revenue redemandera l'image clé (AND-15).
+                Step::Keyframe => {
+                    if self.host.window().is_some() {
+                        self.host.request_keyframe();
+                    }
+                }
+                Step::Recovered { .. } => self.host.keyframe_recovered(),
+            }
+        }
+    }
+
     /// Surface refaite ou retirée : décodeur (ou swapchain) lâché ; une image
     /// clé redemandée seulement s'il y a de nouveau où l'afficher.
     fn surface_changed(&mut self) {
-        if self.pyrowave() {
-            self.pw = None;
-            self.pw_failed = false;
+        self.decoder = None;
+        self.pw = None;
+        self.pw_failed = false;
+        let steps = self.flow.reset(Instant::now());
+        self.apply(steps, None);
+    }
+
+    /// Le décodeur MediaCodec du format annoncé. Sans surface (arrière-plan),
+    /// il se rouvrira sur l'image clé que la surface revenue redemandera ; un
+    /// format que l'appareil ne décode pas est écarté jusqu'au suivant.
+    fn open_decoder(&mut self) {
+        self.decoder = None;
+        if self.host.window().is_none() {
+            let steps = self.flow.reset(Instant::now());
+            self.apply(steps, None);
             return;
         }
-        self.decoder = None;
-        self.gate.reset();
-        self.waiting_key = true;
-        if self.host.window().is_some() {
-            self.request_keyframe();
+        match self.open() {
+            Some(d) => self.decoder = Some(d),
+            None => self.flow.unavailable(),
         }
     }
 
     /// Une image PyroWave : session d'affichage ouverte sur la surface au
     /// besoin, décodeur au format du paquet de configuration (ou, faute de lui,
     /// à la taille de la session en SDR), puis décodage et présentation.
-    fn pyrowave_frame(&mut self, pts: u64, data: Vec<u8>, received: i64) {
-        // Paquet de configuration reconnu à sa signature (s'il arrive sans `is_config`).
-        if Config::is_config(&data) {
-            match PwFormat::parse(&data) {
-                Some(f) => self.pw_format = Some(f),
-                None => log::warn!("PyroWave : paquet de configuration illisible ({} octets)", data.len()),
-            }
-            return;
-        }
+    fn pyrowave_frame(&mut self, m: Media) {
         if self.pw.is_none() {
             if self.pw_failed {
                 return;
@@ -327,22 +371,21 @@ impl DecodeLoop {
                 }
             }
         }
-        let format = self.pw_format.unwrap_or_else(|| {
+        let config = self.pw_config.unwrap_or_else(|| {
             let (w, h) = self.host.video_size();
-            PwFormat::fallback(&data, w, h)
+            crate::pyrowave::fallback(&m.data, w, h)
         });
-        let config = format.config;
         let luminance = if config.hdr { self.host.hdr_luminance() } else { None };
         let Some(pw) = self.pw.as_mut() else { return };
-        if !pw.configure(format, luminance) {
+        if !pw.configure(config, luminance) {
             log::error!("PyroWave : décodeur impossible pour {}", config.label());
             self.pw = None;
             self.failed();
             return;
         }
         let Some(pw) = self.pw.as_ref() else { return };
-        if self.pw_announced != Some(format) {
-            self.pw_announced = Some(format);
+        if self.pw_announced != Some(config) {
+            self.pw_announced = Some(config);
             let name = pw.describe();
             log::info!("image : décodeur {name} ({} × {})", config.width, config.height);
             self.host.listener().with(|env, obj| {
@@ -354,11 +397,11 @@ impl DecodeLoop {
                 .listener()
                 .void("onVideoSize", "(II)V", &[JValue::Int(config.width as i32), JValue::Int(config.height as i32)]);
         }
-        match pw.frame(&data) {
+        match pw.frame(&m.data) {
             Shown::Shown => {
                 // Rendu GPU terminé et présenté : l'écran la montre au balayage suivant.
                 let decoded = latency::now_micros();
-                self.host.frame_displayed(pts, received, decoded, decoded + self.host.frame_period_micros());
+                self.host.frame_displayed(m.pts, m.received, decoded, decoded + self.host.frame_period_micros());
             }
             // Jamais montrée : comptée parmi les images perdues.
             Shown::Skipped => {}
@@ -382,105 +425,62 @@ impl DecodeLoop {
         }
     }
 
-    fn request_keyframe(&mut self) {
-        if self.last_request.is_some_and(|t| t.elapsed() < Duration::from_millis(300)) {
-            return;
-        }
-        self.last_request = Some(Instant::now());
-        self.host.request_keyframe();
-    }
-
-    fn lost(&mut self) {
-        self.waiting_key = true;
-        if !self.lost_reported {
-            self.lost_reported = true;
-            self.host.keyframe_lost();
-        }
-    }
-
-    fn frame(&mut self, key: bool, pts: u64, data: Vec<u8>, received: i64, resume: Option<u64>) {
-        let stale = self.decoder.as_ref().is_some_and(|d| key && !self.config.is_empty() && d.config != self.config);
-        if self.decoder.is_none() || stale {
-            if !key {
-                // Sans surface (arrière-plan), rien à demander : la surface
-                // revenue redemandera l'image clé (AND-15).
-                if self.host.window().is_some() {
-                    self.request_keyframe();
-                }
-                return;
-            }
-            self.decoder = None;
-            self.gate.reset();
-            match self.open() {
-                Some(d) => self.decoder = Some(d),
-                None => return,
-            }
-        }
-        // Après une perte : une image clé, ou une image de reprise qui ne
-        // dépend que d'images que ce décodeur a déjà (il n'est pas refait).
-        if self.waiting_key && !key && !self.gate.resumes(resume) {
-            return;
-        }
-        let first = self.waiting_key;
+    /// Confie l'image à MediaCodec, `head` (les paramètres du flux, devant une
+    /// image clé qui démarre le décodeur) d'abord.
+    fn feed(&mut self, head: &[u8], m: Media) {
         let Some(d) = &self.decoder else { return };
         let codec = d.codec.clone();
-        // Image clé qui (re)démarre le décodeur : le jeu de paramètres devant.
-        let prefix: &[u8] = if key && first { &self.config } else { &[] };
         match codec.0.dequeue_input_buffer(Duration::from_millis(40)) {
             Ok(DequeuedInputBufferResult::Buffer(mut buf)) => {
                 let dst = buf.buffer_mut();
-                let n = prefix.len() + data.len();
+                let n = head.len() + m.data.len();
                 if n > dst.len() {
                     log::warn!("image : {n} octets pour un tampon de {}", dst.len());
                     // Le tampon est rendu au codec, vide : sinon il serait perdu pour la session.
-                    let _ = codec.0.queue_input_buffer(buf, 0, 0, pts, 0);
-                    self.lost();
+                    let _ = codec.0.queue_input_buffer(buf, 0, 0, m.pts, 0);
+                    let steps = self.flow.dropped();
+                    self.apply(steps, None);
                     return;
                 }
                 // Copie directe dans le tampon du codec (non initialisé, assez grand : vérifié plus haut).
                 unsafe {
                     let p = dst.as_mut_ptr() as *mut u8;
-                    std::ptr::copy_nonoverlapping(prefix.as_ptr(), p, prefix.len());
-                    std::ptr::copy_nonoverlapping(data.as_ptr(), p.add(prefix.len()), data.len());
+                    std::ptr::copy_nonoverlapping(head.as_ptr(), p, head.len());
+                    std::ptr::copy_nonoverlapping(m.data.as_ptr(), p.add(head.len()), m.data.len());
                 }
                 {
                     let mut r = self.received.lock().unwrap();
                     if r.len() == 64 {
                         r.pop_front();
                     }
-                    r.push_back((pts, received));
+                    r.push_back((m.pts, m.received));
                 }
-                let flags = if key { BUFFER_FLAG_KEY_FRAME } else { 0 };
-                if let Err(e) = codec.0.queue_input_buffer(buf, 0, n, pts, flags) {
+                let flags = if m.key { BUFFER_FLAG_KEY_FRAME } else { 0 };
+                if let Err(e) = codec.0.queue_input_buffer(buf, 0, n, m.pts, flags) {
                     log::warn!("image : envoi au décodeur refusé ({e:?})");
-                    self.lost();
+                    let steps = self.flow.failed(Instant::now());
+                    self.apply(steps, None);
                     return;
                 }
-                self.gate.fed(pts);
-                if first {
-                    self.waiting_key = false;
-                    if self.lost_reported {
-                        self.lost_reported = false;
-                        self.host.keyframe_recovered();
-                    }
-                }
+                self.flow.fed(m.pts);
             }
             Ok(DequeuedInputBufferResult::TryAgainLater) => {
                 log::warn!("image : décodeur saturé, image écartée");
-                self.lost();
+                let steps = self.flow.dropped();
+                self.apply(steps, None);
             }
             Err(e) => {
                 log::warn!("image : décodeur en erreur ({e:?}), refait à la prochaine image clé");
                 self.decoder = None;
-                self.gate.reset();
-                self.lost();
+                let steps = self.flow.reset(Instant::now());
+                self.apply(steps, None);
             }
         }
     }
 
     fn open(&mut self) -> Option<Decoder> {
         let window = self.host.window()?;
-        let mime = match self.fourcc {
+        let mime = match self.flow.fourcc() {
             FOURCC_HEVC => "video/hevc",
             FOURCC_AV1 => "video/av01",
             _ => "video/avc",
@@ -506,12 +506,11 @@ impl DecodeLoop {
             let n = env.new_string(&name)?;
             env.call_method(obj, "onDecoder", "(Ljava/lang/String;)V", &[JValue::Object(&n)]).map(|_| ())
         });
-        self.waiting_key = true;
         let codec = Arc::new(Codec(codec));
         let stop = Arc::new(AtomicBool::new(false));
         let (c, st, sh, rec) = (codec.clone(), stop.clone(), self.host.clone(), self.received.clone());
         let output = std::thread::Builder::new().name("kybernow-affichage".into()).spawn(move || drain(c, st, sh, rec)).ok();
-        Some(Decoder { codec, stop, output, config: self.config.clone() })
+        Some(Decoder { codec, stop, output })
     }
 }
 

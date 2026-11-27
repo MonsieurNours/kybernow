@@ -292,9 +292,9 @@ fn check(r: pw_result, what: &str) -> Result<(), String> {
     if r == PYROWAVE_SUCCESS { Ok(()) } else { Err(format!("{what} : erreur PyroWave {r}")) }
 }
 
-/// Le paquet de configuration (`KNPW`) : celui du cœur (WINAPP-50), qui lit
-/// la version 1 et la tête de la version 2 ; ses métadonnées HDR10 :
-/// `hdr::pyrowave_hdr`.
+/// Le paquet de configuration (`KNPW`) : celui du cœur (WINAPP-50, KYB-29),
+/// qui lit les versions 1 et 2 et les métadonnées HDR10 de la version 2
+/// (`Config::hdr10`, données au rendu par `hdr::pyrowave_meta`).
 pub use kybernow_core::pyrowave::Config;
 
 // --- Le device PyroWave d'une carte ---
@@ -699,7 +699,7 @@ pub fn probe(d3d: &ID3D11Device) -> Result<(), String> {
     let started = Instant::now();
     let device = Device::new(d3d)?;
     let mut dec = Decoder::new(device, d3d)?;
-    dec.configure(Config { chroma444: false, hdr: false, full_range: false, width: 128, height: 128 })?;
+    dec.configure(Config::new(false, false, false, 128, 128))?;
     match dec.decode(PROBE)? {
         Outcome::Ready(_) => {}
         Outcome::Skipped(why) => return Err(format!("image de test : {why}")),

@@ -7667,8 +7667,13 @@ impl App {
             Setting::Displays if enabled => st.displays = pick(&["auto", "this", "all"], i),
             Setting::Fps => st.fps = [0u32, 30, 60, 90, 120, 144][i.min(5)],
             Setting::Codec => {
+                let was_pyrowave = st.codec == "pyrowave";
                 st.codec = pick(&["auto", "hevc", "h264", "av1", "pyrowave"], i);
-                // Hors de PyroWave, un débit au-delà de 500 Mbit/s revient dans les bornes du format.
+                // En quittant PyroWave, un débit choisi passe à celui de HEVC au plus (règle commune,
+                // `HEVC_AFTER_PYROWAVE_MBPS`) ; hors de PyroWave, il revient dans les bornes du format.
+                if was_pyrowave && st.codec != "pyrowave" && st.mbps > 0 {
+                    st.mbps = kybernow_rules::limits::mbps_after_pyrowave(st.mbps);
+                }
                 st.mbps = snap_mbps(st.mbps, st.codec == "pyrowave");
             }
             Setting::Display => st.display = pick(&["auto", "vsync", "immediate", "vrr"], i),

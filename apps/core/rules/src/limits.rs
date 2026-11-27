@@ -59,6 +59,19 @@ pub fn manual_mbps(device: Device, pyrowave: bool) -> (u32, u32) {
     (MANUAL_MBPS_MIN, max)
 }
 
+/// PyroWave quitté (« Passer en HEVC » du bandeau, autre format choisi dans
+/// les réglages, PyroWave que l'ordinateur ne propose plus) : le débit réglé
+/// à la main passe au plus à celui-ci en HEVC, AV1 ou H.264 (Mbit/s), un
+/// débit qui tient en Wi-Fi. Le débit de PyroWave des réglages, lui, reste
+/// pour la prochaine fois.
+pub const HEVC_AFTER_PYROWAVE_MBPS: u32 = 80;
+
+/// Un débit réglé à la main pour PyroWave, en quittant PyroWave
+/// ([`HEVC_AFTER_PYROWAVE_MBPS`] au plus).
+pub fn mbps_after_pyrowave(mbps: u32) -> u32 {
+    mbps.min(HEVC_AFTER_PYROWAVE_MBPS)
+}
+
 /// Un débit réglé à la main (reçu d'un autre appareil, ancien réglage)
 /// ramené dans les bornes de cet appareil et de ce format.
 pub fn clamp_manual_mbps(mbps: u32, device: Device, pyrowave: bool) -> u32 {
@@ -100,6 +113,13 @@ mod tests {
         assert_eq!(clamp_manual_mbps(120, Device::LgTv, false), 95);
         assert_eq!(MANUAL_MBPS_MAX % MANUAL_MBPS_STEP, 0);
         assert_eq!(MANUAL_MBPS_MAX_PYROWAVE % MANUAL_MBPS_STEP, 0);
+    }
+
+    #[test]
+    fn debit_en_quittant_pyrowave() {
+        assert_eq!(mbps_after_pyrowave(1200), 80);
+        assert_eq!(mbps_after_pyrowave(60), 60);
+        assert_eq!(HEVC_AFTER_PYROWAVE_MBPS % MANUAL_MBPS_STEP, 0);
     }
 
     #[test]

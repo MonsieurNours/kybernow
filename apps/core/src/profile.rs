@@ -299,6 +299,30 @@ impl StreamSettings {
         self.profile.map(Profile::label).unwrap_or("Personnalisé")
     }
 
+    /// PyroWave quitté pour `codec` : le 4:4:4 seulement si `yuv444` (le
+    /// format le décode en 4:4:4), et un débit réglé à la main au plus à
+    /// [`kybernow_rules::limits::HEVC_AFTER_PYROWAVE_MBPS`] (un débit de
+    /// PyroWave ne vaut rien en HEVC). Un profil garde son débit (celui de
+    /// HEVC).
+    pub fn leave_pyrowave(&mut self, codec: Codec, yuv444: bool) {
+        if self.codec == Codec::PyroWave && self.profile.is_none() {
+            self.mbps = kybernow_rules::limits::mbps_after_pyrowave(self.mbps);
+        }
+        self.codec = codec;
+        self.yuv444 = self.yuv444 && yuv444;
+    }
+
+    /// « Passer en HEVC » (bandeau de PyroWave) : ces réglages en HEVC pour
+    /// la fin de la session ([`Self::leave_pyrowave`] ; 4:4:4 si l'appareil
+    /// le décode en HEVC, `hevc444`), sans reprendre PyroWave de lui-même
+    /// par câble (`wired` coupé).
+    pub fn hevc_instead(&self, hevc444: bool) -> Self {
+        let mut s = self.clone();
+        s.leave_pyrowave(Codec::Hevc, hevc444);
+        s.wired = false;
+        s
+    }
+
     pub fn mode_policy(&self) -> &'static str {
         self.profile.map(Profile::mode_policy).unwrap_or("default")
     }
@@ -557,16 +581,18 @@ pub fn pyrowave_format(settings: &StreamSettings, caps: Capabilities, offered: b
             if possible && s.wired && !relayed {
                 s.mbps = if s.yuv444 { PYROWAVE_MBPS_444 } else { PYROWAVE_MBPS };
             } else {
-                s.codec = pyrowave_fallback(caps);
-                s.yuv444 = s.yuv444 && s.codec == Codec::Hevc && caps.hevc444;
+                let to = pyrowave_fallback(caps);
+                s.leave_pyrowave(to, to == Codec::Hevc && caps.hevc444);
             }
         }
         return s;
     }
     if s.codec == Codec::PyroWave {
         if !possible {
-            s.codec = pyrowave_fallback(caps);
-            s.yuv444 = s.yuv444 && s.codec == Codec::Hevc && caps.hevc444;
+            // Un débit réglé à la main pour PyroWave ne passe pas tel quel au
+            // format de repli (HEVC à 1 200 Mbit/s).
+            let to = pyrowave_fallback(caps);
+            s.leave_pyrowave(to, to == Codec::Hevc && caps.hevc444);
         }
         return s;
     }
@@ -617,10 +643,11 @@ mod tests {
         assert_eq!(Codec::parse("pyrowave"), Some(Codec::PyroWave));
         assert_eq!(Codec::parse("PWV1"), Some(Codec::PyroWave));
         assert_eq!(Codec::PyroWave.fourcc(), 0x7077_7631);
-        // Jamais proposé, jamais décodé, ou Station muette : HEVC (son 4:4:4 s'il le lit).
+        // Jamais proposé, jamais décodé, ou Station muette : HEVC (son 4:4:4
+        // s'il le lit), au débit de HEVC en quittant PyroWave (80 Mbit/s au plus).
         for (caps, offered) in [(sans, true), (all, false)] {
             let s = pyrowave_format(&choisi, caps, offered, false);
-            assert_eq!((s.codec, s.yuv444, s.mbps), (Codec::Hevc, true, 500));
+            assert_eq!((s.codec, s.yuv444, s.mbps), (Codec::Hevc, true, 80));
             assert_eq!(pyrowave_format(&jeu, caps, offered, false).codec, Codec::Hevc);
         }
         let no444 = Capabilities { hevc444: false, pyrowave: false, ..all };
@@ -668,6 +695,24 @@ mod tests {
         let mbps = max420.bitrate(1920, 1080, 60) / 1_000_000;
         assert_eq!(mbps, PYROWAVE_MBPS * 4 / 10);
         assert!(mbps >= crate::pyrowave::needed_mbps(&[crate::console::Mode { width: 1920, height: 1080, refresh: 60 }], false));
+    }
+
+    /// « Passer en HEVC » : 80 Mbit/s au plus d'un débit réglé à la main pour
+    /// PyroWave ; un profil garde le sien ; jamais PyroWave repris par câble.
+    #[test]
+    fn passer_en_hevc() {
+        let all = Capabilities { hevc: true, hevc444: true, av1: true, hdr: true, pyrowave: true };
+        let manuel = StreamSettings { profile: None, codec: Codec::PyroWave, yuv444: true, mbps: 1200, wired: true, ..StreamSettings::for_profile(Profile::Max, all) };
+        let s = manuel.hevc_instead(true);
+        assert_eq!((s.codec, s.yuv444, s.mbps, s.wired, s.profile), (Codec::Hevc, true, 80, false, None));
+        assert!(!manuel.hevc_instead(false).yuv444, "4:4:4 seulement s'il se décode en HEVC");
+        let max = StreamSettings { wired: true, ..StreamSettings::for_profile(Profile::Max, all) };
+        let s = max.hevc_instead(true);
+        assert_eq!((s.codec, s.mbps, s.profile, s.wired), (Codec::Hevc, 300, Some(Profile::Max), false));
+        assert_eq!(pyrowave_format(&s, all, true, false).codec, Codec::Hevc, "Max par câble ne reprend pas PyroWave");
+        // Déjà en HEVC à la main : rien ne change au débit.
+        let hevc = StreamSettings { codec: Codec::Hevc, mbps: 150, ..manuel.clone() };
+        assert_eq!(hevc.hevc_instead(true).mbps, 150);
     }
 
     #[test]

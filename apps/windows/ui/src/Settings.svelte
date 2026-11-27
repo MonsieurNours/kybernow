@@ -91,6 +91,15 @@
 
   // Enregistrements à la suite : le dernier état gagne toujours.
   let saving: Promise<unknown> = Promise.resolve()
+  /**
+   * Un autre format : en quittant PyroWave, un débit réglé à la main passe à celui de HEVC au plus (règle du cœur,
+   * `values.hevc_after_pyrowave_mbps`, comme « Passer en HEVC ») ; un débit de PyroWave ne vaut rien ailleurs.
+   */
+  function codecChange(codec: Settings['codec']): Partial<Settings> {
+    const leaving = s.codec === 'pyrowave' && codec !== 'pyrowave' && s.mbps != null
+    return leaving ? { codec, mbps: Math.min(s.mbps!, values.hevc_after_pyrowave_mbps) } : { codec }
+  }
+
   function save(patch: Partial<Settings>) {
     s = { ...s, ...patch }
     const settings = $state.snapshot(s)
@@ -350,7 +359,7 @@
                   // PyroWave sous son nom ; inactif (sa raison dans l'aide) s'il ne peut pas servir.
                   ...(pyroShown ? [{ value: 'pyrowave' as const, label: 'PyroWave', disabled: !!pyroReason && s.codec !== 'pyrowave' }] : []),
                 ]}
-                onchange={(v) => save({ codec: v === 'auto' ? null : v })}
+                onchange={(v) => save(codecChange(v === 'auto' ? null : v))}
               />
             </div>
             {#if formatHelp}<span class="help">{formatHelp}</span>{/if}

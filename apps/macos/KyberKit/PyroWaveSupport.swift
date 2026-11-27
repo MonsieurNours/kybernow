@@ -138,10 +138,6 @@ public final class NetworkLink: @unchecked Sendable {
 public enum PyroWaveSession {
     /// Le bandeau du début de session disparaît après 8 s (ou à la croix).
     public static let bannerSeconds: TimeInterval = 8
-    /// « Passer en HEVC » depuis un PyroWave choisi à la main : débit de
-    /// l'image en HEVC pour la fin de la session (au plus), un débit qui tient
-    /// en Wi-Fi ; le débit de PyroWave des réglages, lui, reste.
-    public static let hevcMbps = 80
 }
 
 /// Le débit que ce Mac sait tenir vers l'ordinateur, donné au cœur pour la

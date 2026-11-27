@@ -71,9 +71,18 @@ pub struct Shared {
     mic_shortcut: String,
     /// Session d'invité (KyberNow Share).
     guest: bool,
+    /// Le format que la session demande (`Codec::fourcc`) : le décodeur l'ouvre
+    /// d'office si Kyber ne l'annonce pas (`frames::FrameFlow::set_wanted`).
+    wanted: AtomicU32,
 }
 
 impl Shared {
+    /// Les réglages de la session (au départ, puis changés en session) : le
+    /// format qu'ils demandent.
+    pub fn set_wanted(&self, settings: &StreamSettings) {
+        self.wanted.store(settings.codec.fourcc(), Ordering::Relaxed);
+    }
+
     pub fn session(&self) -> Option<Arc<Session>> {
         self.session.get().and_then(Weak::upgrade)
     }
@@ -157,6 +166,10 @@ impl MediaHost for Shared {
 
     fn frame_period_micros(&self) -> i64 {
         Shared::frame_period_micros(self)
+    }
+
+    fn wanted(&self) -> u32 {
+        self.wanted.load(Ordering::Relaxed)
     }
 
     fn set_video_tx(&self, tx: Sender<Msg>) {
@@ -358,6 +371,8 @@ impl Platform for AndroidPlatform {
     /// demandé par le fil de l'image) : `SessionListener.onPyroWaveFallback(format,
     /// text)`, l'avis de link-ui à montrer une fois.
     fn on_pyrowave_fallback(&self, codec: kybernow_core::profile::Codec, text: &str) {
+        // Le décodeur attend désormais ce format (ouvert d'office s'il n'est pas annoncé).
+        self.0.wanted.store(codec.fourcc(), Ordering::Relaxed);
         let format = codec.label();
         self.0.listener.with(|env, obj| {
             let f = env.new_string(format)?;
@@ -764,6 +779,7 @@ pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>
         computer: android.computer_name,
         mic_shortcut: android.mic_shortcut,
         guest: params.is_guest(),
+        wanted: AtomicU32::new(params.settings.codec.fourcc()),
     });
     // « Micro » se montre dès le départ, coupé, avec ses textes.
     shared.mic_changed(&shared.mic_json(&MicUi::default()), None);

@@ -521,7 +521,6 @@ mod tests {
         // Le dernier appel (`Closed`, qui libère le gestionnaire) vient du
         // `Drop` du `PacketSink` depuis le correctif KYB-25 de kyclient : le
         // faire aussi à la main libérerait deux fois.
-        drop(send);
         drop(sink);
         assert_eq!(Arc::strong_count(&seen), 1, "gestionnaire rendu par le dernier appel");
         assert_eq!(*seen.0.lock().unwrap(), ["codec", "10", "20", "trou", "40", "50<20"]);

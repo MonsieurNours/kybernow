@@ -82,6 +82,11 @@ pub trait MediaHost: Send + Sync + 'static {
     fn received_bytes(&self, _n: usize) {}
     /// Trou dans le flux (mesures).
     fn hole(&self) {}
+    /// Le format que la session demande (`Codec::fourcc` ; 0 : inconnu), que
+    /// le décodeur ouvre d'office si Kyber ne l'annonce pas.
+    fn wanted(&self) -> u32 {
+        0
+    }
     /// Le décodeur a besoin d'une image clé (surface refaite, décodeur ouvert sans image clé).
     fn request_keyframe(&self);
     /// Le décodeur a perdu sa référence : une image clé est attendue.

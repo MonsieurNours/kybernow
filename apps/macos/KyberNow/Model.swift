@@ -394,7 +394,7 @@ struct ConnectionSettings: Codable, Hashable {
             profile: codecOverride == nil ? profile?.rawValue : nil,
             codec: codec,
             yuv444: yuv444 && Self.decodes444(codec),
-            mbps: codecOverride == nil ? bitrateMbps : min(bitrateMbps, PyroWaveSession.hevcMbps),
+            mbps: codecOverride == nil ? bitrateMbps : CoreValues.mbpsAfterPyroWave(bitrateMbps),
             reliable: transport == .reliable,
             hdr: hdr,
             wired: NetworkLink.shared.wired,

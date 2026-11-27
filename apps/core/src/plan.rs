@@ -157,6 +157,7 @@ pub fn values_json(caps: Capabilities) -> serde_json::Value {
         "profiles": { "jeu": profile(Profile::Jeu), "bureau": profile(Profile::Bureau), "max": profile(Profile::Max) },
         "pyrowave_mbps": limits::PYROWAVE_MBPS,
         "pyrowave_mbps_444": limits::PYROWAVE_MBPS_444,
+        "hevc_after_pyrowave_mbps": limits::HEVC_AFTER_PYROWAVE_MBPS,
         "manual_mbps": { "min": limits::MANUAL_MBPS_MIN, "step": limits::MANUAL_MBPS_STEP, "max": limits::MANUAL_MBPS_MAX, "max_pyrowave": limits::MANUAL_MBPS_MAX_PYROWAVE, "lg_tv_max": limits::LG_TV_MBPS_MAX },
         "background_bitrate": {
             "computer": limits::background_bitrate(limits::Device::Computer),

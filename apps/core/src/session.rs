@@ -5250,6 +5250,9 @@ impl Worker {
         self.stream_input = wants_input;
         let window_handle = self.platform.window_handle();
         let stream_loss = if multi { None } else { self.stream_loss.clone() };
+        // En-tête `KNPW` version 2 (métadonnées HDR10) demandé pour toutes
+        // les apps, avant la première demande d'image (KYB-29).
+        crate::pyrowave::ask_header_v2();
         let video: Vec<VideoSessionConfig> = self
             .streams
             .iter()

@@ -624,6 +624,7 @@ const update = () => ({ version: '0.5.1', channel: 'stable', notes: notesFor(i18
  */
 const commonValues: Values = {
   manual_mbps: { min: 5, step: 5, max: 500, max_pyrowave: 2500, lg_tv_max: 95 },
+  hevc_after_pyrowave_mbps: 80,
   background_bitrate: { computer: 20_000_000 },
   max_guests: 4,
   max_sessions: 4,

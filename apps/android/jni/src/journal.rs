@@ -77,19 +77,7 @@ pub fn stamp() -> String {
 }
 
 pub fn format_utc(secs: i64, millis: u32) -> String {
-    let days = secs.div_euclid(86_400);
-    let rem = secs.rem_euclid(86_400);
-    // Jours depuis 1970 → date civile (Howard Hinnant).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + if month <= 2 { 1 } else { 0 };
-    format!("{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02}.{millis:03}", rem / 3600, rem % 3600 / 60, rem % 60)
+    kybernow_core::rules::format::Utc::from_unix(secs).text(millis)
 }
 
 /// Le texte d'une panique : fil, message et emplacement, puis la pile.

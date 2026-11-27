@@ -16,15 +16,12 @@ path = "src/main.rs"
 # `fallback_codec`) et fonctionnalité `pyrowave` du cœur, posés ensemble par
 # scripts/build.sh, par défaut (`--sans-pyrowave` les retire), comme Android et
 # les apps Apple. Le cœur sans elle ne compile pas contre le correctif posé.
-# Le même correctif donne `kyclient::set_pyrowave_header` : l'app demande à
-# la Station l'en-tête `KNPW` version 2, avec les métadonnées HDR10 (KYB-29).
-kyber-pyrowave = ["kybernow-core/pyrowave", "dep:kyclient"]
+# L'en-tête `KNPW` version 2 (métadonnées HDR10, KYB-29) est demandé par le
+# cœur pour toutes les apps.
+kyber-pyrowave = ["kybernow-core/pyrowave"]
 
 [dependencies]
 kybernow-core = { path = "../core" }
-# Seulement pour `set_pyrowave_header` (correctif 0025), avec `kyber-pyrowave` :
-# le reste de Kyber passe par le cœur.
-kyclient = { path = "../../third_party/kyber-desktop/kysdk/kyctl/kyclient", features = ["kymux"], optional = true }
 log = { version = "0.4", features = ["std"] }
 getrandom = "0.2"
 base64 = "0.22"

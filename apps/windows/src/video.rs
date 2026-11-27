@@ -890,8 +890,8 @@ impl Decoders {
     /// parmi les images) : ses métadonnées HDR10 (version 2, KYB-29), pour le
     /// rendu ; la tête est lue par le flux (`FrameFlow`).
     fn pyro_header(&mut self, data: &[u8]) {
-        if PyroConfig::is_config(data) && PyroConfig::parse(data).is_some() {
-            self.pyro_meta = crate::hdr::pyrowave_hdr(data);
+        if let Some(c) = PyroConfig::parse(data) {
+            self.pyro_meta = crate::hdr::pyrowave_meta(&c.hdr10);
         }
     }
 }

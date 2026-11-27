@@ -634,7 +634,7 @@ private struct SettingsContent: View {
                 st.pyrowaveRateFollows = true
             } else if wasPyroWave {
                 // En quittant PyroWave, un débit d'HEVC.
-                st.bitrateMbps = min(st.bitrateMbps, PyroWaveSession.hevcMbps)
+                st.bitrateMbps = CoreValues.mbpsAfterPyroWave(st.bitrateMbps)
             }
         }
     }
