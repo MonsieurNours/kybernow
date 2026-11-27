@@ -2515,7 +2515,7 @@ dependencies = [
 
 [[package]]
 name = "kybernow-android"
-version = "0.11.7"
+version = "0.11.8"
 dependencies = [
  "android_logger",
  "cc",
@@ -2530,7 +2530,7 @@ dependencies = [
 
 [[package]]
 name = "kybernow-apple"
-version = "0.11.7"
+version = "0.11.8"
 dependencies = [
  "base64 0.22.1",
  "kybernow-core",
@@ -2542,7 +2542,7 @@ dependencies = [
 
 [[package]]
 name = "kybernow-core"
-version = "0.11.7"
+version = "0.11.8"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -2579,7 +2579,7 @@ dependencies = [
 
 [[package]]
 name = "kybernow-linux"
-version = "0.11.7"
+version = "0.11.8"
 dependencies = [
  "cc",
  "fontdue",
@@ -2601,7 +2601,7 @@ dependencies = [
 
 [[package]]
 name = "kybernow-rules"
-version = "0.11.7"
+version = "0.11.8"
 dependencies = [
  "serde",
  "serde_json",
@@ -2630,7 +2630,7 @@ dependencies = [
 
 [[package]]
 name = "kybernow-ui"
-version = "0.11.7"
+version = "0.11.8"
 dependencies = [
  "kybernow-core",
  "kybernow-rules",
@@ -2640,7 +2640,7 @@ dependencies = [
 
 [[package]]
 name = "kybernow-webos"
-version = "0.11.7"
+version = "0.11.8"
 dependencies = [
  "cc",
  "fontdue",
@@ -2661,7 +2661,7 @@ dependencies = [
 
 [[package]]
 name = "kybernow-windows"
-version = "0.11.7"
+version = "0.11.8"
 dependencies = [
  "base64 0.22.1",
  "bindgen",
