@@ -125,7 +125,7 @@ Sur TCP, le relais regarde le début de chaque connexion TLS :
 | `GET /v1/health` | `200 {"ok":true,"version":"…"}` ; les apps iPhone et iPad l'appellent avant d'ouvrir le tunnel (réveil de la radio cellulaire) |
 | `https://<id>.share…/*` | Mandataire HTTP/1.1 vers Admin de la Station (WebSocket compris) ; Station absente : page « ordinateur injoignable » (503) |
 
-Les pages du relais n'ont ni script, ni cookie, ni mesure d'audience, et ne chargent rien d'un autre site : politique de contenu `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. Elles n'écrivent jamais l'adresse du relais (chemins relatifs) : la même page sert sur le port d'écoute du relais et sur son port public (`https://share.kybernow.app`, sans port au 443). Détails : [server/relay/README.md](../server/relay/README.md#la-page-daccueil).
+Les pages du relais (sauf celle d'un journal, voir « Dépôt d'un journal ») n'ont ni script, ni cookie, ni mesure d'audience, et ne chargent rien d'un autre site : politique de contenu `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. Elles n'écrivent jamais l'adresse du relais (chemins relatifs) : la même page sert sur le port d'écoute du relais et sur son port public (`https://share.kybernow.app`, sans port au 443). Détails : [server/relay/README.md](../server/relay/README.md#la-page-daccueil).
 
 Mandataire : `Host` passé tel quel, `X-Forwarded-For` et `Forwarded` retirés (l'adresse du navigateur voyage dans l'en-tête du flux), `Domain=` retiré de tout `Set-Cookie`. Une origine par Station : le code d'une Station ne lit jamais les cookies d'une autre.
 
@@ -237,6 +237,21 @@ Une Station fait suivre la partie d'une console PlayStation de son réseau (cont
 - **Stations** : Windows et Mac (le même Admin, `server/admin`).
 - **Essayé** le 03/11/2026, sur la boucle locale du Mac (le faux relais des essais du cœur, qui fait suivre les ports comme une Station) vers la vraie PS5 Pro de l'auteur : état « en veille » lu par le tunnel, réveil, session (l'en-tête `Host` porte `127.0.0.1`, la console l'accepte), canal de contrôle, flux en 1080p H.265 avec la MTU de 1 200 octets, 300 images sans perte. Pas encore essayé : le vrai relais (`share.kybernow.app`) avec un vrai Admin sur une Station Windows ou Mac, et l'app Mac hors de chez soi.
 
+## Dépôt d'un journal
+
+État : contrat du 27/11/2026, décidé par l'auteur ; le relais et les apps le réaliseront (phase 2b de l'audit). Textes et étapes à l'écran : [link-ui.md](link-ui.md), « Réglages de l'app › À propos ».
+
+Un téléviseur (Apple TV, Android TV, LG), Link OS, le Steam Deck en mode Jeu et l'app Linux au salon n'ont pas de feuille de partage : « Envoyer le journal » y passe par le relais et un QR code. **Le relais ne lit jamais le journal** : il est chiffré sur l'appareil avec une clé qui ne quitte l'appareil que dans le QR code, après `#` dans l'adresse, partie que le navigateur du téléphone n'envoie jamais au serveur.
+
+1. **Sur l'appareil** : le journal (texte, 2 Mio au plus une fois compressé, voir link-ui) est compressé en gzip, puis chiffré en AES-256-GCM avec une clé tirée au hasard pour ce dépôt (32 octets) et un nonce de 12 octets. Le dépôt : `KNJ1` (4 octets), le nonce, puis le texte chiffré et son étiquette de 16 octets.
+2. **Dépôt** : `POST /v1/journal` sur le relais du compte KyberNow de l'appareil, sinon le relais public, corps `application/octet-stream`, sans compte ni jeton. Réponse `201 {"id":"<identifiant>","owner":"<jeton>","expires_in":3600}` : identifiant et jeton de 128 bits chacun, en base64url (22 signes). Refus : `413 {"error":"too_large"}` ; `429 {"error":"too_many","retry_after":<s>}` avec `Retry-After` ; `503 {"error":"full"}` ; un relais d'avant répond `404` (l'app dit qu'il doit être mis à jour).
+3. **QR code** : `https://<relais>/journal/<id>#k=<clé>`, la clé en base64url (43 signes).
+4. **Sur le téléphone** : `GET /journal/<id>` rend la page (dans la langue du navigateur). Son script lit la clé dans l'adresse, demande `GET /v1/journal/<id>`, déchiffre (WebCrypto), décompresse (`DecompressionStream`), puis propose « Enregistrer » (fichier `kybernow-journal.txt`) et « Partager » (Web Share, quand le navigateur sait partager un fichier). La clé n'apparaît dans aucune requête.
+5. **Usage unique** : le relais efface le dépôt dès qu'il l'a envoyé en entier ; ensuite, et au bout d'une heure, `GET /v1/journal/<id>` répond `404 {"error":"gone"}` et la page le dit.
+6. **Suivi par l'appareil** : `GET /v1/journal/<id>/state` avec l'en-tête `x-kn-owner: <jeton>` rend `{"state":"waiting"}` ou `{"state":"opened"}` (`404` une fois expiré) ; l'écran du QR code le relit toutes les 2 s. `DELETE /v1/journal/<id>` avec le même en-tête retire un dépôt pas encore ouvert (« Terminé »).
+
+Ce que le relais garde : les dépôts en mémoire seulement, jamais sur disque, une heure au plus ; leur taille et l'heure. Ses journaux ne contiennent ni l'identifiant d'un dépôt ni son jeton (comme les codes) ; la clé, il ne la voit jamais. Limites : 2 Mio et 64 octets par dépôt, 6 dépôts par heure par adresse (un /64 en IPv6), 256 Mio en tout (au-delà, `503`). La page du journal est la seule page du relais qui a un script : `script-src 'self'` et `connect-src 'self'` s'ajoutent, pour elle seule, à la politique de contenu ci-dessus ; le script est embarqué dans le binaire, comme les feuilles de styles, et ne charge rien d'un autre site. La page de confidentialité (`/privacy`) dit ce dépôt.
+
 ## Confiance
 
 - **Le relais** est vérifié par son certificat (autorités du web, ou empreinte épinglée).
@@ -259,8 +274,3 @@ Une Station fait suivre la partie d'une console PlayStation de son réseau (cont
 ## Installer un relais chez soi
 
 Une machine Linux avec Docker, un nom de domaine dont la zone DNS accepte un jeton d'API (Gandi par défaut, pour le certificat générique), un port ouvert en TCP **et** UDP, le 443 de préférence. Le relais écoute sur un port de la machine (`RELAY_LISTEN`, 8443 par défaut) et annonce le port public que la box renvoie vers lui (`RELAY_PUBLIC_PORT`) ; le pas à pas est dans [server/relay/README.md](../server/relay/README.md), « Les ports et la box ». L'image du relais est publiée à chaque version (`ghcr.io/monsieurnours/kybernow-relay`, par `.github/workflows/relay-image.yml`) ; le service `updater` du compose la reprend chaque nuit. Dans Admin de chaque Station : « Hors de chez vous › Relais » = l'adresse avec son port public, `relais.exemple.org` pour le 443, `relais.exemple.org:9443` pour un autre.
-
-## Plus tard
-
-- Image du navigateur en WebTransport par le relais (sauf Safari) : le relais lirait le nom dans le premier paquet QUIC et ferait suivre sans déchiffrer.
-- Partage équitable du lien montant de la maison entre plusieurs invités.

@@ -125,7 +125,7 @@ On TCP, the relay looks at the start of each TLS connection:
 | `GET /v1/health` | `200 {"ok":true,"version":"…"}`; the iPhone and iPad apps call it before opening the tunnel (wakes the cellular radio) |
 | `https://<id>.share…/*` | HTTP/1.1 proxy to the Station's Admin (WebSocket included); Station absent: “computer unreachable” page (503) |
 
-The relay's pages have no script, no cookie and no audience measurement, and load nothing from another site: content policy `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. They never write the relay's address (relative paths): the same page serves on the relay's listening port and on its public port (`https://share.kybernow.app`, without a port at 443). Details: [server/relay/README.en.md](../server/relay/README.en.md#the-home-page).
+The relay's pages (except a log's, see “Dropping a log”) have no script, no cookie and no audience measurement, and load nothing from another site: content policy `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. They never write the relay's address (relative paths): the same page serves on the relay's listening port and on its public port (`https://share.kybernow.app`, without a port at 443). Details: [server/relay/README.en.md](../server/relay/README.en.md#the-home-page).
 
 Proxy: `Host` passed as is, `X-Forwarded-For` and `Forwarded` removed (the browser's address travels in the stream header), `Domain=` removed from every `Set-Cookie`. One origin per Station: one Station's code never reads another's cookies.
 
@@ -237,6 +237,21 @@ A Station forwards the play of a PlayStation console on its network (contract: [
 - **Stations**: Windows and Mac (the same Admin, `server/admin`).
 - **Tried** on 3 Nov 2026, on the Mac's loopback (the core tests' fake relay, which forwards the ports like a Station) to the author's real PS5 Pro: “standby” state read through the tunnel, wake, session (the `Host` header carries `127.0.0.1`, the console accepts it), control channel, 1080p H.265 stream with the 1,200-byte MTU, 300 pictures without loss. Not tried yet: the real relay (`share.kybernow.app`) with a real Admin on a Windows or Mac Station, and the Mac app away from home.
 
+## Dropping a log
+
+Status: contract of 27/11/2026, decided by the author; the relay and the apps will implement it (phase 2b of the audit). On-screen texts and steps: [link-ui.en.md](link-ui.en.md), “App settings › About”.
+
+A TV (Apple TV, Android TV, LG), Link OS, the Steam Deck in Game mode and the Linux app in the living room have no share sheet: “Send the log” goes through the relay and a QR code there. **The relay never reads the log**: it is encrypted on the device with a key that only leaves the device in the QR code, after `#` in the address, a part the phone's browser never sends to the server.
+
+1. **On the device**: the log (text, 2 MiB at most once compressed, see link-ui) is gzip-compressed, then encrypted with AES-256-GCM using a key drawn at random for this drop (32 bytes) and a 12-byte nonce. The drop: `KNJ1` (4 bytes), the nonce, then the ciphertext and its 16-byte tag.
+2. **Drop**: `POST /v1/journal` on the relay of the device's KyberNow account, otherwise the public relay, body `application/octet-stream`, with no account or token. Answer `201 {"id":"<identifier>","owner":"<token>","expires_in":3600}`: identifier and token of 128 bits each, in base64url (22 characters). Refusals: `413 {"error":"too_large"}`; `429 {"error":"too_many","retry_after":<s>}` with `Retry-After`; `503 {"error":"full"}`; an older relay answers `404` (the app says it needs updating).
+3. **QR code**: `https://<relay>/journal/<id>#k=<key>`, the key in base64url (43 characters).
+4. **On the phone**: `GET /journal/<id>` returns the page (in the browser's language). Its script reads the key from the address, requests `GET /v1/journal/<id>`, decrypts (WebCrypto), decompresses (`DecompressionStream`), then offers “Save” (file `kybernow-journal.txt`) and “Share” (Web Share, when the browser can share a file). The key appears in no request.
+5. **Single use**: the relay deletes the drop as soon as it has sent it whole; afterwards, and after one hour, `GET /v1/journal/<id>` answers `404 {"error":"gone"}` and the page says so.
+6. **Followed by the device**: `GET /v1/journal/<id>/state` with the `x-kn-owner: <token>` header returns `{"state":"waiting"}` or `{"state":"opened"}` (`404` once expired); the QR code screen reads it again every 2 s. `DELETE /v1/journal/<id>` with the same header removes a drop not yet opened (“Done”).
+
+What the relay keeps: drops in memory only, never on disk, one hour at most; their size and time. Its logs contain neither a drop's identifier nor its token (like codes); the key, it never sees. Limits: 2 MiB and 64 bytes per drop, 6 drops per hour per address (a /64 in IPv6), 256 MiB in all (beyond that, `503`). The log page is the relay's only page with a script: `script-src 'self'` and `connect-src 'self'` are added, for it alone, to the content policy above; the script is embedded in the binary, like the stylesheets, and loads nothing from another site. The privacy page (`/privacy`) describes this drop.
+
 ## Trust
 
 - **The relay** is checked by its certificate (web authorities, or pinned fingerprint).
@@ -259,8 +274,3 @@ A Station forwards the play of a PlayStation console on its network (contract: [
 ## Installing a relay at home
 
 A Linux machine with Docker, a domain name whose DNS zone accepts an API token (Gandi by default, for the wildcard certificate), one port open over TCP **and** UDP, 443 preferably. The relay listens on a port of the machine (`RELAY_LISTEN`, 8443 by default) and announces the public port the router forwards to it (`RELAY_PUBLIC_PORT`); the step by step is in [server/relay/README.en.md](../server/relay/README.en.md), “Ports and the router”. The relay image is published with every version (`ghcr.io/monsieurnours/kybernow-relay`, by `.github/workflows/relay-image.yml`); the compose's `updater` service pulls it every night. In each Station's Admin: “Away from home › Relay” = the address with its public port, `relay.example.org` for 443, `relay.example.org:9443` for another one.
-
-## Later
-
-- The browser's picture over WebTransport through the relay (except Safari): the relay would read the name in the first QUIC packet and forward without decrypting.
-- Fair sharing of the home's uplink between several guests.

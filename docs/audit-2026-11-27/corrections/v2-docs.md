@@ -7,7 +7,7 @@ Branche `claude/v2-docs-0db24c`, partie de `main` (`165d333f`). Zone : `docs/` (
 | Id | Correctif |
 |---|---|
 | Caméra (mac.md, coeur.md) | `link-ui` : refus de l'ordinateur selon la raison de son aide caméra (`camera.not_installed`, `camera.extension_off`, puis le texte général), départ refusé par l'app, « Caméra… » sans réponse en 10 s ; d'où vient le choix du texte (`camera::event_notice`). |
-| « Envoyer le journal » (android.md) | `link-ui`, nouvelle section « Réglages de l'app » : À propos avec la version et « Envoyer le journal », préparation, feuille de partage, `kybernow-journal.txt` ; « Enregistrer le journal… » sous Linux ; ce que contient le fichier ; où il n'existe pas. |
+| « Envoyer le journal » (android.md, décision de l'auteur du 27/11) | `link-ui`, nouvelle section « Réglages de l'app » : À propos dans toutes les apps ; feuille de partage (Mac, iPhone, iPad, Android, fenêtre « Partager » de Windows), e-mail sous Linux au bureau, QR code sur les téléviseurs, Link OS, le Deck en mode Jeu et Linux au salon (journal chiffré sur l'appareil, clé seulement dans le QR code, dépôt sur le relais), téléchargement dans le client web ; textes et étapes à l'écran, page du téléphone. `relais.md` : section « Dépôt d'un journal » (format, routes, usage unique, une heure, limites, exception de script pour cette page). |
 | IOS-30 | `link-ui` : « Disposition du clavier » (Auto, AZERTY, QWERTY, QWERTZ) dans Réglages de l'app › Clavier, avec « Clavier Apple ISO » ; règle d'Auto ; renvoi depuis les consoles PlayStation sur iPad. |
 | TVOS-24 | `link-ui` : la capsule « ● Caméra » seule ; le micro a son propre signe, jamais une capsule commune ; l'ancien paragraphe « Le micro suit les mêmes règles… » réécrit. `micro.md` : mode `voiceChat` seulement avec « Réduire l'écho et le bruit » (vérifié dans `AudioPlayerCore.swift:505`). |
 | LINAPP-19 | `link-ui` : menu « Plus » des barres au pointeur (ordre de passage, ce qui n'y passe jamais, textes). |
@@ -27,6 +27,11 @@ Branche `claude/v2-docs-0db24c`, partie de `main` (`165d333f`). Zone : `docs/` (
 | KYB-49 | README du Mac : l'image clé est demandée par le cœur, `Client::request_keyframe` de kyclient (correctif 0001), pas par la fonction C. |
 | STLIN-26 | `PROJECT` : Station Linux publiée en bêta (0.11.7), onze correctifs propres à Linux, Sway et Hyprland, systèmes immuables, pas de HDR. |
 | WEB-26 | README de la Station : les huit espaces d'Admin (et dans le guide du site). |
+| TRANS-40, 41 (décisions du 27/11) | `link-ui` : « Image qui n'est plus regardée » (20 Mbit/s Mac, Windows, Linux ; 8 iPhone, iPad, Apple TV ; 2 Android et LG, comme `rules::limits` de la branche v2-coeur) ; débit réglé à la main de 5 à 500 Mbit/s, 2 500 en PyroWave, 95 sur LG, client web 10 à 150 et 1 000 en PyroWave. Ligne « Débit » de `link-ui.en.md` remise à jour (l'interrupteur « Débit adaptatif » y manquait). |
+| WINAPP-11 (texte) | `link-ui` : avis « Image en {format} : PyroWave n'a pas pu démarrer sur cet appareil. », une fois, repli pour la session seulement. |
+| Micro, « Envoi… » | `link-ui` : gardé, précisé (tuile seulement, avant la première réponse de l'ordinateur ; puce allumée sans texte de plus). |
+| SIDELOAD | iPhone et Apple TV : KyberNow Station 0.11.8 ou plus récente (décision de l'auteur). |
+| En plus | `relais.md` : section « Plus tard » retirée, ses deux lignes sont déjà dans `ROADMAP` (le prévu n'est que là). |
 | TRANS-49 | Logo v1 (`brand/` hors `v2`) et 12 captures webOS que rien ne cite retirés, après grep (voir « Vérifié »). |
 | En plus | README racine : « Votre ordinateur sur tous vos appareils », Station sur Windows, Mac et Linux, dossiers `server/macos`, `server/linux`, `server/camera`, `server/micro`. |
 
@@ -36,10 +41,12 @@ Branche `claude/v2-docs-0db24c`, partie de `main` (`165d333f`). Zone : `docs/` (
 2. **Menu « Touches »** : les dix entrées de Linux, mais les quatre de `link-ui` en tête, dans l'ordre de `link-ui` (et non celui de Linux), chacune avec son indication comme sous Windows et dans le client web. « Windows + D » et « Windows + L » s'écrivent « ⊞ + D », « ⊞ + L » ; Linux, dont la police n'a pas ⊞, écrit « Windows » (règle déjà posée pour le mode immersif) : « Touche Windows seule ».
 3. **Infobulle du profil** : « Profil : Jeu, Bureau, Max ou Auto », comme l'app Mac. LINAPP-53 proposait la version sans Auto, antérieure au profil Auto.
 4. **Avertissement du prêt** : pour Mac et Linux, les textes qu'Admin affiche déjà (« votre session du Mac », « votre session ») plutôt que « votre session sur cet ordinateur » ; système inconnu : « votre session ». L'anglais suit `link-ui` (« They see neither… ») : les variantes Mac et Linux d'Admin disent « They don't see… », à aligner (Stations, phase 2b).
-5. **« Envoyer le journal »** : seulement où un fichier peut partir (Mac, iPhone, iPad, Android hors téléviseur, Windows, Linux au bureau et Deck). Pas sur les téléviseurs, Link OS ni le client web : un téléviseur n'a pas de feuille de partage, le client web pas de journal à lui. Une idée pour eux, non retenue faute de route : envoyer le journal à la Station.
+5. **« Envoyer le journal »** : partout, sur décision de l'auteur (27/11). Choix faits en l'écrivant : un seul libellé, « Envoyer le journal », partout (Linux au bureau passe par l'e-mail, sinon l'enregistrement, sans libellé à part) ; « Télécharger le journal » dans le client web ; le Deck en mode Jeu et Linux au salon prennent le QR code, comme les téléviseurs ; 2 Mio compressés au plus, en gardant l'en-tête et la fin ; le relais du compte de l'appareil, sinon le public ; la page du téléphone est la seule page du relais avec un script (il faut WebCrypto pour déchiffrer sans que la clé quitte le téléphone) ; « Terminé » retire un dépôt pas encore ouvert ; l'appareil suit l'état du dépôt pour dire « Journal ouvert sur le téléphone. ».
 6. **Disposition du clavier** : dans les Réglages de l'app (elle décrit le clavier, pas l'ordinateur), avec « Clavier Apple ISO », que l'iPhone montre aujourd'hui dans la rubrique Commandes des réglages de l'ordinateur ; à déplacer (Apple, phase 2b). Les correspondances d'Auto suivent celles de Link OS (QWERTZ pour l'allemand et le français de Suisse).
 7. **Link OS** : le pays proposé est la France pour le français, les États-Unis pour l'anglais. La proposition parlait de l'anglais britannique, que Link OS ne propose pas (« English · Français »).
 8. **Textes de la caméra du Mac** (départ refusé, 10 s sans réponse) : repris tels quels, déjà dans le catalogue de KyberKit, bien qu'ils disent « l'ordinateur » plutôt que « {nom} ».
+9. **« Envoi… » du micro** : gardé (honnête sur l'attente), mais seulement dans la tuile et seulement avant la première réponse de l'ordinateur ; la puce de la barre reste « Micro » allumée. Le cœur (`MicUi::tile`) devra dire « Envoi… » tant que l'ordinateur n'a pas répondu.
+10. **Repli de PyroWave** : vers le format qu'aurait pris Auto (pas toujours HEVC : AV1 ou H.264 selon l'appareil), d'où « {format} » ; même forme que les replis du client web (« Image en H.264 : … »).
 
 ## Laissé, et pourquoi
 
@@ -47,7 +54,6 @@ Branche `claude/v2-docs-0db24c`, partie de `main` (`165d333f`). Zone : `docs/` (
 - **KYB-49, le code** : les fonctions C `kyclient_*_packet_sink` et `kyclient_client_request_keyframe` du correctif 0001 de l'app Mac, et leur ligne dans `docs/kyber-changes.md`. KYB-49 n'est dans aucune session de la phase 2a : à confier.
 - **README du cœur** (`apps/core/README*.md`) : confié à la session v2-coeur, à sa demande ; il cite encore `kn_console_share_watch` (MAC-35).
 - **Commentaire** `apps/apple/src/share.rs:46` qui cite `kn_console_share_watch`, retirée (Apple, phase 2b).
-- **SIDELOAD** (TVOS-24) : une seule version minimale de la Station pour l'iPhone et l'Apple TV (« 0.3.1 ou plus récente » proposé) ; `apps/*/SIDELOAD*.md` n'est pas un README, et rien dans le code ne fixe cette limite : à confirmer par l'auteur.
 - **Message agnostique** : `apps/linux/src/ui/setup.rs:424` dit « votre ordinateur Windows » (Linux, phase 2b).
 - **STLIN-26, reste** : commentaires de `server/camera/linux` (hors zone, déjà signalé par la vague 1).
 - **Menu de l'icône** : son tableau dans `link-ui` n'a ni « Micro » ni « Caméra », que la section de la caméra y met ; à compléter avec TRANS-39.
@@ -56,7 +62,8 @@ Branche `claude/v2-docs-0db24c`, partie de `main` (`165d333f`). Zone : `docs/` (
 
 ## À appliquer en phase 2b (règles nouvelles de `link-ui`)
 
-- **Toutes les apps** : textes de la caméra (raisons de l'ordinateur par le cœur, départ refusé, 10 s), voyant de la caméra seul, « Envoyer le journal » (là où il existe), avertissement du prêt selon le système, infobulle du profil avec Auto.
+- **Toutes les apps** : textes de la caméra (raisons de l'ordinateur par le cœur, départ refusé, 10 s), voyant de la caméra seul, « Envoyer le journal » (feuille de partage, e-mail ou QR code), avertissement du prêt selon le système, infobulle du profil avec Auto, débit de l'image qui n'est plus regardée et bornes du débit à la main, avis du repli de PyroWave, « Envoi… » du micro.
+- **Relais** : le dépôt d'un journal (`relais.md`), sa page et sa mention dans `/privacy`.
 - **Mac, Windows, Linux, client web** : menu « Plus » ; menu « Touches » à dix entrées (Windows, Linux, client web).
 - **Linux** : barre (infobulles, menu de la souris, pastille Presse-papiers), « Enregistrer le journal… », Link OS (pays, fuseau, Wi-Fi, clavier).
 - **iPhone, iPad** : « Disposition du clavier » et « Clavier Apple ISO » dans Réglages de l'app › Clavier.
