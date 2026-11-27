@@ -1443,6 +1443,12 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     const plan = planFor(s as unknown as Settings, (c as { auto?: AutoResult } | undefined)?.auto)
     return { enabled, shown, count: all ? Math.max(1, Math.min(deviceScreens, max, 4)) : 1, virtual_display, hdr, hdr_on: hdrShown && !hdrReason && ((s as Partial<Settings>).hdr ?? true), plan } satisfies DisplaysInfo
   },
+  recording_clock: (a) => {
+    const total = Math.max(0, Math.floor(Number(a.seconds)))
+    const two = (n: number) => String(n).padStart(2, '0')
+    const ms = `${two(Math.floor(total / 60) % 60)}:${two(total % 60)}`
+    return total >= 3600 ? `${Math.floor(total / 3600)}:${ms}` : ms
+  },
   home_hdr: () => flags.has('hdr'),
   common_values: () => commonValues,
   ps_set_hdr: (a) => {

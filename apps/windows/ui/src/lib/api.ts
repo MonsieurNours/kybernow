@@ -488,8 +488,8 @@ export type StationRestarting = { id: string }
 export type Summary = { error: string | null; median_ms: number | null; p95_ms: number | null; seconds: number }
 
 export type Stats = {
-  /** PyroWave : définition ramenée pour tenir dans le débit [largeur, hauteur, Mbit/s] (pas encore donnée par le cœur). */
-  lowered?: [number, number, number] | null
+  /** PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. », le texte du cœur. */
+  lowered?: string | null
   /**
    * « Débit visé » sous « Débit » (docs/link-ui.md « Statistiques ») : le débit demandé à l'ordinateur
    * (Mbit/s, niveau du trait sur la courbe), la ligne et son libellé, textes du cœur. Absent avant l'image
@@ -954,14 +954,6 @@ export type RecordingView = { available: boolean; allowed: boolean; active: bool
 /** `recording-state` : l'enregistrement de la session `id` (nul : la Station n'enregistre pas). */
 export type RecordingEvent = { id: string; recording: RecordingView | null }
 
-/** « 02:14 », « 59:59 », puis « 1:02:14 » au-delà d'une heure (la règle de `kybernow_core::recording::clock`). */
-export function recordingClock(seconds: number): string {
-  const total = Math.max(0, Math.floor(seconds))
-  const h = Math.floor(total / 3600)
-  const two = (n: number) => String(n).padStart(2, '0')
-  const ms = `${two(Math.floor(total / 60) % 60)}:${two(total % 60)}`
-  return h > 0 ? `${h}:${ms}` : ms
-}
 
 /** Un texte du cœur, `{time}` et `{shortcut}` remplis. */
 export const fillRecording = (text: string, time: string, shortcut: string) => text.split('{time}').join(time).split('{shortcut}').join(shortcut)

@@ -108,6 +108,14 @@ fn host_console(app: &AppHandle, id: &str) -> Result<Console, String> {
 /// rend l'état et les textes du cœur (comme `recording-state`), ou l'avis
 /// bref du refus (« PyroWave et AV1 ne s'enregistrent pas… »). Appel à Admin
 /// (15 s au plus) : hors du fil de l'interface.
+/// Le temps d'un enregistrement tel que la barre le montre, chaque seconde :
+/// « 02:14 », « 1:02:14 » (`recording::clock` du cœur, la règle de toutes
+/// les apps ; l'interface n'en garde pas de copie).
+#[tauri::command(async)]
+pub fn recording_clock(seconds: u64) -> String {
+    kybernow_core::recording::clock(seconds)
+}
+
 #[tauri::command(async)]
 pub fn session_record(app: AppHandle, id: String, record: bool) -> Result<Option<serde_json::Value>, String> {
     let console = host_console(&app, &id)?;

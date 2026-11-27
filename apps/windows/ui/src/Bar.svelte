@@ -92,7 +92,7 @@
   import type { BarHdr, BarMic, Chosen, PyroWaveBanner, PsBar, PsBarNav, PsStats } from './lib/api'
   import { psStatsLines } from './lib/api'
   import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RecordingEvent, RecordingView, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
-  import { fillRecording, invoke, leftText, lendDurations, listen, ms, recordingClock, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
+  import { fillRecording, invoke, leftText, lendDurations, listen, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
   import { relayPhase, type RelayPhase } from './lib/relay.svelte'
 
@@ -1116,8 +1116,26 @@
     reportWidth()
   }
 
-  /** Le temps écoulé, chaque seconde (le même que sur les autres appareils : il part de la Station). */
-  const recordingTime = $derived(recording?.active ? recordingClock(recording.elapsed + Math.max(0, Math.floor((recordingTick - recordingAt) / 1000))) : '')
+  /**
+   * Le temps écoulé, chaque seconde (le même que sur les autres appareils : il part de la Station), mis en forme par
+   * le cœur (`recording_clock`). « 59:59 » devient « 1:00:00 » : la barre s'élargit, l'app le sait.
+   */
+  let recordingTime = $state('')
+  const recordingSeconds = $derived(recording?.active ? recording.elapsed + Math.max(0, Math.floor((recordingTick - recordingAt) / 1000)) : null)
+  $effect(() => {
+    const seconds = recordingSeconds
+    if (seconds === null) {
+      recordingTime = ''
+      return
+    }
+    invoke<string>('recording_clock', { seconds })
+      .then((time) => {
+        const wider = time.length !== untrack(() => recordingTime.length)
+        recordingTime = time
+        if (wider) reportWidth()
+      })
+      .catch(() => {})
+  })
   const recordShortcut = $derived(t('bar.record_shortcut'))
   const recordText = (text: string) => fillRecording(text, recordingTime, recordShortcut)
   /** Coupé dans Admin (et rien en cours) : estompé, avec la raison. */
@@ -1125,15 +1143,7 @@
 
   $effect(() => {
     if (!recording?.active) return
-    let width = untrack(() => recordingTime.length)
-    const timer = setInterval(() => {
-      recordingTick = Date.now()
-      // « 59:59 » devient « 1:00:00 » : la barre s'élargit, l'app le sait.
-      if (recordingTime.length !== width) {
-        width = recordingTime.length
-        reportWidth()
-      }
-    }, 1000)
+    const timer = setInterval(() => (recordingTick = Date.now()), 1000)
     return () => clearInterval(timer)
   })
 

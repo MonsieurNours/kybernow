@@ -444,8 +444,10 @@ fn parse_action(args: &[String]) -> Option<Action> {
     if crate::link::is_join(first) {
         return Some(Action::Join { link: Some(first.clone()) });
     }
-    // Le lien d'invitation d'un compte d'ami (prêt de l'ordinateur).
-    if crate::link::is_borrow(first) {
+    // Le lien d'invitation d'un compte d'ami (prêt de l'ordinateur), reconnu
+    // par le cœur ; illisible, la feuille le dit (« Ce lien d'invitation est
+    // illisible. »).
+    if kybernow_core::lend::looks_like_invite(first) {
         return Some(Action::Borrow { link: first.clone() });
     }
     if first.starts_with("kybernow://") {
@@ -4598,6 +4600,7 @@ pub fn run(args: Vec<String>) {
             share::share_watch_display,
             share::share_kick,
             recording::session_record,
+            recording::recording_clock,
             share::share_close,
             share::copy_text,
             lend::lend_friends,

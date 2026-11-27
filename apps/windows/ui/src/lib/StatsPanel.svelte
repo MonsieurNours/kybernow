@@ -153,7 +153,7 @@
       {#if sound}<dt>{t('stats.sound')}</dt><dd>{sound}</dd>{/if}
       {#if camera}<dt>{t('camera.camera')}</dt><dd>{camera}</dd>{/if}
       {#if pyro}<dt>{t('pyrowave.lost_frames')}</dt><dd class="mono">{lostPct}</dd>{/if}
-      {#if pyro && stats.lowered}<dt>{t('stats.image')}</dt><dd>{t('pyrowave.lowered', { w: stats.lowered[0], h: stats.lowered[1], n: stats.lowered[2] })}</dd>{/if}
+      {#if pyro && stats.lowered}<dt>{t('stats.image')}</dt><dd>{stats.lowered}</dd>{/if}
     </dl>
   {/if}
 </section>

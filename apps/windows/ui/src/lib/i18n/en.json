@@ -703,7 +703,6 @@
     "banner_relay": "PyroWave away from home",
     "banner_strained": "The network is saturated",
     "switch_hevc": "Switch to HEVC",
-    "lowered": "Resolution lowered to {w} × {h} to fit in {n} Mbit/s.",
     "sharp_text_help": "With PyroWave, almost free: only the bitrate goes up.",
     "not_offered": "{name} doesn't offer PyroWave.",
     "cannot_decode": "{device} can't decode PyroWave.",
