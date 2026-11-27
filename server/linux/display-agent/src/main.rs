@@ -96,6 +96,7 @@ pub struct Place {
 
 /// Comment rendre une capture : session de Mutter, flux de KWin, ou sortie
 /// d'un bureau wlroots (que Kyber capture lui-même, par son nom).
+#[derive(PartialEq)]
 pub enum CastKey {
     Mutter(OwnedObjectPath),
     Kde(u32),
@@ -118,6 +119,10 @@ pub trait Recorder {
     fn stop(&mut self, cast: &Cast);
     /// Lit les événements en attente du compositeur.
     fn pump(&mut self) {}
+    /// Captures que le compositeur a fermées depuis le dernier appel (KDE).
+    fn lost(&mut self) -> Vec<CastKey> {
+        Vec::new()
+    }
     /// Change le mode d'un écran virtuel quand le compositeur le fait lui-même
     /// (wlroots) ; faux : c'est à la capture de le négocier (GNOME) ou à un
     /// nouvel écran (KDE).
@@ -202,6 +207,9 @@ struct LayoutScreen {
 struct Shared {
     /// Disposition à appliquer dès que les écrans virtuels sont là.
     pending: Option<Layout>,
+    /// Numéro de la disposition en attente, changé à chaque nouvelle : le fil
+    /// de la disposition n'efface que celle qu'il vient d'appliquer (STLIN-09).
+    generation: u64,
     /// Disposition des écrans de l'ordinateur d'avant la session.
     saved: Option<Vec<Place>>,
     /// Connecteur de chaque écran virtuel (« Meta-0 », « KyberNow-1 »).
@@ -210,6 +218,57 @@ struct Shared {
     places: [Option<(i32, i32)>; MAX_SCREENS],
     /// Le fichier des sources est à réécrire (places changées).
     dirty: bool,
+}
+
+impl Shared {
+    /// Pose (ou retire) la disposition en attente, sous un nouveau numéro.
+    fn set_pending(&mut self, layout: Option<Layout>) {
+        self.pending = layout;
+        self.generation = self.generation.wrapping_add(1);
+    }
+}
+
+/// Essais du fil de la disposition pour une même disposition : après un échec,
+/// le suivant attend de plus en plus (250 ms, puis le double à chaque fois,
+/// 8 s au plus), et l'on abandonne après `LAYOUT_MAX_FAILURES` échecs (KDE
+/// sans kscreen-doctor : quatre lignes de journal par seconde toute la
+/// session, STLIN-09). Une nouvelle disposition repart de zéro.
+const LAYOUT_MAX_FAILURES: u32 = 12;
+
+#[derive(Default)]
+struct LayoutTries {
+    generation: u64,
+    failures: u32,
+    next: Option<Instant>,
+}
+
+impl LayoutTries {
+    fn reset_for(&mut self, generation: u64) {
+        if self.generation != generation {
+            *self = LayoutTries { generation, ..Default::default() };
+        }
+    }
+
+    /// Faut-il essayer maintenant ?
+    fn due(&mut self, generation: u64, now: Instant) -> bool {
+        self.reset_for(generation);
+        self.failures < LAYOUT_MAX_FAILURES && self.next.is_none_or(|t| now >= t)
+    }
+
+    /// Note un échec ; rend la ligne à journaliser (pas à chaque fois).
+    fn failed(&mut self, generation: u64, now: Instant, error: &str) -> Option<String> {
+        self.reset_for(generation);
+        self.failures += 1;
+        let wait = Duration::from_millis(250u64 << self.failures.min(5)).min(Duration::from_secs(8));
+        self.next = Some(now + wait);
+        if self.failures >= LAYOUT_MAX_FAILURES {
+            Some(format!("disposition : {error} ; abandon après {} essais", self.failures))
+        } else if self.failures == 1 || self.failures.is_power_of_two() {
+            Some(format!("disposition : {error} (essai {})", self.failures))
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -356,8 +415,11 @@ fn apply_layout(desk: &dyn Desk, shared: &Mutex<Shared>, layout: &Layout) -> Res
             places.push(Place { connector: m.connector.clone(), x: right + m.x - left, y: m.y, scale: m.scale, primary: false });
         }
     }
+    // Le verrou est rendu pendant l'application (D-Bus ou kscreen-doctor,
+    // jusqu'à ~1 s) : les requêtes d'Admin n'attendent pas (STLIN-09).
+    drop(sh);
     desk.apply(&places)?;
-    sh.dirty = true;
+    shared.lock().unwrap().dirty = true;
     let kept = if layout.keep_others { others.len() } else { 0 };
     log(&format!("disposition de la session appliquée ({} écran(s) virtuel(s), {kept} de l'ordinateur gardé(s))", layout.screens.len()));
     Ok(true)
@@ -402,14 +464,30 @@ impl Agent {
         let desk = new_desk(self.kind)?;
         let shared = Arc::clone(&self.shared);
         std::thread::spawn(move || {
+            let mut tries = LayoutTries::default();
             loop {
                 std::thread::sleep(Duration::from_millis(250));
-                let pending = shared.lock().unwrap().pending.clone();
-                if let Some(layout) = pending {
-                    match apply_layout(desk.as_ref(), &shared, &layout) {
-                        Ok(true) => shared.lock().unwrap().pending = None,
-                        Ok(false) => {}
-                        Err(e) => log(&format!("disposition : {e}")),
+                let (pending, generation) = {
+                    let sh = shared.lock().unwrap();
+                    (sh.pending.clone(), sh.generation)
+                };
+                let Some(layout) = pending else { continue };
+                if !tries.due(generation, Instant::now()) {
+                    continue;
+                }
+                match apply_layout(desk.as_ref(), &shared, &layout) {
+                    Ok(true) => {
+                        // Seulement si aucune disposition plus récente n'a été posée entre-temps.
+                        let mut sh = shared.lock().unwrap();
+                        if sh.generation == generation {
+                            sh.pending = None;
+                        }
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        if let Some(line) = tries.failed(generation, Instant::now(), &e) {
+                            log(&line);
+                        }
                     }
                 }
             }
@@ -419,6 +497,7 @@ impl Agent {
 
     fn handle(&mut self, req: &Value) -> Result<Value> {
         self.recorder.pump();
+        self.forget_lost();
         match req["cmd"].as_str() {
             Some("create") => self.create(req),
             Some("remove") => {
@@ -514,11 +593,11 @@ impl Agent {
         let disabled = if keep_others { 0 } else { self.physical_count() };
         // Déjà visibles : tout de suite ; sinon, dès qu'ils apparaissent.
         match apply_layout(self.desk.as_ref(), &self.shared, &layout) {
-            Ok(true) => self.shared.lock().unwrap().pending = None,
-            Ok(false) => self.shared.lock().unwrap().pending = Some(layout),
+            Ok(true) => self.shared.lock().unwrap().set_pending(None),
+            Ok(false) => self.shared.lock().unwrap().set_pending(Some(layout)),
             Err(e) => {
                 log(&format!("disposition : {e}"));
-                self.shared.lock().unwrap().pending = Some(layout);
+                self.shared.lock().unwrap().set_pending(Some(layout));
             }
         }
         self.sync_places();
@@ -528,7 +607,7 @@ impl Agent {
     fn restore(&mut self) -> Value {
         let saved = {
             let mut sh = self.shared.lock().unwrap();
-            sh.pending = None;
+            sh.set_pending(None);
             sh.saved.take()
         };
         if let Some(saved) = saved
@@ -673,6 +752,29 @@ impl Agent {
         }
         self.write_sources();
         Ok(())
+    }
+
+    /// Captures fermées par le compositeur (STLIN-11) : retirées, pour que
+    /// la liste de Kyber ne les garde pas ; celles de l'ordinateur sont
+    /// refaites par `ensure_sources`, un écran virtuel perdu est retiré.
+    fn forget_lost(&mut self) {
+        let lost = self.recorder.lost();
+        if lost.is_empty() {
+            return;
+        }
+        let before = self.physicals.len();
+        self.physicals.retain(|p| !lost.contains(&p.cast.key));
+        let mut gone = before - self.physicals.len();
+        for v in self.virtuals.iter_mut() {
+            if v.as_ref().is_some_and(|v| lost.contains(&v.cast.key)) {
+                *v = None;
+                gone += 1;
+            }
+        }
+        log(&format!("{gone} capture(s) fermée(s) par le compositeur"));
+        if let Err(e) = self.ensure_sources() {
+            log(&format!("écrans de l'ordinateur : {e}"));
+        }
     }
 
     fn stop_physicals(&mut self) {
@@ -855,6 +957,41 @@ fn main() {
     }
     agent.shutdown();
     std::process::exit(0);
+}
+
+#[cfg(test)]
+mod layout_tries_tests {
+    use super::{LAYOUT_MAX_FAILURES, LayoutTries, Shared};
+    use std::time::{Duration, Instant};
+
+    /// Essais espacés après un échec, abandon, et nouvelle disposition qui repart de zéro.
+    #[test]
+    fn essais_espaces_puis_abandon() {
+        let t0 = Instant::now();
+        let mut tries = LayoutTries::default();
+        assert!(tries.due(1, t0));
+        assert!(tries.failed(1, t0, "x").is_some());
+        assert!(!tries.due(1, t0 + Duration::from_millis(100)));
+        assert!(tries.due(1, t0 + Duration::from_millis(600)));
+        let mut logged = 1;
+        for _ in 1..LAYOUT_MAX_FAILURES {
+            if tries.failed(1, t0, "x").is_some() {
+                logged += 1;
+            }
+        }
+        assert!(logged < LAYOUT_MAX_FAILURES, "pas une ligne par essai");
+        assert!(!tries.due(1, t0 + Duration::from_secs(3600)), "abandon");
+        assert!(tries.due(2, t0), "nouvelle disposition");
+    }
+
+    /// Chaque disposition posée change de numéro.
+    #[test]
+    fn numero_change_a_chaque_disposition() {
+        let mut sh = Shared::default();
+        let g = sh.generation;
+        sh.set_pending(None);
+        assert_ne!(sh.generation, g);
+    }
 }
 
 #[cfg(test)]

@@ -13,7 +13,9 @@ use std::collections::HashMap;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use zbus::blocking::{Connection, Proxy};
+use zbus::MatchRule;
+use zbus::blocking::{Connection, MessageIterator, Proxy};
+use zbus::message::Type as MessageType;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value as ZValue};
 
 use crate::{Cast, CastKey, Desk, Mon, Place, Recorder, Result, err, serial_of};
@@ -70,9 +72,32 @@ impl Gnome {
         let none: HashMap<&str, ZValue> = HashMap::new();
         let session: OwnedObjectPath = sc.call("CreateSession", &(none,)).map_err(err("CreateSession"))?;
         let sp = Proxy::new(conn, SC_DEST, session.clone(), SC_SESSION).map_err(err("session"))?;
+        // Sur toute erreur après CreateSession, la session est arrêtée : sinon
+        // elle restait chez Mutter, avec un fil qui l'attendait, à chacun des
+        // 7 essais par écran (STLIN-10).
+        match self.start(&sp, &session, connector) {
+            Ok(node) => Ok(Cast { key: CastKey::Mutter(session), node, serial: serial_of(node) }),
+            Err(e) => {
+                let _ = sp.call::<_, _, ()>("Stop", &());
+                Err(e)
+            }
+        }
+    }
+
+    /// Le flux de la session `session`, démarrée ; le numéro de son nœud PipeWire.
+    fn start(&self, sp: &Proxy<'_>, session: &OwnedObjectPath, connector: Option<&str>) -> Result<u32> {
+        let conn = &self.conn;
         // Le pointeur reste hors de l'image : chaque appareil dessine le sien.
         let mut opts: HashMap<&str, ZValue> = HashMap::new();
         opts.insert("cursor-mode", ZValue::U32(0));
+        // Signaux de ScreenCast écoutés avant d'en demander : le flux annoncé,
+        // ou la session fermée (arrêtée sur erreur), qui libère le fil d'attente.
+        let rule = MatchRule::builder()
+            .msg_type(MessageType::Signal)
+            .sender(SC_DEST)
+            .map_err(err("règle des signaux"))?
+            .build();
+        let signals = MessageIterator::for_match_rule(rule, conn, Some(16)).map_err(err("signaux de ScreenCast"))?;
         let stream: OwnedObjectPath = match connector {
             Some(c) => sp.call("RecordMonitor", &(c, opts)).map_err(err("RecordMonitor"))?,
             None => {
@@ -86,20 +111,30 @@ impl Gnome {
                 }
             }
         };
-        let st = Proxy::new(conn, SC_DEST, stream, SC_STREAM).map_err(err("flux"))?;
-        let mut added = st.receive_signal("PipeWireStreamAdded").map_err(err("PipeWireStreamAdded"))?;
         let (tx, rx) = mpsc::channel();
+        let (stream_path, session_path) = (stream.to_string(), session.to_string());
         std::thread::spawn(move || {
-            let node = added.next().and_then(|m| m.body().deserialize::<u32>().ok());
-            let _ = tx.send(node);
+            for msg in signals {
+                let Ok(msg) = msg else { break };
+                let header = msg.header();
+                let path = header.path().map(|p| p.to_string()).unwrap_or_default();
+                let member = header.member().map(|m| m.to_string()).unwrap_or_default();
+                let interface = header.interface().map(|i| i.to_string()).unwrap_or_default();
+                if member == "PipeWireStreamAdded" && interface == SC_STREAM && path == stream_path {
+                    let _ = tx.send(msg.body().deserialize::<u32>().ok());
+                    return;
+                }
+                if member == "Closed" && path == session_path {
+                    let _ = tx.send(None);
+                    return;
+                }
+            }
         });
         sp.call::<_, _, ()>("Start", &()).map_err(err("Start"))?;
-        let node = rx
-            .recv_timeout(Duration::from_secs(5))
+        rx.recv_timeout(Duration::from_secs(5))
             .ok()
             .flatten()
-            .ok_or_else(|| "Mutter n'a pas donné de flux PipeWire en 5 s".to_string())?;
-        Ok(Cast { key: CastKey::Mutter(session), node, serial: serial_of(node) })
+            .ok_or_else(|| "Mutter n'a pas donné de flux PipeWire en 5 s".to_string())
     }
 
     fn dc(&self) -> Result<Proxy<'static>> {

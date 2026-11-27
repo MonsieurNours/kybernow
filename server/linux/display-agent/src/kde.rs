@@ -17,11 +17,12 @@
 //! Les écrans virtuels vivent avec la connexion Wayland de l'agent : s'il
 //! s'arrête, KWin les retire.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
 use wayland_client::protocol::{wl_output, wl_registry};
+use wayland_client::backend::ObjectId;
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
 
 use crate::{Cast, CastKey, Desk, Mon, Place, Recorder, Result, err, log, serial_of};
@@ -62,7 +63,12 @@ struct State {
     /// retrait) et le connecteur. Un écran éteint puis rallumé revient sous
     /// un nouvel objet global.
     outputs: Vec<(wl_output::WlOutput, u32, Option<String>)>,
-    events: HashMap<u32, StreamEvent>,
+    /// Événements des flux qu'on attend, par objet (le numéro de protocole
+    /// est réutilisé par KWin, l'objet non : STLIN-11).
+    waiting: HashSet<ObjectId>,
+    events: HashMap<ObjectId, StreamEvent>,
+    /// Captures établies que KWin a fermées (numéro de protocole), à relever.
+    closed: Vec<u32>,
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for State {
@@ -96,13 +102,18 @@ impl Dispatch<ZkdeScreencastUnstableV1, ()> for State {
 
 impl Dispatch<ZkdeScreencastStreamUnstableV1, ()> for State {
     fn event(state: &mut Self, stream: &ZkdeScreencastStreamUnstableV1, event: zstream::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
-        let id = stream.id().protocol_id();
+        let id = stream.id();
         let ev = match event {
             zstream::Event::Created { node } => StreamEvent::Created(node),
             zstream::Event::Failed { error } => StreamEvent::Failed(error),
             zstream::Event::Closed => StreamEvent::Closed,
         };
-        state.events.insert(id, ev);
+        if state.waiting.contains(&id) {
+            state.events.insert(id, ev);
+        } else if matches!(ev, StreamEvent::Closed | StreamEvent::Failed(_)) {
+            // Une capture établie fermée par KWin : l'agent la retire.
+            state.closed.push(id.protocol_id());
+        }
     }
 }
 
@@ -132,13 +143,22 @@ impl Kde {
 
     /// Attend le flux PipeWire du `stream` (5 s au plus).
     fn wait(&mut self, stream: ZkdeScreencastStreamUnstableV1) -> Result<Cast> {
-        let id = stream.id().protocol_id();
+        let object = stream.id();
+        self.state.waiting.insert(object.clone());
+        let result = self.wait_events(&stream, &object);
+        self.state.waiting.remove(&object);
+        self.state.events.remove(&object);
+        result
+    }
+
+    fn wait_events(&mut self, stream: &ZkdeScreencastStreamUnstableV1, object: &ObjectId) -> Result<Cast> {
+        let id = object.protocol_id();
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             self.queue.roundtrip(&mut self.state).map_err(err("Wayland"))?;
-            match self.state.events.remove(&id) {
+            match self.state.events.remove(object) {
                 Some(StreamEvent::Created(node)) => {
-                    self.streams.insert(id, stream);
+                    self.streams.insert(id, stream.clone());
                     return Ok(Cast { key: CastKey::Kde(id), node, serial: serial_of(node) });
                 }
                 Some(StreamEvent::Failed(e)) => {
@@ -211,6 +231,14 @@ impl Recorder for Kde {
 
     fn pump(&mut self) {
         let _ = self.queue.roundtrip(&mut self.state);
+    }
+
+    fn lost(&mut self) -> Vec<CastKey> {
+        std::mem::take(&mut self.state.closed)
+            .into_iter()
+            .filter(|id| self.streams.remove(id).is_some())
+            .map(CastKey::Kde)
+            .collect()
     }
 }
 
