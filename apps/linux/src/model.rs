@@ -529,28 +529,6 @@ impl PsSettings {
     pub fn custom(&self) -> bool {
         self.resolution != "auto" || self.fps != 60 || self.bitrate_kbps.is_some() || self.codec != "auto"
     }
-
-    /// La hauteur de la définition (Auto : 1080). (Essais : le cœur en décide en session, `PlaySettings`.)
-    #[cfg(test)]
-    pub fn height(&self) -> u32 {
-        match self.resolution.as_str() {
-            "p720" => 720,
-            "p540" => 540,
-            "p360" => 360,
-            _ => 1080,
-        }
-    }
-
-    /// Le débit effectif, kbit/s (Auto : préréglages de chiaki-ng, `Resolution::auto_bitrate`).
-    #[cfg(test)]
-    pub fn bitrate(&self) -> u32 {
-        self.bitrate_kbps.map(|b| b.clamp(2_000, 100_000)).unwrap_or(match self.height() {
-            720 => 10_000,
-            540 => 6_000,
-            360 => 2_000,
-            _ => 15_000,
-        })
-    }
 }
 
 /// Une console PlayStation : trouvée sur le réseau (ou par son adresse, ou reçue d'un autre appareil), avec ses
@@ -733,10 +711,14 @@ pub struct Store {
     pub accounts: Vec<KnAccount>,
     pub account_computers: Vec<KnComputer>,
     pub account_hosts: Vec<AccountHost>,
-    /// Réglages synchronisés (`crate::synced`) : ceux que le relais garde pour chaque ordinateur des comptes (la base
-    /// des envois, et le dernier changement déjà appliqué ici), et les changements qu'il n'a pas encore reçus.
-    pub synced: Vec<crate::synced::SyncedEntry>,
-    pub sync_pending: Vec<crate::synced::PendingSync>,
+    /// Réglages synchronisés (`crate::synced`) : la mémoire de chaque compte, le JSON d'`account::AccountSync` du cœur
+    /// (ce que le relais garde pour ses ordinateurs, ce qui est déjà appliqué ici, ce qu'il n'a pas encore reçu).
+    pub account_sync: Vec<crate::synced::AccountMemory>,
+    /// La mémoire d'avant la 0.11.8, lue une fois et reprise dans `account_sync` (`adopt_legacy_sync`), jamais réécrite.
+    #[serde(rename = "synced", skip_serializing)]
+    pub legacy_synced: Vec<crate::synced::LegacySynced>,
+    #[serde(rename = "sync_pending", skip_serializing)]
+    pub legacy_sync_pending: Vec<crate::synced::LegacyPending>,
     /// Mise à jour des Stations (docs/link-ui.md) : pour chaque ordinateur (`Host::id`), « Plus tard » et la dernière
     /// vérification demandée. Gardé sur cet appareil seulement (jamais dans les réglages synchronisés).
     pub station_offers: std::collections::HashMap<String, StationMemory>,
@@ -820,6 +802,7 @@ impl Store {
         if s.device_id.is_empty() {
             s.device_id = new_id();
         }
+        s.adopt_legacy_sync();
         s.set_aside = aside;
         if writable {
             s.path = Some(path);

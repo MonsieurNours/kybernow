@@ -87,16 +87,23 @@ impl AudioSink {
     }
 }
 
+/// Rappel de SDL (fil du son) : une panique n'en sort pas (`ffi_guard!` du cœur) ; le tampon est alors rendu muet.
 extern "C" fn fill(user: *mut c_void, stream: *mut u8, len: c_int) {
-    let out_ = unsafe { &*(user as *const Output) };
     let n = len.max(0) as usize / 4;
-    let out = unsafe { std::slice::from_raw_parts_mut(stream as *mut f32, n) };
-    let channels = out_.channels.max(1);
-    out_.engine.fill(out, n / channels);
-    let target = if out_.silenced.load(Ordering::Relaxed) { 0.0f32 } else { 1.0 };
-    let mut gain = f32::from_bits(out_.gain.load(Ordering::Relaxed));
-    apply_gain(out, channels, &mut gain, target, 1.0 / (FADE_MS / 1000.0 * RATE as f32));
-    out_.gain.store(gain.to_bits(), Ordering::Relaxed);
+    let filled = kybernow_core::ffi_guard!(false => {
+        let out_ = unsafe { &*(user as *const Output) };
+        let out = unsafe { std::slice::from_raw_parts_mut(stream as *mut f32, n) };
+        let channels = out_.channels.max(1);
+        out_.engine.fill(out, n / channels);
+        let target = if out_.silenced.load(Ordering::Relaxed) { 0.0f32 } else { 1.0 };
+        let mut gain = f32::from_bits(out_.gain.load(Ordering::Relaxed));
+        apply_gain(out, channels, &mut gain, target, 1.0 / (FADE_MS / 1000.0 * RATE as f32));
+        out_.gain.store(gain.to_bits(), Ordering::Relaxed);
+        true
+    });
+    if !filled {
+        unsafe { std::slice::from_raw_parts_mut(stream as *mut f32, n) }.fill(0.0);
+    }
 }
 
 /// Le niveau du son : il rejoint `target` (0 ou 1) d'au plus `step` par image, pour que couper ou

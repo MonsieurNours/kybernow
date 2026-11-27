@@ -108,6 +108,22 @@ impl StreamLight {
     }
 }
 
+/// Les métadonnées HDR10 d'un paquet de configuration PyroWave `KNPW` version 2 (48 octets au moins,
+/// docs/kyber-changes.md, « En-tête KNPW version 2 ») : minimum et maximum du mastering display (cd/m²), MaxCLL,
+/// MaxFALL ; 0 pour ce que le drapeau dit absent. `None` pour la version 1, qui n'en a pas, ou un paquet trop court.
+/// (`pyrowave::Config` du cœur lit les deux versions mais ne rend pas encore ces champs.)
+pub fn knpw_metadata(b: &[u8]) -> Option<[f32; 4]> {
+    if b.len() < 48 || !b.starts_with(b"KNPW") || b[4] < 2 {
+        return None;
+    }
+    let u16le = |o: usize| f32::from(u16::from_le_bytes([b[o], b[o + 1]]));
+    let u32le = |o: usize| u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]) as f32;
+    let flags = b[16];
+    let (min, max) = if flags & 1 != 0 { (u32le(40) / 10_000.0, u32le(36) / 10_000.0) } else { (0.0, 0.0) };
+    let (cll, fall) = if flags & 2 != 0 { (u16le(44), u16le(46)) } else { (0.0, 0.0) };
+    Some([min, max, cll, fall])
+}
+
 /// Comment montrer une image PQ.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Render {
@@ -278,6 +294,33 @@ mod tests {
         assert!(close(slope, SDR_SLOPE, 1e-6), "pente {slope} contre {SDR_SLOPE}");
         let row = BT2020_TO_709[0];
         assert!(src.contains(&format!("vec3({:.6}, {:.6}, {:.6})", row[0], row[1], row[2])), "BT.2020 vers BT.709");
+    }
+
+    /// L'en-tête PyroWave version 2 : les métadonnées de la capture ; la version 1 et un paquet trop court n'en ont pas.
+    #[test]
+    fn metadonnees_de_l_en_tete_pyrowave_v2() {
+        let mut v2 = vec![0u8; 48];
+        v2[0..4].copy_from_slice(b"KNPW");
+        v2[4] = 2;
+        v2[6] = 1;
+        v2[16] = 0b11;
+        v2[36..40].copy_from_slice(&16_000_000u32.to_le_bytes()); // 1 600 cd/m²
+        v2[40..44].copy_from_slice(&1u32.to_le_bytes()); // 0,0001 cd/m²
+        v2[44..46].copy_from_slice(&1200u16.to_le_bytes());
+        v2[46..48].copy_from_slice(&400u16.to_le_bytes());
+        let m = knpw_metadata(&v2).unwrap();
+        assert!(close(f64::from(m[0]), 0.0001, 1e-9) && m[1] == 1600.0 && m[2] == 1200.0 && m[3] == 400.0, "{m:?}");
+        // Le niveau de lumière absent (bit 1 à 0) : MaxCLL et MaxFALL à 0, le mastering display gardé.
+        v2[16] = 0b01;
+        assert_eq!(knpw_metadata(&v2).map(|m| (m[1], m[2], m[3])), Some((1600.0, 0.0, 0.0)));
+        // Plus long : les octets en trop sont ignorés.
+        v2.extend_from_slice(&[9; 16]);
+        assert!(knpw_metadata(&v2).is_some());
+        // Version 1 (16 octets), ou une version 2 trop courte : rien.
+        let mut v1 = v2[..16].to_vec();
+        v1[4] = 1;
+        assert_eq!(knpw_metadata(&v1), None);
+        assert_eq!(knpw_metadata(&v2[..47]), None);
     }
 
     #[test]

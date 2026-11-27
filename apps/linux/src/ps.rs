@@ -845,11 +845,10 @@ impl App {
                 vec![Action::Ps(PsAction::ReadAccount { redirect: a.trim().to_string(), console })]
             }
             PsStep::ByHand { console } => {
-                let id = a.trim().to_string();
-                if !valid_psn_id(&id) {
+                let Some(id) = psn_id(&a) else {
                     self.ps.add.message = Some(tr("Identifiant du compte non lu : réessayez, ou saisissez-le à la main.", "Couldn't read the account ID: try again, or enter it by hand.").into());
                     return Vec::new();
-                }
+                };
                 let name = (!b.trim().is_empty()).then(|| b.trim().to_string());
                 self.ps_account_ready(&id, name, console)
             }
@@ -1347,10 +1346,16 @@ impl App {
 pub const PS_SECTIONS: [Section; 2] = [Section::PsPicture, Section::PsControls];
 
 /// Un identifiant de compte PSN saisi à la main : du base64 de 8 octets (ce que donnent chiaki-ng et les autres
-/// apps), avec ou sans `=` final.
-pub fn valid_psn_id(s: &str) -> bool {
-    let t = s.trim().trim_end_matches('=');
-    (t.len() == 11 || t.len() == 10) && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/')
+/// apps), avec ou sans `=` final ; rendu sous la forme que lit le cœur (`bundle::valid_psn_id`, `PsnId::from_base64` :
+/// 12 signes, `=` compris). `None` s'il n'en est pas un (l'interface seule n'a pas le cœur : la règle est vérifiée
+/// contre la sienne par `device::ps::tests::regles_de_l_interface_comme_le_coeur`).
+pub fn psn_id(s: &str) -> Option<String> {
+    const ALPHABET: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let t = s.trim();
+    let t = t.strip_suffix('=').unwrap_or(t);
+    // 11 signes font 66 bits : les 2 derniers, de trop pour 8 octets, sont nuls.
+    let last = t.chars().last().and_then(|c| ALPHABET.find(c))?;
+    (t.chars().count() == 11 && t.chars().all(|c| ALPHABET.contains(c)) && last % 4 == 0).then(|| format!("{t}="))
 }
 
 #[cfg(test)]
@@ -1428,10 +1433,12 @@ mod tests {
 
     #[test]
     fn psn_id_by_hand() {
-        assert!(valid_psn_id("AbCdEfGhIjk="));
-        assert!(valid_psn_id(" AbCdEfGhIjk "));
-        assert!(!valid_psn_id("123"));
-        assert!(!valid_psn_id("AbCdEfGh!jk="));
+        assert_eq!(psn_id("AbCdEfGhIjk=").as_deref(), Some("AbCdEfGhIjk="));
+        assert_eq!(psn_id(" AbCdEfGhIjk ").as_deref(), Some("AbCdEfGhIjk="), "le = final ajouté");
+        assert_eq!(psn_id("123"), None);
+        assert_eq!(psn_id("AbCdEfGh!jk="), None);
+        assert_eq!(psn_id("AbCdEfGhIj"), None, "10 signes : 7 octets");
+        assert_eq!(psn_id("AbCdEfGhIjl="), None, "bits de trop non nuls");
     }
 
     #[test]
@@ -1444,9 +1451,8 @@ mod tests {
         assert!(!st.custom(), "HDR, plein écran et intensités ne rendent pas « Personnalisé »");
         st.resolution = "p720".into();
         assert!(st.custom());
-        assert_eq!(st.bitrate(), 10_000);
         st.bitrate_kbps = Some(250_000);
-        assert_eq!(st.bitrate(), 100_000);
+        assert!(st.custom());
         // Le JSON est celui du cœur : mêmes noms, mêmes valeurs.
         let v = serde_json::to_value(PsSettings::default()).unwrap();
         assert_eq!(v["resolution"], "auto");

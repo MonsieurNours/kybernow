@@ -80,13 +80,16 @@ impl Drop for Capture {
     }
 }
 
+/// Rappel de SDL (fil du son) : une panique n'en sort pas (`ffi_guard!` du cœur), le tampon est alors perdu.
 extern "C" fn captured(user: *mut c_void, stream: *mut u8, len: c_int) {
-    let sink = unsafe { &*(user as *const Sink) };
-    let n = len.max(0) as usize / 4;
-    let samples = unsafe { std::slice::from_raw_parts(stream as *const f32, n) };
-    if let Some(s) = sink.session.upgrade() {
-        s.push_microphone(samples, sink.rate);
-    }
+    kybernow_core::ffi_guard!({
+        let sink = unsafe { &*(user as *const Sink) };
+        let n = len.max(0) as usize / 4;
+        let samples = unsafe { std::slice::from_raw_parts(stream as *const f32, n) };
+        if let Some(s) = sink.session.upgrade() {
+            s.push_microphone(samples, sink.rate);
+        }
+    })
 }
 
 /// L'état du cœur, vu de l'interface.

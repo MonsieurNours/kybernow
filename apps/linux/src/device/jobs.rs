@@ -230,7 +230,7 @@ pub fn discover(tx: Sender<Event>) {
                 return;
             }
         };
-        let rx = match daemon.browse("_kybernow._tcp.local.") {
+        let rx = match daemon.browse(kybernow_core::discovery::SERVICE) {
             Ok(rx) => rx,
             Err(e) => {
                 log::warn!("découverte : recherche impossible ({e})");
@@ -240,15 +240,23 @@ pub fn discover(tx: Sender<Event>) {
         let mut found: HashMap<String, Found> = HashMap::new();
         while let Ok(ev) = rx.recv() {
             match ev {
+                // L'annonce lue par le cœur (`discovery::found`) : l'adresse à joindre (IPv4 hors de 169.254/16
+                // d'abord, jamais une IPv6 locale au lien), le nom, l'empreinte mise en forme ; `kyber=0` (Admin sans
+                // Kyber) n'est pas proposé.
                 mdns_sd::ServiceEvent::ServiceResolved(info) => {
-                    let Some(addr) = info.get_addresses().iter().find(|a| a.is_ipv4()).or_else(|| info.get_addresses().iter().next()) else { continue };
-                    let name = info.get_property_val_str("name").map(str::to_string).unwrap_or_else(|| {
-                        info.get_fullname().split("._kybernow").next().unwrap_or("Station").to_string()
-                    });
-                    let fp = info.get_property_val_str("fp").map(|s| if s.starts_with("sha256:") { s.to_string() } else { format!("sha256:{s}") });
-                    let f = Found { name, address: addr.to_string(), port: info.get_port(), fingerprint: fp };
-                    found.insert(info.get_fullname().to_string(), f);
-                    let _ = tx.send(Event::Found(found.values().cloned().collect()));
+                    let addresses: Vec<std::net::IpAddr> = info.get_addresses().iter().copied().collect();
+                    let full = info.get_fullname().to_string();
+                    let seen = kybernow_core::discovery::found(&full, info.get_port(), &addresses, |k| info.get_property_val_str(k).map(str::to_string));
+                    let changed = match seen {
+                        Some(f) => {
+                            found.insert(full, Found { name: f.name, address: f.host, port: f.port, fingerprint: f.fingerprint });
+                            true
+                        }
+                        None => found.remove(&full).is_some(),
+                    };
+                    if changed {
+                        let _ = tx.send(Event::Found(found.values().cloned().collect()));
+                    }
                 }
                 mdns_sd::ServiceEvent::ServiceRemoved(_, full) => {
                     if found.remove(&full).is_some() {

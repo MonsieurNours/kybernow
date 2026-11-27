@@ -3,7 +3,7 @@
 //! webOS (apps/webos/src/device/session.rs) et Android.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
@@ -96,6 +96,11 @@ pub struct Shared {
     /// des touches tapées.
     control_as_command: AtomicBool,
     codec: Mutex<String>,
+    /// Le format que la session demande (`Codec::fourcc`, 0 : inconnu) : le décodeur l'ouvre d'office si Kyber ne
+    /// l'annonce pas (`frames::FrameFlow`).
+    wanted: AtomicU32,
+    /// L'échec de PyroWave a été dit au cœur (une fois par session, quel que soit le nombre d'écrans).
+    pyrowave_failed: AtomicBool,
     /// L'image la plus récente de chaque écran de l'appareil, pour le fil
     /// principal (une seule en dehors du multi-écrans).
     latests: Mutex<HashMap<usize, Arc<Latest>>>,
@@ -149,12 +154,14 @@ impl Shared {
             relative: AtomicBool::new(false),
             control_as_command: AtomicBool::new(false),
             codec: Mutex::new(String::new()),
+            wanted: AtomicU32::new(0),
+            pyrowave_failed: AtomicBool::new(false),
             latests: Mutex::new(HashMap::new()),
             screens: Mutex::new(ScreensState::default()),
             layers: Mutex::new(HashMap::new()),
             primary: AtomicUsize::new(0),
-            hw: [m.hw_h264 && (m.vaapi || m.pi.is_some()), m.hw_hevc && (m.vaapi || m.pi.is_some()), m.hw_av1 && m.vaapi],
-            hw_backend: if m.pi.is_some() && !m.vaapi { 2 } else { 1 },
+            hw: m.hw_decoders(),
+            hw_backend: m.hw_backend(),
             clipboard: None,
             audio: Mutex::new(None),
             silenced: Arc::new(AtomicBool::new(false)),
@@ -302,6 +309,27 @@ impl Shared {
         self.send(SessionEvent::DecoderFailed(e.to_string()));
     }
 
+    /// Le format que la session demande (`Codec::fourcc`, 0 : inconnu).
+    pub fn wanted(&self) -> u32 {
+        self.wanted.load(Ordering::Relaxed)
+    }
+
+    pub fn set_wanted(&self, codec: Codec) {
+        self.wanted.store(codec.fourcc(), Ordering::Relaxed);
+    }
+
+    /// Le décodeur PyroWave ne s'ouvre pas sur cet appareil : dit une fois au cœur, qui relance l'image dans le format
+    /// qu'aurait pris Auto, pour la session (`Session::pyrowave_failed`). Sans session : l'échec ordinaire.
+    pub fn pyrowave_failed(&self, e: &str) {
+        if self.pyrowave_failed.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        match self.session() {
+            Some(s) => s.pyrowave_failed(),
+            None => self.decoder_failed(e),
+        }
+    }
+
     /// Un décodeur matériel pour ce format (0 H.264, 1 HEVC, 2 AV1).
     pub fn hw_for(&self, codec: i32) -> bool {
         self.hw.get(codec as usize).copied().unwrap_or(false)
@@ -319,8 +347,13 @@ struct LinuxPlatform(Arc<Shared>);
 
 impl Platform for LinuxPlatform {
     fn window_handle(&self) -> WindowHandle {
-        // L'image et le son vont à l'app : Kyber ne crée pas de lecteur VLC.
-        WindowHandle::Xlib(0)
+        // L'image et le son vont à l'app : Kyber ne crée pas de lecteur VLC (poignée nulle). Hors de Linux, seulement
+        // pour vérifier le Rust de l'app sur le Mac (`KYBERNOW_CHECK_ONLY=1 cargo check`, README) : la même.
+        #[cfg(target_os = "linux")]
+        let handle = WindowHandle::Xlib(0);
+        #[cfg(target_os = "macos")]
+        let handle = WindowHandle::AppKit(0);
+        handle
     }
 
     fn video_handler(&self) -> Arc<dyn PacketHandler> {
@@ -487,6 +520,13 @@ impl Platform for LinuxPlatform {
 
     /// À chaque démarrage de l'image : quels écrans sont en HDR. Le rendu suit l'image elle-même (PQ ou non, lu
     /// dans le flux par FFmpeg) : ici, le journal.
+    /// PyroWave ne s'est pas ouvert ici : l'image repart dans `codec` pour la session (le décodeur l'attend), et
+    /// l'avis bref de link-ui, une fois (« Image en {format} : PyroWave n'a pas pu démarrer sur cet appareil. »).
+    fn on_pyrowave_fallback(&self, codec: Codec, text: &str) {
+        self.0.set_wanted(codec);
+        self.0.send(SessionEvent::Notice(text.to_string()));
+    }
+
     fn on_hdr(&self, hdr: &[bool]) {
         log::info!("session : image {:?} d'après la Station", hdr.iter().map(|h| if *h { "HDR" } else { "SDR" }).collect::<Vec<_>>());
     }
@@ -811,8 +851,8 @@ pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32
         s.reliable = true;
     }
     let (w, h, fps) = mode;
-    let ratio = (w as f64 * h as f64 * fps.max(1) as f64) / (3840.0 * 2160.0 * 60.0);
-    let scale = ratio.powf(0.75).clamp(0.4, 3.0);
+    // La règle des profils du cœur : un débit calé sur la 4K à 60 Hz, mis à l'échelle des pixels par seconde.
+    let scale = kybernow_core::profile::pixel_rate_scale(w as f64 * h as f64 * fps.max(1) as f64);
     // Débit choisi : la base du profil ramenée pour l'atteindre à ce mode.
     if host.settings.mbps > 0 {
         s.mbps = ((host.settings.mbps as f64 / scale).floor() as u32).max(5);
@@ -862,6 +902,7 @@ pub fn audio_channels(host: &Host, m: &Machine) -> u16 {
 /// chaque écran de `screens` a les siens.
 pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u32, u32), m: &Machine, relative: bool, device: DeviceInfo, screens: Option<Screens>, current: usize, guest: Option<&share::Found>, loan: Option<&kybernow_core::lend::Loan>, screen_hdr: Option<crate::hdr::Luminance>, tx: Sender<Event>) -> Handle {
     let (w, h, fps) = mode;
+    let wanted = settings.codec.fourcc();
     let clock = Arc::new(MonotonicClock::new());
     let pointer = Arc::new(PointerLayer::new(clock.clone(), true));
     let audio_channels = audio_channels(host, m);
@@ -882,12 +923,14 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
         relative: AtomicBool::new(relative),
         control_as_command: AtomicBool::new(control_as_command),
         codec: Mutex::new(String::new()),
+        wanted: AtomicU32::new(wanted),
+        pyrowave_failed: AtomicBool::new(false),
         latests: Mutex::new(HashMap::new()),
         screens: Mutex::new(ScreensState::default()),
         layers: Mutex::new(HashMap::new()),
         primary: AtomicUsize::new(current),
-        hw: [m.hw_h264 && (m.vaapi || m.pi.is_some()), m.hw_hevc && (m.vaapi || m.pi.is_some()), m.hw_av1 && m.vaapi],
-        hw_backend: if m.pi.is_some() && !m.vaapi { 2 } else { 1 },
+        hw: m.hw_decoders(),
+        hw_backend: m.hw_backend(),
         // Ni l'invité d'un partage ni l'emprunteur n'ont de presse-papiers.
         clipboard: (host.settings.clipboard && guest.is_none() && loan.is_none()).then(|| Arc::new(Clipboard::new())),
         audio: Mutex::new(None),
@@ -1041,6 +1084,8 @@ mod tests {
             relative: AtomicBool::new(false),
             control_as_command: AtomicBool::new(false),
             codec: Mutex::new(String::new()),
+            wanted: AtomicU32::new(0),
+            pyrowave_failed: AtomicBool::new(false),
             latests: Mutex::new(HashMap::new()),
             screens: Mutex::new(ScreensState::default()),
             layers: Mutex::new(HashMap::new()),

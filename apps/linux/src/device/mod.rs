@@ -232,28 +232,32 @@ struct HitAreas {
 
 static HIT: Mutex<HitAreas> = Mutex::new(HitAreas { enabled: false, drag: (0, 0, 0, 0), holes: Vec::new(), size: (0, 0) });
 
+/// Rappel de SDL (zones de la fenêtre sans cadre) : une panique n'en sort pas (`ffi_guard!` du cœur), la zone est
+/// alors normale.
 extern "C" fn hit_test(_win: *mut sdl::SDL_Window, p: *const sdl::SDL_Point, _data: *mut c_void) -> c_int {
-    let Ok(h) = HIT.try_lock() else { return sdl::HITTEST_NORMAL };
-    if !h.enabled {
-        return sdl::HITTEST_NORMAL;
-    }
-    let (x, y) = unsafe { ((*p).x, (*p).y) };
-    let (w, hh) = h.size;
-    let b = 6;
-    let (l, r, t, bo) = (x < b, x >= w - b, y < b, y >= hh - b);
-    match (l, r, t, bo) {
-        (true, _, true, _) => return sdl::HITTEST_RESIZE_TOPLEFT,
-        (_, true, true, _) => return sdl::HITTEST_RESIZE_TOPRIGHT,
-        (true, _, _, true) => return sdl::HITTEST_RESIZE_BOTTOMLEFT,
-        (_, true, _, true) => return sdl::HITTEST_RESIZE_BOTTOMRIGHT,
-        (true, _, _, _) => return sdl::HITTEST_RESIZE_LEFT,
-        (_, true, _, _) => return sdl::HITTEST_RESIZE_RIGHT,
-        (_, _, true, _) => return sdl::HITTEST_RESIZE_TOP,
-        (_, _, _, true) => return sdl::HITTEST_RESIZE_BOTTOM,
-        _ => {}
-    }
-    let inside = |(rx, ry, rw, rh): (i32, i32, i32, i32)| x >= rx && x < rx + rw && y >= ry && y < ry + rh;
-    if inside(h.drag) && !h.holes.iter().any(|r| inside(*r)) { sdl::HITTEST_DRAGGABLE } else { sdl::HITTEST_NORMAL }
+    kybernow_core::ffi_guard!(sdl::HITTEST_NORMAL => {
+        let Ok(h) = HIT.try_lock() else { return sdl::HITTEST_NORMAL };
+        if !h.enabled {
+            return sdl::HITTEST_NORMAL;
+        }
+        let (x, y) = unsafe { ((*p).x, (*p).y) };
+        let (w, hh) = h.size;
+        let b = 6;
+        let (l, r, t, bo) = (x < b, x >= w - b, y < b, y >= hh - b);
+        match (l, r, t, bo) {
+            (true, _, true, _) => return sdl::HITTEST_RESIZE_TOPLEFT,
+            (_, true, true, _) => return sdl::HITTEST_RESIZE_TOPRIGHT,
+            (true, _, _, true) => return sdl::HITTEST_RESIZE_BOTTOMLEFT,
+            (_, true, _, true) => return sdl::HITTEST_RESIZE_BOTTOMRIGHT,
+            (true, _, _, _) => return sdl::HITTEST_RESIZE_LEFT,
+            (_, true, _, _) => return sdl::HITTEST_RESIZE_RIGHT,
+            (_, _, true, _) => return sdl::HITTEST_RESIZE_TOP,
+            (_, _, _, true) => return sdl::HITTEST_RESIZE_BOTTOM,
+            _ => {}
+        }
+        let inside = |(rx, ry, rw, rh): (i32, i32, i32, i32)| x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+        if inside(h.drag) && !h.holes.iter().any(|r| inside(*r)) { sdl::HITTEST_DRAGGABLE } else { sdl::HITTEST_NORMAL }
+    })
 }
 
 /// Une fenêtre SDL de l'app, avec son rendu, sa texture d'interface, sa
@@ -675,6 +679,9 @@ struct Live {
     camera: Option<camera::Sender>,
     /// La barre du bureau doit se cacher à cet instant.
     bar_hide: Option<Instant>,
+    /// Toutes les fenêtres de la session sont réduites ou cachées : l'image n'est plus regardée
+    /// (`Session::set_background`, 20 Mbit/s et image figée sans panne).
+    background: bool,
     /// Le pointeur est contre le bord haut : la barre du bureau s'ouvre à cet instant s'il y reste.
     bar_arm: Option<Instant>,
     /// Multi-écrans : la fenêtre où ce geste a lieu et celle où la barre est ouverte
@@ -867,8 +874,11 @@ pub fn run(args: &[String]) {
     if let Ok(v) = std::env::var("KYBERNOW_VIDEO") {
         sdl::hint("SDL_VIDEODRIVER", &v);
     }
-    // PyroWave : la sonde (device Vulkan, image de test) tourne sur un fil pendant que la fenêtre s'ouvre.
+    // PyroWave : la sonde (device Vulkan, image de test) tourne sur un fil pendant que la fenêtre s'ouvre. Le
+    // décodeur lit l'en-tête `KNPW` version 2 (métadonnées HDR10 de la capture) : demandé à la Station.
     system::pyrowave_probe_start();
+    #[cfg(feature = "pyrowave")]
+    kyclient::set_pyrowave_header(2);
     // HDR (docs/hdr.md) : sur un bureau Wayland dont la gestion des couleurs décrit une image PQ BT.2020 et dont un
     // écran est en HDR, SDL prend Wayland (seule voie du HDR ; X11 et Xwayland n'en ont pas), et la fenêtre peut être
     // transparente : l'image HDR, sur une sous-surface dessous, se voit par le trou que l'app y laisse.
@@ -1508,6 +1518,27 @@ const QUIT_WAIT: Duration = Duration::from_secs(8);
 /// Quitter l'app : chaque session est arrêtée puis attendue (`Session::stop`, `Session::wait` : la Station est
 /// prévenue, ses écrans, son son et ses manettes reviennent), les sessions en parallèle et au plus `QUIT_WAIT`
 /// en tout, comme l'app Windows. Les fenêtres se cachent pendant l'attente : l'app a l'air fermée.
+/// L'image d'une session n'est plus regardée quand toutes ses fenêtres sont réduites ou cachées (docs/link-ui.md,
+/// « Image qui n'est plus regardée ») : le cœur demande 20 Mbit/s à l'ordinateur et prend l'image figée pour voulue
+/// (`Session::set_background`, `Device::Computer`) ; tout est rendu au retour. Pas sur KyberNow Link OS, toujours en
+/// plein écran.
+fn sync_background(lives: &mut Lives, wins: &Wins, id: SessionId) {
+    if os::is_os() {
+        return;
+    }
+    let Some(l) = lives.get_mut(id) else { return };
+    let mut windows = wins.list.iter().filter(|w| w.session == Some(id)).peekable();
+    if windows.peek().is_none() {
+        return;
+    }
+    let hidden = windows.all(|w| unsafe { sdl::SDL_GetWindowFlags(w.window) } & (sdl::SDL_WINDOW_HIDDEN | sdl::SDL_WINDOW_MINIMIZED) != 0);
+    if hidden != l.background {
+        l.background = hidden;
+        log::info!("session {} : image {}", l.host, if hidden { "plus regardée (fenêtre réduite ou cachée)" } else { "de nouveau regardée" });
+        l.handle.session.set_background(hidden, kybernow_core::rules::limits::Device::Computer);
+    }
+}
+
 fn stop_all(lives: &Lives, wins: &Wins) {
     if lives.is_empty() {
         return;
@@ -1965,6 +1996,7 @@ fn push_settings(l: &mut Live, settings: StreamSettings, capabilities: Capabilit
         l.handle.session.set_screens(base.clone());
     }
     l.settings = settings.clone();
+    l.handle.shared.set_wanted(settings.codec);
     l.handle.session.set_settings(settings);
 }
 
@@ -2353,6 +2385,12 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 sdl::SDL_WINDOWEVENT_MAXIMIZED if wi == 0 => app.maximized = true,
                 sdl::SDL_WINDOWEVENT_RESTORED if wi == 0 => app.maximized = false,
                 _ => {}
+            }
+            // Réduite, cachée, rendue : l'image de la session est-elle encore regardée ?
+            if matches!(e, sdl::SDL_WINDOWEVENT_SHOWN | sdl::SDL_WINDOWEVENT_HIDDEN | sdl::SDL_WINDOWEVENT_MINIMIZED | sdl::SDL_WINDOWEVENT_MAXIMIZED | sdl::SDL_WINDOWEVENT_RESTORED)
+                && let Some(id) = ws
+            {
+                sync_background(lives, wins, id);
             }
             *dirty = true;
         }
@@ -4255,6 +4293,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         bar_hide: None,
         bar_arm: None,
         bar_arm_win: None,
+        background: false,
         bar_win: None,
         decoded: None,
         last_frame: None,

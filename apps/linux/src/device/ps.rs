@@ -29,6 +29,7 @@ use kybernow_core::console::Console as Admin;
 use kybernow_core::gamepads::{self, AppFeedback};
 use kybernow_core::input::{GamepadRumble, PadId};
 use kybernow_core::media::PacketHandler;
+use kybernow_core::playstation::bundle::{Bundle, BundleAccount, BundleConsole, BundleStation};
 use kybernow_core::playstation::discovery::{self, Console, Model, State};
 use kybernow_core::playstation::dualsense;
 use kybernow_core::playstation::endpoint::Endpoint;
@@ -46,7 +47,7 @@ use super::video::VideoSink;
 use super::{pads, sdl, Event, Wins};
 use crate::app::{Action, App, Layout, Online, Phase, Screen, SessionId};
 use crate::i18n::tr;
-use crate::model::{PsConsole, PsPairing};
+use crate::model::PsConsole;
 use crate::ps::{PsAction, PsEnd, PsFound, PsInput, PsState, PsStep, PsWaiting};
 
 /// Ce qui revient des fils des consoles à la boucle principale.
@@ -1303,105 +1304,81 @@ impl Drop for Haptics {
 
 static CHANNELS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(4);
 
+/// Rappel de SDL (fil du son de la manette) : une panique n'en sort pas (`ffi_guard!` du cœur) ; le tampon est
+/// alors rendu muet.
 extern "C" fn fill_haptics(_user: *mut c_void, stream: *mut u8, len: c_int) {
     let n = len.max(0) as usize / 4;
-    let out = unsafe { std::slice::from_raw_parts_mut(stream as *mut f32, n) };
-    let channels = CHANNELS.load(Ordering::Relaxed).max(1);
-    dualsense::hd_haptics().fill(out, n / channels, channels, 2);
+    let filled = kybernow_core::ffi_guard!(false => {
+        let out = unsafe { std::slice::from_raw_parts_mut(stream as *mut f32, n) };
+        let channels = CHANNELS.load(Ordering::Relaxed).max(1);
+        dualsense::hd_haptics().fill(out, n / channels, channels, 2);
+        true
+    });
+    if !filled {
+        unsafe { std::slice::from_raw_parts_mut(stream as *mut f32, n) }.fill(0.0);
+    }
 }
 
 // MARK: - Envoi entre appareils (format de l'app Mac)
 
-/// Le paquet de « Envoyer à un appareil » : comptes (avec leur identifiant), consoles (associations, adresses,
-/// Stations qui les voient).
+/// Le paquet de « Envoyer à un appareil » (`playstation::bundle::Bundle` du cœur, le même pour toutes les apps) :
+/// comptes (avec leur identifiant), consoles (associations, adresses, Stations qui les voient).
 pub fn bundle(app: &App) -> String {
-    let accounts: Vec<_> = app.store.ps_accounts.iter().map(|a| serde_json::json!({ "id": a.id, "name": a.name, "psn_id": a.psn_id })).collect();
-    let consoles: Vec<_> = app
+    let accounts = app.store.ps_accounts.iter().map(|a| BundleAccount { id: a.id.clone(), name: a.name.clone(), psn_id: a.psn_id.clone() }).collect();
+    let consoles = app
         .store
         .ps_consoles
         .iter()
-        .map(|c| {
-            let pairings: serde_json::Map<String, serde_json::Value> = c.pairings.iter().map(|p| (p.account.clone(), serde_json::Value::String(p.registered.to_string()))).collect();
-            let stations: Vec<_> = c
+        .map(|c| BundleConsole {
+            host_id: c.host_id.clone(),
+            name: c.name.clone(),
+            model: c.model.clone(),
+            addresses: c.addresses.clone(),
+            address: None,
+            accounts: c.pairings.iter().map(|p| p.account.clone()).collect(),
+            target: c.target.clone(),
+            pairings: c.pairings.iter().map(|p| (p.account.clone(), p.registered.to_string())).collect(),
+            stations: c
                 .stations
                 .iter()
                 .filter_map(|id| app.store.host(id))
-                .map(|h| serde_json::json!({ "id": h.id, "name": h.name, "address": h.address, "fingerprint": h.fingerprint }))
-                .collect();
-            serde_json::json!({
-                "host_id": c.host_id, "name": c.name, "model": c.model, "addresses": c.addresses,
-                "accounts": c.pairings.iter().map(|p| p.account.clone()).collect::<Vec<_>>(),
-                "target": c.target, "pairings": pairings, "stations": stations,
-            })
+                .map(|h| BundleStation { id: h.id.clone(), name: h.name.clone(), address: h.address.clone(), fingerprint: h.fingerprint.clone() })
+                .collect(),
         })
         .collect();
-    serde_json::json!({ "version": 1, "from": app.device_name, "accounts": accounts, "consoles": consoles }).to_string()
+    Bundle { version: 1, from: app.device_name.clone(), accounts, consoles }.to_json()
 }
 
-/// Le paquet reçu, fusionné : un compte au même identifiant PSN est le même (son nom pris s'il n'en avait pas),
-/// une console au même `host_id` aussi ; les associations s'ajoutent. Rend les nombres du paquet.
+/// Le paquet reçu, lu et rapproché par le cœur (`Bundle::parse` : identifiants PSN vérifiés, formes tolérées ;
+/// `match_accounts` : un compte au même identifiant PSN est le même ; `BundleStation::matches` : une Station est un
+/// ordinateur d'ici par son identifiant, l'empreinte d'Admin ou l'adresse), puis rangé : le nom d'un compte pris s'il
+/// n'en avait pas, une console au même `host_id` complétée, les associations ajoutées. Rend les nombres de comptes et
+/// de consoles du paquet.
 pub fn merge(app: &mut App, text: &str) -> (usize, usize) {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else { return (0, 0) };
-    let empty = Vec::new();
-    let accounts = v["accounts"].as_array().unwrap_or(&empty);
-    let consoles = v["consoles"].as_array().unwrap_or(&empty);
+    let Some(b) = Bundle::parse(text) else { return (0, 0) };
+    let local: Vec<(String, String)> = app.store.ps_accounts.iter().map(|a| (a.id.clone(), a.psn_id.clone())).collect();
     // L'identifiant du compte chez l'envoyeur → ici.
     let mut ids: HashMap<String, String> = HashMap::new();
-    for a in accounts {
-        let psn = a["psn_id"].as_str().or_else(|| a["account"].as_str()).or_else(|| a["account_id"].as_str()).unwrap_or("").trim().to_string();
-        let from = a["id"].as_str().unwrap_or("").to_string();
-        if psn.is_empty() {
-            continue;
-        }
-        let name = a["name"].as_str().map(str::to_string).filter(|n| !n.is_empty());
-        let had_name = app.store.ps_accounts.iter().find(|x| x.psn_id == psn).is_some_and(|x| x.name.is_some());
-        let (id, _) = app.store.put_ps_account(&psn, if had_name { None } else { name }, Some(from.clone()));
-        ids.insert(from, id);
+    for (a, m) in b.accounts.iter().zip(b.match_accounts(&local)) {
+        let had_name = app.store.ps_accounts.iter().find(|x| x.psn_id == a.psn_id).is_some_and(|x| x.name.is_some());
+        let name = a.name.clone().filter(|n| !n.trim().is_empty());
+        let (id, _) = app.store.put_ps_account(&a.psn_id, if had_name { None } else { name }, Some(m.id));
+        ids.insert(m.from, id);
     }
-    for c in consoles {
-        let host_id = c["host_id"].as_str().unwrap_or("").to_ascii_uppercase();
-        if host_id.is_empty() {
-            continue;
-        }
-        let model = c["model"].as_str().unwrap_or("PS5").to_ascii_uppercase();
-        let mut addresses: Vec<String> = c["addresses"].as_array().map(|l| l.iter().filter_map(|a| a.as_str().map(str::to_string)).collect()).unwrap_or_default();
-        if let Some(a) = c["address"].as_str() {
-            addresses.push(a.to_string());
-        }
-        // Les associations : un objet {compte: Registered (texte ou objet)}, ou une liste [{account, registered}].
-        let mut pairings: Vec<(String, serde_json::Value)> = Vec::new();
-        let reg = |r: &serde_json::Value| match r {
-            serde_json::Value::String(s) => serde_json::from_str(s).ok(),
-            serde_json::Value::Object(_) => Some(r.clone()),
-            _ => None,
-        };
-        match &c["pairings"] {
-            serde_json::Value::Object(m) => pairings.extend(m.iter().filter_map(|(k, r)| reg(r).map(|r| (k.clone(), r)))),
-            serde_json::Value::Array(l) => pairings.extend(l.iter().filter_map(|p| Some((p["account"].as_str()?.to_string(), reg(&p["registered"])?)))),
-            _ => {}
-        }
-        // Les Stations : reliées aux ordinateurs d'ici par l'identifiant, sinon l'empreinte, sinon l'adresse.
-        let stations: Vec<String> = c["stations"]
-            .as_array()
-            .map(|l| {
-                l.iter()
-                    .filter_map(|s| {
-                        let (sid, fp, addr) = (s["id"].as_str().or(s.as_str()), s["fingerprint"].as_str(), s["address"].as_str());
-                        app.store.hosts.iter().find(|h| Some(h.id.as_str()) == sid || kybernow_rules::fingerprint::same_opt(h.fingerprint.as_deref(), fp) || Some(h.address.as_str()) == addr).map(|h| h.id.clone())
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let base = PsConsole { host_id: host_id.clone(), name: c["name"].as_str().unwrap_or("").to_string(), model, target: c["target"].as_str().map(str::to_string), addresses, ..Default::default() };
-        for (from, registered) in pairings {
-            let Some(account) = ids.get(&from).cloned() else { continue };
+    for c in &b.consoles {
+        let stations: Vec<String> = c.stations.iter().filter_map(|s| app.store.hosts.iter().find(|h| s.matches(&h.id, h.fingerprint.as_deref(), &h.address)).map(|h| h.id.clone())).collect();
+        let model = if c.model.is_empty() { "PS5".to_string() } else { c.model.clone() };
+        let base = PsConsole { host_id: c.host_id.clone(), name: c.name.clone(), model, target: c.target.clone(), addresses: c.addresses.clone(), ..Default::default() };
+        for (from, registered) in &c.pairings {
+            let Some(account) = ids.get(from).cloned() else { continue };
+            let Ok(registered) = serde_json::from_str::<serde_json::Value>(registered) else { continue };
             // Une association déjà là pour ce compte et cette console reste.
-            if app.store.console(&host_id).is_some_and(|x| x.pairings.iter().any(|p| p.account == account)) {
+            if app.store.console(&c.host_id).is_some_and(|x| x.pairings.iter().any(|p| p.account == account)) {
                 continue;
             }
             app.store.put_pairing(base.clone(), &account, registered);
         }
-        if let Some(cm) = app.store.console_mut(&host_id) {
+        if let Some(cm) = app.store.console_mut(&c.host_id) {
             for s in stations {
                 if !cm.stations.contains(&s) {
                     cm.stations.push(s);
@@ -1409,13 +1386,7 @@ pub fn merge(app: &mut App, text: &str) -> (usize, usize) {
             }
         }
     }
-    (accounts.len(), consoles.len())
-}
-
-/// Une association telle que le cœur la lit.
-#[allow(dead_code)]
-fn registered_of(p: &PsPairing) -> Option<Registered> {
-    serde_json::from_value(p.registered.clone()).ok()
+    (b.accounts.len(), b.consoles.len())
 }
 
 #[cfg(test)]
@@ -1432,6 +1403,31 @@ mod tests {
         let s = serde_json::to_value(crate::model::PsSettings::default()).unwrap();
         let c = serde_json::to_value(PlaySettings::default()).unwrap();
         assert_eq!(s, c, "les réglages par défaut sont ceux du cœur");
+    }
+
+    /// Les copies de l'interface seule (sans le cœur : captures) suivent les règles du cœur : « Personnalisé » des
+    /// réglages d'une console (`PlaySettings::is_custom`) et l'identifiant PSN tapé à la main (`bundle::valid_psn_id`).
+    #[test]
+    fn regles_de_l_interface_comme_le_coeur() {
+        use crate::model::PsSettings;
+        let variants = [
+            PsSettings::default(),
+            PsSettings { hdr: true, fullscreen: false, rumble: 30, triggers: 0, ..PsSettings::default() },
+            PsSettings { resolution: "p720".into(), ..PsSettings::default() },
+            PsSettings { fps: 30, ..PsSettings::default() },
+            PsSettings { bitrate_kbps: Some(250_000), ..PsSettings::default() },
+            PsSettings { codec: "h265".into(), ..PsSettings::default() },
+        ];
+        for st in variants {
+            let core: PlaySettings = serde_json::from_value(serde_json::to_value(&st).unwrap()).expect("même JSON");
+            assert_eq!(st.custom(), core.is_custom(), "{st:?}");
+        }
+        for id in ["AbCdEfGhIjk=", " AbCdEfGhIjk ", "AbCdEfGhIjk", "AbCdEfGhIj", "AbCdEfGhIjl=", "123", "AbCdEfGh!jk=", "AAAAAAAAAAA=", ""] {
+            let ours = crate::ps::psn_id(id);
+            let core = kybernow_core::playstation::bundle::valid_psn_id(id.trim()).or_else(|| kybernow_core::playstation::bundle::valid_psn_id(&format!("{}=", id.trim())));
+            assert_eq!(ours, core, "{id:?}");
+            assert_eq!(ours.is_some(), ours.as_deref().and_then(PsnId::from_base64).is_some(), "{id:?} : lisible par la session");
+        }
     }
 
     #[test]
@@ -1456,8 +1452,12 @@ mod tests {
         merge(&mut b, &text);
         assert_eq!(b.store.ps_consoles.len(), 1);
         assert_eq!(b.store.ps_consoles[0].pairings.len(), 1);
+        // Un identifiant PSN qui n'en est pas un (bits de trop dans le dernier signe) : le compte est écarté (le cœur
+        // vérifie), la console reste.
+        let bad = serde_json::json!({ "accounts": [{ "id": "y", "account": "BBBBBBBBBBB=" }], "consoles": [{ "host_id": "ee00ee00ee00" }] });
+        assert_eq!(merge(&mut b, &bad.to_string()), (0, 1));
         // Le format toléré (webOS) : associations en liste, objet, `account`.
-        let alt = serde_json::json!({ "accounts": [{ "id": "x", "name": "Tom", "account": "BBBBBBBBBBB=" }], "consoles": [{ "host_id": "ff00ff00ff00", "model": "ps4", "address": "10.0.0.6", "pairings": [{ "account": "x", "registered": registered }] }] });
+        let alt = serde_json::json!({ "accounts": [{ "id": "x", "name": "Tom", "account": "BBBBBBBBBBA=" }], "consoles": [{ "host_id": "ff00ff00ff00", "model": "ps4", "address": "10.0.0.6", "pairings": [{ "account": "x", "registered": registered }] }] });
         assert_eq!(merge(&mut b, &alt.to_string()), (1, 1));
         let c = b.store.console("FF00FF00FF00").expect("console");
         assert_eq!(c.model, "PS4");

@@ -547,6 +547,18 @@ impl Machine {
         self.hw_h264 || self.hw_hevc || self.hw_av1
     }
 
+    /// Le décodeur matériel de chaque format que la session prend (H.264, HEVC, AV1) : VA-API, ou V4L2 sur le Pi
+    /// (H.264, HEVC ; pas d'AV1).
+    pub fn hw_decoders(&self) -> [bool; 3] {
+        let hw = self.vaapi || self.pi.is_some();
+        [self.hw_h264 && hw, self.hw_hevc && hw, self.hw_av1 && self.vaapi]
+    }
+
+    /// Le décodeur matériel à ouvrir (`kn_decoder_open`) : 1 VA-API, 2 V4L2 (Raspberry Pi sans VA-API).
+    pub fn hw_backend(&self) -> i32 {
+        if self.pi.is_some() && !self.vaapi { 2 } else { 1 }
+    }
+
     /// Le nom du décodeur matériel, pour les étiquettes : « carte graphique », « décodeur du Pi ».
     pub fn hw_name(&self) -> &'static str {
         if self.pi.is_some() { tr("décodeur du Pi", "Pi decoder") } else { tr("carte graphique", "graphics card") }

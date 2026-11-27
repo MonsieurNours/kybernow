@@ -106,6 +106,7 @@ pub fn retry() -> &'static str {
 
 /// « Le test n'a pas pu joindre {nom}. » (échec sans réponse du cœur : le pilote n'a pas pu lancer le test).
 #[cfg(any(test, not(feature = "device")))]
+#[cfg_attr(all(test, feature = "device"), allow(dead_code))]
 pub fn unreachable(name: &str) -> String {
     if crate::i18n::english() { format!("The test couldn't reach {name}.") } else { format!("Le test n'a pas pu joindre {name}.") }
 }

@@ -2584,6 +2584,7 @@ dependencies = [
  "keycode",
  "kybernow-core",
  "kybernow-rules",
+ "kyclient",
  "libc",
  "log",
  "mdns-sd 0.13.11",

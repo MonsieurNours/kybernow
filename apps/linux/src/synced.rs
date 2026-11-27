@@ -1,15 +1,18 @@
 //! Réglages synchronisés par le compte, côté interface (docs/comptes.md, « Réglages synchronisés et déplacer un
 //! ordinateur » ; ce que fait chaque app : apps/core/README.md, « Réglages synchronisés »). Sans le cœur : le pilote
-//! (`device/accounts.rs`) lit et envoie par `account::fetch_settings` et `put_settings`, et passe ici les valeurs déjà
-//! vérifiées par le cœur (`SyncedSettings::known`), dans le même JSON (`SyncKeys` ↔ `SyncedValues`).
+//! (`device/accounts.rs`) lit et envoie par `account::fetch_settings` et `put_settings`, et tient la mémoire des envois
+//! avec `account::AccountSync` du cœur (LINAPP-40) ; l'interface la garde dans le même JSON (`SyncMemory`, dans
+//! `kybernow.json`) et pose ici les valeurs reçues dans les réglages des ordinateurs (`apply`).
 //!
-//! - **Ce qui suit la personne** : le profil (`jeu`, `bureau`, `max` ; « Personnalisé » → `null`), le format vidéo
-//!   (`codec`), le texte net (`yuv444`), le débit (`mbps`, Mbit/s), le HDR (`hdr`) et le mode immersif (`immersive`).
-//! - **Envoyer** : à chaque réglage gardé (`Action::Save`), le pilote compare chaque ordinateur d'un compte à ce qui a
-//!   été lu, appliqué ou envoyé (`AccountsUi::sync_base`) et envoie seulement les clés changées ; un changement pas
-//!   encore reçu par le relais attend dans `Store::sync_pending`, renvoyé au rafraîchissement suivant.
+//! - **Ce qui suit la personne** : le profil (`jeu`, `bureau`, `max`, `auto` ; « Personnalisé » → `null`), le format
+//!   vidéo (`codec`), le texte net (`yuv444`), le débit (`mbps`, Mbit/s), le HDR (`hdr`) et le mode immersif
+//!   (`immersive`).
+//! - **Envoyer** : à chaque réglage gardé (`Action::Save`), `App::sync_changes` compare chaque ordinateur d'un compte à
+//!   ce qui a été lu, appliqué ou envoyé (`AccountsUi::sync_base`) et rend les clés changées (et toutes, pour un
+//!   premier envoi) ; le pilote les pose sur ce qui attend encore (`AccountSync::to_send`, `unsent`) et les envoie.
 //! - **Lire** : au lancement, à chaque rafraîchissement des comptes et juste avant une session ; ce qui est plus récent
-//!   que ce qui a déjà été appliqué (`SyncedEntry::applied`) passe dans les réglages de l'ordinateur, sans être renvoyé.
+//!   que ce qui a déjà été appliqué (`AccountSync::fetched`, une clé encore en attente gardant la valeur de
+//!   l'appareil) passe dans les réglages de l'ordinateur (`App::sync_apply`), sans être renvoyé.
 
 use std::collections::HashMap;
 
@@ -46,100 +49,70 @@ impl SyncKeys {
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
-
-    /// Les clés de `later` posées par-dessus celles-ci (un changement de plus avant l'envoi).
-    pub fn merge(&mut self, later: &SyncKeys) {
-        if later.profile.is_some() {
-            self.profile = later.profile.clone();
-        }
-        if later.codec.is_some() {
-            self.codec = later.codec.clone();
-        }
-        if later.yuv444.is_some() {
-            self.yuv444 = later.yuv444;
-        }
-        if later.mbps.is_some() {
-            self.mbps = later.mbps;
-        }
-        if later.hdr.is_some() {
-            self.hdr = later.hdr;
-        }
-        if later.immersive.is_some() {
-            self.immersive = later.immersive.clone();
-        }
-    }
-
-    /// Le relais a reçu `sent` : les clés qui n'ont pas changé depuis ne sont plus à envoyer.
-    pub fn remove_sent(&mut self, sent: &SyncKeys) {
-        if sent.profile.is_some() && self.profile == sent.profile {
-            self.profile = None;
-        }
-        if sent.codec.is_some() && self.codec == sent.codec {
-            self.codec = None;
-        }
-        if sent.yuv444.is_some() && self.yuv444 == sent.yuv444 {
-            self.yuv444 = None;
-        }
-        if sent.mbps.is_some() && self.mbps == sent.mbps {
-            self.mbps = None;
-        }
-        if sent.hdr.is_some() && self.hdr == sent.hdr {
-            self.hdr = None;
-        }
-        if sent.immersive.is_some() && self.immersive == sent.immersive {
-            self.immersive = None;
-        }
-    }
-
-    /// Une clé encore à envoyer n'est pas remplacée par ce qui arrive du relais.
-    fn without(&self, pending: Option<&SyncKeys>) -> SyncKeys {
-        let Some(p) = pending else { return self.clone() };
-        let mut k = self.clone();
-        if p.profile.is_some() {
-            k.profile = None;
-        }
-        if p.codec.is_some() {
-            k.codec = None;
-        }
-        if p.yuv444.is_some() {
-            k.yuv444 = None;
-        }
-        if p.mbps.is_some() {
-            k.mbps = None;
-        }
-        if p.hdr.is_some() {
-            k.hdr = None;
-        }
-        if p.immersive.is_some() {
-            k.immersive = None;
-        }
-        k
-    }
 }
 
-/// Les réglages d'un ordinateur gardés par le relais, pour un compte : tels qu'il les rend (`values`, clés inconnues
-/// comprises, la base de l'envoi suivant), et le dernier changement déjà appliqué ici.
+/// Les réglages d'un ordinateur tels que le relais les rend (`account::SyncedSettings` du cœur, même JSON) : clés
+/// inconnues comprises, la base de l'envoi suivant.
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct SyncedEntry {
-    /// La clé du compte (`KnAccount::key`).
-    pub account: String,
+pub struct SyncedRaw {
     /// La Station (26 lettres).
     pub station: String,
     /// Dernier changement chez le relais (secondes Unix, horloge du relais).
     pub updated_at: u64,
     pub values: Map<String, Value>,
-    /// `updated_at` déjà appliqué aux réglages de l'appareil (ou envoyé par lui).
+}
+
+/// La mémoire des réglages synchronisés d'un compte : le JSON de `account::AccountSync` du cœur, qui seul la change
+/// (le pilote) ; l'interface la garde dans `kybernow.json`.
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncMemory {
+    /// La dernière liste lue (ou envoyée).
+    pub list: Vec<SyncedRaw>,
+    /// Par Station : le `updated_at` déjà appliqué (ou envoyé) sur cet appareil.
+    pub applied: HashMap<String, u64>,
+    /// Par Station : les changements que le relais n'a pas reçus.
+    pub pending: HashMap<String, SyncKeys>,
+}
+
+/// La mémoire d'un compte (`KnAccount::key`).
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AccountMemory {
+    pub account: String,
+    #[serde(flatten)]
+    pub memory: SyncMemory,
+}
+
+/// La mémoire d'avant la 0.11.8 (`synced`, `sync_pending` de `kybernow.json`), lue une fois et reprise dans
+/// `SyncMemory` (`Store::adopt_legacy_sync`).
+#[derive(Clone, Debug, PartialEq, Default, Deserialize)]
+#[serde(default)]
+pub struct LegacySynced {
+    pub account: String,
+    pub station: String,
+    pub updated_at: u64,
+    pub values: Map<String, Value>,
     pub applied: u64,
 }
 
-/// Un changement pas encore reçu par le relais (relais muet) : renvoyé au rafraîchissement suivant.
-#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Default, Deserialize)]
 #[serde(default)]
-pub struct PendingSync {
+pub struct LegacyPending {
     pub account: String,
     pub station: String,
     pub keys: SyncKeys,
+}
+
+/// Un changement à envoyer : les clés changées (`keys`), et toutes (`full`) pour un ordinateur que le relais n'a
+/// jamais reçu (`AccountSync::to_send` choisit).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Change {
+    pub account: String,
+    pub station: String,
+    pub keys: SyncKeys,
+    pub full: SyncKeys,
 }
 
 /// Ce que l'app compare d'un réglage gardé à l'autre pour savoir quoi envoyer.
@@ -263,26 +236,6 @@ pub fn apply(s: &mut HostSettings, k: &SyncKeys, m: &Machine) -> bool {
     *s != before
 }
 
-/// Un envoi à faire : les clés en attente pour cet ordinateur, posées par le pilote sur les dernières valeurs lues.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Push {
-    pub account: String,
-    pub station: String,
-    pub keys: SyncKeys,
-    /// Les dernières valeurs lues ou envoyées (`None` : aucune).
-    pub last: Option<SyncedEntry>,
-}
-
-/// Un ordinateur tel que le relais le rend, déjà lu par le cœur.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Fetched {
-    pub station: String,
-    pub updated_at: u64,
-    pub values: Map<String, Value>,
-    /// `SyncedSettings::known` : les clés que cet appareil sait lire.
-    pub known: SyncKeys,
-}
-
 impl Store {
     /// Le compte et la Station par lesquels un ordinateur de l'accueil se synchronise : un ordinateur d'un compte, ou
     /// un ordinateur appairé dont la Station est aussi dans un compte (`merge` du cœur : même Station).
@@ -299,60 +252,40 @@ impl Store {
         self.hosts.iter().filter(|h| self.sync_target(&h.id).is_some_and(|(a, s)| a == account && s == station)).map(|h| h.id.clone()).collect()
     }
 
-    pub fn synced(&self, account: &str, station: &str) -> Option<&SyncedEntry> {
-        self.synced.iter().find(|e| e.account == account && e.station == station)
+    /// La mémoire des réglages synchronisés d'un compte (vide s'il n'en a pas encore).
+    pub fn sync_memory(&self, account: &str) -> SyncMemory {
+        self.account_sync.iter().find(|m| m.account == account).map(|m| m.memory.clone()).unwrap_or_default()
     }
 
-    fn synced_mut(&mut self, account: &str, station: &str) -> &mut SyncedEntry {
-        if let Some(i) = self.synced.iter().position(|e| e.account == account && e.station == station) {
-            return &mut self.synced[i];
+    /// Remplace la mémoire d'un compte (vide : retirée).
+    pub fn set_sync_memory(&mut self, account: &str, memory: SyncMemory) {
+        self.account_sync.retain(|m| m.account != account);
+        if memory != SyncMemory::default() {
+            self.account_sync.push(AccountMemory { account: account.to_string(), memory });
         }
-        self.synced.push(SyncedEntry { account: account.into(), station: station.into(), ..Default::default() });
-        self.synced.last_mut().unwrap()
-    }
-
-    pub fn pending(&self, account: &str, station: &str) -> Option<&SyncKeys> {
-        self.sync_pending.iter().find(|p| p.account == account && p.station == station).map(|p| &p.keys)
-    }
-
-    /// Les envois en attente d'un compte (au rafraîchissement, avant de lire).
-    pub fn pushes(&self, account: &str) -> Vec<Push> {
-        self.sync_pending
-            .iter()
-            .filter(|p| p.account == account && !p.keys.is_empty())
-            .map(|p| Push { account: p.account.clone(), station: p.station.clone(), keys: p.keys.clone(), last: self.synced(&p.account, &p.station).cloned() })
-            .collect()
-    }
-
-    /// Le relais a reçu `sent` pour cet ordinateur et rend ses valeurs (`updated_at`, `values`) : elles remplacent les
-    /// précédentes et comptent comme appliquées ; les clés envoyées ne sont plus en attente.
-    pub fn sync_sent(&mut self, account: &str, station: &str, sent: &SyncKeys, updated_at: u64, values: Map<String, Value>) {
-        let e = self.synced_mut(account, station);
-        e.updated_at = updated_at;
-        e.applied = e.applied.max(updated_at);
-        e.values = values;
-        self.drop_sent(account, station, sent);
-    }
-
-    /// Les clés envoyées ne sont plus en attente (reçues, ou refusées pour de bon).
-    pub fn drop_sent(&mut self, account: &str, station: &str, sent: &SyncKeys) {
-        if let Some(p) = self.sync_pending.iter_mut().find(|p| p.account == account && p.station == station) {
-            p.keys.remove_sent(sent);
-        }
-        self.sync_pending.retain(|p| !p.keys.is_empty());
-    }
-
-    /// L'ordinateur n'est plus au compte (ou plus ouvert à lui) : ses réglages gardés et ses envois en attente sont
-    /// oubliés ; ses réglages locaux restent.
-    pub fn sync_forget(&mut self, account: &str, station: &str) {
-        self.synced.retain(|e| !(e.account == account && e.station == station));
-        self.sync_pending.retain(|p| !(p.account == account && p.station == station));
     }
 
     /// Un compte oublié : ce qu'il gardait pour la synchronisation aussi.
     pub fn sync_forget_account(&mut self, account: &str) {
-        self.synced.retain(|e| e.account != account);
-        self.sync_pending.retain(|p| p.account != account);
+        self.account_sync.retain(|m| m.account != account);
+    }
+
+    /// La mémoire d'avant la 0.11.8 reprise dans celle du cœur (une fois, au chargement) : rien d'appliqué n'est
+    /// réappliqué, rien d'attendu n'est perdu.
+    pub fn adopt_legacy_sync(&mut self) {
+        let (synced, pending) = (std::mem::take(&mut self.legacy_synced), std::mem::take(&mut self.legacy_sync_pending));
+        for e in synced {
+            let mut m = self.sync_memory(&e.account);
+            m.list.retain(|r| r.station != e.station);
+            m.list.push(SyncedRaw { station: e.station.clone(), updated_at: e.updated_at, values: e.values });
+            m.applied.insert(e.station, e.applied);
+            self.set_sync_memory(&e.account, m);
+        }
+        for p in pending.into_iter().filter(|p| !p.keys.is_empty()) {
+            let mut m = self.sync_memory(&p.account);
+            m.pending.insert(p.station, p.keys);
+            self.set_sync_memory(&p.account, m);
+        }
     }
 }
 
@@ -367,12 +300,13 @@ impl App {
         self.accounts.sync_base = self.store.hosts.iter().map(|h| (h.id.clone(), Tracked::of(&h.settings))).collect();
     }
 
-    /// Après un réglage gardé : les clés changées de chaque ordinateur d'un compte, ajoutées aux envois en attente ;
-    /// rend les envois à faire. Interrupteur coupé : la base suit, rien ne part. `auto_mbps` : le débit du profil au
-    /// mode de la session (Mbit/s), pour un réglage personnalisé dont le débit est « Auto ».
-    pub fn sync_changes(&mut self, auto_mbps: &dyn Fn(&App, &Host) -> u32) -> Vec<Push> {
+    /// Après un réglage gardé : les clés changées de chaque ordinateur d'un compte (et toutes, pour un premier envoi),
+    /// à poser sur ce qui attend encore (le pilote, `AccountSync::to_send`). Interrupteur coupé : la base suit, rien ne
+    /// part. `auto_mbps` : le débit du profil au mode de la session (Mbit/s), pour un réglage personnalisé dont le
+    /// débit est « Auto ».
+    pub fn sync_changes(&mut self, auto_mbps: &dyn Fn(&App, &Host) -> u32) -> Vec<Change> {
         let on = self.sync_on();
-        let mut changes: Vec<(String, String, SyncKeys)> = Vec::new();
+        let mut changes: Vec<Change> = Vec::new();
         let mut base: HashMap<String, Tracked> = HashMap::new();
         for h in &self.store.hosts {
             let now = Tracked::of(&h.settings);
@@ -385,69 +319,30 @@ impl App {
                 let codec = if h.settings.codec == "auto" { self.codec_for(h).to_string() } else { h.settings.codec.clone() };
                 let mbps = if h.settings.mbps == 0 { auto_mbps(self, h) } else { h.settings.mbps };
                 let e = Effective { codec, mbps };
-                // Rien au relais pour cet ordinateur (ni lu, ni en attente) : tout, la première fois.
-                let first = self.store.synced(&account, &station).is_none() && self.store.pending(&account, &station).is_none();
-                let keys = if first { full_keys(&now, &e) } else { changed_keys(old, &now, &e) };
+                let keys = changed_keys(old, &now, &e);
                 if !keys.is_empty() {
-                    changes.push((account, station, keys));
+                    changes.push(Change { account, station, keys, full: full_keys(&now, &e) });
                 }
             }
             base.insert(h.id.clone(), now);
         }
         self.accounts.sync_base = base;
-        let mut stations: Vec<(String, String)> = Vec::new();
-        for (account, station, keys) in changes {
-            match self.store.sync_pending.iter_mut().find(|p| p.account == account && p.station == station) {
-                Some(p) => p.keys.merge(&keys),
-                None => self.store.sync_pending.push(PendingSync { account: account.clone(), station: station.clone(), keys }),
-            }
-            if !stations.contains(&(account.clone(), station.clone())) {
-                stations.push((account, station));
-            }
-        }
-        stations
-            .into_iter()
-            .filter_map(|(a, s)| {
-                let keys = self.store.pending(&a, &s)?.clone();
-                Some(Push { last: self.store.synced(&a, &s).cloned(), account: a, station: s, keys })
-            })
-            .collect()
+        changes
     }
 
-    /// Les réglages lus pour un compte : ceux qui sont plus récents que ce qui a déjà été appliqué passent dans les
-    /// réglages des ordinateurs (sans être renvoyés : la base suit) ; une clé encore en attente d'envoi reste celle de
-    /// l'appareil. Un ordinateur absent de la liste perd ses réglages gardés. Rend vrai si le magasin a changé.
-    pub fn sync_fetched(&mut self, account: &str, list: Vec<Fetched>) -> bool {
-        if self.store.account(account).is_none() {
-            return false;
-        }
+    /// Les valeurs reçues pour un ordinateur d'un compte (plus récentes que ce qui était appliqué, sans les clés encore
+    /// en attente d'envoi : `AccountSync::fetched` du pilote) posées dans les réglages des ordinateurs de l'accueil qui
+    /// le suivent, sans être renvoyées (la base suit). Rend vrai si un réglage a changé.
+    pub fn sync_apply(&mut self, account: &str, station: &str, keys: &SyncKeys) -> bool {
         let mut changed = false;
-        let before = self.store.synced.len();
-        self.store.synced.retain(|e| e.account != account || list.iter().any(|f| f.station == e.station));
-        changed |= before != self.store.synced.len();
-        for f in list {
-            let applied = self.store.synced(account, &f.station).map_or(0, |e| e.applied);
-            let fresh = f.updated_at > applied;
-            let keys = f.known.without(self.store.pending(account, &f.station));
-            let e = self.store.synced_mut(account, &f.station);
-            if e.updated_at != f.updated_at || e.values != f.values {
-                changed = true;
-            }
-            e.updated_at = f.updated_at;
-            e.values = f.values;
-            if !fresh {
-                continue;
-            }
-            e.applied = f.updated_at;
-            changed = true;
-            for id in self.store.sync_hosts(account, &f.station) {
-                let machine = &self.machine;
-                if let Some(h) = self.store.hosts.iter_mut().find(|h| h.id == id) {
-                    if apply(&mut h.settings, &keys, machine) {
-                        log::info!("comptes : réglages de {} reçus ({})", h.name, f.station);
-                    }
-                    self.accounts.sync_base.insert(id.clone(), Tracked::of(&h.settings));
+        for id in self.store.sync_hosts(account, station) {
+            let machine = &self.machine;
+            if let Some(h) = self.store.hosts.iter_mut().find(|h| h.id == id) {
+                if apply(&mut h.settings, keys, machine) {
+                    log::info!("comptes : réglages de {} reçus ({station})", h.name);
+                    changed = true;
                 }
+                self.accounts.sync_base.insert(id.clone(), Tracked::of(&h.settings));
             }
         }
         changed
@@ -542,30 +437,24 @@ mod tests {
     }
 
     #[test]
-    fn envoi_a_la_premiere_fois_tout_puis_les_cles_changees() {
+    fn changements_rendus_au_pilote() {
         let mut app = app();
-        let k = key(&app);
         // Un réglage hors synchronisation : rien.
         app.store.hosts[0].settings.audio = "stereo".into();
         assert!(app.sync_changes(&auto).is_empty());
-        // Rien au relais : tout.
+        // Le HDR : la clé changée, et toutes pour un premier envoi (`AccountSync::to_send` choisit).
         app.store.hosts[0].settings.hdr = false;
-        let p = app.sync_changes(&auto);
-        assert_eq!(p.len(), 1);
-        assert_eq!(p[0].keys, SyncKeys { profile: Some(Some("jeu".into())), hdr: Some(false), immersive: Some("fullscreen".into()), ..Default::default() });
-        assert!(p[0].last.is_none());
-        // Reçu : plus rien en attente ; ensuite, seulement les clés changées.
-        app.store.sync_sent(&k, STATION, &p[0].keys, 100, Map::new());
-        assert!(app.store.sync_pending.is_empty());
-        app.store.hosts[0].settings.immersive = "always".into();
-        let p = app.sync_changes(&auto);
-        assert_eq!(p[0].keys, SyncKeys { immersive: Some("always".into()), ..Default::default() });
-        assert_eq!(p[0].last.as_ref().map(|l| l.updated_at), Some(100));
-        // Relais muet : le changement attend, le suivant s'y ajoute.
+        let c = app.sync_changes(&auto);
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].keys, SyncKeys { hdr: Some(false), ..Default::default() });
+        assert_eq!(c[0].full, SyncKeys { profile: Some(Some("jeu".into())), hdr: Some(false), immersive: Some("fullscreen".into()), ..Default::default() });
+        assert_eq!(c[0].station, STATION);
+        // La base suit : rien de plus sans nouveau changement.
+        assert!(app.sync_changes(&auto).is_empty());
+        // Personnalisé : profil nul, format, 4:4:4 et débit réels.
         app.store.hosts[0].settings.mbps = 80;
-        let p = app.sync_changes(&auto);
-        assert_eq!(p[0].keys, SyncKeys { profile: Some(None), codec: Some("hevc".into()), yuv444: Some(false), mbps: Some(80), immersive: Some("always".into()), ..Default::default() });
-        assert_eq!(app.store.pushes(&k).len(), 1);
+        let c = app.sync_changes(&auto);
+        assert_eq!(c[0].keys, SyncKeys { profile: Some(None), codec: Some("hevc".into()), yuv444: Some(false), mbps: Some(80), ..Default::default() });
     }
 
     #[test]
@@ -580,37 +469,39 @@ mod tests {
     }
 
     #[test]
-    fn lecture_applique_le_plus_recent_sans_renvoyer() {
+    fn valeurs_recues_appliquees_sans_renvoyer() {
         let mut app = app();
         let k = key(&app);
         let known = SyncKeys { profile: Some(Some("max".into())), hdr: Some(false), immersive: Some("never".into()), ..Default::default() };
-        let f = Fetched { station: STATION.into(), updated_at: 200, values: Map::new(), known: known.clone() };
-        assert!(app.sync_fetched(&k, vec![f.clone()]));
+        assert!(app.sync_apply(&k, STATION, &known));
         let s = &app.store.hosts[0].settings;
         assert_eq!((s.profile, s.hdr, s.immersive.as_str()), (Profile::Max, false, "never"));
         // Pas renvoyé.
         assert!(app.sync_changes(&auto).is_empty());
-        // Déjà appliqué : un changement local reste.
-        app.store.hosts[0].settings.hdr = true;
-        app.sync_baseline();
-        app.sync_fetched(&k, vec![f]);
-        assert!(app.store.hosts[0].settings.hdr);
-        // Absent de la liste : oublié.
-        app.sync_fetched(&k, Vec::new());
-        assert!(app.store.synced(&k, STATION).is_none());
+        // Une autre Station : rien.
+        assert!(!app.sync_apply(&k, "zyxwvutsrqponmlkjihgfedcba", &known));
     }
 
     #[test]
-    fn une_cle_en_attente_reste_celle_de_l_appareil() {
+    fn memoire_d_avant_reprise() {
         let mut app = app();
         let k = key(&app);
-        app.store.sync_pending.push(PendingSync { account: k.clone(), station: STATION.into(), keys: SyncKeys { hdr: Some(false), ..Default::default() } });
-        app.store.hosts[0].settings.hdr = false;
-        app.sync_baseline();
-        let f = Fetched { station: STATION.into(), updated_at: 300, values: Map::new(), known: SyncKeys { hdr: Some(true), immersive: Some("always".into()), ..Default::default() } };
-        app.sync_fetched(&k, vec![f]);
-        let s = &app.store.hosts[0].settings;
-        assert_eq!((s.hdr, s.immersive.as_str()), (false, "always"));
+        let old = format!(r#"{{"synced":[{{"account":"{k}","station":"{STATION}","updated_at":100,"values":{{"hdr":true,"x":1}},"applied":90}}],"sync_pending":[{{"account":"{k}","station":"{STATION}","keys":{{"immersive":"never"}}}}]}}"#);
+        let mut store: Store = serde_json::from_str(&old).unwrap();
+        store.adopt_legacy_sync();
+        let m = store.sync_memory(&k);
+        assert_eq!(m.list, vec![SyncedRaw { station: STATION.into(), updated_at: 100, values: serde_json::from_str(r#"{"hdr":true,"x":1}"#).unwrap() }]);
+        assert_eq!(m.applied.get(STATION), Some(&90));
+        assert_eq!(m.pending.get(STATION), Some(&SyncKeys { immersive: Some("never".into()), ..Default::default() }));
+        // Écrite sous la forme d'`AccountSync` du cœur, sans les anciens champs.
+        let json = serde_json::to_value(&store).unwrap();
+        assert!(json.get("synced").is_none() && json.get("sync_pending").is_none());
+        assert_eq!(json["account_sync"][0]["pending"][STATION]["immersive"], "never");
+        assert_eq!(json["account_sync"][0]["applied"][STATION], 90);
+        // Vide : retirée.
+        store.set_sync_memory(&k, SyncMemory::default());
+        assert!(store.account_sync.is_empty());
+        app.store.sync_forget_account(&k);
     }
 
     #[test]

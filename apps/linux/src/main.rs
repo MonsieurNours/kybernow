@@ -16,6 +16,8 @@ mod micro;
 mod model;
 // Les captures (`--preview`) et leurs essais : pas dans l'app livrée (LINAPP-39).
 #[cfg(any(test, not(feature = "device")))]
+// Avec l'app (`device`), seuls ses essais servent : les captures ne se lancent pas.
+#[cfg_attr(all(test, feature = "device"), allow(dead_code))]
 mod preview;
 mod ps;
 mod pyrowave;
