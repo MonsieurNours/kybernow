@@ -88,7 +88,8 @@ impl Role {
         }
     }
 
-    /// Le rôle de ces deux droits, donnés ou repris l'un sans l'autre.
+    /// Le rôle de ces deux droits, donnés ou repris l'un sans l'autre (essais).
+    #[cfg(test)]
     pub fn from_rights(gamepads: bool, keyboard_mouse: bool) -> Role {
         match (gamepads, keyboard_mouse) {
             (false, false) => Role::Spectator,
