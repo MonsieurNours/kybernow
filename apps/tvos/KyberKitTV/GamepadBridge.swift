@@ -572,6 +572,7 @@ public final class GamepadBridge: ObservableObject {
     }
 
     private func appBack() {
+        for slot in slots.values { slot.motors?.resume() }
         guard inBackground else { return }
         inBackground = false
         KyberLog.app.notice("app au premier plan")
@@ -777,12 +778,14 @@ public final class GamepadBridge: ObservableObject {
         pad.leftThumbstick.valueChangedHandler = { [weak self, weak slot] _, x, y in
             guard let self, let slot else { return }
             slot.live.leftStick = CGPoint(x: CGFloat(x), y: CGFloat(y))
+            self.wakeMouse()
             self.axis(slot, .leftX, Self.stick(x))
             self.axis(slot, .leftY, Self.stick(-y))
         }
         pad.rightThumbstick.valueChangedHandler = { [weak self, weak slot] _, x, y in
             guard let self, let slot else { return }
             slot.live.rightStick = CGPoint(x: CGFloat(x), y: CGFloat(y))
+            self.wakeMouse()
             self.axis(slot, .rightX, Self.stick(x))
             self.axis(slot, .rightY, Self.stick(-y))
         }
@@ -1015,10 +1018,12 @@ public final class GamepadBridge: ObservableObject {
             guard let slot = self.slots[Self.screenKey] else { return }
             if right {
                 slot.live.rightStick = CGPoint(x: CGFloat(x), y: CGFloat(y))
+                self.wakeMouse()
                 self.axis(slot, .rightX, Self.stick(x))
                 self.axis(slot, .rightY, Self.stick(-y))
             } else {
                 slot.live.leftStick = CGPoint(x: CGFloat(x), y: CGFloat(y))
+                self.wakeMouse()
                 self.axis(slot, .leftX, Self.stick(x))
                 self.axis(slot, .leftY, Self.stick(-y))
             }
@@ -1222,8 +1227,11 @@ public final class GamepadBridge: ObservableObject {
         input.releaseAll()
     }
 
+    /// Armée seulement quand un stick sort de sa zone morte (`wakeMouse`), et
+    /// arrêtée quand ils reviennent au repos : avant, 120 réveils par seconde
+    /// toute la session en profil Bureau, sticks au repos ou menu ouvert.
     private func updateMouseTimer() {
-        guard config.padMouse, input != nil else {
+        guard config.padMouse, input != nil, sticksMoving else {
             stopMouseTimer()
             return
         }
@@ -1233,6 +1241,20 @@ public final class GamepadBridge: ObservableObject {
         timer.setEventHandler { [weak self] in self?.mouseTick() }
         timer.resume()
         mouseTimer = timer
+    }
+
+    /// Un stick a bougé : la minuterie de la manette en souris repart si besoin.
+    private func wakeMouse() {
+        guard config.padMouse, mouseTimer == nil, input != nil, sticksMoving else { return }
+        updateMouseTimer()
+    }
+
+    /// Un stick hors de sa zone morte (mêmes seuils que `mouseTick`).
+    private var sticksMoving: Bool {
+        slots.values.contains { slot in
+            let l = slot.live.leftStick, r = slot.live.rightStick
+            return hypot(l.x, l.y) > 0.12 || abs(r.x) > 0.15 || abs(r.y) > 0.15
+        }
     }
 
     private func stopMouseTimer() {
@@ -1273,6 +1295,8 @@ public final class GamepadBridge: ObservableObject {
             input.wheel(dx: Float(wheelRest.x), dy: Float(wheelRest.y))
             wheelRest = (0, 0)
         }
+        // Sticks revenus au repos : plus de réveil jusqu'au prochain mouvement.
+        if !sticksMoving { stopMouseTimer() }
     }
 
     /// Courbe d'accélération du pointeur (manette et Siri Remote) : lent près
@@ -1674,6 +1698,15 @@ final class Motors {
     }
 
     /// Fin de session ou manette débranchée : vibration et moteur arrêtés.
+    /// Retour de l'app au premier plan : une vibration encore demandée reprend
+    /// sur un moteur arrêté par le système entre-temps.
+    func resume() {
+        queue.async {
+            self.large?.resume()
+            self.small?.resume()
+        }
+    }
+
     func stop() {
         queue.async {
             self.expiry?.cancel()
@@ -1730,6 +1763,24 @@ final class Motors {
             configure(engine)
         }
 
+        /// Les arrêts après lesquels le moteur repart tout de suite ; les autres
+        /// (app suspendue, son interrompu, veille, manette partie, fin voulue)
+        /// attendent le retour de l'app ou la vibration suivante.
+        static func restartsAtOnce(_ reason: CHHapticEngine.StoppedReason) -> Bool {
+            switch reason {
+            case .systemError: true
+            case .audioSessionInterrupt, .applicationSuspended, .idleTimeout, .notifyWhenFinished,
+                 .engineDestroyed, .gameControllerDisconnect: false
+            @unknown default: false
+            }
+        }
+
+        /// Au retour de l'app : une vibration encore demandée reprend.
+        func resume() {
+            guard level > 0, !running else { return }
+            set(level)
+        }
+
         private func configure(_ engine: CHHapticEngine) {
             engine.isAutoShutdownEnabled = false
             engine.playsHapticsOnly = true
@@ -1737,10 +1788,16 @@ final class Motors {
             engine.stoppedHandler = { [weak self] reason in
                 guard let self else { return }
                 queue.async {
+                    // Plus de relance des motifs courts sur un moteur arrêté.
+                    self.generation += 1
                     self.running = false
                     self.player = nil
                     self.playing = false
                     KyberLog.app.notice("vibrations de \(self.label, privacy: .public) : moteur arrêté par le système (\(reason.rawValue))")
+                    // Panne du serveur haptique : la vibration en cours reprend
+                    // tout de suite. App suspendue, son interrompu (Siri), veille :
+                    // elle reprend au retour de l'app (`Motors.resume`).
+                    if Self.restartsAtOnce(reason), self.level > 0 { self.set(self.level) }
                 }
             }
             // Serveur haptique relancé : les lecteurs ne valent plus rien ; la
@@ -1860,7 +1917,22 @@ final class Motors {
             }
         }
 
+        /// Motifs courts déjà faits, par palier de 10 % : avant, un motif neuf
+        /// toutes les 0,26 s, même à intensité constante.
+        private var chunkPatterns: [Int: CHHapticPattern] = [:]
+
         private func pattern(intensity: Float) throws -> CHHapticPatternPlayer {
+            if !advanced {
+                let step = max(1, min(10, Int((intensity * 10).rounded())))
+                if let cached = chunkPatterns[step] { return try engine.makePlayer(with: cached) }
+                let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
+                    CHHapticEventParameter(parameterID: .hapticIntensity, value: Float(step) / 10),
+                    CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
+                ], relativeTime: 0, duration: Self.chunk)
+                let made = try CHHapticPattern(events: [event], parameters: [])
+                chunkPatterns[step] = made
+                return try engine.makePlayer(with: made)
+            }
             let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
                 CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
                 CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),

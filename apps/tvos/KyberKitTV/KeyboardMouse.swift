@@ -124,8 +124,6 @@ final class KeyboardMouse {
         // iPad seulement : l'iPhone n'a pas de pointeur système, la souris n'y
         // passe que par GameController.
         let systemPointer = UIDevice.current.userInterfaceIdiom == .pad
-        #else
-        let systemPointer = false
         #endif
         m.mouseMovedHandler = { [weak self] _, dx, dy in
             guard let self, let input = self.input else { return }
@@ -140,7 +138,9 @@ final class KeyboardMouse {
             // iPad : hors souris des jeux, le pointeur d'iPadOS sert déjà
             // (survol de la vue, en absolu) ; ses deltas bruts en plus
             // faisaient sauter le curseur entre deux positions.
+            #if os(iOS)
             if systemPointer, !input.isRelative { return }
+            #endif
             if !input.isRelative, let pointer = self.pointer {
                 pointer.move(dx: Double(dx), dy: Double(-dy))
                 return
@@ -156,7 +156,12 @@ final class KeyboardMouse {
         }
         // iPad : la molette arrive déjà par UIKit (défilement de la vue de
         // session) ; la lire ici aussi la faisait défiler deux fois.
-        m.scroll.valueChangedHandler = systemPointer ? nil : { [weak self] _, x, y in self?.scrolled(first: x, second: y) }
+        let wheel: GCControllerDirectionPadValueChangedHandler = { [weak self] _, x, y in self?.scrolled(first: x, second: y) }
+        #if os(iOS)
+        m.scroll.valueChangedHandler = systemPointer ? nil : wheel
+        #else
+        m.scroll.valueChangedHandler = wheel
+        #endif
     }
 
     /// Molette de GameController : premier axe vertical (positif = vers le
