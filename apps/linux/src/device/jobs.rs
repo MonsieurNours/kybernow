@@ -363,7 +363,7 @@ pub fn pair(targets: Vec<Target>, code: String, device: DeviceInfo, cancel: Arc<
                     }
                     Ok(PairStatus::Expired) => {
                         pending.remove(i);
-                        let _ = tx.send(Event::PairFailed(crate::i18n::tr("Code expiré : recommencez", "Code expired: try again").into()));
+                        let _ = tx.send(Event::PairFailed(crate::i18n::tr("Code expiré : recommencez", "Code expired: try again").into()));
                         continue;
                     }
                     _ => {}
@@ -550,13 +550,13 @@ pub fn download_os(tx: Sender<Event>) {
 /// (même dossier de la release), déposés dans `dir` pour root.
 fn os_manifest(image_url: &str, dir: &std::path::Path) -> Result<(), String> {
     use std::io::Read;
-    let base = image_url.rsplit_once('/').map(|(b, _)| b).ok_or_else(|| format!("adresse inattendue : {image_url}"))?;
+    let base = image_url.rsplit_once('/').map(|(b, _)| b).ok_or_else(|| format!("adresse inattendue : {image_url}"))?;
     for (name, limit) in [(OS_MANIFEST, 256u64 << 10), (OS_SIGNATURE, 16 << 10)] {
         let url = format!("{base}/{name}");
-        let resp = ureq::get(&url).call().map_err(|e| format!("{name} : {e}"))?;
+        let resp = ureq::get(&url).call().map_err(|e| format!("{name} : {e}"))?;
         let mut buf = Vec::new();
-        resp.into_reader().take(limit).read_to_end(&mut buf).map_err(|e| format!("{name} : {e}"))?;
-        std::fs::write(dir.join(name), &buf).map_err(|e| format!("{} : {e}", dir.join(name).display()))?;
+        resp.into_reader().take(limit).read_to_end(&mut buf).map_err(|e| format!("{name} : {e}"))?;
+        std::fs::write(dir.join(name), &buf).map_err(|e| format!("{} : {e}", dir.join(name).display()))?;
     }
     Ok(())
 }

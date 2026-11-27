@@ -77,9 +77,9 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let gy = h - 40.0;
     let mut lx2 = x0;
     lx2 += legend(cv, lx2, gy, 34.0, &["A"], tr("Choisir", "Choose")) + 40.0;
-    legend(cv, lx2, gy, 34.0, &["B"], tr("Retour à l'accueil", "Back to home"));
+    legend(cv, lx2, gy, 34.0, &["B"], tr("Revenir à l'accueil", "Back to home"));
     let other = if app.store.app.interface == "desktop" { tr("passer au Salon", "switch to Living room") } else { tr("passer au Bureau", "switch to Desktop") };
-    let label = format!("{} : {other}", tr("Tenu 3 s", "Held 3 s"));
+    let label = format!("{} : {other}", tr("Tenu 3 s", "Held 3 s"));
     let lw = widgets::legend_width(cv, 34.0, &["☰"], &label);
     legend(cv, w - 96.0 - lw, gy, 34.0, &["☰"], &label);
     // Se déconnecter d'un compte (Comptes) : la confirmation par-dessus.
@@ -150,14 +150,14 @@ fn nav_value(app: &App, s: Section) -> (String, Rgba) {
 fn description(app: &App, s: Section) -> String {
     let _ = app;
     match s {
-        Section::OsUsage => tr("Comment ce Raspberry Pi sert : au salon, Link prend l'interface à trois mètres et tout se fait à la manette ; au bureau, la fenêtre de Link remplit l'écran, au clavier et à la souris.", "What this Raspberry Pi is for: in the living room, Link takes the ten-foot interface and everything is done with the controller; at the desk, Link's window fills the screen, with keyboard and mouse.").into(),
-        Section::OsNetwork => tr("Ethernet dès qu'un câble est branché ; sinon le Wi-Fi. L'ordinateur doit être sur le même réseau.", "Ethernet as soon as a cable is plugged in; Wi-Fi otherwise. The computer must be on the same network.").into(),
+        Section::OsUsage => tr("Comment ce Raspberry Pi sert : au salon, Link prend l'interface à trois mètres et tout se fait à la manette ; au bureau, la fenêtre de Link remplit l'écran, au clavier et à la souris.", "What this Raspberry Pi is for: in the living room, Link takes the ten-foot interface and everything is done with the controller; at the desk, Link's window fills the screen, with keyboard and mouse.").into(),
+        Section::OsNetwork => tr("Ethernet dès qu'un câble est branché ; sinon le Wi-Fi. L'ordinateur doit être sur le même réseau.", "Ethernet as soon as a cable is plugged in; Wi-Fi otherwise. The computer must be on the same network.").into(),
         Section::OsControllers => tr("Jusqu'à quatre manettes, en USB ou en Bluetooth. Le bouton Guide ou PS réveille l'appareil en veille.", "Up to four controllers, over USB or Bluetooth. The Guide or PS button wakes the device from standby.").into(),
-        Section::OsScreen => tr("La sortie HDMI du Pi : 4K à 60 Hz au plus, 1080p à 120 Hz si le téléviseur l'annonce, pas de fréquence variable.", "The Pi's HDMI output: 4K at 60 Hz at most, 1080p at 120 Hz when the TV announces it, no variable refresh.").into(),
+        Section::OsScreen => tr("La sortie HDMI du Pi : 4K à 60 Hz au plus, 1080p à 120 Hz si le téléviseur l'annonce, pas de fréquence variable.", "The Pi's HDMI output: 4K at 60 Hz at most, 1080p at 120 Hz when the TV announces it, no variable refresh.").into(),
         Section::OsSound => tr("Le son sort par HDMI, en stéréo ou en PCM 5.1 / 7.1 selon ce que l'ordinateur envoie et ce que le téléviseur ou l'ampli accepte.", "Sound goes out over HDMI, in stereo or PCM 5.1 / 7.1 depending on what the computer sends and what the TV or amplifier accepts.").into(),
-        Section::OsUpdate => tr("KyberNow Link OS se met à jour en entier : la nouvelle version s'installe à côté de l'actuelle, l'appareil l'essaie au redémarrage et revient en arrière tout seul si elle ne démarre pas. Vos ordinateurs et réglages restent.", "KyberNow Link OS updates as a whole: the new version installs next to the current one, the device tries it at reboot and rolls back by itself if it does not boot. Your computers and settings stay.").into(),
+        Section::OsUpdate => tr("KyberNow Link OS se met à jour en entier : la nouvelle version s'installe à côté de l'actuelle, l'appareil l'essaie au redémarrage et revient en arrière tout seul si elle ne démarre pas. Vos ordinateurs et réglages restent.", "KyberNow Link OS updates as a whole: the new version installs next to the current one, the device tries it at reboot and rolls back by itself if it does not boot. Your computers and settings stay.").into(),
         Section::OsLanguage => tr("La langue des écrans de Link et de l'OS.", "The language of Link's and the OS's screens.").into(),
-        Section::OsAdvanced => tr("Pour qui veut mettre les mains dedans : l'accès SSH, le redémarrage, l'arrêt.", "For those who want to get their hands in: SSH access, restart, shutdown.").into(),
+        Section::OsAdvanced => tr("Pour qui veut mettre les mains dedans : l'accès SSH, le redémarrage, l'arrêt.", "For those who want to get their hands in: SSH access, restart, shutdown.").into(),
         Section::Accounts => crate::accounts::accounts_help().into(),
         _ => String::new(),
     }
@@ -179,13 +179,13 @@ fn update_panel(app: &App, cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f3
         (UpdateState::Available { version, size, .. }, _, Some(_)) => (tr("Prête à essayer", "Ready to try"), version.clone(), format!("{} ({}) · {}\n{}", tr("Téléchargée", "Downloaded"), mb(*size), tr("vérifiée, signée", "checked, signed"), tr("Essayée au redémarrage, retour automatique sinon", "Tried at restart, automatic rollback otherwise")), true),
         (UpdateState::Available { version, size, .. }, None, None) => (tr("Publiée", "Published"), version.clone(), format!("{} {} · {}", mb(*size), tr("à télécharger", "to download"), tr("signée KyberNow", "signed by KyberNow")), true),
         _ if !o.other_version.is_empty() => (tr("Autre emplacement", "Other slot"), o.other_version.clone(), format!("{} {}", tr("Version précédente, emplacement", "Previous version, slot"), o.other), false),
-        _ => (tr("Rien de nouveau", "Nothing new"), "—".into(), format!("{} {}", tr("Dernière vérification :", "Last check:"), match &app.update { UpdateState::Checking => tr("en cours…", "in progress…").to_string(), UpdateState::Failed(e) => e.clone(), _ => tr("à l'instant", "just now").to_string() }), false),
+        _ => (tr("Rien de nouveau", "Nothing new"), "—".into(), format!("{} {}", tr("Dernière vérification :", "Last check:"), match &app.update { UpdateState::Checking => tr("en cours…", "in progress…").to_string(), UpdateState::Failed(e) => e.clone(), _ => tr("à l'instant", "just now").to_string() }), false),
     };
     slot(cv, Rect::new(x + sw + 20.0, y, sw, sh), label, &value, &lines, on, if on { SPECTRE } else { FAINT });
     let mut by = y + sh + 28.0;
     // Un essai qui n'a pas démarré : l'appareil l'a abandonné et le dit (pas de retour proposé vers lui).
     if !o.failed.is_empty() && app.os_update.error.is_none() {
-        let msg = format!("{} {} {} {}", tr("La mise à jour", "The update"), o.failed, tr("n'a pas démarré ; retour à la", "did not start; back to"), o.version);
+        let msg = format!("{} {} {} {}", tr("La mise à jour", "The update"), o.failed, tr("n'a pas démarré ; retour à la", "did not start; back to"), o.version);
         cv.text_fit(x, by + 6.0, Text::new(Font::Regular, 19.0, WARN), &msg, w);
         by += 36.0;
     }
@@ -219,7 +219,7 @@ fn update_panel(app: &App, cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f3
     let col = (w - 56.0 - 40.0) / 2.0;
     let cx1 = x + 28.0;
     eyebrow(cv, cx1, py + 22.0 + 11.0, 15.0, FAINT, tr("Automatique", "Automatic"));
-    let auto_text = tr("Télécharger les versions dès qu'elles sortent ; l'installation attend « Redémarrer sur la … ».", "Download versions as soon as they are out; installing waits for “Restart on …”.");
+    let auto_text = tr("Télécharger les versions dès qu'elles sortent ; l'installation attend « Redémarrer sur la … ».", "Download versions as soon as they are out; installing waits for “Restart on …”.");
     cv.paragraph(cx1, py + 22.0 + 20.0 + 8.0 + 21.0, Text::new(Font::Regular, 21.0, MUTED), auto_text, col - 90.0, 31.0);
     let tr_ = Rect::new(cx1 + col - 74.0, py + 22.0 + 20.0 + 10.0, 74.0, 44.0);
     let (focused, _) = f.state(Target::Setting(Setting::OsAutoUpdate), tr_);
@@ -229,7 +229,7 @@ fn update_panel(app: &App, cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f3
     toggle(cv, tr_.x, tr_.y, 44.0, app.store.app.os_auto_update, true);
     let cx2 = x + 28.0 + col + 40.0;
     eyebrow(cv, cx2, py + 22.0 + 11.0, 15.0, FAINT, tr("Si tout va mal", "If things go wrong"));
-    let bad = tr("Une version qui ne démarre pas est abandonnée au redémarrage suivant. La carte se reflashe depuis Raspberry Pi Imager ; les ordinateurs et réglages restent.", "A version that does not boot is dropped at the next restart. The card can be reflashed from Raspberry Pi Imager; computers and settings stay.");
+    let bad = tr("Une version qui ne démarre pas est abandonnée au redémarrage suivant. La carte se reflashe depuis Raspberry Pi Imager ; les ordinateurs et réglages restent.", "A version that does not boot is dropped at the next restart. The card can be reflashed from Raspberry Pi Imager; computers and settings stay.");
     let bh = cv.paragraph(cx2, py + 22.0 + 20.0 + 8.0 + 21.0, Text::new(Font::Regular, 21.0, MUTED), bad, col, 31.0);
     if !o.other_version.is_empty() && o.ab {
         widgets::ghost(cv, f, Target::Setting(Setting::OsRollback), cx2, py + 22.0 + 20.0 + 8.0 + bh + 10.0, 40.0, 16.0, None, &format!("{} {}", tr("Revenir à la", "Go back to"), o.other_version), MUTED);

@@ -436,9 +436,9 @@ pub fn remove_account_question(name: &str, n: usize) -> String {
         (true, 0) => format!("Remove the account {name}?"),
         (true, 1) => format!("Remove the account {name} and its console?"),
         (true, n) => format!("Remove the account {name} and its {n} consoles?"),
-        (false, 0) => format!("Retirer le compte {name} ?"),
-        (false, 1) => format!("Retirer le compte {name} et sa console ?"),
-        (false, n) => format!("Retirer le compte {name} et ses {n} consoles ?"),
+        (false, 0) => format!("Retirer le compte {name} ?"),
+        (false, 1) => format!("Retirer le compte {name} et sa console ?"),
+        (false, n) => format!("Retirer le compte {name} et ses {n} consoles ?"),
     }
 }
 
@@ -481,7 +481,7 @@ impl PsEnd {
         match self {
             PsEnd::Stopped => None,
             PsEnd::InUse => Some(tr("La console est déjà jouée à distance par un autre appareil.", "The console is already being played remotely by another device.")),
-            PsEnd::NotPaired => Some(tr("La console ne reconnaît plus cet appareil : associez-la de nouveau.", "The console no longer recognizes this device: pair it again.")),
+            PsEnd::NotPaired => Some(tr("La console ne reconnaît plus cet appareil : associez-la de nouveau.", "The console no longer recognizes this device: pair it again.")),
             PsEnd::Unreachable => Some(tr("La console ne répond pas.", "The console isn't answering.")),
             PsEnd::Remote => Some(tr("La console a terminé la partie.", "The console ended the session.")),
         }
@@ -491,8 +491,8 @@ impl PsEnd {
 /// Les codes d'échec de l'association (`kn_ps_regist` du pont Apple, mêmes valeurs).
 pub fn regist_error_text(code: &str) -> &'static str {
     match code {
-        "no_answer" => tr("La console ne répond pas : gardez l'écran « Associer un appareil » ouvert.", "The console isn't answering: keep the “Link Device” screen open."),
-        "wrong_code" => tr("Code refusé : il change toutes les 5 minutes.", "Code refused: it changes every 5 minutes."),
+        "no_answer" => tr("La console ne répond pas : gardez l'écran « Associer un appareil » ouvert.", "The console isn't answering: keep the “Link Device” screen open."),
+        "wrong_code" => tr("Code refusé : il change toutes les 5 minutes.", "Code refused: it changes every 5 minutes."),
         "account" => tr("La console refuse ce compte.", "The console refuses this account."),
         _ => tr("Console injoignable.", "Console unreachable."),
     }
@@ -644,7 +644,7 @@ impl App {
         self.ps.add.busy = false;
         match r {
             Err(_) => {
-                self.ps.add.message = Some(tr("Identifiant du compte non lu : réessayez, ou saisissez-le à la main.", "Couldn't read the account ID: try again, or enter it by hand.").into());
+                self.ps.add.message = Some(tr("Identifiant du compte non lu : réessayez, ou saisissez-le à la main.", "Couldn't read the account ID: try again, or enter it by hand.").into());
                 Vec::new()
             }
             Ok((psn_id, name)) => self.ps_account_ready(&psn_id, name, console),
@@ -722,7 +722,7 @@ impl App {
                 self.ps.add.done = Some(if english() { format!("Accounts and consoles sent to {name}.") } else { format!("Comptes et consoles envoyés à {name}.") });
                 self.ps_open_step(PsStep::Tab);
             }
-            Err(true) => self.ps.add.message = Some(if english() { format!("Code refused: check it on {name}.") } else { format!("Code refusé : vérifiez-le sur {name}.") }),
+            Err(true) => self.ps.add.message = Some(if english() { format!("Code refused: check it on {name}.") } else { format!("Code refusé : vérifiez-le sur {name}.") }),
             Err(false) => self.ps.add.message = Some(if english() { format!("{name} isn't answering any more.") } else { format!("{name} ne répond plus.") }),
         }
     }
@@ -846,7 +846,7 @@ impl App {
             }
             PsStep::ByHand { console } => {
                 let Some(id) = psn_id(&a) else {
-                    self.ps.add.message = Some(tr("Identifiant du compte non lu : réessayez, ou saisissez-le à la main.", "Couldn't read the account ID: try again, or enter it by hand.").into());
+                    self.ps.add.message = Some(tr("Identifiant du compte non lu : réessayez, ou saisissez-le à la main.", "Couldn't read the account ID: try again, or enter it by hand.").into());
                     return Vec::new();
                 };
                 let name = (!b.trim().is_empty()).then(|| b.trim().to_string());
@@ -1163,7 +1163,7 @@ impl App {
                     choice(
                         Setting::PsResolution,
                         tr("Définition", "Resolution"),
-                        if res == 0 { tr("La plus haute que la console accepte : 1080p.", "The highest the console accepts: 1080p.").into() } else { String::new() },
+                        if res == 0 { tr("La plus haute que la console accepte : 1080p.", "The highest the console accepts: 1080p.").into() } else { String::new() },
                         vec!["Auto".into(), "1080p".into(), "720p".into(), "540p".into(), "360p".into()],
                         res,
                         true,
@@ -1183,7 +1183,7 @@ impl App {
                 } else {
                     match codec {
                         0 if hevc => tr("H.265 si cet appareil le lit.", "H.265 if this device can play it.").into(),
-                        0 => tr("H.265 si cet appareil le lit : ici, H.264.", "H.265 if this device can play it: here, H.264.").into(),
+                        0 => tr("H.265 si cet appareil le lit : ici, H.264.", "H.265 if this device can play it: here, H.264.").into(),
                         _ => String::new(),
                     }
                 };
@@ -1411,16 +1411,16 @@ mod tests {
         s.remove_ps_account(&a);
         assert_eq!(s.ps_consoles[0].account.as_deref(), Some(b.as_str()));
         s.forget_pairing("ab12", &b);
-        assert!(s.ps_consoles.is_empty(), "plus d'association : la console part");
+        assert!(s.ps_consoles.is_empty(), "plus d'association : la console part");
         assert_eq!(s.selected, None);
     }
 
     #[test]
     fn labels() {
         crate::i18n::force_english(false);
-        assert_eq!(remove_account_question("Léa", 0), "Retirer le compte Léa ?");
-        assert_eq!(remove_account_question("Léa", 1), "Retirer le compte Léa et sa console ?");
-        assert_eq!(remove_account_question("Léa", 3), "Retirer le compte Léa et ses 3 consoles ?");
+        assert_eq!(remove_account_question("Léa", 0), "Retirer le compte Léa ?");
+        assert_eq!(remove_account_question("Léa", 1), "Retirer le compte Léa et sa console ?");
+        assert_eq!(remove_account_question("Léa", 3), "Retirer le compte Léa et ses 3 consoles ?");
         assert_eq!(received_label(1, 1), "1 compte et 1 console reçus.");
         assert_eq!(received_label(1, 0), "1 compte et 0 console reçu.");
         assert_eq!(received_label(2, 3), "2 comptes et 3 consoles reçus.");
@@ -1437,7 +1437,7 @@ mod tests {
         assert_eq!(psn_id(" AbCdEfGhIjk ").as_deref(), Some("AbCdEfGhIjk="), "le = final ajouté");
         assert_eq!(psn_id("123"), None);
         assert_eq!(psn_id("AbCdEfGh!jk="), None);
-        assert_eq!(psn_id("AbCdEfGhIj"), None, "10 signes : 7 octets");
+        assert_eq!(psn_id("AbCdEfGhIj"), None, "10 signes : 7 octets");
         assert_eq!(psn_id("AbCdEfGhIjl="), None, "bits de trop non nuls");
     }
 

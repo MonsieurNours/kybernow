@@ -722,9 +722,9 @@ mod tests {
         let mut app = crate::preview::demo(false, crate::app::Layout::Desktop);
         let h = app.store.hosts[0].clone();
         app.live.insert(h.id.clone(), HostLive { online: Online::Offline, error: Some(HostError::PasswordRefused), ..Default::default() });
-        assert_eq!(status(&app, &h).0, "Mot de passe refusé : mettez-le à jour dans les réglages.");
+        assert_eq!(status(&app, &h).0, "Mot de passe refusé : mettez-le à jour dans les réglages.");
         app.live.get_mut(&h.id).unwrap().error = Some(HostError::Reinstalled);
-        assert_eq!(status(&app, &h).0, "La Station a été réinstallée : vérifiez son empreinte dans les réglages.");
+        assert_eq!(status(&app, &h).0, "La Station a été réinstallée : vérifiez son empreinte dans les réglages.");
         app.live.get_mut(&h.id).unwrap().error = None;
         assert_eq!(status(&app, &h).0, "Hors ligne");
     }

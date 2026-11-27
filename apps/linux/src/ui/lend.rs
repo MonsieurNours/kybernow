@@ -42,7 +42,7 @@ fn warning(app: &App, s: &SessionUi) -> String {
         ("Votre ami joue dans votre session.", "Your friend plays in your session.")
     };
     let rest = tr(
-        "Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
+        "Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
         "They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
     );
     format!("{} {rest}", tr(fr, en))
@@ -232,7 +232,7 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
                         cv.icon(&Icon::Check, x + bw + 10.0 * u, y + 66.0 * u, 18.0 * u, 2.0, OK);
                         cv.text(x + bw + 34.0 * u, y + 81.0 * u, Text::new(Font::Regular, 12.5 * u, OK), tr("Lien copié.", "Link copied."));
                     } else {
-                        cv.text_fit(x, y + 112.0 * u, Text::new(Font::Regular, 11.5 * u, WARN), tr("Copie impossible : sélectionnez le lien à la main.", "Could not copy: select the link by hand."), lw);
+                        cv.text_fit(x, y + 112.0 * u, Text::new(Font::Regular, 11.5 * u, WARN), tr("Copie impossible : sélectionnez le lien à la main.", "Could not copy: select the link by hand."), lw);
                     }
                 }
             }
@@ -332,7 +332,7 @@ mod tests {
         for (os, start) in [(Some("Windows 11 Pro 24H2"), "Votre ami joue dans votre session Windows. Il ne voit"), (Some("macOS 26.1"), "Votre ami joue dans votre session du Mac. Il ne voit"), (Some("Ubuntu 24.04"), "Votre ami joue dans votre session. Il ne voit"), (None, "Votre ami joue dans votre session. Il ne voit")] {
             h.os = os.map(str::to_string);
             app.store.hosts = vec![h.clone()];
-            assert!(warning(&app, &s).starts_with(start), "{os:?} : {}", warning(&app, &s));
+            assert!(warning(&app, &s).starts_with(start), "{os:?} : {}", warning(&app, &s));
         }
         crate::i18n::force_english(true);
         assert!(warning(&app, &s).starts_with("Your friend plays in your session. They see neither"));

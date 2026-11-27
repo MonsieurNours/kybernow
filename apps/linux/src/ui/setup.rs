@@ -246,7 +246,7 @@ fn controller(app: &App, cv: &mut Canvas, f: &mut Frame) {
     if focused {
         widgets::ring(cv, r, 14.0);
     }
-    footer(app, cv, &[(&["A"], bi(app, "Continue", "Continuer"))], Some(&bi(app, "No code to type: pairing is accepted during this screen and in Settings › Controllers.", "Aucun code : l'association est acceptée pendant cet écran et dans Réglages › Manettes.")));
+    footer(app, cv, &[(&["A"], bi(app, "Continue", "Continuer"))], Some(&bi(app, "No code to type: pairing is accepted during this screen and in Settings › Controllers.", "Aucun code : l'association est acceptée pendant cet écran et dans Réglages › Manettes.")));
 }
 
 // MARK: - Langue
@@ -327,12 +327,12 @@ fn network(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let s = &app.setup;
     if let Some(i) = s.wifi_pick {
         let ssid = s.wifi.get(i).map(|n| n.ssid.clone()).unwrap_or_default();
-        let y = title(app, cv, 124.0 + 30.0 + 40.0, &format!("{} {ssid}", tr("Mot de passe de", "Password for")), tr("Au pavé, à la manette ; un clavier USB marche aussi.", "On the keypad, with the controller; a USB keyboard works too."));
+        let y = title(app, cv, 124.0 + 30.0 + 40.0, &format!("{} {ssid}", tr("Mot de passe de", "Password for")), tr("Au pavé, à la manette ; un clavier USB marche aussi.", "On the keypad, with the controller; a USB keyboard works too."));
         password(app, cv, f, 96.0, y + 24.0);
         footer(app, cv, &[(&["A"], tr("Touche", "Key").into()), (&["B"], tr("Retour", "Back").into()), (&["Y"], tr("Majuscule", "Shift").into())], None);
         return;
     }
-    let y = title(app, cv, 124.0 + 30.0 + 40.0, tr("Réseau", "Network"), tr("L'ordinateur et ce Raspberry Pi doivent être sur le même réseau ; Ethernet est le plus sûr.", "The computer and this Raspberry Pi must be on the same network; Ethernet is the safest."));
+    let y = title(app, cv, 124.0 + 30.0 + 40.0, tr("Réseau", "Network"), tr("L'ordinateur et ce Raspberry Pi doivent être sur le même réseau ; Ethernet est le plus sûr.", "The computer and this Raspberry Pi must be on the same network; Ethernet is the safest."));
     let x0 = 96.0;
     let mut cy = y + 36.0;
     if app.net.kind == NetKind::Ethernet {
@@ -445,12 +445,12 @@ fn usage(app: &App, cv: &mut Canvas, f: &mut Frame) {
         app,
         cv,
         124.0 + 30.0 + 40.0,
-        tr("Comment utilisez-vous ce Raspberry Pi ?", "How do you use this Raspberry Pi?"),
-        tr("Link s'ouvre dans l'interface qui va avec. Vous changerez d'avis quand vous voulez : Réglages de l'appareil, ou le bouton Start tenu trois secondes.", "Link opens in the matching interface. Change your mind any time: Device settings, or the Start button held for three seconds."),
+        tr("Comment utilisez-vous ce Raspberry Pi ?", "How do you use this Raspberry Pi?"),
+        tr("Link s'ouvre dans l'interface qui va avec. Vous changerez d'avis quand vous voulez : Réglages de l'appareil, ou le bouton Start tenu trois secondes.", "Link opens in the matching interface. Change your mind any time: Device settings, or the Start button held for three seconds."),
     );
     let cards: [(&str, &str, &str, &str); 2] = [
-        ("GAMEPAD", tr("Au salon", "In the living room"), tr("Branché au téléviseur, piloté à la manette. Tout au focus, texte lisible à trois mètres, colonne « Prêt à jouer ».", "Plugged into the TV, driven with a controller. Everything by focus, text readable from ten feet, “Ready to play” column."), tr("Manettes Bluetooth ou USB · HDMI-CEC : la télécommande allume et réveille", "Bluetooth or USB controllers · HDMI-CEC: the remote turns on and wakes")),
-        ("MONITOR", tr("Au bureau", "At the desk"), tr("Sur un écran de bureau, au clavier et à la souris. L'interface Bureau de Link, en plein écran : votre ordinateur comme si vous y étiez.", "On a desktop screen, with keyboard and mouse. Link's Desktop interface, full screen: your computer as if you were there."), tr("Profil Bureau d'office · presse-papiers · souris du bureau", "Desktop profile by default · clipboard · desktop mouse")),
+        ("GAMEPAD", tr("Au salon", "In the living room"), tr("Branché au téléviseur, piloté à la manette. Tout au focus, texte lisible à trois mètres, colonne « Prêt à jouer ».", "Plugged into the TV, driven with a controller. Everything by focus, text readable from ten feet, “Ready to play” column."), tr("Manettes Bluetooth ou USB · HDMI-CEC : la télécommande allume et réveille", "Bluetooth or USB controllers · HDMI-CEC: the remote turns on and wakes")),
+        ("MONITOR", tr("Au bureau", "At the desk"), tr("Sur un écran de bureau, au clavier et à la souris. L'interface Bureau de Link, en plein écran : votre ordinateur comme si vous y étiez.", "On a desktop screen, with keyboard and mouse. Link's Desktop interface, full screen: your computer as if you were there."), tr("Profil Bureau d'office · presse-papiers · souris du bureau", "Desktop profile by default · clipboard · desktop mouse")),
     ];
     let mut x = 96.0;
     for (i, (badge, name, desc, note)) in cards.iter().enumerate() {
@@ -459,7 +459,7 @@ fn usage(app: &App, cv: &mut Canvas, f: &mut Frame) {
     }
     let bw = legend_width(cv, 34.0, &["A"], tr("Choisir", "Choose"));
     let _ = bw;
-    footer(app, cv, &[(&["A"], tr("Choisir", "Choose").into()), (&["B"], tr("Retour", "Back").into())], Some(tr("Un clavier marche aussi : flèches et Entrée", "A keyboard works too: arrows and Enter")));
+    footer(app, cv, &[(&["A"], tr("Choisir", "Choose").into()), (&["B"], tr("Retour", "Back").into())], Some(tr("Un clavier marche aussi : flèches et Entrée", "A keyboard works too: arrows and Enter")));
     // A sur la carte choisie continue.
     let _ = Target::SetupContinue;
 }

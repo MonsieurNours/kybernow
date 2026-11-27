@@ -420,7 +420,7 @@ mod tests {
                         let want = shade(yv, cb, cr, &Tone::of(render)).map(|c| c * 255.0);
                         let got = &rgba[x * 4..x * 4 + 3];
                         for c in 0..3 {
-                            assert!((f64::from(got[c]) - want[c]).abs() <= 2.0, "{render:?} {} ({cb}, {cr}) pixel {x} composante {c} : {} au lieu de {:.1}", if planar { "I010" } else { "P010" }, got[c], want[c]);
+                            assert!((f64::from(got[c]) - want[c]).abs() <= 2.0, "{render:?} {} ({cb}, {cr}) pixel {x} composante {c} : {} au lieu de {:.1}", if planar { "I010" } else { "P010" }, got[c], want[c]);
                         }
                     }
                 }

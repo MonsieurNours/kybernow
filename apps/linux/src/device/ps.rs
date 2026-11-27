@@ -1426,7 +1426,7 @@ mod tests {
             let ours = crate::ps::psn_id(id);
             let core = kybernow_core::playstation::bundle::valid_psn_id(id.trim()).or_else(|| kybernow_core::playstation::bundle::valid_psn_id(&format!("{}=", id.trim())));
             assert_eq!(ours, core, "{id:?}");
-            assert_eq!(ours.is_some(), ours.as_deref().and_then(PsnId::from_base64).is_some(), "{id:?} : lisible par la session");
+            assert_eq!(ours.is_some(), ours.as_deref().and_then(PsnId::from_base64).is_some(), "{id:?} : lisible par la session");
         }
     }
 

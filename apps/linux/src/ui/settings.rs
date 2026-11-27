@@ -133,7 +133,7 @@ fn subtitle(app: &App, s: Section) -> String {
         Section::Controls => tr("Les manettes, la souris et le clavier de cet appareil, tels que l'ordinateur les voit.", "This device's controllers, mouse and keyboard, as the computer sees them.").into(),
         Section::Network => tr("Comment l'image voyage, et ce que fait l'app quand le réseau coupe.", "How the picture travels, and what the app does when the network drops.").into(),
         Section::Statistics => tr("La dernière session sur cet appareil, et ce que la Station dit de l'ordinateur.", "The last session on this device, and what the Station says about the computer.").into(),
-        Section::Station => tr("KyberNow Station, sur l'ordinateur : Admin, redémarrage, mise à jour.", "KyberNow Station, on the computer: Admin, restart, update.").into(),
+        Section::Station => tr("KyberNow Station, sur l'ordinateur : Admin, redémarrage, mise à jour.", "KyberNow Station, on the computer: Admin, restart, update.").into(),
         Section::App => tr("Langue, interface et mises à jour de l'app sur cet appareil.", "Language, interface and updates of the app on this device.").into(),
         Section::Gamepads => tr("Les manettes que voit cet appareil.", "The controllers this device sees.").into(),
         Section::Accounts => crate::accounts::accounts_help().into(),
@@ -554,7 +554,7 @@ pub(super) fn confirm(app: &App, cv: &mut Canvas, f: &mut Frame) {
             true,
         ),
         Confirm::Remove { name, .. } => (
-            format!("{} {name} {}", tr("Retirer", "Remove"), tr("de cet appareil ?", "from this device?")),
+            format!("{} {name} {}", tr("Retirer", "Remove"), tr("de cet appareil ?", "from this device?")),
             tr("Vous pourrez l'ajouter à nouveau.", "You can add it again later.").to_string(),
             tr("Retirer", "Remove"),
             true,
@@ -575,13 +575,13 @@ pub(super) fn confirm(app: &App, cv: &mut Canvas, f: &mut Frame) {
         // appairés restent. »
         Confirm::SignOut { name, .. } => (
             crate::accounts::sign_out_question(name),
-            tr("Ses ordinateurs quittent cet appareil ; ceux que vous avez appairés restent.", "Its computers leave this device; the ones you paired stay.").to_string(),
+            tr("Ses ordinateurs quittent cet appareil ; ceux que vous avez appairés restent.", "Its computers leave this device; the ones you paired stay.").to_string(),
             tr("Se déconnecter", "Sign out"),
             true,
         ),
         // « Rendre l'ordinateur à {hôte} ? » : la question seule, sans autre texte (docs/link-ui.md).
         Confirm::GiveBack { host, .. } => (
-            if crate::i18n::english() { format!("Give the computer back to {host}?") } else { format!("Rendre l'ordinateur à {host} ?") },
+            if crate::i18n::english() { format!("Give the computer back to {host}?") } else { format!("Rendre l'ordinateur à {host} ?") },
             String::new(),
             tr("Rendre l'ordinateur", "Give back the computer"),
             true,

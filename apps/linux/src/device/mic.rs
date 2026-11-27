@@ -116,6 +116,7 @@ mod tests {
         assert_eq!(m.changed(MicState::Waiting, "Atelier"), None);
         let v = view(&m, false);
         assert_eq!((v.on, v.lit, v.sent, v.tile.as_str(), v.shown), (true, true, false, "Envoi…", true));
+        // Le texte du cœur (son catalogue garde l'espace ordinaire), avec le raccourci de l'app.
         assert_eq!(v.tooltip, "Micro : envoyé à l'ordinateur (Ctrl+Alt+Maj+V)");
         assert_eq!(m.changed(MicState::On, "Atelier").as_deref(), Some("Micro envoyé à Atelier."));
         assert_eq!(view(&m, false).tile, "Envoyé");

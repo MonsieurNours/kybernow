@@ -302,7 +302,7 @@ fn three(app: &App, cv: &mut Canvas, f: &mut Frame, a: Rect, u: f32) {
     cv.rrect(x, cy, cw, ch, 14.0 * u, INK_2);
     cv.rrect_stroke(x, cy, cw, ch, 14.0 * u, 1.0, LINE);
     eyebrow(cv, x + pad, cy + pad + 11.0 * u, 11.0 * u, FAINT, tr("Un code", "A code"));
-    cv.paragraph(x + pad, cy + pad + 38.0 * u, body, tr("Un ami vous ouvre son ordinateur : entrez le code qu'il vous a donné.", "A friend opens their computer to you: enter the code they gave you."), cw - 2.0 * pad, 21.0 * u);
+    cv.paragraph(x + pad, cy + pad + 38.0 * u, body, tr("Un ami vous ouvre son ordinateur : entrez le code qu'il vous a donné.", "A friend opens their computer to you: enter the code they gave you."), cw - 2.0 * pad, 21.0 * u);
     let jl = tr("Rejoindre avec un code", "Join with a code");
     widgets::ghost(cv, f, Target::WelcomeJoin, x + pad, cy + ch - pad - bh, bh, bsize, Some(Icon::Share), jl, FROST);
     x += cw + gap;
@@ -503,7 +503,7 @@ pub fn away(app: &App, cv: &mut Canvas, f: &mut Frame) {
     cv.rrect(x + pad, y + pad, icon, icon, 14.0 * u, Rgba::hex(0x171431));
     cv.icon(&Icon::Globe, x + pad + icon * 0.25, y + pad + icon * 0.25, icon * 0.5, 1.8, SPECTRE);
     let tx = x + pad + icon + 18.0 * u;
-    cv.text_shrink(tx, y + pad + 30.0 * u, title, tr("Hors de chez vous ?", "Away from home?"), tw);
+    cv.text_shrink(tx, y + pad + 30.0 * u, title, tr("Hors de chez vous ?", "Away from home?"), tw);
     cv.paragraph(tx, y + pad + 40.0 * u + 12.0 * u + 16.0 * u, body, &text, tw, lh);
     // Les boutons, alignés à droite : « Pas maintenant », « Créer un compte », « Connecter un compte ».
     let by = y + ch - pad - bh;

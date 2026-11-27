@@ -117,12 +117,12 @@ pub fn signed_in_notice(account: &str) -> String {
 
 /// « Se déconnecter de {compte} ? »
 pub fn sign_out_question(account: &str) -> String {
-    if english() { format!("Sign out of {account}?") } else { format!("Se déconnecter de {account} ?") }
+    if english() { format!("Sign out of {account}?") } else { format!("Se déconnecter de {account} ?") }
 }
 
 /// « Relais : {relais} ».
 pub fn relay_line(relay: &str) -> String {
-    format!("{} {}", tr("Relais :", "Relay:"), crate::model::relay_label(relay))
+    format!("{} {}", tr("Relais :", "Relay:"), crate::model::relay_label(relay))
 }
 
 /// « En attente de votre téléphone… Le code change dans {n} min. »
@@ -138,10 +138,10 @@ pub fn open_step(address: &str) -> String {
 /// L'aide sous « Connecter un compte » : la page du relais (bureau) ou le code (salon).
 pub fn sign_in_help(by_code: bool) -> &'static str {
     if by_code {
-        tr("Un code s'affiche : vous l'approuvez depuis votre téléphone.", "A code appears: you approve it from your phone.")
+        tr("Un code s'affiche : vous l'approuvez depuis votre téléphone.", "A code appears: you approve it from your phone.")
     } else {
         tr(
-            "La page du relais s'ouvre : mot de passe, passkey ou double authentification s'y font, jamais dans l'app. Pas encore de compte : « Créer un compte » sur cette page.",
+            "La page du relais s'ouvre : mot de passe, passkey ou double authentification s'y font, jamais dans l'app. Pas encore de compte : « Créer un compte » sur cette page.",
             "The relay's page opens: password, passkey or two-factor authentication happen there, never in the app. No account yet: “Create an account” on that page.",
         )
     }
@@ -610,7 +610,7 @@ pub fn sync_settings_help() -> &'static str {
 
 /// L'aide de la rubrique « Comptes ».
 pub fn accounts_help() -> &'static str {
-    tr("Créer un compte, changer son mot de passe ou le supprimer : sur la page du compte.", "Create an account, change its password or delete it: on the account's page.")
+    tr("Créer un compte, changer son mot de passe ou le supprimer : sur la page du compte.", "Create an account, change its password or delete it: on the account's page.")
 }
 
 #[cfg(test)]
@@ -749,7 +749,7 @@ mod tests {
         app.set_account_hosts(std::slice::from_ref(&b), HashMap::new());
         assert!(app.store.host(&id).is_none());
         // La session d'appareil fermée : le compte et ses ordinateurs partent.
-        let acts = app.account_signed_out(&lea().key(), "Ce compte a été déconnecté de cet appareil : reconnectez-vous.".into());
+        let acts = app.account_signed_out(&lea().key(), "Ce compte a été déconnecté de cet appareil : reconnectez-vous.".into());
         assert_eq!(acts, vec![Action::Save, Action::AccountsSync]);
         assert!(app.store.accounts.is_empty() && app.store.hosts.is_empty() && app.store.account_hosts.is_empty());
     }
@@ -779,7 +779,7 @@ mod tests {
         let acts = app.activate(Target::ConfirmYes);
         assert!(matches!(&acts[..], [Action::AccountSignOut(a), Action::Save, Action::AccountsSync] if a.token == "secret"));
         assert_eq!(app.store.accounts.len(), 1);
-        assert_eq!(sign_out_question("Léa Martin"), "Se déconnecter de Léa Martin ?");
+        assert_eq!(sign_out_question("Léa Martin"), "Se déconnecter de Léa Martin ?");
     }
 
     #[test]

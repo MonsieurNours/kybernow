@@ -116,7 +116,7 @@ mod tests {
         let us = by_code("us").unwrap();
         assert_eq!(zone(us, ""), "America/New_York");
         assert_eq!(zone(us, "America/Los_Angeles"), "America/Los_Angeles");
-        assert_eq!(zone(us, "Europe/Paris"), "America/New_York", "un fuseau d'un autre pays : le premier");
+        assert_eq!(zone(us, "Europe/Paris"), "America/New_York", "un fuseau d'un autre pays : le premier");
         assert_eq!(zone_label("America/New_York"), "New York");
         assert_eq!(request(by_code("FR").unwrap(), "Europe/Paris"), "COUNTRY=FR\nTIMEZONE=Europe/Paris\nKEYMAP=fr\n");
         // Ce que root accepte : deux lettres, un fuseau en lettres et barres, un clavier en minuscules.

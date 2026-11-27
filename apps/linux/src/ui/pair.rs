@@ -196,7 +196,7 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, foo
     }
     let foot = format!(
         "{} {}.",
-        tr("L'appareil reçoit son propre compte Kyber : rien à taper ici. Nom de cet appareil pour Admin :", "The device gets its own Kyber account: nothing to type here. This device's name for Admin:"),
+        tr("L'appareil reçoit son propre compte Kyber : rien à taper ici. Nom de cet appareil pour Admin :", "The device gets its own Kyber account: nothing to type here. This device's name for Admin:"),
         app.device_name
     );
     cv.paragraph(ix, py + ph - 52.0 * u, Text::new(Font::Regular, 14.0 * u, FAINT), &foot, pw - 60.0 * u, 20.0 * u);
@@ -219,7 +219,7 @@ fn address(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) 
         &format!(
             "{} {ADDRESS_EXAMPLE}.",
             tr(
-                "L'adresse d'un ordinateur, ou d'une console PlayStation (par un VPN ou depuis un autre réseau). Pour un ordinateur : l'adresse et le port d'Admin, tels qu'Admin les affiche (Appareils Link), par exemple",
+                "L'adresse d'un ordinateur, ou d'une console PlayStation (par un VPN ou depuis un autre réseau). Pour un ordinateur : l'adresse et le port d'Admin, tels qu'Admin les affiche (Appareils Link), par exemple",
                 "The address of a computer, or of a PlayStation console (through a VPN or from another network). For a computer: Admin's address and port, as Admin shows them (Link devices), for example",
             )
         ),
@@ -274,7 +274,7 @@ fn mac(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
         y,
         Text::new(Font::Regular, 16.0 * u, MUTED),
         tr(
-            "L'adresse MAC de la carte réseau de l'ordinateur (Windows : ipconfig /all, « Adresse physique »), le réveil par le réseau activé dans son BIOS et sa carte. Vide : plus de bouton « Réveiller ».",
+            "L'adresse MAC de la carte réseau de l'ordinateur (Windows : ipconfig /all, « Adresse physique »), le réveil par le réseau activé dans son BIOS et sa carte. Vide : plus de bouton « Réveiller ».",
             "The MAC address of the computer's network card (Windows: ipconfig /all, “Physical Address”), with Wake on LAN enabled in its BIOS and card. Empty: no more “Wake” button.",
         ),
         (w - 2.0 * x0).min(760.0 * u),
@@ -530,7 +530,7 @@ fn verify(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, a
         y += 56.0;
     }
     eyebrow(cv, x0, y + 12.0 * u, 12.0 * u, FAINT, &format!("{address}:{port}"));
-    cv.text(x0 - 1.0, y + 58.0 * u, Text::new(Font::Display, 40.0 * u, FROST).tracking(-0.8 * u), tr("Est-ce bien lui ?", "Is it the right one?"));
+    cv.text(x0 - 1.0, y + 58.0 * u, Text::new(Font::Display, 40.0 * u, FROST).tracking(-0.8 * u), tr("Est-ce bien lui ?", "Is it the right one?"));
     y += 82.0 * u;
     cv.paragraph(
         x0,

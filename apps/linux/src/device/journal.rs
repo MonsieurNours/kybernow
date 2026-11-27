@@ -86,11 +86,11 @@ fn header(app: &App) -> String {
         .and_then(|s| s.lines().find_map(|l| l.strip_prefix("PRETTY_NAME=").map(|v| v.trim_matches('"').to_string())))
         .unwrap_or_else(|| "Linux".into());
     let kernel = std::fs::read_to_string("/proc/sys/kernel/osrelease").map(|s| s.trim().to_string()).unwrap_or_default();
-    let mut h = format!("KyberNow Link {}\nAppareil : {}\nSystème : {os} · noyau {kernel}\nInterface : {:?}{}\n", app.version, app.device_name, app.layout, if crate::app::flatpak() { " · Flatpak" } else { "" });
+    let mut h = format!("KyberNow Link {}\nAppareil : {}\nSystème : {os} · noyau {kernel}\nInterface : {:?}{}\n", app.version, app.device_name, app.layout, if crate::app::flatpak() { " · Flatpak" } else { "" });
     if let Some(o) = &app.os {
         h.push_str(&format!("KyberNow Link OS {} · emplacement {}\n", o.version, o.slot));
     }
-    h.push_str(&format!("Date : {}\n\n", crate::model::now_secs()));
+    h.push_str(&format!("Date : {}\n\n", crate::model::now_secs()));
     h
 }
 
@@ -101,7 +101,7 @@ fn logs() -> String {
     if let Ok(prev) = std::fs::read_to_string(dir.join("kybernow.log.1")) {
         let lines: Vec<&str> = prev.lines().collect();
         let clean = lines.iter().rev().take(50).any(|l| l.contains(super::log_file::STOPPED));
-        out.push_str(&format!("== Lancement précédent : {} ==\n", if clean { "arrêt normal" } else { "fin inattendue (pas d'arrêt écrit au journal)" }));
+        out.push_str(&format!("== Lancement précédent : {} ==\n", if clean { "arrêt normal" } else { "fin inattendue (pas d'arrêt écrit au journal)" }));
         for l in &lines[lines.len().saturating_sub(300)..] {
             out.push_str(l);
             out.push('\n');
@@ -133,7 +133,7 @@ pub fn compressed(header: &str, body: &str, max: usize) -> Vec<u8> {
     if all.len() <= max {
         return all;
     }
-    let cut = "[… début du journal retiré : 2 Mio compressés au plus …]\n";
+    let cut = "[… début du journal retiré : 2 Mio compressés au plus …]\n";
     let fits = |start: usize| {
         let gz = gzip(&format!("{header}{cut}{}", &body[start..]));
         (gz.len() <= max).then_some(gz)
@@ -345,13 +345,13 @@ mod tests {
     #[test]
     fn depot_knj1_dechiffrable() {
         let (key, nonce) = ([7u8; 32], [3u8; 12]);
-        let gz = gzip("KyberNow Link 0.11.8\nAppareil : Deck\n\nune ligne\n");
+        let gz = gzip("KyberNow Link 0.11.8\nAppareil : Deck\n\nune ligne\n");
         let sealed = seal(&gz, &key, &nonce);
         assert_eq!(&sealed[..4], b"KNJ1");
         assert_eq!(&sealed[4..16], &nonce);
         assert_eq!(sealed.len(), 4 + 12 + gz.len() + 16);
         let plain = Aes256Gcm::new((&key).into()).decrypt(Nonce::from_slice(&nonce), &sealed[16..]).unwrap();
-        assert_eq!(gunzip(&plain), "KyberNow Link 0.11.8\nAppareil : Deck\n\nune ligne\n");
+        assert_eq!(gunzip(&plain), "KyberNow Link 0.11.8\nAppareil : Deck\n\nune ligne\n");
         let url = qr_url("share.kybernow.app", "abcdefghijklmnopqrstuv", &key);
         let k = url.split("#k=").nth(1).unwrap();
         assert_eq!(k.len(), 43);

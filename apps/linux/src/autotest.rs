@@ -123,7 +123,7 @@ pub fn adaptive_help(pyrowave: bool) -> String {
         "Lowers the bitrate when the network is saturated, then raises it again. Off, the bitrate never moves.",
     );
     if pyrowave {
-        format!("{base} {}", tr("En PyroWave, il est en pause : la définition baisse à la place.", "With PyroWave it pauses: the resolution goes down instead."))
+        format!("{base} {}", tr("En PyroWave, il est en pause : la définition baisse à la place.", "With PyroWave it pauses: the resolution goes down instead."))
     } else {
         base.into()
     }

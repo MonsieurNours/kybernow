@@ -991,7 +991,7 @@ pub fn run(args: &[String]) {
     // Un fichier des réglages illisible a été mis de côté (jamais réécrit vide) : on le dit.
     if let Some(p) = app.store.set_aside.clone() {
         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        app.toast(format!("{} {name}", tr("Réglages illisibles, mis de côté : vos ordinateurs sont à rajouter. Copie gardée :", "Unreadable settings, set aside: your computers need adding again. Copy kept:")));
+        app.toast(format!("{} {name}", tr("Réglages illisibles, mis de côté : vos ordinateurs sont à rajouter. Copie gardée :", "Unreadable settings, set aside: your computers need adding again. Copy kept:")));
     }
     if os {
         app.os = Some(os::info());
@@ -2744,7 +2744,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 let (v, pr) = pads.ids(slot);
                 gamepads::plug(slot as u32, Some(v), Some(pr));
                 if let Some(s) = app.session_mut() {
-                    s.notice = Some((format!("{} {}{} : {}", tr("Manette", "Controller"), tr("J", "P"), slot + 1, pads.name(slot)), Instant::now()));
+                    s.notice = Some((format!("{} {}{} : {}", tr("Manette", "Controller"), tr("J", "P"), slot + 1, pads.name(slot)), Instant::now()));
                 }
                 // L'ordinateur ne crée pas les manettes : il le dit, une fois par session, à la première branchée.
                 for sid in app.sessions.iter().map(|s| s.id).collect::<Vec<_>>() {
@@ -2938,7 +2938,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
             }
         }
         Event::PairAsked { name } => {
-            app.add.message = Some(format!("{} {name} : {}", tr("Code présenté à", "Code shown to"), tr("acceptez-le dans Admin", "accept it in Admin")));
+            app.add.message = Some(format!("{} {name} : {}", tr("Code présenté à", "Code shown to"), tr("acceptez-le dans Admin", "accept it in Admin")));
         }
         Event::PairAccepted(host) => {
             for c in pairing.drain(..) {
@@ -3129,7 +3129,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
             match r {
                 Ok(p) => {
                     app.os_update.ready = Some(p);
-                    app.toast(tr("Nouvelle version prête : Réglages de l'appareil › Mise à jour", "New version ready: Device settings › Update"));
+                    app.toast(tr("Nouvelle version prête : Réglages de l'appareil › Mise à jour", "New version ready: Device settings › Update"));
                 }
                 Err(e) => app.os_update.error = Some(e),
             }
@@ -3877,7 +3877,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 if !app.add.asked.is_empty() {
                     return;
                 }
-                app.add.message = Some(tr("Aucune Station trouvée pour l'instant : le code sera présenté dès qu'elle apparaît, ou ajoutez-la par adresse.", "No Station found yet: the code is shown as soon as one appears, or add it by address.").into());
+                app.add.message = Some(tr("Aucune Station trouvée pour l'instant : le code sera présenté dès qu'elle apparaît, ou ajoutez-la par adresse.", "No Station found yet: the code is shown as soon as one appears, or add it by address.").into());
                 return;
             }
             app.add.asked.extend(targets.iter().map(|t| (t.name.clone(), t.address.clone())));
@@ -4844,9 +4844,9 @@ mod tests {
         assert!(second.multi && second.surface.is_some(), "écrans réduits à « Cet écran » par le cœur, mode de sa fenêtre");
         let (win_w, win_h) = (wins.list[1].out_size.0 as f64, wins.list[1].out_size.1 as f64);
         let (sw, sh) = second.surface.map(|((w, h), _)| (w as f64, h as f64)).unwrap();
-        assert!((sw - win_w).abs() <= 2.0 && (sh - win_h).abs() <= 2.0, "la surface du mode est celle de la fenêtre : {sw}×{sh} contre {win_w}×{win_h}");
+        assert!((sw - win_w).abs() <= 2.0 && (sh - win_h).abs() <= 2.0, "la surface du mode est celle de la fenêtre : {sw}×{sh} contre {win_w}×{win_h}");
         assert!(focus::sync(&mut app, &lives, &mut pads, &mut applied));
-        assert!(!focus::sync(&mut app, &lives, &mut pads, &mut applied), "rien n'a changé : rien à refaire");
+        assert!(!focus::sync(&mut app, &lives, &mut pads, &mut applied), "rien n'a changé : rien à refaire");
         // « Garder le son » sur la première : le cœur la laisse audible ; l'interface le recopie.
         focus::set_keep_sound(lives.get(1).unwrap(), true);
         focus::sync(&mut app, &lives, &mut pads, &mut applied);
@@ -4896,7 +4896,7 @@ mod tests {
         focus::sync(&mut app, &lives, &mut pads, &mut applied);
         assert_eq!((app.sessions.len(), app.running_sessions(), core.count(), lives.0.len(), wins.list.len()), (4, 3, 3, 3, 4), "le message et sa fenêtre restent");
         assert_eq!(app.active_id(), Some(4), "la carte d'erreur reste la session active de l'interface tant que sa fenêtre a le clavier");
-        assert!(!app.sessions_full() && app.session_of_host("d").is_none(), "une session finie ne compte plus : on peut s'y reconnecter");
+        assert!(!app.sessions_full() && app.session_of_host("d").is_none(), "une session finie ne compte plus : on peut s'y reconnecter");
         // Une session de plus s'ouvre à sa place (la finie attend « Fermer ») : quatre en cours, cinq fenêtres.
         connect(&mut app, &mut lives, &mut wins, &tx, "e", jeu);
         assert_eq!((app.sessions.len(), app.running_sessions(), core.count(), wins.list.len()), (5, 4, 4, 5));
@@ -4936,14 +4936,14 @@ mod tests {
         assert!(reap(&mut app, &mut lives, &mut wins));
         assert_eq!((app.active_id(), lives.0.len(), wins.list.len(), core.count()), (None, 0, 1, 0));
         assert!(!wins.list[0].hidden && wins.list[0].session.is_none());
-        assert!(focus::sync(&mut app, &lives, &mut pads, &mut applied), "plus de session : l'état global de SDL est rendu");
+        assert!(focus::sync(&mut app, &lives, &mut pads, &mut applied), "plus de session : l'état global de SDL est rendu");
         // Quitter attend les sessions : chacune est arrêtée puis attendue, sans dépasser le délai.
         connect(&mut app, &mut lives, &mut wins, &tx, "a", jeu);
         connect(&mut app, &mut lives, &mut wins, &tx, "b", jeu);
         assert_eq!(lives.0.len(), 2);
         let started = Instant::now();
         stop_all(&lives, &wins);
-        assert!(started.elapsed() < QUIT_WAIT, "les sessions ont fini avant le délai : {:?}", started.elapsed());
+        assert!(started.elapsed() < QUIT_WAIT, "les sessions ont fini avant le délai : {:?}", started.elapsed());
         let main = wins.list.pop().unwrap();
         main.destroy();
         unsafe { sdl::SDL_Quit() };

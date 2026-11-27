@@ -213,7 +213,7 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
         && at.elapsed() < Duration::from_secs(4)
         && !ok
     {
-        cv.text_fit(x, y + 112.0 * u, Text::new(Font::Regular, 11.5 * u, WARN), tr("Copie impossible : sélectionnez le lien à la main.", "Could not copy: select the link by hand."), lw);
+        cv.text_fit(x, y + 112.0 * u, Text::new(Font::Regular, 11.5 * u, WARN), tr("Copie impossible : sélectionnez le lien à la main.", "Could not copy: select the link by hand."), lw);
     }
     qr_or_wait(cv, app, &v.link, preparing, r.x + r.w - pad - qr, y + 4.0 * u, qr - 8.0 * u, u);
     y += qr + 14.0 * u;

@@ -228,8 +228,8 @@ mod tests {
         assert_eq!(count_of(&host(Profile::Bureau), "hevc"), 3, "rien de retouché");
         let retouched: [(&str, Profile, &str, fn(&mut HostSettings)); 5] = [
             ("débit choisi", Profile::Bureau, "hevc", |s| s.mbps = 80),
-            ("format choisi : AV1", Profile::Bureau, "av1", |s| s.codec = "av1".into()),
-            ("format choisi : H.264", Profile::Max, "h264", |s| s.codec = "h264".into()),
+            ("format choisi : AV1", Profile::Bureau, "av1", |s| s.codec = "av1".into()),
+            ("format choisi : H.264", Profile::Max, "h264", |s| s.codec = "h264".into()),
             ("transport fiable hors Bureau", Profile::Max, "hevc", |s| s.reliable = true),
             ("4:4:4 en Jeu (Tous les écrans)", Profile::Jeu, "hevc", |s| s.yuv444 = true),
         ];
@@ -242,10 +242,10 @@ mod tests {
                 assert_eq!(count_of(&h, codec), 3, "{what}");
                 continue;
             }
-            assert_eq!(count_of(&h, codec), 1, "{what} : « Personnalisé », un seul écran en Auto");
+            assert_eq!(count_of(&h, codec), 1, "{what} : « Personnalisé », un seul écran en Auto");
             // Tous les écrans : la session les prend quand même.
             h.settings.displays = "all".into();
-            assert_eq!(count_of(&h, codec), 3, "{what} : Tous les écrans");
+            assert_eq!(count_of(&h, codec), 3, "{what} : Tous les écrans");
         }
         // Le format du profil, choisi à la main, n'est pas un écart pour le cœur.
         let mut h = host(Profile::Bureau);
@@ -272,7 +272,7 @@ mod tests {
         assert_eq!((off.enabled, off.shown, off.count), (false, 1, 1));
         let unavailable = StationScreens { max_screens: 4, virtual_display_available: false };
         let off = summary(&screens_of(&t, &h, unavailable), &settings_of(&h), true);
-        assert_eq!((off.enabled, off.shown, off.count), (false, 1, 1), "même avec max_screens : sans écran virtuel utilisable, un seul écran");
+        assert_eq!((off.enabled, off.shown, off.count), (false, 1, 1), "même avec max_screens : sans écran virtuel utilisable, un seul écran");
         // Définition choisie à la main : une « définition sur mesure ».
         h.settings.resolution = 1080;
         let custom = summary(&screens_of(&t, &h, STATION), &settings_of(&h), true);
@@ -329,7 +329,7 @@ mod tests {
         assert_eq!(primary_refresh(&h, 144, false), 144);
         h.settings.fps = 120;
         assert_eq!(primary_refresh(&h, 60, false), 120);
-        assert_eq!(primary_refresh(&h, 60, true), 60, "sur batterie : 60 au plus");
+        assert_eq!(primary_refresh(&h, 60, true), 60, "sur batterie : 60 au plus");
         h.settings.battery_light = false;
         assert_eq!(primary_refresh(&h, 60, true), 120);
     }

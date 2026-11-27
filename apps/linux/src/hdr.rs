@@ -398,6 +398,6 @@ mod tests {
         assert_eq!(probe.hdr_at(0, 0).map(|l| l.max), Some(1000.0));
         assert_eq!(probe.hdr_at(2560, 0), None);
         assert_eq!(probe.hdr_at(99, 99), None);
-        assert!(WlProbe { supported: true, outputs: vec![hdr] }.hdr_at(99, 99).is_some(), "une seule sortie : elle");
+        assert!(WlProbe { supported: true, outputs: vec![hdr] }.hdr_at(99, 99).is_some(), "une seule sortie : elle");
     }
 }

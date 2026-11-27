@@ -369,7 +369,7 @@ fn ended(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, error: Option
     cv.text_shrink(ix - 1.0, y + 86.0 * u, Text::new(Font::Display, 34.0 * u, FROST).tracking(-0.6 * u), &s.name, cw - 64.0 * u);
     cv.paragraph(ix, y + 122.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), error.unwrap_or(""), cw - 64.0 * u, 22.0 * u);
     // Avec d'autres sessions qui continuent, le bouton ne ramène pas à l'accueil : il ferme cette fenêtre (docs/link-ui.md).
-    let back = if app.sessions.len() > 1 { tr("Fermer", "Close") } else { tr("Retour à l'accueil", "Back to home") };
+    let back = if app.sessions.len() > 1 { tr("Fermer", "Close") } else { tr("Revenir à l'accueil", "Back to home") };
     widgets::primary(cv, f, Target::Back, ix, y + ch - 82.0 * u, 52.0 * u, back, false);
 }
 
@@ -813,7 +813,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     } else {
         let (focused, hover) = f.state(Target::BarProfile, pr);
         if hover {
-            tip = Some((pr, tr("Profil : Jeu, Bureau, Max ou Auto", "Profile: Game, Desktop, Max or Auto").into()));
+            tip = Some((pr, tr("Profil : Jeu, Bureau, Max ou Auto", "Profile: Game, Desktop, Max or Auto").into()));
         }
         cv.rrect(pr.x, pr.y, pr.w, pr.h, 7.0, if hover || s.bar_menu == Some(BarMenu::Profile) { INK_3 } else { Rgba(20, 27, 35, 255) });
         cv.rrect_stroke(pr.x, pr.y, pr.w, pr.h, 7.0, 1.0, LINE_2);
@@ -1699,7 +1699,7 @@ fn stats(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
     yy += line_h + graph_h + 8.0 * u;
     if let Some((label, text)) = &st.target {
-        let colon = if crate::i18n::english() { ":" } else { " :" };
+        let colon = if crate::i18n::english() { ":" } else { " :" };
         cv.text_fit(ix, yy, mono, &format!("{label}{colon} {text}"), inner);
         yy += line_h;
     }
@@ -1725,7 +1725,7 @@ fn stats(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         yy += line_h;
     }
     let (sf, sp) = st.session_lost;
-    let session = if crate::i18n::english() { format!("Session: {sf} frames, {sp} packets") } else { format!("Session : {sf} images, {sp} paquets") };
+    let session = if crate::i18n::english() { format!("Session: {sf} frames, {sp} packets") } else { format!("Session : {sf} images, {sp} paquets") };
     cv.text_fit(ix, yy, mono.color(FAINT), &session, inner);
     yy += line_h;
     if let Some(text) = &st.lowered {
@@ -1929,7 +1929,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         line.push_str(" · VRR");
     }
     if let Some(p) = app.pads.first().filter(|_| pads) {
-        line.push_str(&format!(" · {} {}, {}1", tr("manette :", "controller:"), p.name, tr("joueur ", "player ")));
+        line.push_str(&format!(" · {} {}, {}1", tr("manette :", "controller:"), p.name, tr("joueur ", "player ")));
     }
     cv.text_fit(line_x, sy, Text::new(Font::Mono, 12.0 * u, FAINT), &line, w * 0.6);
     if s.role().is_none_or(|r| r.plays()) {

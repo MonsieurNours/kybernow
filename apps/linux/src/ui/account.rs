@@ -175,7 +175,7 @@ fn other_relay(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f
     cv.rrect(r.x, r.y, r.w, r.h, 10.0 * u, if hover { INK_3 } else { INK_2 });
     cv.rrect_stroke(r.x, r.y, r.w, r.h, 10.0 * u, 1.5, SPECTRE);
     let tw = if fl.field.is_empty() {
-        cv.text(r.x + 18.0 * u, r.y + r.h / 2.0 + 7.0 * u, Text::new(Font::Mono, 18.0 * u, GHOST), "relais.exemple.org:9443");
+        cv.text(r.x + 18.0 * u, r.y + r.h / 2.0 + 7.0 * u, Text::new(Font::Mono, 18.0 * u, GHOST), crate::i18n::tr("relais.exemple.org:9443", "relay.example.org:9443"));
         0.0
     } else {
         cv.text_fit(r.x + 18.0 * u, r.y + r.h / 2.0 + 7.0 * u, Text::new(Font::Mono, 18.0 * u, FROST), &fl.field, r.w - 40.0 * u)

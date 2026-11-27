@@ -486,7 +486,7 @@ fn share_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
         // Refusé par Admin.
         if let Some(s) = app.session_mut() {
             s.share_busy = false;
-            s.share_error = Some(crate::i18n::tr("Une connexion est en cours sur cet ordinateur : partagez un écran une fois qu'elle est finie.", "A connection is in progress on this computer: share a screen once it has ended.").into());
+            s.share_error = Some(crate::i18n::tr("Une connexion est en cours sur cet ordinateur : partagez un écran une fois qu'elle est finie.", "A connection is in progress on this computer: share a screen once it has ended.").into());
         }
         shot(app, cv, Some(video), dir, &name("21e-partage-refuse"));
         // Station trop ancienne : le bouton est éteint, son nom dit pourquoi.
@@ -967,7 +967,7 @@ fn lend_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix
     if let Some(b) = s.borrow.as_mut() {
         b.notice = Some(now + 110);
     }
-    s.notice = Some((crate::i18n::tr("Matthieu reprend l'ordinateur dans 2 min : sauvegardez votre partie.", "Matthieu is taking back the computer in 2 min: save your game.").into(), Instant::now()));
+    s.notice = Some((crate::i18n::tr("Matthieu reprend l'ordinateur dans 2 min : sauvegardez votre partie.", "Matthieu is taking back the computer in 2 min: save your game.").into(), Instant::now()));
     if !console {
         s.bar = true;
     }
@@ -1265,7 +1265,7 @@ pub fn run(dir: &Path, lang: &str) {
         }
         shot(&mut app, &mut cv, None, dir, &p("10a-connexion-station-redemarre"));
         let mut s = session(&app);
-        s.phase = Phase::Ended { error: Some(if en { "Admin did not answer: is the computer still on the network?" } else { "Admin ne répond plus : l'ordinateur est-il toujours sur le réseau ?" }.into()) };
+        s.phase = Phase::Ended { error: Some(if en { "Admin did not answer: is the computer still on the network?" } else { "Admin ne répond plus : l'ordinateur est-il toujours sur le réseau ?" }.into()) };
         s.opened_at = None;
         app.set_session(Some(s));
         app.focus = Target::Back;
@@ -1335,7 +1335,7 @@ pub fn run(dir: &Path, lang: &str) {
         shot(&mut app, &mut cv, Some(&video), dir, &p("13d-session-statistiques-avant-image"));
 
         let mut s = session(&app);
-        s.phase = Phase::Ended { error: Some(if en { "Admin did not answer: is the computer still on the network?" } else { "Admin ne répond plus : l'ordinateur est-il toujours sur le réseau ?" }.into()) };
+        s.phase = Phase::Ended { error: Some(if en { "Admin did not answer: is the computer still on the network?" } else { "Admin ne répond plus : l'ordinateur est-il toujours sur le réseau ?" }.into()) };
         app.set_session(Some(s));
         app.focus = Target::Back;
         shot(&mut app, &mut cv, None, dir, &p("14-session-fin"));
@@ -1818,12 +1818,12 @@ mod tests {
     /// Les éléments choisissables tiennent dans l'écran et ne se chevauchent pas.
     fn fits(hits: &[(Target, crate::app::Rect)], w: f32, h: f32, what: &str) {
         for (t, r) in hits {
-            assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= w + 0.5 && r.y + r.h <= h + 0.5, "{what} : {t:?} sort de l'écran ({r:?})");
+            assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= w + 0.5 && r.y + r.h <= h + 0.5, "{what} : {t:?} sort de l'écran ({r:?})");
         }
         for (i, (a, ra)) in hits.iter().enumerate() {
             for (b, rb) in hits.iter().skip(i + 1) {
                 let overlap = ra.x < rb.x + rb.w - 0.5 && rb.x < ra.x + ra.w - 0.5 && ra.y < rb.y + rb.h - 0.5 && rb.y < ra.y + ra.h - 0.5;
-                assert!(!overlap || a == b, "{what} : {a:?} et {b:?} se chevauchent");
+                assert!(!overlap || a == b, "{what} : {a:?} et {b:?} se chevauchent");
             }
         }
     }
@@ -1863,7 +1863,7 @@ mod tests {
                 let hits = ui::draw(&app, &mut cv);
                 fits(&hits, w, h, &what("rangée avec compte"));
                 for t in [Target::Connect, Target::Chip(Profile::Auto), Target::CustomChip, Target::HdrChip, Target::HostSettings, Target::Watch] {
-                    assert!(hits.iter().any(|(x, _)| *x == t), "{} : {t:?} manque", what("rangée avec compte"));
+                    assert!(hits.iter().any(|(x, _)| *x == t), "{} : {t:?} manque", what("rangée avec compte"));
                 }
                 // Sur deux lignes, la flèche bas mène de « Se connecter » à la seconde ligne, même avec le bandeau
                 // de la mise à jour dessous.
@@ -1874,7 +1874,7 @@ mod tests {
                     fits(&app.hits, w, h, &what("deux lignes et mise à jour"));
                     app.focus = Target::Connect;
                     app.nav(Nav::Down);
-                    assert!(matches!(app.focus, Target::Chip(_) | Target::CustomChip | Target::HdrChip | Target::HostSettings | Target::Watch), "{} : {:?}", what("flèche bas"), app.focus);
+                    assert!(matches!(app.focus, Target::Chip(_) | Target::CustomChip | Target::HdrChip | Target::HostSettings | Target::Watch), "{} : {:?}", what("flèche bas"), app.focus);
                 }
                 // Sans compte, après un appairage : la mise à jour de la Station, puis le bandeau du compte.
                 let mut app = one_computer(en, layout);
@@ -1887,7 +1887,7 @@ mod tests {
                 let hits = ui::draw(&app, &mut cv);
                 fits(&hits, w, h, &what("rangée et mise à jour"));
                 for t in [Target::Connect, Target::CustomChip, Target::HdrChip, Target::HostSettings, Target::OfferUpdate] {
-                    assert!(hits.iter().any(|(x, _)| *x == t), "{} : {t:?} manque", what("rangée et mise à jour"));
+                    assert!(hits.iter().any(|(x, _)| *x == t), "{} : {t:?} manque", what("rangée et mise à jour"));
                 }
             }
         }
@@ -1931,7 +1931,7 @@ mod tests {
                 let narrow = layout == Layout::Desktop && w < 1000.0;
                 assert_eq!(hits.iter().any(|(x, _)| *x == Target::CardSignIn), !narrow, "{}", what("carte"));
                 for t in [Target::AccountTop] {
-                    assert!(hits.iter().any(|(x, _)| *x == t), "{} : {t:?}", what("sans compte"));
+                    assert!(hits.iter().any(|(x, _)| *x == t), "{} : {t:?}", what("sans compte"));
                 }
                 if layout != Layout::Desktop || h >= 800.0 {
                     assert!(hits.iter().any(|(x, _)| *x == Target::PairedSignIn), "{}", what("bandeau"));
@@ -1969,11 +1969,11 @@ mod tests {
                 // Les boutons de toujours sont sous le bouton du compte (et la rangée des cartes, plus bas).
                 for t in [Target::AddCard, Target::JoinCard] {
                     let r = hits.iter().find(|(x, _)| *x == t).expect("bouton de toujours").1;
-                    assert!(r.y > signin.y + signin.h, "{layout:?} {en} : {t:?} sous le compte");
+                    assert!(r.y > signin.y + signin.h, "{layout:?} {en} : {t:?} sous le compte");
                 }
                 let cards_top = hits.iter().filter(|(t, _)| *t == Target::AddCard).map(|(_, r)| r.y).fold(0.0f32, f32::max);
                 let welcome_bottom = hits.iter().filter(|(t, _)| *t == Target::JoinCard).map(|(_, r)| r.y + r.h).fold(f32::MAX, f32::min);
-                assert!(welcome_bottom <= cards_top, "{layout:?} {w}×{h} {en} : l'accueil vide touche la rangée");
+                assert!(welcome_bottom <= cards_top, "{layout:?} {w}×{h} {en} : l'accueil vide touche la rangée");
                 fits(&hits, w, h, &format!("accueil vide {layout:?} {w}×{h}"));
                 app.hits = hits;
                 let acts = app.nav(Nav::Ok);
@@ -1998,7 +1998,7 @@ mod tests {
             let hits = ui::draw(&app, &mut cv);
             fits(&hits, w, h, &format!("code {layout:?}"));
             for t in [Target::AccountOtherRelay, Target::AccountBack] {
-                assert!(hits.iter().any(|(x, _)| *x == t), "{layout:?} : {t:?}");
+                assert!(hits.iter().any(|(x, _)| *x == t), "{layout:?} : {t:?}");
             }
             assert_eq!(app.focus, Target::AccountBack);
             // Le QR code : des modules sombres sur une carte claire, à droite.
@@ -2008,7 +2008,7 @@ mod tests {
                     dark += (p.red() < 40) as usize;
                 }
             }
-            assert!(dark > 10, "{layout:?} : le QR code");
+            assert!(dark > 10, "{layout:?} : le QR code");
             app.account_signed_in(attempt, Err(crate::accounts::SignInFail::Denied));
             let hits = ui::draw(&app, &mut cv);
             assert!(hits.iter().any(|(t, _)| *t == Target::AccountNewCode));
@@ -2017,7 +2017,7 @@ mod tests {
             app.activate(Target::AccountOtherRelay);
             let hits = ui::draw(&app, &mut cv);
             for t in [Target::AccountRelayField, Target::AccountRelayGo, Target::AccountRelayCancel, Target::Key('.'), Target::Key(':'), Target::KeyErase] {
-                assert!(hits.iter().any(|(x, _)| *x == t), "{layout:?} : {t:?}");
+                assert!(hits.iter().any(|(x, _)| *x == t), "{layout:?} : {t:?}");
             }
             fits(&hits, w, h, &format!("autre relais {layout:?}"));
             app.activate(Target::Key('a'));
@@ -2107,7 +2107,7 @@ mod tests {
             assert!(matches!(app.activate(Target::Connect).as_slice(), [crate::app::Action::Connect { .. }]));
             let hits = ui::draw(&app, &mut cv);
             let r = hits.iter().find(|(t, _)| *t == Target::Watch).unwrap_or_else(|| panic!("{layout:?} : « Regarder » manque")).1;
-            assert!(r.x >= 0.0 && r.x + r.w <= w && r.y + r.h <= h, "{layout:?} : « Regarder » sort de la fenêtre : {r:?}");
+            assert!(r.x >= 0.0 && r.x + r.w <= w && r.y + r.h <= h, "{layout:?} : « Regarder » sort de la fenêtre : {r:?}");
             assert_eq!(app.activate(Target::Watch), vec![crate::app::Action::Watch { host: host.clone() }]);
             app.watch_answered(&host);
             // Déjà regardé : « Regarder » ramène la session.
@@ -2137,7 +2137,7 @@ mod tests {
         let hits = ui::draw(&app, &mut cv);
         for t in [Target::BarScreen, Target::BarQuality, Target::BarQuit] {
             let r = hits.iter().find(|(h, _)| *h == t).unwrap_or_else(|| panic!("{t:?} manque")).1;
-            assert!(r.x >= 0.0 && r.x + r.w <= 960.0, "{t:?} sort de la fenêtre : {r:?}");
+            assert!(r.x >= 0.0 && r.x + r.w <= 960.0, "{t:?} sort de la fenêtre : {r:?}");
         }
         assert!(app.activate(Target::BarScreen).is_empty());
         assert_eq!(app.session().unwrap().bar_menu, Some(BarMenu::Screen));
@@ -2198,7 +2198,7 @@ mod tests {
             app.section = crate::app::APP_SECTIONS.iter().position(|s| *s == Section::Accounts).unwrap();
             let hits = ui::draw(&app, &mut cv);
             for t in [Setting::AccountManage(0), Setting::AccountSignOut(0), Setting::AccountAdd] {
-                assert!(hits.iter().any(|(x, _)| *x == Target::Setting(t)), "{layout:?} : {t:?}");
+                assert!(hits.iter().any(|(x, _)| *x == Target::Setting(t)), "{layout:?} : {t:?}");
             }
             app.account_choose(Setting::AccountSignOut(0));
             let hits = ui::draw(&app, &mut cv);
@@ -2353,7 +2353,7 @@ mod tests {
         assert!(!ui::session_hint_only(&app));
         for layout in [Layout::Handheld, Layout::Tv] {
             let (app, _) = streaming(layout);
-            assert!(!ui::session_overlay_visible(&app), "salon et console : rien ne change");
+            assert!(!ui::session_overlay_visible(&app), "salon et console : rien ne change");
         }
     }
 
@@ -2389,11 +2389,11 @@ mod tests {
             assert!(ui::at_bar_edge(&mut cv, &app, &s, w, left + 2.0, y) && ui::at_bar_edge(&mut cv, &app, &s, w, right - 2.0, y));
             assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, left - 2.0, y) && !ui::at_bar_edge(&mut cv, &app, &s, w, right + 2.0, y));
         }
-        assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 2.5), "plein écran : au-delà de 2 points, pas contre le bord");
+        assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 2.5), "plein écran : au-delà de 2 points, pas contre le bord");
         // Dans une fenêtre, le bord touche la barre de titre du système : 8 points.
         s.fullscreen = false;
-        assert!(ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 7.5), "fenêtre : 8 points");
-        assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 8.5), "fenêtre : au-delà de 8 points, pas contre le bord");
+        assert!(ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 7.5), "fenêtre : 8 points");
+        assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 8.5), "fenêtre : au-delà de 8 points, pas contre le bord");
         // Rester ouverte : sur la barre (même hors de ses boutons) et 8 points autour, pas plus loin.
         let none: Vec<(Target, crate::app::Rect)> = Vec::new();
         assert!(ui::over_bar(&mut cv, &app, &s, w, &none, 640.0, 30.0));
@@ -2422,10 +2422,10 @@ mod tests {
         assert!(ui::overlay_visible(&app, main) && ui::overlay_visible(&app, other));
         ui::draw_view(&app, &mut cv, other);
         let flat = (cv.pix.pixel(10, 10).unwrap(), cv.pix.pixel(640, 400).unwrap(), cv.pix.pixel(1270, 790).unwrap());
-        assert!(flat.0 == flat.1 && flat.1 == flat.2, "un aplat : pas de photo, pas de tube, pas de texte");
+        assert!(flat.0 == flat.1 && flat.1 == flat.2, "un aplat : pas de photo, pas de tube, pas de texte");
         assert_eq!((flat.0.red(), flat.0.green(), flat.0.blue(), flat.0.alpha()), (5, 7, 10, 255));
         let hits = ui::draw_view(&app, &mut cv, main);
-        assert!(hits.iter().any(|(t, _)| *t == Target::CancelConnect), "Annuler : sur l'écran principal");
+        assert!(hits.iter().any(|(t, _)| *t == Target::CancelConnect), "Annuler : sur l'écran principal");
         // Un écran que l'ordinateur n'a pas pu créer : le même fond, avec une seule ligne.
         ui::draw_view(&app, &mut cv, ui::View { missing: true, ..other });
         let lit = (0..cv.pix.width()).filter(|x| cv.pix.pixel(*x, 400).unwrap() != flat.0).count();
@@ -2436,7 +2436,7 @@ mod tests {
         // À l'image : un écran qui n'a pas encore la sienne garde le fond ; avec elle, le trait seul.
         app.session_mut().unwrap().phase = Phase::Streaming;
         app.session_mut().unwrap().opened_at = Some(Instant::now() - Duration::from_secs(30));
-        assert!(ui::overlay_visible(&app, other) && !ui::hint_only(&app, other), "pas d'image : le fond de la connexion");
+        assert!(ui::overlay_visible(&app, other) && !ui::hint_only(&app, other), "pas d'image : le fond de la connexion");
         let shown = ui::View { has_frame: true, ..other };
         assert!(ui::hint_only(&app, shown) && ui::hint_only(&app, ui::View { has_frame: true, ..main }), "le trait du haut dans chaque fenêtre");
         // Barre ouverte dans une fenêtre : elle y est seule ; les autres montrent l'image seule.
@@ -2446,7 +2446,7 @@ mod tests {
         let hits = ui::draw_view(&app, &mut cv, bar);
         assert!(!hits.is_empty() && hits.iter().any(|(t, _)| *t == Target::BarQuit));
         assert!(!hits.iter().any(|(t, _)| *t == Target::BarFullscreen), "« Plein écran » n'est pas proposé avec plusieurs écrans");
-        assert!(!ui::overlay_visible(&app, shown), "ni trait ni barre ailleurs : l'image seule");
+        assert!(!ui::overlay_visible(&app, shown), "ni trait ni barre ailleurs : l'image seule");
         let hits = ui::draw_view(&app, &mut cv, shown);
         assert!(hits.is_empty());
         // Une seule fenêtre : tout est comme avant, avec « Plein écran ».
@@ -2471,7 +2471,7 @@ mod tests {
         app.session_mut().unwrap().screens = 3;
         ui::draw(&app, &mut cv);
         let three = width(&cv);
-        assert!(three.1 - three.0 > 100 && one != three, "la barre de plusieurs écrans a sa propre largeur : son texte dit leur nombre, sans le bouton « Plein écran »");
+        assert!(three.1 - three.0 > 100 && one != three, "la barre de plusieurs écrans a sa propre largeur : son texte dit leur nombre, sans le bouton « Plein écran »");
         // La zone d'ouverture est celle de la barre, centrée sur la fenêtre dont on donne la largeur.
         let s = app.session().cloned().unwrap();
         let (left, right) = (three.0 as f32, three.1 as f32);
@@ -2570,7 +2570,7 @@ mod tests {
         assert!(ui::hint_only(&app, own(1)) && !ui::overlay_visible(&app, own(2)));
         app.activate_session(2);
         assert!(ui::hint_only(&app, own(2)) && !ui::overlay_visible(&app, own(1)));
-        // Une session finie sur une erreur : « Fermer » avec d'autres sessions, « Retour à l'accueil » seule.
+        // Une session finie sur une erreur : « Fermer » avec d'autres sessions, « Revenir à l'accueil » seule.
         app.session_by_mut(2).unwrap().phase = Phase::Ended { error: Some("coupée".into()) };
         app.session_by_mut(2).unwrap().opened_at = None;
         let lit = |cv: &Canvas| (0..cv.pix.width()).filter(|x| cv.pix.pixel(*x, 400).unwrap().alpha() > 0).count();
@@ -2614,9 +2614,9 @@ mod tests {
             cv.resize(480, 270, 1.0);
             let hits = ui::draw(&app, &mut cv);
             let quit = hits.iter().find(|(t, _)| *t == Target::BarQuit).expect("« Se déconnecter »").1;
-            assert!(quit.x >= 0.0 && quit.x + quit.w <= 480.0, "{en} : {quit:?}");
+            assert!(quit.x >= 0.0 && quit.x + quit.w <= 480.0, "{en} : {quit:?}");
             for (t, r) in hits.iter().filter(|(t, _)| matches!(t, Target::BarPick(_))) {
-                assert!(r.x >= 0.0 && r.x + r.w <= 480.0 && r.y + r.h <= 270.0, "{en} {t:?} : {r:?}");
+                assert!(r.x >= 0.0 && r.x + r.w <= 480.0 && r.y + r.h <= 270.0, "{en} {t:?} : {r:?}");
             }
         }
         crate::i18n::force_english(false);
@@ -2639,24 +2639,24 @@ mod tests {
             cv.resize(1920, 1080, 1.0);
             let hits = ui::draw(&app, &mut cv);
             for t in [Target::BarKeys, Target::BarMouse, Target::BarClipboard, Target::BarFullscreen, Target::BarShare] {
-                assert!(hits.iter().any(|(h, _)| *h == t) || t == Target::BarClipboard, "{en} : {t:?} dans la barre large");
+                assert!(hits.iter().any(|(h, _)| *h == t) || t == Target::BarClipboard, "{en} : {t:?} dans la barre large");
             }
-            assert!(!hits.iter().any(|(h, _)| *h == Target::BarMore), "{en} : pas de « Plus » quand tout tient");
+            assert!(!hits.iter().any(|(h, _)| *h == Target::BarMore), "{en} : pas de « Plus » quand tout tient");
             // Étroite : « Plus » ; le reste tient dans la fenêtre.
             cv.resize(480, 270, 1.0);
             let hits = ui::draw(&app, &mut cv);
-            assert!(hits.iter().any(|(h, _)| *h == Target::BarMore), "{en} : « Plus »");
+            assert!(hits.iter().any(|(h, _)| *h == Target::BarMore), "{en} : « Plus »");
             for t in [Target::BarProfile, Target::BarShare, Target::BarQuit] {
                 let r = hits.iter().find(|(h, _)| *h == t).unwrap_or_else(|| panic!("{en} : {t:?} jamais dans « Plus »")).1;
-                assert!(r.x >= 0.0 && r.x + r.w <= 480.0, "{en} {t:?} : {r:?}");
+                assert!(r.x >= 0.0 && r.x + r.w <= 480.0, "{en} {t:?} : {r:?}");
             }
-            assert!(!hits.iter().any(|(h, _)| *h == Target::BarKeys), "{en} : « Touches » passée dans « Plus »");
+            assert!(!hits.iter().any(|(h, _)| *h == Target::BarKeys), "{en} : « Touches » passée dans « Plus »");
             // « Plus » ouvert : les commandes retirées, qui font ce que fait leur icône.
             app.session_mut().unwrap().bar_menu = Some(BarMenu::More);
             let hits = ui::draw(&app, &mut cv);
-            assert!(hits.iter().any(|(h, _)| *h == Target::BarKeys), "{en} : « Touches » dans « Plus »");
+            assert!(hits.iter().any(|(h, _)| *h == Target::BarKeys), "{en} : « Touches » dans « Plus »");
             for (t, r) in hits.iter().filter(|(t, _)| matches!(t, Target::BarKeys | Target::BarMouse | Target::BarFullscreen)) {
-                assert!(r.x >= 0.0 && r.x + r.w <= 480.0, "{en} {t:?} : {r:?}");
+                assert!(r.x >= 0.0 && r.x + r.w <= 480.0, "{en} {t:?} : {r:?}");
             }
             // « Touches » choisie depuis « Plus » : son menu, dix entrées, les quatre de link-ui en tête.
             app.activate(Target::BarKeys);
@@ -2664,10 +2664,10 @@ mod tests {
             let names: Vec<&str> = crate::app::SHORTCUTS.iter().map(|k| k.name()).collect();
             assert_eq!(names.len(), 10);
             assert_eq!(names[..4], if en { ["Ctrl + Alt + Del", "Windows key alone", "Alt + Tab", "Print Screen"] } else { ["Ctrl + Alt + Suppr", "Touche Windows seule", "Alt + Tab", "Impr. écran"] });
-            assert_eq!(crate::app::SHORTCUTS[8].inline(), if en { "Task Manager: Ctrl + Shift + Esc" } else { "Gestionnaire des tâches : Ctrl + Maj + Échap" });
+            assert_eq!(crate::app::SHORTCUTS[8].inline(), if en { "Task Manager: Ctrl + Shift + Esc" } else { "Gestionnaire des tâches : Ctrl + Maj + Échap" });
         }
         crate::i18n::force_english(false);
-        assert_eq!(crate::app::mouse_tooltip(), "Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (Ctrl+Alt+Maj+M bascule)");
+        assert_eq!(crate::app::mouse_tooltip(), "Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (Ctrl+Alt+Maj+M bascule)");
     }
 
     /// « Envoyer le journal » (docs/link-ui.md, « Réglages de l'app › À propos ») : par QR code au salon et sur le Deck
@@ -2693,8 +2693,8 @@ mod tests {
                     app.journal = Some(step.clone());
                     let hits = ui::draw(&app, &mut cv);
                     let b = hits.iter().find(|(t, _)| *t == Target::JournalButton).unwrap_or_else(|| panic!("{name} {step:?} : bouton")).1;
-                    assert!(b.y + b.h <= h as f32 && b.x >= 0.0, "{name} {step:?} : {b:?}");
-                    assert_eq!(hits.len(), 1, "{name} {step:?} : seul le bouton se choisit");
+                    assert!(b.y + b.h <= h as f32 && b.x >= 0.0, "{name} {step:?} : {b:?}");
+                    assert_eq!(hits.len(), 1, "{name} {step:?} : seul le bouton se choisit");
                     if let Some(d) = &dir {
                         let _ = std::fs::create_dir_all(d);
                         shot(&mut app, &mut cv, None, d, &format!("journal-{name}-{i}-{}", if en { "en" } else { "fr" }));
@@ -2784,13 +2784,13 @@ mod tests {
                 cv.resize(w, h, 1.0);
                 let hits = ui::draw(&app, &mut cv);
                 let close = hits.iter().find(|(t, _)| *t == Target::StatsClose).unwrap_or_else(|| panic!("{name} {en} : croix")).1;
-                assert!(close.x + close.w <= w as f32 && close.y >= 0.0, "{name} {en} : {close:?}");
+                assert!(close.x + close.w <= w as f32 && close.y >= 0.0, "{name} {en} : {close:?}");
                 if let Some(d) = &dir {
                     let _ = std::fs::create_dir_all(d);
                     shot(&mut app, &mut cv, Some(&demo_image(1)), d, &format!("stats-{name}-{}", if en { "en" } else { "fr" }));
                 }
                 app.activate(Target::StatsClose);
-                assert!(!app.session().unwrap().show_stats, "{name} : la croix ferme");
+                assert!(!app.session().unwrap().show_stats, "{name} : la croix ferme");
             }
         }
         crate::i18n::force_english(false);
@@ -2827,7 +2827,7 @@ mod tests {
             app.store.host_mut("a").unwrap().last = None;
             app.open_host_section(Section::Station, Screen::Home);
             app.hits = ui::draw(&app, &mut cv);
-            assert!(!app.hits.iter().any(|(t, _)| *t == Target::Setting(Setting::StationRestart)), "Station ancienne : pas de redémarrage");
+            assert!(!app.hits.iter().any(|(t, _)| *t == Target::Setting(Setting::StationRestart)), "Station ancienne : pas de redémarrage");
             app.open_host_section(Section::Statistics, Screen::Home);
             ui::draw(&app, &mut cv);
         }
@@ -2903,7 +2903,7 @@ mod tests {
             }
             let rects: Vec<crate::app::Rect> = need.iter().map(|t| rect(*t)).collect();
             for (t, r) in need.iter().zip(&rects) {
-                assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= 960.0 && r.y + r.h <= 600.0 - 8.0, "{t:?} dépasse la fenêtre ({guests} invités, {requests} demandes) : {r:?}");
+                assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= 960.0 && r.y + r.h <= 600.0 - 8.0, "{t:?} dépasse la fenêtre ({guests} invités, {requests} demandes) : {r:?}");
             }
             for (i, a) in rects.iter().enumerate() {
                 for (j, b) in rects.iter().enumerate().skip(i + 1) {
@@ -2939,7 +2939,7 @@ mod tests {
                 assert_eq!(hits.iter().any(|(h, _)| *h == Target::ShareAccept(i)), !view.full(), "« Accepter » inactif quand les quatre places sont prises");
                 for t in [Target::ShareAccept(i), Target::ShareRefuse(i)].into_iter().filter(|t| !(view.full() && matches!(t, Target::ShareAccept(_)))) {
                     let r = hits.iter().find(|(h, _)| *h == t).unwrap_or_else(|| panic!("{t:?} absent")).1;
-                    assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= w as f32 && r.y + r.h <= h as f32 - 56.0, "{t:?} hors de l'écran de {layout:?} : {r:?} ({})", g.name);
+                    assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= w as f32 && r.y + r.h <= h as f32 - 56.0, "{t:?} hors de l'écran de {layout:?} : {r:?} ({})", g.name);
                 }
             }
         }
@@ -3011,14 +3011,14 @@ mod tests {
         }
         for t in need {
             let r = rect(t);
-            assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= 960.0 && r.y + r.h <= 600.0, "{t:?} sort de la fenêtre : {r:?}");
+            assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= 960.0 && r.y + r.h <= 600.0, "{t:?} sort de la fenêtre : {r:?}");
         }
         // Sur une ligne : manettes, clavier et souris, « Retirer », côte à côte et dans la largeur du panneau.
         let right = rect(Target::ShareStop);
         for i in 0..4 {
             let (p, k, x) = (rect(Target::SharePads(i)), rect(Target::ShareKbm(i)), rect(Target::ShareKick(i)));
-            assert!(p.x + p.w <= k.x && k.x + k.w <= x.x, "ligne {i} : boutons qui se chevauchent : {p:?} {k:?} {x:?}");
-            assert!(x.x + x.w <= right.x + right.w, "ligne {i} : « Retirer » sort du panneau : {x:?} contre {right:?}");
+            assert!(p.x + p.w <= k.x && k.x + k.w <= x.x, "ligne {i} : boutons qui se chevauchent : {p:?} {k:?} {x:?}");
+            assert!(x.x + x.w <= right.x + right.w, "ligne {i} : « Retirer » sort du panneau : {x:?} contre {right:?}");
         }
         // Le panneau ne chevauche pas la barre, et le bouton du bas est sous le dernier invité.
         let bottom = rect(Target::ShareKick(3));
@@ -3050,7 +3050,7 @@ mod tests {
             let hits = ui::draw(&app, &mut cv);
             assert!(hits.iter().all(|(t, _)| *t != Target::ShareCopy && *t != Target::ShareClose));
             for (t, r) in &hits {
-                assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= (size.1 - 40) as f32, "{layout:?} : {t:?} sort de l'écran : {r:?}");
+                assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= (size.1 - 40) as f32, "{layout:?} : {t:?} sort de l'écran : {r:?}");
             }
             assert!(hits.iter().any(|(t, _)| *t == Target::ShareStop) && hits.iter().any(|(t, _)| *t == Target::ShareKick(3)));
         }
@@ -3091,10 +3091,10 @@ mod tests {
             app.set_session(Some(g));
             let hits = ui::draw(&app, &mut cv);
             for t in [Target::BarProfile, Target::BarShare, Target::BarComputers, Target::BarPick(Profile::Jeu)] {
-                assert!(hits.iter().all(|(h, _)| *h != t), "{role:?} : {t:?} n'a pas sa place à la barre d'un invité");
+                assert!(hits.iter().all(|(h, _)| *h != t), "{role:?} : {t:?} n'a pas sa place à la barre d'un invité");
             }
-            assert_eq!(hits.iter().any(|(h, _)| *h == Target::BarKeys), keys, "{role:?} : touches");
-            assert_eq!(hits.iter().any(|(h, _)| *h == Target::BarMouse), keys, "{role:?} : souris");
+            assert_eq!(hits.iter().any(|(h, _)| *h == Target::BarKeys), keys, "{role:?} : touches");
+            assert_eq!(hits.iter().any(|(h, _)| *h == Target::BarMouse), keys, "{role:?} : souris");
             assert!(hits.iter().any(|(h, _)| *h == Target::BarQuit) && hits.iter().any(|(h, _)| *h == Target::BarFullscreen));
         }
         // La zone du geste suit la largeur de la barre réduite.
@@ -3120,7 +3120,7 @@ mod tests {
             app.set_session(Some(host));
             app.screen = Screen::Session;
             let hits = ui::draw(&app, &mut cv);
-            assert!(hits.iter().all(|(t, _)| !matches!(t, Target::BarQuality | Target::QualityPick(_))), "{size:?} : l'hôte n'a pas de qualité d'image");
+            assert!(hits.iter().all(|(t, _)| !matches!(t, Target::BarQuality | Target::QualityPick(_))), "{size:?} : l'hôte n'a pas de qualité d'image");
             for role in [ShareRole::Spectator, ShareRole::PlayerKbm] {
                 let mut g = guest_session(role);
                 g.bar = true;
@@ -3130,10 +3130,10 @@ mod tests {
                 }
                 app.set_session(Some(g));
                 let hits = ui::draw(&app, &mut cv);
-                assert_eq!(hits.iter().filter(|(t, _)| *t == Target::BarQuality).count(), 1, "{size:?} {role:?} : la puce");
+                assert_eq!(hits.iter().filter(|(t, _)| *t == Target::BarQuality).count(), 1, "{size:?} {role:?} : la puce");
                 assert!(hits.iter().all(|(t, _)| !matches!(t, Target::QualityPick(_))), "menu fermé");
                 for (t, r) in &hits {
-                    assert!(r.x >= 0.0 && r.x + r.w <= size.0 as f32, "{size:?} {role:?} : {t:?} sort de la fenêtre : {r:?}");
+                    assert!(r.x >= 0.0 && r.x + r.w <= size.0 as f32, "{size:?} {role:?} : {t:?} sort de la fenêtre : {r:?}");
                 }
                 // Le menu : les cinq choix, dans la fenêtre, chacun choisissable.
                 app.session_mut().unwrap().bar_menu = Some(BarMenu::Quality);
@@ -3141,7 +3141,7 @@ mod tests {
                 let picks: Vec<_> = hits.iter().filter(|(t, _)| matches!(t, Target::QualityPick(_))).collect();
                 assert_eq!(picks.len(), ShareQuality::ALL.len(), "{size:?} {role:?}");
                 for (t, r) in &picks {
-                    assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= size.1 as f32, "{size:?} : {t:?} sort : {r:?}");
+                    assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= size.1 as f32, "{size:?} : {t:?} sort : {r:?}");
                 }
             }
         }
@@ -3160,23 +3160,23 @@ mod tests {
             host.menu = true;
             app.set_session(Some(host));
             app.screen = Screen::Session;
-            assert!(ui::draw(&app, &mut cv).iter().all(|(t, _)| *t != Target::Menu(MenuItem::Quality)), "{layout:?} : pas pour l'hôte");
+            assert!(ui::draw(&app, &mut cv).iter().all(|(t, _)| *t != Target::Menu(MenuItem::Quality)), "{layout:?} : pas pour l'hôte");
             let mut g = guest_session(ShareRole::PlayerKbm);
             g.menu = true;
             app.set_session(Some(g));
             let hits = ui::draw(&app, &mut cv);
             let tile = hits.iter().find(|(t, _)| *t == Target::Menu(MenuItem::Quality)).unwrap_or_else(|| panic!("{layout:?} : la tuile")).1;
-            assert!(tile.x + tile.w <= size.0 as f32 && tile.y + tile.h <= size.1 as f32, "{layout:?} : {tile:?}");
+            assert!(tile.x + tile.w <= size.0 as f32 && tile.y + tile.h <= size.1 as f32, "{layout:?} : {tile:?}");
             // Le panneau.
             app.activate(Target::Menu(MenuItem::Quality));
             let hits = ui::draw(&app, &mut cv);
             let picks: Vec<_> = hits.iter().filter(|(t, _)| matches!(t, Target::QualityPick(_))).collect();
             assert_eq!(picks.len(), ShareQuality::ALL.len(), "{layout:?}");
             for (t, r) in &picks {
-                assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= size.1 as f32, "{layout:?} : {t:?} sort : {r:?}");
+                assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= size.1 as f32, "{layout:?} : {t:?} sort : {r:?}");
             }
             assert_eq!(app.focus, Target::QualityPick(ShareQuality::Auto));
-            assert!(hits.iter().all(|(t, _)| !matches!(t, Target::Menu(_) | Target::ShareNewCode)), "{layout:?} : rien d'autre que les choix");
+            assert!(hits.iter().all(|(t, _)| !matches!(t, Target::Menu(_) | Target::ShareNewCode)), "{layout:?} : rien d'autre que les choix");
         }
     }
 
@@ -3201,11 +3201,11 @@ mod tests {
             g.menu = true;
             app.set_session(Some(g));
             let t = items(&app, &mut cv);
-            assert!(t.iter().all(|i| !matches!(i, Target::Menu(MenuItem::Share | MenuItem::Light | MenuItem::Profile(_)))), "{role:?} : {t:?}");
+            assert!(t.iter().all(|i| !matches!(i, Target::Menu(MenuItem::Share | MenuItem::Light | MenuItem::Profile(_)))), "{role:?} : {t:?}");
             assert_eq!(t.contains(&Target::Menu(MenuItem::Keys)), role.kbm(), "{role:?}");
             assert_eq!(t.contains(&Target::Menu(MenuItem::Keyboard)), role.kbm(), "{role:?}");
             assert_eq!(t.contains(&Target::Menu(MenuItem::PadMouse)), role.kbm(), "{role:?}");
-            assert_eq!(t.contains(&Target::Menu(MenuItem::Gamepads)), role.pads(), "{role:?} : les manettes seulement avec les manettes");
+            assert_eq!(t.contains(&Target::Menu(MenuItem::Gamepads)), role.pads(), "{role:?} : les manettes seulement avec les manettes");
             assert_eq!(t.last(), Some(&Target::Menu(MenuItem::Disconnect)));
             assert!(t.contains(&Target::Menu(MenuItem::Resume)) && t.contains(&Target::Menu(MenuItem::Sound)) && t.contains(&Target::Menu(MenuItem::Stats)));
         }
@@ -3224,17 +3224,17 @@ mod tests {
             app.go(Screen::Join);
             let hits = ui::draw(&app, &mut cv);
             for t in [Target::JoinCode, Target::JoinName, Target::JoinGo] {
-                assert!(hits.iter().any(|(h, _)| *h == t), "{layout:?} : {t:?}");
+                assert!(hits.iter().any(|(h, _)| *h == t), "{layout:?} : {t:?}");
             }
             // « Qualité de l'image » : les cinq choix, sous le prénom ; à la manette, ils ne passent pas sous le pavé.
             let quality: Vec<crate::app::Rect> = ShareQuality::ALL.iter().map(|q| hits.iter().find(|(h, _)| *h == Target::JoinQuality(*q)).unwrap_or_else(|| panic!("{layout:?} : {q:?}")).1).collect();
             if layout.console() {
                 let pad_x = hits.iter().filter(|(t, _)| matches!(t, Target::Key(_))).map(|(_, r)| r.x).fold(f32::MAX, f32::min);
                 let last = quality.last().unwrap();
-                assert!(last.x + last.w < pad_x, "{layout:?} : les choix passent sous le pavé ({} > {pad_x})", last.x + last.w);
+                assert!(last.x + last.w < pad_x, "{layout:?} : les choix passent sous le pavé ({} > {pad_x})", last.x + last.w);
             }
             for (t, r) in &hits {
-                assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= size.1 as f32, "{layout:?} {size:?} : {t:?} sort de l'écran : {r:?}");
+                assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= size.0 as f32 && r.y + r.h <= size.1 as f32, "{layout:?} {size:?} : {t:?} sort de l'écran : {r:?}");
             }
             let digits = hits.iter().filter(|(t, _)| matches!(t, Target::Key(c) if c.is_ascii_digit())).count();
             if layout.console() {
@@ -3263,14 +3263,14 @@ mod tests {
             let hits = ui::draw(&app, &mut cv);
             let add = hits.iter().find(|(t, _)| *t == Target::AddCard).expect("ajouter").1;
             let join = hits.iter().find(|(t, _)| *t == Target::JoinCard).expect("rejoindre").1;
-            assert!((add.x - join.x).abs() < 1.0 && join.y >= add.y + add.h, "{layout:?} : une carte sous l'autre");
+            assert!((add.x - join.x).abs() < 1.0 && join.y >= add.y + add.h, "{layout:?} : une carte sous l'autre");
             // Les ordinateurs gardent leur place : trois cartes d'ordinateur et la paire.
             assert_eq!(hits.iter().filter(|(t, _)| matches!(t, Target::Host(_))).count(), 3);
             let mut empty = App::new(Store::default(), layout);
             empty.machine = app.machine.clone();
             empty.go(Screen::Home);
             let hits = ui::draw(&empty, &mut cv);
-            assert!(hits.iter().any(|(t, _)| *t == Target::AddCard) && hits.iter().any(|(t, _)| *t == Target::JoinCard), "{layout:?} : accueil vide");
+            assert!(hits.iter().any(|(t, _)| *t == Target::AddCard) && hits.iter().any(|(t, _)| *t == Target::JoinCard), "{layout:?} : accueil vide");
         }
     }
 
@@ -3290,7 +3290,7 @@ mod tests {
         let shares: Vec<_> = hits.iter().filter(|(t, _)| matches!(t, Target::BarShare | Target::BarSharePill)).map(|(_, r)| *r).collect();
         assert_eq!(shares.len(), 2, "le bouton et la pastille");
         for (t, r) in &hits {
-            assert!(r.x >= 0.0 && r.x + r.w <= 960.0, "{t:?} sort de la fenêtre étroite : {r:?}");
+            assert!(r.x >= 0.0 && r.x + r.w <= 960.0, "{t:?} sort de la fenêtre étroite : {r:?}");
         }
         // Partage ouvert sans invité : le bouton seul, pas de pastille « 0 invité ».
         let (mut app, mut cv) = hosting(0, (960, 600));
@@ -3356,11 +3356,11 @@ mod tests {
             app.live.get_mut("a").unwrap().share = Some(ShareAvail::Disabled);
             app.session_mut().unwrap().menu = true;
             let hits = ui::draw(&app, &mut cv);
-            assert!(hits.iter().any(|(t, _)| *t == Target::Menu(MenuItem::Share)), "{layout:?} : la tuile se choisit");
+            assert!(hits.iter().any(|(t, _)| *t == Target::Menu(MenuItem::Share)), "{layout:?} : la tuile se choisit");
             app.activate(Target::Menu(MenuItem::Share));
             assert!(app.session().unwrap().share_panel);
             let hits = ui::draw(&app, &mut cv);
-            assert!(hits.iter().all(|(t, _)| !matches!(t, Target::ShareNewCode | Target::ShareStop | Target::ShareKick(_))), "{layout:?} : rien d'autre que la raison");
+            assert!(hits.iter().all(|(t, _)| !matches!(t, Target::ShareNewCode | Target::ShareStop | Target::ShareKick(_))), "{layout:?} : rien d'autre que la raison");
         }
     }
 
@@ -3372,16 +3372,16 @@ mod tests {
         let mut app = demo(false, Layout::Desktop);
         let mut cv = Canvas::new();
         cv.resize(960, 600, 1.0);
-        let long = "Admin : le partage demandé n'existe plus sur cet ordinateur ; vérifiez le code affiché chez la personne qui partage, puis réessayez dans un instant (412).";
+        let long = "Admin : le partage demandé n'existe plus sur cet ordinateur ; vérifiez le code affiché chez la personne qui partage, puis réessayez dans un instant (412).";
         app.join = JoinState { name: "Atelier de Léa".into(), code: "482917".into(), message: Some(long.into()), ..JoinState::new() };
         app.go(Screen::Join);
         let hits = ui::draw(&app, &mut cv);
         let go = hits.iter().find(|(t, _)| *t == Target::JoinGo).expect("rejoindre").1;
         // Le texte est à droite du bouton, deux lignes de 22 points au plus : il ne sort ni du bas ni du côté de la fenêtre.
-        assert!(go.y + go.h <= 600.0 && go.x + go.w + 24.0 < 960.0 / 2.0, "le bouton est dans la fenêtre : {go:?}");
+        assert!(go.y + go.h <= 600.0 && go.x + go.w + 24.0 < 960.0 / 2.0, "le bouton est dans la fenêtre : {go:?}");
         let ink_below = (go.y + go.h + 4.0) as u32..600;
         let lit = |cv: &Canvas, rows: std::ops::Range<u32>, from: u32| rows.into_iter().any(|y| (from..960u32).any(|x| cv.pix.pixel(x, y).is_some_and(|p| p.alpha() > 0 && p.red() > 150 && p.green() > 120)));
-        assert!(!lit(&cv, ink_below, 0), "rien sous le bouton : le refus est à sa droite");
+        assert!(!lit(&cv, ink_below, 0), "rien sous le bouton : le refus est à sa droite");
         assert!(lit(&cv, go.y as u32..(go.y + go.h) as u32, (go.x + go.w + 24.0) as u32), "le refus se lit à droite du bouton");
     }
 }

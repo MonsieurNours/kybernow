@@ -498,9 +498,9 @@ impl Platform for LinuxPlatform {
         let msg = match notice {
             Notice::Relaunched => tr("Image relancée", "Picture restarted").to_string(),
             Notice::ModeChanged { width, height, .. } => format!("{} {width} × {height}", tr("L'ordinateur est passé en", "The computer switched to")),
-            Notice::Fallback { bitrate_mbps, .. } => format!("{} {bitrate_mbps} Mbit/s", tr("Image allégée :", "Lighter picture:")),
-            Notice::Adapting { width, height } => format!("{} {width} × {height}…", tr("Écran virtuel adapté :", "Adapting virtual display:")),
-            Notice::Adapted { width, height } => format!("{} {width} × {height}", tr("Écran virtuel :", "Virtual display:")),
+            Notice::Fallback { bitrate_mbps, .. } => format!("{} {bitrate_mbps} Mbit/s", tr("Image allégée :", "Lighter picture:")),
+            Notice::Adapting { width, height } => format!("{} {width} × {height}…", tr("Écran virtuel adapté :", "Adapting virtual display:")),
+            Notice::Adapted { width, height } => format!("{} {width} × {height}", tr("Écran virtuel :", "Virtual display:")),
             Notice::AdaptFailed { error } => error.clone(),
             Notice::RestoreOffer { .. } => return,
             Notice::HdrRefused => kybernow_core::profile::hdr_refused_text(kybernow_core::i18n::current()),
@@ -1235,7 +1235,7 @@ mod tests {
             let s = settings(&h, Profile::Jeu, codec, MODE, &m, false);
             assert_eq!(s.profile, Some(CoreProfile::Jeu), "{:?}", h.settings);
             assert_eq!((s.label(), s.mode_policy()), ("Jeu", "follow"));
-            assert_eq!(screens::screens_profile(&s, Some(capabilities(&h, codec, &m))), None, "{:?} : « Personnalisé » pour le nombre d'écrans", h.settings);
+            assert_eq!(screens::screens_profile(&s, Some(capabilities(&h, codec, &m))), None, "{:?} : « Personnalisé » pour le nombre d'écrans", h.settings);
         }
         // Débit choisi : la base du profil ramenée pour l'atteindre à ce mode.
         let h = host(HostSettings { mbps: 80, ..HostSettings::default() });
@@ -1348,7 +1348,7 @@ mod tests {
         }
         platform.on_share_image(&share::ShareImage::default(), None, None);
         match rx.try_recv() {
-            Ok(Event::Session(7, SessionEvent::ShareImage { label, notice })) => assert_eq!((label, notice), (None, None), "taille inconnue : pas de qualité à montrer"),
+            Ok(Event::Session(7, SessionEvent::ShareImage { label, notice })) => assert_eq!((label, notice), (None, None), "taille inconnue : pas de qualité à montrer"),
             _ => panic!("une image encore inconnue arrive aussi"),
         }
         // Hôte : la qualité d'un invité n'est dite que pour une image à part dont la taille est connue ; une image
@@ -1356,7 +1356,7 @@ mod tests {
         let guest_with = |image: Option<share::ShareImage>| share::ShareGuest { id: "g".into(), name: "Tom".into(), image, ..share::ShareGuest::default() };
         assert_eq!(guest_quality(&guest_with(Some(lighter.clone()))).as_deref(), Some("720p · 30 Hz"));
         assert_eq!(guest_quality(&guest_with(Some(image.clone()))), None, "l'image de l'hôte");
-        assert_eq!(guest_quality(&guest_with(Some(share::ShareImage { follows_host: None, ..lighter.clone() }))), None, "pas encore su : compté comme celui de l'hôte");
+        assert_eq!(guest_quality(&guest_with(Some(share::ShareImage { follows_host: None, ..lighter.clone() }))), None, "pas encore su : compté comme celui de l'hôte");
         assert_eq!(guest_quality(&guest_with(Some(share::ShareImage { width: None, ..lighter }))), None, "taille inconnue");
         assert_eq!(guest_quality(&guest_with(None)), None, "Station sans l'image");
         // Les qualités de l'interface et celles du cœur se correspondent, avec les mêmes libellés.
@@ -1451,6 +1451,7 @@ mod tests {
         kybernow_core::i18n::set_current(Lang::Fr);
         let text = |e: RelayError| relay_failure_text(Some(&e), Some("raison du cœur".into()), "Atelier");
         assert_eq!(text(RelayError::AccessOff).as_deref(), Some("Atelier n'est pas joignable hors de chez vous (accès coupé dans Admin)."));
+        // Le texte du cœur (son catalogue garde l'espace ordinaire).
         assert_eq!(text(RelayError::StationOffline).as_deref(), Some("Atelier n'est pas joignable : l'ordinateur est éteint ou en veille."));
         assert_eq!(text(RelayError::Unreachable("x".into())).as_deref(), Some("Le relais ne répond pas."), "relais muet");
         let looks_like = RelayError::StationOffline.text(Lang::Fr, None);

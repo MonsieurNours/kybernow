@@ -64,7 +64,7 @@ pub fn text(n: u8) -> &'static str {
         ),
         2 => tr("Un compte KyberNow, et vos ordinateurs vous attendent partout.", "A KyberNow account, and your computers wait for you everywhere."),
         _ => tr(
-            "Installez KyberNow Station sur l'ordinateur à rejoindre : sur le même réseau, il apparaît ici tout seul. Un ami vous a donné un code ? Entrez-le.",
+            "Installez KyberNow Station sur l'ordinateur à rejoindre : sur le même réseau, il apparaît ici tout seul. Un ami vous a donné un code ? Entrez-le.",
             "Install KyberNow Station on the computer you want to reach: on the same network, it shows up here by itself. A friend gave you a code? Enter it.",
         ),
     }
@@ -82,7 +82,7 @@ pub fn perks() -> [(&'static str, &'static str); 4] {
 
 /// « La page de {relais} s'ouvre : votre mot de passe ne passe jamais par l'app. »
 pub fn relay_help(relay: &str) -> String {
-    if english() { format!("{relay}'s page opens: your password never goes through the app.") } else { format!("La page de {relay} s'ouvre : votre mot de passe ne passe jamais par l'app.") }
+    if english() { format!("{relay}'s page opens: your password never goes through the app.") } else { format!("La page de {relay} s'ouvre : votre mot de passe ne passe jamais par l'app.") }
 }
 
 pub fn connect_label() -> &'static str {
@@ -95,12 +95,12 @@ pub fn create_label() -> &'static str {
 
 /// L'avis après « Créer un compte ».
 pub fn sign_up_notice() -> &'static str {
-    tr("Créez votre compte dans le navigateur, puis revenez ici : « Connecter un compte ».", "Create your account in the browser, then come back here: “Connect an account”.")
+    tr("Créez votre compte dans le navigateur, puis revenez ici : « Connecter un compte ».", "Create your account in the browser, then come back here: “Connect an account”.")
 }
 
 /// Sous le code, au salon.
 pub fn no_account_yet() -> &'static str {
-    tr("Pas encore de compte ? Créez-le sur cette page.", "No account yet? Create it on this page.")
+    tr("Pas encore de compte ? Créez-le sur cette page.", "No account yet? Create it on this page.")
 }
 
 /// Le texte de « Hors de chez vous ? ».
@@ -108,13 +108,13 @@ pub fn away_text(name: &str) -> String {
     if english() {
         format!("{name} isn't on this network. To reach it from where you are, connect a KyberNow account: your computer follows you everywhere, with nothing to set up on your router.")
     } else {
-        format!("{name} n'est pas sur ce réseau. Pour le rejoindre d'où vous êtes, connectez un compte KyberNow : votre ordinateur vous suit partout, sans rien régler sur votre box.")
+        format!("{name} n'est pas sur ce réseau. Pour le rejoindre d'où vous êtes, connectez un compte KyberNow : votre ordinateur vous suit partout, sans rien régler sur votre box.")
     }
 }
 
 /// Le bandeau après un appairage.
 pub fn paired_text() -> &'static str {
-    tr("Retrouvez-le aussi hors de chez vous et sur vos autres appareils : connectez un compte KyberNow.", "Find it away from home and on your other devices too: connect a KyberNow account.")
+    tr("Retrouvez-le aussi hors de chez vous et sur vos autres appareils : connectez un compte KyberNow.", "Find it away from home and on your other devices too: connect a KyberNow account.")
 }
 
 /// « Revoir l'accueil », dans Réglages de l'app › Comptes.
@@ -463,7 +463,7 @@ mod tests {
     fn carte_du_compte() {
         crate::i18n::force_english(false);
         let mut app = App::new(Store::default(), Layout::Desktop);
-        assert!(!app.account_card_visible(), "accueil vide : pas de carte");
+        assert!(!app.account_card_visible(), "accueil vide : pas de carte");
         app.store.hosts.push(host("a"));
         assert!(app.account_card_visible());
         app.activate(Target::CardClose);
@@ -502,7 +502,7 @@ mod tests {
         app.waking = None;
         assert_eq!(app.activate(Target::Retry), vec![Action::Save]);
         assert_eq!(app.welcome.away.as_ref().map(|a| a.name.as_str()), Some("Tour du salon"));
-        assert_eq!(away_text("PC"), "PC n'est pas sur ce réseau. Pour le rejoindre d'où vous êtes, connectez un compte KyberNow : votre ordinateur vous suit partout, sans rien régler sur votre box.");
+        assert_eq!(away_text("PC"), "PC n'est pas sur ce réseau. Pour le rejoindre d'où vous êtes, connectez un compte KyberNow : votre ordinateur vous suit partout, sans rien régler sur votre box.");
         // « Pas maintenant » : la fenêtre se ferme, et l'app réessaie.
         assert_eq!(app.nav(Nav::Back), vec![Action::Poll]);
         assert!(app.welcome.away.is_none());
