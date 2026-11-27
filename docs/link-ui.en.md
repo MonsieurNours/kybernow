@@ -492,7 +492,7 @@ Contract: [comptes.en.md](comptes.en.md) (batch 3); mock-up: “Link apps” row
 | Code, waiting | spinner, “Waiting for your phone… The code changes in {n} min.”; expired: a new code appears by itself | « En attente de votre téléphone… Le code change dans {n} min. » |
 | Code, relay | “Relay: {relay}”; “Another relay…”; “Back” | « Relais : {relais} » ; « Un autre relais… » ; « Retour » |
 | Code declined on the phone | “Sign-in declined on the phone.”, and “New code” | « Connexion refusée sur le téléphone. », et « Nouveau code » |
-| Another relay | title “Another relay”; field “Relay” (e.g. `relais.exemple.org:9443`), help “Your account's relay address, if it isn't share.kybernow.app.”; “Continue”, “Cancel”; refusals: “Unreadable relay address.”, “This relay has no KyberNow accounts.”, “The relay is not answering.” | « Un autre relais » ; « Relais », aide « L'adresse du relais de votre compte, si ce n'est pas share.kybernow.app. » ; « Continuer », « Annuler » ; « Adresse du relais illisible. », « Ce relais n'a pas de comptes KyberNow. », « Le relais ne répond pas. » |
+| Another relay | title “Another relay”; field “Relay” (e.g. `relay.example.org:9443`), help “Your account's relay address, if it isn't share.kybernow.app.”; “Continue”, “Cancel”; refusals: “Unreadable relay address.”, “This relay has no KyberNow accounts.”, “The relay is not answering.” | « Un autre relais » ; « Relais », aide « L'adresse du relais de votre compte, si ce n'est pas share.kybernow.app. » ; « Continuer », « Annuler » ; « Adresse du relais illisible. », « Ce relais n'a pas de comptes KyberNow. », « Le relais ne répond pas. » |
 | Origin badge (computer cards and list, only when an account is signed in) | “Account”; with accounts on several relays: “Account · {relay}”; a family's or team's computer: its name (“Les Lignes Claires”); opened by someone else: “Opened by {name}”; paired on this device: “Paired” | « Compte » ; « Compte · {relais} » ; le nom de la famille ou de l'équipe ; « Ouvert par {prénom} » ; « Appairé » |
 | One computer once | a computer both paired and on an account (same Admin fingerprint, or same Station at the relay) shows only once: the paired one, with the account's badge; a computer on two accounts, once | un ordinateur une seule fois |
 | Account computer, state | like the others: “Online”, “Offline”, “Away from home”; “Connect” opens the session without pairing, on the network if it is there, otherwise through the relay | comme les autres |
@@ -533,7 +533,7 @@ Contract: [relais.en.md](relais.en.md). Through the relay, a session looks like 
 | Item | French | English |
 |---|---|---|
 | Section | « Hors de chez vous » | “Away from home” |
-| Field | « Relais » (default `share.kybernow.app`; without a port, it is 443; a relay installed elsewhere can carry its port, `relais.exemple.org:9443`), help « Le relais fait passer le partage et vos appareils par internet, hors de chez vous. Laissez vide pour ne pas en utiliser. », button « Enregistrer » (then « Enregistré. ») | “Relay”, help “The relay carries sharing and your devices over the internet, away from home. Leave it empty to use none.”, “Save” (then “Saved.”) |
+| Field | « Relais » (default `share.kybernow.app`; without a port, it is 443; a relay installed elsewhere can carry its port, `relay.example.org:9443`), help « Le relais fait passer le partage et vos appareils par internet, hors de chez vous. Laissez vide pour ne pas en utiliser. », button « Enregistrer » (then « Enregistré. ») | “Relay”, help “The relay carries sharing and your devices over the internet, away from home. Leave it empty to use none.”, “Save” (then “Saved.”) |
 | State | « Relais joint »; « Relais injoignable ({raison}) », or « Relais injoignable » without a reason; only when an address is set; also in the icon's menu, when a share or the access needs the relay | “Relay reached”; “Relay unreachable ({reason})”, “Relay unreachable” |
 | Switch | « Accès hors de chez vous », help « Vos appareils appairés ouvrent cet ordinateur par le relais quand ils ne sont pas sur votre réseau. » | “Access away from home”, help “Your paired devices open this computer through the relay when they are not on your network.” |
 | Feed | « {appareil} est en session hors de chez vous »; « Accès hors de chez vous activé », « Accès hors de chez vous coupé » | “{device} is in a session away from home”; “Access away from home turned on”, “Access away from home turned off” |
@@ -558,7 +558,7 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 
 | Français | English | Values (FR / EN) |
 |---|---|---|
-| Définition | Resolution | Comme cet écran / Match this display; Au plus 4K / 4K at most; Sur mesure / Custom |
+| Définition | Resolution | Comme cet écran / Match this display; Au plus 4K / 4K at most; Sur mesure / Custom. Apple TV: no “4K at most” (the TV doesn't go beyond 4K), and “Custom” offers ready-made resolutions there (no text field with the remote). Linux: heights 2160p to 720p instead of “4K at most” and “Custom” (kept by the app) |
 | Écrans | Displays | Auto ; Cet écran / This display ; Tous les écrans / All displays ; help: « Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon. » / “Auto: all of this device's displays in Desktop and Max, one in Game and Custom. Each display gets a display on the computer, laid out the same way.” Inactive, on « Cet écran », with a custom resolution (help: « Avec une définition sur mesure, la session prend un seul écran. » / “With a custom resolution, the session takes a single display.”), with a session in a window (same help as the custom resolution, the window setting the display's size) and without a virtual display (setting off, or a Station without a usable virtual display: then with no help, the greyed row on « Cet écran » stands on its own and the virtual display has its own row; with a custom resolution, the custom resolution's help stays). Mac, Windows and Linux apps ([multi-ecrans.en.md](multi-ecrans.en.md)) |
 | Fréquence | Refresh rate | “120 Hz” |
 | Écran virtuel | Virtual display | help: « L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin. » / “The computer creates a display sized for this device during the session; its own displays switch off, then come back at the end.” |
@@ -591,6 +591,7 @@ What applies to the device and the whole app. Each platform arranges its section
 |---|---|---|
 | Keyboard layout | « Disposition du clavier » : « Auto » (by default), « AZERTY », « QWERTY », « QWERTZ »; help: « Pour les touches d'une partie sur console (ZQSD ou WASD). Auto suit le clavier physique branché quand iPadOS le dit, sinon la langue du premier clavier. » | “Keyboard layout”: “Auto”, “AZERTY”, “QWERTY”, “QWERTZ”; “For a console game's keys (ZQSD or WASD). Auto follows the plugged-in keyboard when iPadOS reports it, otherwise the first keyboard's language.” |
 | Apple ISO keyboard | « Clavier Apple ISO », right after; its help doesn't change | “Apple ISO keyboard” |
+| Apple TV | only « Clavier Apple ISO »: no keyboard layout, console games don't take the keyboard on the Apple TV | — |
 
 Auto reads the plugged-in keyboard (`GCKeyboard.coalesced`), otherwise the active keyboard's language (the first responder's `textInputMode`, then `UITextInputMode.activeInputModes.first`): AZERTY for French from France and Belgium, QWERTZ for German and Swiss French, QWERTY otherwise (Canadian French included). The layout only names and places the keys of a console game (“Keyboard and mouse” in “PlayStation consoles”); computer sessions send keys as they are. On the Mac, no setting: the system gives the layout.
 
@@ -620,7 +621,7 @@ On-screen steps, by QR code:
 | Expired (one hour) | « Ce QR code a expiré. »; button « Nouveau QR code » | “This QR code has expired.”; “New QR code” |
 | Relay unreachable | « Le relais ne répond pas : vérifiez la connexion à Internet, puis réessayez. »; « Réessayer » | “The relay isn't answering: check the internet connection, then try again.”; “Try again” |
 | Older relay (no drop) | « Ce relais ne prend pas encore les journaux : il doit être mis à jour. » | “This relay doesn't take logs yet: it needs updating.” |
-| Too many uploads | « Trop d'envois : réessayez dans une heure. » | “Too many uploads: try again in an hour.” |
+| Too many uploads (6 an hour, or relay full: 503) | « Trop d'envois : réessayez dans une heure. » | “Too many uploads: try again in an hour.” |
 
 Page opened on the phone (served by the relay, in the phone's language):
 
@@ -1073,7 +1074,7 @@ No profile, displays, clipboard, sharing or “Computers”.
 | Menu de la session | « Mettre la console en veille » (barre de la partie) | “Put the console in rest mode” (game bar) |
 | Clavier et souris | Tant que la souris n'est pas capturée et qu'aucune manette n'est branchée : « Cliquez dans l'image pour jouer au clavier et à la souris » ; un instant après la capture : « ⌃⌥⌘M pour rendre la souris » (le raccourci de la souris des jeux ; Windows et Linux : Ctrl+Alt+Maj+M) | “Click the picture to play with keyboard and mouse”; “⌃⌥⌘M to release the mouse” |
 | Fin, déjà jouée ailleurs | « La console est déjà jouée à distance par un autre appareil. » | “The console is already being played remotely by another device.” |
-| Fin, plus associée | « La console ne reconnaît plus cet appareil : associez-la de nouveau. » | “The console no longer recognizes this device: pair it again.” |
+| Fin, plus associée | « La console ne reconnaît plus cet appareil : associez-la de nouveau. » | “The console no longer recognises this device: pair it again.” |
 | Fin, injoignable | « La console ne répond pas. » | “The console isn't answering.” |
 | Fin, par la console | « La console a terminé la partie. » | “The console ended the session.” |
 

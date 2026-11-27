@@ -558,7 +558,7 @@ Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des m
 
 | Français | English | Valeurs (FR / EN) |
 |---|---|---|
-| Définition | Resolution | Comme cet écran / Match this display ; Au plus 4K / 4K at most ; Sur mesure / Custom |
+| Définition | Resolution | Comme cet écran / Match this display ; Au plus 4K / 4K at most ; Sur mesure / Custom. Apple TV : pas d'« Au plus 4K » (le téléviseur ne dépasse pas la 4K), et « Sur mesure » y propose des définitions toutes faites (pas de champ de saisie à la télécommande). Linux : les hauteurs 2160p à 720p à la place d'« Au plus 4K » et « Sur mesure » (choix gardé par l'app) |
 | Écrans | Displays | Auto ; Cet écran / This display ; Tous les écrans / All displays ; aide : « Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon. » / “Auto: all of this device's displays in Desktop and Max, one in Game and Custom. Each display gets a display on the computer, laid out the same way.” Inactif, sur « Cet écran », avec une définition sur mesure (aide : « Avec une définition sur mesure, la session prend un seul écran. » / “With a custom resolution, the session takes a single display.”), avec une session dans une fenêtre (même aide que la définition sur mesure, la fenêtre fixant la taille de l'écran) et sans écran virtuel (réglage coupé, ou Station sans écran virtuel utilisable : alors sans aide, la ligne grisée sur « Cet écran » se suffit et l'écran virtuel a la sienne ; avec une définition sur mesure, l'aide de la définition sur mesure reste). Apps Mac, Windows et Linux ([multi-ecrans.md](multi-ecrans.md)) |
 | Fréquence | Refresh rate | « 120 Hz » |
 | Écran virtuel | Virtual display | aide : « L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin. » / “The computer creates a display sized for this device during the session; its own displays switch off, then come back at the end.” |
@@ -591,6 +591,7 @@ Ce qui vaut pour l'appareil et toute l'app. Chaque plateforme range ses rubrique
 |---|---|---|
 | Disposition du clavier | « Disposition du clavier » : « Auto » (par défaut), « AZERTY », « QWERTY », « QWERTZ » ; aide : « Pour les touches d'une partie sur console (ZQSD ou WASD). Auto suit le clavier physique branché quand iPadOS le dit, sinon la langue du premier clavier. » | “Keyboard layout”: “Auto”, “AZERTY”, “QWERTY”, “QWERTZ”; “For a console game's keys (ZQSD or WASD). Auto follows the plugged-in keyboard when iPadOS reports it, otherwise the first keyboard's language.” |
 | Clavier Apple ISO | « Clavier Apple ISO », rangé juste après ; son aide ne change pas | “Apple ISO keyboard” |
+| Apple TV | seulement « Clavier Apple ISO » : pas de « Disposition du clavier », les parties sur console ne prennent pas le clavier sur l'Apple TV | — |
 
 Auto lit le clavier branché (`GCKeyboard.coalesced`), sinon la langue du clavier actif (`textInputMode` du premier répondeur, puis `UITextInputMode.activeInputModes.first`) : AZERTY pour le français de France et de Belgique, QWERTZ pour l'allemand et le français de Suisse, QWERTY sinon (le français du Canada compris). La disposition ne sert qu'à nommer et placer les touches d'une partie sur console (« Clavier et souris » de « Consoles PlayStation ») ; les sessions d'ordinateur envoient les touches telles quelles. Sur Mac, pas de réglage : le système donne la disposition.
 
@@ -620,7 +621,7 @@ Auto lit le clavier branché (`GCKeyboard.coalesced`), sinon la langue du clavie
 | Expiré (une heure) | « Ce QR code a expiré. » ; bouton « Nouveau QR code » | “This QR code has expired.”; “New QR code” |
 | Relais injoignable | « Le relais ne répond pas : vérifiez la connexion à Internet, puis réessayez. » ; « Réessayer » | “The relay isn't answering: check the internet connection, then try again.”; “Try again” |
 | Relais d'avant (sans dépôt) | « Ce relais ne prend pas encore les journaux : il doit être mis à jour. » | “This relay doesn't take logs yet: it needs updating.” |
-| Trop d'envois | « Trop d'envois : réessayez dans une heure. » | “Too many uploads: try again in an hour.” |
+| Trop d'envois (6 par heure, ou relais plein : 503) | « Trop d'envois : réessayez dans une heure. » | “Too many uploads: try again in an hour.” |
 
 Page ouverte sur le téléphone (servie par le relais, dans la langue du téléphone) :
 
