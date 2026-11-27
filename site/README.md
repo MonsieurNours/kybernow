@@ -26,7 +26,7 @@ Le site a deux entrées : **Jouer** (particuliers, violet Spectre) et **Travaill
 - **Logos** des deux univers et des deux thèmes : `assets/img/logo/{logo,station,link,share,admin}-{spectre,glacier}{,-clair}.svg`. **Photos** de la page Travailler : `assets/img/pro/` (générées, écrans pas encore remplacés par de vraies captures).
 - **Guide** : un article par tuto et une FAQ à part, générés par `scripts/site-guide.py` depuis les Markdown de `docs/refonte-site-2026-11/guide/` (français) et `…/guide/en/` (anglais, `slug_en` dans l'en-tête). Ne pas modifier `site/guide/` à la main : modifier le Markdown, puis relancer le script (il écrit aussi les données structurées `TechArticle`, `BreadcrumbList` et `FAQPage`). `scripts/site-sitemap.py` réécrit `sitemap.xml`.
 - **Share, Technologie, mentions légales** : contenu d'origine, habillé par `assets/kn/legacy.css` et `legacy.js` (trajet épinglé, simulation QUIC, profils, sommaire). `llms.txt` et `sitemap.xml` (par `scripts/site-sitemap.py`) suivent les nouvelles adresses.
-- Plus aucune page ne charge `kybernow.css`, `site.css`, `doc.css`, `screens.css`, `main.js`, `scene.js` ni `vendor/three` : ils restent dans le dossier en attendant la décision de les retirer. Les sections ci-dessous décrivent l'ancien site et seront réécrites.
+- Les fichiers de l'ancien site (`kybernow.css`, `site.css`, `doc.css`, `screens.css`, `main.js`, `scene.js`, `vendor/three`, les logos `assets/img/kybernow-*-dark.svg`) ont été retirés ; les images de partage (`scripts/site-og/`) prennent leurs logos dans `brand/v2/`. Les sections ci-dessous décrivent l'ancien site et seront réécrites.
 
 ## Pages et langues
 

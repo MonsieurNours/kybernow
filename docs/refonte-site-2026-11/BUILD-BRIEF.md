@@ -126,7 +126,7 @@ EN : « Skip to content », « KyberNow, beta, home », Beta, Play (`/en/play/`)
     <div class="who">
       <img class="dk" src="/assets/img/logo/logo-spectre.svg" alt="KyberNow" width="132" height="18">
       <img class="lt" src="/assets/img/logo/logo-spectre-clair.svg" alt="" width="132" height="18" aria-hidden="true">
-      <span>Un projet libre de Les Lignes Claires.</span>
+      <span>Un projet libre de <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>.</span>
     </div>
     <nav aria-label="Pied de page">
       <a href="/jeu/">Jouer</a><a href="/pro/">Travailler</a><a href="/share/">Share</a><a href="/technologie/">Technologie</a><a href="/guide/">Guide</a><a href="/guide/faq/">FAQ</a><a href="/telecharger/">Télécharger</a><a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Discord</a><a href="https://github.com/MonsieurNours/kybernow" rel="noopener">GitHub</a><a href="/mentions-legales/">Mentions légales</a>
@@ -138,7 +138,7 @@ EN : « Skip to content », « KyberNow, beta, home », Beta, Play (`/en/play/`)
 </body>
 </html>
 ```
-EN : « A free and open project by Les Lignes Claires. », « Footer », Play, Work, Share, Technology, Guide, FAQ (`/en/guide/faq/`), Download, Discord, GitHub, Legal notice (`/en/legal/`).
+EN : « A free and open project by Les Lignes Claires. » (avec le même lien), « Footer », Play, Work, Share, Technology, Guide, FAQ (`/en/guide/faq/`), Download, Discord, GitHub, Legal notice (`/en/legal/`).
 
 ## Vérifier
 Serveur : `http://localhost:5200/…`. N'utilisez pas le panneau navigateur de l'app (partagé). Captures avec `node docs/refonte-site-2026-11/design/shim/cap.mjs '[{"url":"http://localhost:5200/jeu/","out":"docs/refonte-site-2026-11/design/captures/site/jeu-390.png","w":390,"h":844,"wait":2500}]'` (vraie largeur téléphone par le protocole de débogage de Chrome ; `w` 1440 pour le bureau ; `js` pour évaluer une expression, `scroll` pour défiler). Thème clair : ajoutez `"js":"document.documentElement.setAttribute('data-theme','light')"`. Vérifiez au moins : 1440 sombre et clair, 390 et 360 sombre et clair, aucun défilement horizontal, aucune erreur dans la console, les interactions, le mode live au défilement en 1440 × 900, `prefers-reduced-motion`.

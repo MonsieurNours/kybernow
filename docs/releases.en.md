@@ -47,7 +47,7 @@ Admin and the Windows app look for the new name first, then for the old one if i
 
 **Why they stay.** Without them, a Windows app left on 0.3.1 or earlier would no longer find its update, and Admin 0.3.1 or earlier would point to a missing file: it would have to be reinstalled by hand with the new file. The copies are listed in `LEGACY_STATION`, `LEGACY_LINK` and `LEGACY_MAC` in `release.sh` and in `FILES` in `scripts/sign-manifest.sh`; removing them from these lists removes them from the following releases.
 
-**Pitfall.** The website goes live on every push to `main` that touches `site/`: a `releases/latest/download/` link to a new file name leads nowhere until the release that contains that file is published. For the renamed files (installers, Mac archive), `site/assets/main.js` (`LEGACY` table) falls back to the old name while the latest release only publishes that one; any other new file name waits for the release.
+**Pitfall.** The website goes live on every push to `main` that touches `site/`: a `releases/latest/download/` link to a new file name leads nowhere until the release that contains that file is published. The download page (`site/telecharger/`, `site/en/download/`) links straight to the file names: push a page that uses a new file name only once that release is published.
 
 ## Updating
 

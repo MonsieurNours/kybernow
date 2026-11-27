@@ -33,7 +33,7 @@ T = {
    beta='Bêta', nav=[('j', '/jeu/', 'Jouer'), ('p', '/pro/', 'Travailler'), ('', '/share/', 'Share'), ('', '/technologie/', 'Technologie'), ('', '/guide/', 'Guide')],
    theme='Passer en thème clair', signin='Se connecter', signin_url='https://share.kybernow.app/compte/connexion?lang=fr', download='Télécharger', dl_url='/telecharger/',
    dl_full='Télécharger KyberNow', menu_open='Ouvrir le menu', menu='Menu', main_menu='Menu principal', footer='Pied de page',
-   foot_who='Un projet libre de Les Lignes Claires.', foot=[('/jeu/', 'Jouer'), ('/pro/', 'Travailler'), ('/share/', 'Share'), ('/technologie/', 'Technologie'), ('/guide/', 'Guide'), ('/guide/faq/', 'FAQ'), ('/telecharger/', 'Télécharger'), (DISCORD, 'Discord'), ('https://github.com/MonsieurNours/kybernow', 'GitHub'), ('/mentions-legales/', 'Mentions légales')],
+   foot_who='Un projet libre de <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>.', foot=[('/jeu/', 'Jouer'), ('/pro/', 'Travailler'), ('/share/', 'Share'), ('/technologie/', 'Technologie'), ('/guide/', 'Guide'), ('/guide/faq/', 'FAQ'), ('/telecharger/', 'Télécharger'), (DISCORD, 'Discord'), ('https://github.com/MonsieurNours/kybernow', 'GitHub'), ('/mentions-legales/', 'Mentions légales')],
    og_locale='fr_FR', og_alt='en_GB', og_img='kybernow-fr.jpg',
    k_guide='Le guide', search_ph='Apple TV, code, relais, PS5…', search_label='Chercher dans le guide', hints=['Apple TV', 'code', 'PS5', 'relais', 'HDR'],
    k_all='Tous les tutos', k_faq='Questions fréquentes', faq_more='Toutes les questions', join='Rejoindre le Discord', see_faq='Voir la FAQ',
@@ -47,7 +47,7 @@ T = {
    beta='Beta', nav=[('j', '/en/play/', 'Play'), ('p', '/en/pro/', 'Work'), ('', '/en/share/', 'Share'), ('', '/en/technology/', 'Technology'), ('', '/en/guide/', 'Guide')],
    theme='Switch to light theme', signin='Sign in', signin_url='https://share.kybernow.app/compte/connexion?lang=en', download='Download', dl_url='/en/download/',
    dl_full='Download KyberNow', menu_open='Open menu', menu='Menu', main_menu='Main menu', footer='Footer',
-   foot_who='A free and open project by Les Lignes Claires.', foot=[('/en/play/', 'Play'), ('/en/pro/', 'Work'), ('/en/share/', 'Share'), ('/en/technology/', 'Technology'), ('/en/guide/', 'Guide'), ('/en/guide/faq/', 'FAQ'), ('/en/download/', 'Download'), (DISCORD, 'Discord'), ('https://github.com/MonsieurNours/kybernow', 'GitHub'), ('/en/legal/', 'Legal notice')],
+   foot_who='A free and open project by <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>.', foot=[('/en/play/', 'Play'), ('/en/pro/', 'Work'), ('/en/share/', 'Share'), ('/en/technology/', 'Technology'), ('/en/guide/', 'Guide'), ('/en/guide/faq/', 'FAQ'), ('/en/download/', 'Download'), (DISCORD, 'Discord'), ('https://github.com/MonsieurNours/kybernow', 'GitHub'), ('/en/legal/', 'Legal notice')],
    og_locale='en_GB', og_alt='fr_FR', og_img='kybernow-en.jpg',
    k_guide='The guide', search_ph='Apple TV, code, relay, PS5…', search_label='Search the guide', hints=['Apple TV', 'code', 'PS5', 'relay', 'HDR'],
    k_all='Every tutorial', k_faq='Frequently asked questions', faq_more='All questions', join='Join the Discord', see_faq='See the FAQ',
@@ -320,7 +320,7 @@ def page_article(lang, key, langs, urls, check):
                f'<div class="toclist" id="toc-list"><b>{t["in_article"]}</b>{tocl}</div><span class="tocscrim" aria-hidden="true"></span>') if toc else ''
     title = meta.get('title') or meta.get('titre', key)
     ld = {'@context': 'https://schema.org', '@type': 'TechArticle', 'headline': meta.get('titre', key), 'description': meta.get('description', ''),
-          'inLanguage': lang, 'url': BASE_URL + path, 'publisher': {'@type': 'Organization', 'name': 'Les Lignes Claires'},
+          'inLanguage': lang, 'url': BASE_URL + path, 'publisher': {'@type': 'Organization', 'name': 'Les Lignes Claires', 'url': 'https://www.leslignesclaires.fr'},
           'isPartOf': {'@type': 'WebSite', 'name': 'KyberNow', 'url': BASE_URL + '/'}}
     crumbs_ld = {'@context': 'https://schema.org', '@type': 'BreadcrumbList', 'itemListElement': [
         {'@type': 'ListItem', 'position': 1, 'name': 'Guide', 'item': BASE_URL + t['guide']},
