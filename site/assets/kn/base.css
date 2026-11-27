@@ -80,12 +80,13 @@ p { margin: 0; }
 :root[data-u="carrefour"] .logo .g { animation: knXfade 8s ease-in-out infinite; }
 @keyframes knXfade { 0%, 38% { opacity: 0; } 50%, 88% { opacity: 1; } 100% { opacity: 0; } }
 :root:not([data-theme="light"]) .lt, :root[data-theme="light"] .dk { display: none !important; }
-.nav { display: flex; gap: 24px; margin-left: 64px; margin-right: auto; font-size: 15px; }
-.nav a { text-decoration: none; color: var(--frost2); white-space: nowrap; }
+.nav { display: flex; align-items: center; gap: 24px; margin-left: 64px; margin-right: auto; font-size: 15px; }
+.nav a { padding: 4px 0; text-decoration: none; color: var(--frost2); white-space: nowrap; }
 .nav a:hover { color: var(--frost); }
-.nav a[aria-current="page"] { color: var(--frost); box-shadow: inset 0 -2px 0 var(--sig); padding-bottom: 4px; }
+.nav a[aria-current="page"] { color: var(--frost); box-shadow: inset 0 -2px 0 var(--sig); }
 .nav .j { color: var(--spectre); } .nav .p { color: var(--glacier); }
-.nav .disc { display: inline-flex; align-items: center; gap: 7px; }
+.nav .disc { display: inline-flex; align-items: center; gap: 7px; margin-left: 4px; padding-left: 24px; border-left: 1px solid var(--line2); line-height: 1; }
+.nav .disc .ic { width: 17px; height: 17px; }
 .tools { display: flex; align-items: center; gap: 16px; font-size: 14px; color: var(--frost2); }
 .tools a { text-decoration: none; color: var(--frost2); }
 .tools a:hover { color: var(--frost); }
@@ -133,7 +134,7 @@ body.menu-open { overflow: hidden; }
   @keyframes knCurtain { from { clip-path: inset(0 0 100% 0); transform: translateY(.4em); } to { clip-path: inset(0 0 0 0); transform: none; } }
 }
 
-@media (max-width: 1180px) { .nav { margin-left: 20px; gap: 18px; } .logo .beta, .tools .signin { display: none; } }
+@media (max-width: 1180px) { .nav { margin-left: 20px; gap: 18px; } .nav .disc { padding-left: 18px; margin-left: 0; } .logo .beta, .tools .signin { display: none; } }
 @media (max-width: 900px) {
   :root { --top: 64px; }
   .nav, .tools .signin, .tools .lang, .logo .beta { display: none; }
