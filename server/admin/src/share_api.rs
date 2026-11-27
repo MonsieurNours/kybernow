@@ -274,7 +274,7 @@ fn image_json(g: &Guest) -> Value {
 /// connexion, il la préfère à celle du jeton). `false` : Kyber ne l'a pas
 /// prise.
 async fn kyber_quality(s: &AppState, guest: &Guest) -> bool {
-    let body = json!({ "user": guest.kyber_user(), "quality": guest.preset.as_str() });
+    let body = json!({ "user": guest.kyber_user(), "quality": guest.preset.as_str(), "rev": guest.qrev });
     match crate::kyber_proxy::kyber_call(s, Method::POST, "/kybernow/quality", Some(body)).await {
         Ok((status, _)) if status.is_success() => true,
         Ok((status, _)) => {
@@ -381,7 +381,7 @@ fn guest_token(s: &AppState, guest: &Guest, display: u32) -> Option<String> {
     let secret = s.kyber.jwt_secret()?;
     // `kn_mic` (correctif 0086-kycontroller-micro-droits, docs/micro.md) : le micro de l'invité arrive sur l'ordinateur
     // quand l'hôte laisse les invités parler.
-    let claims = json!({ "kn_role": guest.role.as_str(), "kn_display": display, "kn_rev": guest.rev, "kn_quality": guest.preset.as_str(), "kn_mic": s.share.guests_speak() });
+    let claims = json!({ "kn_role": guest.role.as_str(), "kn_display": display, "kn_rev": guest.rev, "kn_quality": guest.preset.as_str(), "kn_qrev": guest.qrev, "kn_mic": s.share.guests_speak() });
     Some(crate::kyber_proxy::jwt_with(&secret, &guest.kyber_user(), share::TOKEN_LIFETIME, claims))
 }
 
@@ -1801,6 +1801,8 @@ mod tests {
         let (status, joined) = body(join(State(s.clone()), peer(20), None, HeaderMap::new(), Json(serde_json::from_value(request).unwrap())).await).await;
         assert_eq!(status, StatusCode::OK, "{joined}");
         assert_eq!(claims(joined["kyber"]["token"].as_str().unwrap())["kn_quality"], "1080p60");
+        // Révision de la qualité (KYB-37) : « Auto » résolu en 1080p60, une de plus.
+        assert_eq!(claims(joined["kyber"]["token"].as_str().unwrap())["kn_qrev"], 1);
         let (guest, secret) = (joined["guest"].as_str().unwrap().to_string(), joined["secret"].as_str().unwrap().to_string());
         let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), None, Json(GuestBody { guest: guest.clone(), error: None, started: None })).await).await;
         // Kyber absent : la qualité demandée, le reste encore inconnu.
@@ -1817,6 +1819,9 @@ mod tests {
         assert_eq!((status, refused["error"].as_str()), (StatusCode::SERVICE_UNAVAILABLE, Some("unavailable")));
         let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), None, Json(GuestBody { guest: guest.clone(), error: None, started: None })).await).await;
         assert_eq!(claims(beat_v["token"].as_str().unwrap())["kn_quality"], "1080p60");
+        // 720p30 essayé puis 1080p60 remis : deux révisions, le jeton
+        // l'emporte sur tout ce que Kyber aurait retenu entre-temps.
+        assert_eq!(claims(beat_v["token"].as_str().unwrap())["kn_qrev"], 3);
         assert_eq!(beat_v["image"]["quality"], "auto");
         // Un changement par seconde au plus : 429 avec Retry-After.
         let res = quality("1080p60", &secret).await;
@@ -1830,6 +1835,7 @@ mod tests {
         assert_eq!((status, image["quality"].as_str()), (StatusCode::OK, Some("1080p60")));
         let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), None, Json(GuestBody { guest: guest.clone(), error: None, started: None })).await).await;
         assert_eq!(claims(beat_v["token"].as_str().unwrap())["kn_quality"], "1080p60");
+        assert_eq!(claims(beat_v["token"].as_str().unwrap())["kn_qrev"], 3, "même préréglage : même révision");
         let (status, _) = body(quality("host", "faux").await).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         // Sans `quality` (app d'avant 0.8.0) : « Auto » sans rien savoir, l'image de l'hôte.
