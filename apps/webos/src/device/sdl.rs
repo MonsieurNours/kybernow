@@ -2,14 +2,12 @@
 //! embarquée dans le paquet), déclarées à la main : fenêtre et rendu, événements
 //! de la télécommande, du clavier et des manettes, vibrations, son.
 
-#![allow(non_camel_case_types, dead_code)]
+#![allow(non_camel_case_types)]
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 
 pub const SDL_INIT_AUDIO: u32 = 0x10;
 pub const SDL_INIT_VIDEO: u32 = 0x20;
-pub const SDL_INIT_JOYSTICK: u32 = 0x200;
-pub const SDL_INIT_HAPTIC: u32 = 0x1000;
 pub const SDL_INIT_GAMECONTROLLER: u32 = 0x2000;
 pub const SDL_INIT_EVENTS: u32 = 0x4000;
 
@@ -29,7 +27,6 @@ pub const AUDIO_F32SYS: u16 = 0x8120;
 pub const SDL_QUIT: u32 = 0x100;
 pub const SDL_APP_WILLENTERBACKGROUND: u32 = 0x103;
 pub const SDL_APP_DIDENTERFOREGROUND: u32 = 0x106;
-pub const SDL_WINDOWEVENT: u32 = 0x200;
 pub const SDL_KEYDOWN: u32 = 0x300;
 pub const SDL_KEYUP: u32 = 0x301;
 pub const SDL_TEXTINPUT: u32 = 0x303;
@@ -43,13 +40,9 @@ pub const SDL_CONTROLLERBUTTONUP: u32 = 0x652;
 pub const SDL_CONTROLLERDEVICEADDED: u32 = 0x653;
 pub const SDL_CONTROLLERDEVICEREMOVED: u32 = 0x654;
 
-pub const SDL_WINDOWEVENT_FOCUS_GAINED: u8 = 12;
-pub const SDL_WINDOWEVENT_FOCUS_LOST: u8 = 13;
 
 /// Touches de la Magic Remote (SDL-webOS, include/SDL_scancode.h).
-pub const SC_WEBOS_HOME: i32 = 384;
 pub const SC_WEBOS_BACK: i32 = 482;
-pub const SC_WEBOS_CURSOR_SHOW: i32 = 484;
 pub const SC_WEBOS_CURSOR_HIDE: i32 = 485;
 pub const SC_WEBOS_RED: i32 = 486;
 pub const SC_WEBOS_GREEN: i32 = 487;
@@ -134,9 +127,6 @@ impl SDL_Event {
     pub fn u8(&self, at: usize) -> u8 {
         self.raw[at]
     }
-    pub fn f32(&self, at: usize) -> f32 {
-        f32::from_ne_bytes(self.raw[at..at + 4].try_into().unwrap())
-    }
     /// Clavier : scancode, répétition.
     pub fn key(&self) -> (i32, bool) {
         (self.i32(16), self.u8(13) != 0)
@@ -188,12 +178,10 @@ pub struct SDL_Locale {
 
 unsafe extern "C" {
     pub fn SDL_Init(flags: u32) -> c_int;
-    pub fn SDL_InitSubSystem(flags: u32) -> c_int;
     pub fn SDL_Quit();
     pub fn SDL_GetError() -> *const c_char;
     pub fn SDL_SetHint(name: *const c_char, value: *const c_char) -> c_int;
     pub fn SDL_CreateWindow(title: *const c_char, x: c_int, y: c_int, w: c_int, h: c_int, flags: u32) -> *mut SDL_Window;
-    pub fn SDL_GetWindowSize(w: *mut SDL_Window, width: *mut c_int, height: *mut c_int);
     pub fn SDL_CreateRenderer(w: *mut SDL_Window, index: c_int, flags: u32) -> *mut SDL_Renderer;
     pub fn SDL_CreateTexture(r: *mut SDL_Renderer, format: u32, access: c_int, w: c_int, h: c_int) -> *mut SDL_Texture;
     pub fn SDL_DestroyTexture(t: *mut SDL_Texture);
@@ -210,13 +198,9 @@ unsafe extern "C" {
     pub fn SDL_PushEvent(e: *mut SDL_Event) -> c_int;
     pub fn SDL_RegisterEvents(n: c_int) -> u32;
     pub fn SDL_ShowCursor(toggle: c_int) -> c_int;
-    pub fn SDL_StartTextInput();
-    pub fn SDL_StopTextInput();
     pub fn SDL_GetPreferredLocales() -> *mut SDL_Locale;
     pub fn SDL_free(p: *mut c_void);
-    pub fn SDL_GetTicks() -> u32;
 
-    pub fn SDL_NumJoysticks() -> c_int;
     pub fn SDL_IsGameController(index: c_int) -> c_int;
     pub fn SDL_GameControllerOpen(index: c_int) -> *mut SDL_GameController;
     pub fn SDL_GameControllerClose(c: *mut SDL_GameController);

@@ -274,7 +274,7 @@ pub fn pair(targets: Vec<Target>, code: String, device: DeviceInfo, cancel: Arc<
             let c = Console::new(&t.address, t.port, "", "", t.fingerprint.clone());
             match c.pair_request(&code, &device) {
                 Ok(id) => {
-                    let _ = tx.send(Event::PairAsked { name: t.name.clone(), address: t.address.clone() });
+                    let _ = tx.send(Event::PairAsked { name: t.name.clone() });
                     pending.push((t, id));
                 }
                 Err(e) => log::warn!("code : {} refuse la demande ({e})", t.address),

@@ -2661,14 +2661,16 @@ impl App {
     }
 
     /// Pointeur de la Magic Remote déplacé : le focus suit ce qu'il survole.
+    /// Rend vrai si le focus a changé (WEBOS-20 : le dessin ne montre que lui ; le pointeur est celui du système).
     pub fn pointer_moved(&mut self, x: f32, y: f32) -> bool {
         self.pointer = Some((x, y));
-        if let Some((t, _)) = self.hits.iter().rev().find(|(_, r)| r.contains(x, y)) {
-            if self.focus != *t {
-                self.focus = *t;
-            }
+        if let Some((t, _)) = self.hits.iter().rev().find(|(_, r)| r.contains(x, y))
+            && self.focus != *t
+        {
+            self.focus = *t;
+            return true;
         }
-        true
+        false
     }
 
     /// Clic du pointeur : choisit ce qui est dessous.

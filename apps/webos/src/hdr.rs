@@ -128,10 +128,10 @@ pub fn scan_hevc(data: &[u8]) -> Seen {
             continue;
         }
         let kind = (nal[0] >> 1) & 0x3f;
-        let rbsp = unescape(&nal[2..]);
+        // Le type d'abord : seuls le SPS et les SEI sont désémulés (WEBOS-21 : pas les ~1 Mo d'une image clé 4K).
         match kind {
-            33 => seen.main10 |= sps_main10(&rbsp),
-            39 => seen.merge(sei(&rbsp)),
+            33 => seen.main10 |= sps_main10(&unescape(&nal[2..])),
+            39 => seen.merge(sei(&unescape(&nal[2..]))),
             _ => {}
         }
     }

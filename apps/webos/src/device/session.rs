@@ -695,7 +695,6 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
     // L'image reste sur la chaîne de jeu de NDL, avec son plan Opus muet qui
     // la cadence (comme en stéréo) ; le Dolby a sa propre chaîne, audio seule.
     ndl::set_audio_plane(if surround && !dolby { ndl::AudioPlane::Pcm51 } else { ndl::AudioPlane::OpusClock });
-    let _ = (w, h, codec);
     // Face à une Station Mac, « Ctrl agit comme ⌘ » (allumé tant qu'on ne l'a pas éteint). Un invité ou un emprunt
     // ne connaît pas le système de l'ordinateur : Ctrl reste Ctrl.
     let control_as_command = guest.is_none() && loan.is_none() && keymap::control_as_command(host.settings.ctrl_command, host.os.as_deref().unwrap_or(""));

@@ -57,7 +57,7 @@ pub enum Event {
     /// Comptes KyberNow : un code, une connexion, les ordinateurs d'un compte (`accounts.rs`).
     Account(accounts::AccountEvent),
     Probed { address: String, port: u16, fingerprint: Result<String, String> },
-    PairAsked { name: String, address: String },
+    PairAsked { name: String },
     PairAccepted(crate::model::Host),
     /// Invitations : la réponse au mot de passe (numéro de l'essai) : l'ordinateur à garder, ou le texte du refus
     /// (`InviteError::text`).
@@ -292,18 +292,16 @@ pub fn run(args: &[String]) {
     let mut cursor_shown = true;
     let mut quit = false;
     let mut rec_tick: Option<u64> = None;
+    // Redessin lent (curseur qui clignote, minute du code) et calcul des mises à jour des Stations : à leur rythme,
+    // pas à chaque tour de boucle (WEBOS-20).
+    let mut last_slow_draw = Instant::now();
+    let mut last_offers = Instant::now() - Duration::from_secs(60);
 
     while !quit {
         // Animations : l'arrivée en session, les capsules, les vibrations d'essai.
         let animating = app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages))
             || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             || app.session.as_ref().and_then(|s| s.notice.as_ref()).is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
-            || (app.screen == Screen::Gamepads)
-            || app.screen == Screen::Join
-            // Comptes KyberNow : l'attente du code (« Le code change dans {n} min. »).
-            || app.screen == Screen::Account
-            // L'accueil : l'attente du code de l'écran 2.
-            || app.welcome_code_shown()
             // Profil Auto : la roue du test, et le bandeau de la session qui s'efface.
             || (app.screen == Screen::AutoTest && app.auto.as_ref().is_some_and(|a| a.phase == crate::autotest::AutoPhase::Running))
             || app.auto_banner_visible()
@@ -314,6 +312,14 @@ pub fn run(args: &[String]) {
             || pads.mouse_active()
             // Mise à jour des Stations : l'attente du bandeau et de l'avis.
             || (app.screen == Screen::Home && app.station.as_ref().is_some_and(|s| s.phase != crate::app::StationPhase::Idle));
+        // Rejoindre (curseur qui clignote toutes les 530 ms), manettes, comptes et accueil (l'attente du code, à la minute) :
+        // un dessin toutes les 250 ms suffit, au lieu de 60 par seconde (1920 × 1080 au processeur à chaque fois).
+        // Manettes : leur état (batterie, branchement) relu à chaque dessin, au même rythme.
+        let slow = app.screen == Screen::Join || app.screen == Screen::Account || app.screen == Screen::Gamepads || app.welcome_code_shown();
+        if slow && last_slow_draw.elapsed() >= Duration::from_millis(250) {
+            last_slow_draw = Instant::now();
+            dirty = true;
+        }
         let timeout = if animating { 16 } else { 50 };
         let mut ev = sdl::SDL_Event::default();
         let mut actions: Vec<Action> = Vec::new();
@@ -346,12 +352,14 @@ pub fn run(args: &[String]) {
             dirty = true;
         }
 
+        let mut events_seen = false;
         while let Ok(e) = rx.try_recv() {
             // Le pointeur de l'ordinateur bouge : la fenêtre seule est recomposée.
             if matches!(e, Event::Pointer { .. }) {
                 present = true;
             } else {
                 dirty = true;
+                events_seen = true;
             }
             if let Event::Ps(e) = e {
                 playstation::handle(e, &mut app, &mut actions, &search, &mut playing, &mut pads);
@@ -365,10 +373,14 @@ pub fn run(args: &[String]) {
             actions.extend(app.poll_link());
             dirty |= app.pending_link.is_none();
         }
-        // Mise à jour des Stations : le calcul du cœur pour chaque ordinateur, les vérifications en arrière-plan, l'avis.
-        let (acts, changed) = offers.tick(&mut app, &tx);
-        actions.extend(acts);
-        dirty |= changed;
+        // Mise à jour des Stations : le calcul du cœur pour chaque ordinateur, les vérifications en arrière-plan, l'avis ;
+        // une fois par seconde, ou tout de suite après une réponse (WEBOS-20).
+        if events_seen || last_offers.elapsed() >= Duration::from_secs(1) {
+            last_offers = Instant::now();
+            let (acts, changed) = offers.tick(&mut app, &tx);
+            actions.extend(acts);
+            dirty |= changed;
+        }
         // Le bandeau après un appairage, à l'écran : compté comme vu (crate::welcome).
         if app.paired_banner_seen() {
             actions.push(Action::Save);

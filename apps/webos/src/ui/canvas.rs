@@ -284,13 +284,12 @@ impl Canvas {
             if let Some(p) = prev {
                 pen += self.fonts.fonts[&font].horizontal_kern(p, c, size).unwrap_or(0.0);
             }
-            let (metrics, coverage) = {
-                let g = self.fonts.glyph(font, c, size);
-                (g.metrics, g.coverage.clone())
-            };
+            // La couverture du glyphe, empruntée au cache (WEBOS-20 : plus de copie à chaque dessin).
+            let g = self.fonts.glyph(font, c, size);
+            let metrics = g.metrics;
             let gx = (pen + metrics.xmin as f32).round() as i32;
             let gy = (y - metrics.height as f32 - metrics.ymin as f32).round() as i32;
-            blit_coverage(&mut self.pix, gx, gy, metrics.width, metrics.height, &coverage, style.color);
+            blit_coverage(&mut self.pix, gx, gy, metrics.width, metrics.height, &g.coverage, style.color);
             pen += metrics.advance_width + style.tracking;
             prev = Some(c);
         }
