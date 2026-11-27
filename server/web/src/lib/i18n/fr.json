@@ -51,7 +51,8 @@
       "soundStopped": "Le son de l’ordinateur s’est interrompu.",
       "imageRestart": "L’image s’est interrompue sur l’ordinateur : relance ({n} sur {max})…",
       "gpuLost": "La carte graphique s’est réinitialisée : l’image reprend…",
-      "reconnecting": "Connexion perdue, nouvelle tentative ({attempt} sur {max})…"
+      "reconnecting": "Connexion perdue, nouvelle tentative ({attempt} sur {max})…",
+      "pyrowave": "Image en {format} : PyroWave n'a pas pu démarrer sur cet appareil."
     },
     "start": {
       "ended": "Session terminée",
@@ -68,32 +69,37 @@
       "click": "Cliquer pour le son",
       "mute": "Couper le son",
       "unmute": "Rétablir le son",
-      "on": "Son",
-      "muted": "Muet"
+      "stereo": "Stéréo",
+      "off": "Son coupé"
     },
     "gamepads": {
-      "count": {
-        "one": "{n} manette",
-        "other": "{n} manettes"
-      },
-      "aria": "{count} : {names}",
       "unavailable": "Manettes indisponibles sur cet ordinateur."
     },
     "mouse": {
-      "auto": "Souris auto",
+      "auto": "Auto",
       "game": "Souris des jeux",
       "desktop": "Souris du bureau",
-      "hint": "Auto : capturée seulement quand un jeu est en plein écran sur l'ordinateur"
+      "hint": "Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur ({shortcut} bascule)",
+      "name": "Souris"
     },
     "bar": {
       "show": "Afficher la barre de session",
-      "metrics": "Statistiques",
       "keys": "Touches",
       "fullscreen": "Plein écran",
-      "exitFullscreen": "Quitter le plein écran",
       "quit": "Se déconnecter",
       "relay": "Par le relais",
-      "showHint": "Barre de session : Ctrl + Alt + Maj"
+      "showHint": "Barre de session : Ctrl + Alt + Maj",
+      "toolbar": "Barre de session",
+      "fps": "{fps} i/s",
+      "statsHint": "Statistiques ({shortcut})",
+      "profileHint": "Profil : Jeu, Bureau ou Max",
+      "fullscreenHint": "Plein écran ({shortcut})",
+      "quitHint": "Se déconnecter ({shortcut})",
+      "more": "Plus",
+      "moreHint": "Plus de commandes",
+      "clipboard": "Presse-papiers",
+      "clipboardOn": "Presse-papiers partagé avec l'ordinateur (texte)",
+      "clipboardOff": "Presse-papiers non partagé (Réglages)"
     },
     "keys": {
       "title": "Touches",
@@ -105,6 +111,16 @@
       "altTabSub": "changer d'app",
       "print": "Impr. écran",
       "printSub": "capture",
+      "desktop": "⊞ + D",
+      "desktopSub": "bureau",
+      "lock": "⊞ + L",
+      "lockSub": "verrouiller",
+      "close": "Alt + F4",
+      "closeSub": "fermer la fenêtre",
+      "taskManager": "Gestionnaire des tâches",
+      "taskManagerSub": "Ctrl + Maj + Échap",
+      "f11": "F11",
+      "f11Sub": "plein écran",
       "macSwitch": "⌘ ⇥",
       "macSwitchSub": "changer d'app",
       "macSpotlight": "⌘ Espace",
@@ -116,20 +132,48 @@
       "macForceQuit": "⌥ ⌘ Échap",
       "macForceQuitSub": "forcer à quitter"
     },
-    "metrics": {
+    "stats": {
       "title": "Statistiques",
-      "median": "médiane sur 3 s",
-      "computer": "Ordinateur",
-      "computerSub": "Capture et encodage",
+      "fromCapture": "de la capture\nà votre écran",
+      "close": "Fermer les statistiques",
+      "waiting": "Les statistiques s'affichent dès que l'image arrive.",
+      "framePath": "Trajet d'une image",
+      "onComputer": "Sur l'ordinateur",
+      "onDevice": "Sur cet appareil",
+      "capture": "Capture",
+      "captureHelp": "De la capture de l'image au début de son encodage",
+      "encode": "Encodage",
+      "encodeHelp": "Compression de l'image par la carte graphique de l'ordinateur",
+      "send": "Envoi",
+      "sendHelp": "Mise en paquets et départ sur le réseau",
       "network": "Réseau",
-      "networkSub": "Jusqu’à cet appareil",
-      "browser": "Ce navigateur",
-      "browserSub": "Décodage et affichage",
-      "waiting": "Les mesures arrivent avec les premières secondes d'image.",
-      "fps": "{fps} images/s",
-      "reliable": "Fiable",
-      "fast": "Rapide",
-      "browserNote": "Dans un navigateur, l'affichage attend le rafraîchissement de l'écran : comptez un peu plus que dans l'app KyberNow Link."
+      "networkHelp": "Du départ de l'ordinateur à l'image complète reçue ici",
+      "decode": "Décodage",
+      "decodeHelp": "Décompression de l'image par cet appareil",
+      "display": "Affichage",
+      "displayHelp": "Rendu et attente du prochain rafraîchissement de l'écran",
+      "latency": "Latence",
+      "bitrate": "Débit",
+      "oneFrame": "1 image",
+      "target": "Débit visé",
+      "targetFixed": "{mbps} Mbit/s · fixe",
+      "targetHidden": "{mbps} Mbit/s · fenêtre cachée",
+      "losses": "Pertes · 30 s",
+      "lostFrames": "Images perdues",
+      "lostPackets": "Paquets perdus",
+      "keyframes": "Images clés",
+      "sessionLosses": "Session : {frames} images, {packets} paquets",
+      "path": "Chemin",
+      "direct": "Direct",
+      "roundTrip": "aller-retour {ms}",
+      "image": "Image",
+      "imageLine": "{width} × {height} · {format} · {fps} i/s",
+      "hardware": "matériel",
+      "software": "logiciel",
+      "graphics": "carte graphique",
+      "measures": "Mesures",
+      "measured": "{pct} % des images",
+      "sound": "Son"
     },
     "touch": {
       "modes": "Toucher",
@@ -158,7 +202,8 @@
       "lowered": "Définition ramenée à {width} × {height} pour tenir dans {mbps} Mbit/s.",
       "lost": "Images perdues",
       "decode": "Décodage PyroWave"
-    }
+    },
+    "shortcut": "Ctrl + Alt + Maj + {key}"
   },
   "web": {
     "app": {
@@ -731,7 +776,6 @@
       "delete": "Supprimer",
       "originalPassword": "Mot de passe d'origine",
       "usedBy": "Utilisé par {devices}.",
-      "and": " et ",
       "unused": "Aucun appareil ne l'utilise encore : saisissez-le dans KyberNow Link.",
       "devicePill": "Accès d'appareil",
       "deviceText": "Créé quand {device} a été accepté par code. Sans mot de passe à retenir : l'appareil le porte.",
@@ -1184,7 +1228,8 @@
       "noImage": "{host} envoie l'image, mais elle n'arrive pas dans ce navigateur. Essayez Chrome ou Edge.",
       "decode": "Ce navigateur n'arrive pas à décoder l'image de {host}.",
       "lightened": "Image allégée pour suivre.",
-      "noMoreImage": "L'ordinateur ne peut pas faire une image de plus : vous recevez {quality}."
+      "noMoreImage": "L'ordinateur ne peut pas faire une image de plus : vous recevez {quality}.",
+      "leaveHint": "Quitter le partage ({shortcut})"
     }
   },
   "lend": {
@@ -1754,6 +1799,8 @@
     "echo": "Réduire l'écho et le bruit",
     "echo_help": "Le traitement voix de l'appareil retire le son de l'ordinateur et le bruit autour de vous. Coupez-le pour un micro de studio.",
     "no_microphone": "Aucun micro sur cet appareil.",
-    "shortcut": "Ctrl + Alt + Maj + V"
+    "status_connecting": "Envoi…",
+    "status_on": "Envoyé",
+    "status_off": "Coupé"
   }
 }

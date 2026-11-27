@@ -3,6 +3,8 @@
 // On n'en garde que l'essentiel : se connecter avec le jeton de la console,
 // démarrer l'image dans une toile, mesurer, s'arrêter.
 
+import { LatencyWindow } from './latency'
+
 export interface CodecSupport {
   codec: string
   yuv444: boolean
@@ -22,14 +24,6 @@ export interface StreamSettings {
   reliable: boolean
   audio: boolean
   clipboard: boolean
-}
-
-export interface Latency {
-  /** Médiane de bout en bout, en ms. */
-  total: number
-  server: number
-  network: number
-  client: number
 }
 
 /** Un écran de l'ordinateur, tel que Kyber le décrit. */
@@ -193,52 +187,6 @@ export async function supportedCodecs(): Promise<CodecSupport[]> {
     yuv444: !!c.yuv444,
     hardware: String(c.hardware_acceleration ?? '').toLowerCase().includes('hardware'),
   }))
-}
-
-/** Médianes glissantes sur les ~3 dernières secondes d'images. */
-class LatencyWindow {
-  private samples: { t: number; total: number; server: number; network: number; client: number }[] = []
-  frames = 0
-
-  push(frame: any) {
-    const { acquired, sent, received, displayed, prepared } = frame
-    const end = displayed ?? prepared
-    if (![acquired, sent, received, end].every((v) => typeof v === 'number' && Number.isFinite(v) && v > 0)) return
-    const server = (sent - acquired) / 1000
-    const network = (received - sent) / 1000
-    const client = (end - received) / 1000
-    const total = server + network + client
-    if (total <= 0 || total > 5000) return
-    const t = performance.now()
-    this.samples.push({ t, total, server, network, client })
-    this.frames++
-    while (this.samples.length && t - this.samples[0].t > 3000) this.samples.shift()
-  }
-
-  /** Images reçues par seconde, sur la fenêtre. */
-  fps(): number {
-    if (this.samples.length < 2) return 0
-    const span = (this.samples[this.samples.length - 1].t - this.samples[0].t) / 1000
-    return span > 0 ? Math.round((this.samples.length - 1) / span) : 0
-  }
-
-  /** Médiane de bout en bout de la dernière seconde seulement. */
-  lastSecond(): number | null {
-    const from = performance.now() - 1000
-    const v = this.samples.filter((s) => s.t >= from).map((s) => s.total)
-    if (v.length < 3) return null
-    v.sort((a, b) => a - b)
-    return v[Math.floor(v.length / 2)]
-  }
-
-  median(): Latency | null {
-    if (this.samples.length < 5) return null
-    const med = (k: 'total' | 'server' | 'network' | 'client') => {
-      const v = this.samples.map((s) => s[k]).sort((a, b) => a - b)
-      return v[Math.floor(v.length / 2)]
-    }
-    return { total: med('total'), server: med('server'), network: med('network'), client: med('client') }
-  }
 }
 
 /** Moteurs en cours d'arrêt, toutes sessions confondues, et ce qui doit
@@ -450,9 +398,23 @@ export class Engine {
     else if (index < 0) console.warn('KyberNow : écran du partage absent de la liste de Kyber', this.displayId)
   }
 
-  /** Médiane de bout en bout des dernières secondes (signal de vie). */
-  sample(): Latency | null {
+  /** Médiane de bout en bout des dernières secondes (signal de vie), en ms. */
+  sample(): number | null {
     return this.latency.median()
+  }
+
+  /** Change le débit demandé à l'ordinateur en cours de session (bit/s), sans relancer l'image :
+   * `set_bitrate` du moteur (route `/set_bitrate` de Kyber). Faux si ce moteur ne l'a pas. */
+  setBitrate(bps: number): boolean {
+    const c = this.client
+    if (typeof c?.set_bitrate !== 'function') return false
+    try {
+      Promise.resolve(c.set_bitrate(Math.round(bps))).catch((e: unknown) => console.warn('KyberNow : débit non changé', e))
+      return true
+    } catch (e) {
+      console.warn('KyberNow : débit non changé', e)
+      return false
+    }
   }
 
   /** Relance l'image sans se déconnecter (écran changé, erreur de capture) :

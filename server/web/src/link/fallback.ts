@@ -1,23 +1,32 @@
 // L'image ne démarre pas dans ce navigateur (docs/link-ui.md, « Image qui ne
 // démarre pas ») : la page recommence une fois en H.264 si elle demandait du
-// HEVC, puis une fois sans le son, avant de dire l'échec. Les réglages de
-// l'appareil ne changent pas : les replis ne valent que pour cette page.
+// HEVC, puis une fois sans le son, avant de dire l'échec. PyroWave qui ne
+// s'ouvre pas (« PyroWave ne s'ouvre pas sur l'appareil ») repart d'abord dans
+// le format qu'aurait pris Auto. Les réglages de l'appareil ne changent pas :
+// les replis ne valent que pour cette session.
 
 import type { CodecSupport, StreamSettings } from './engine'
 
-export type StartFallback = 'h264' | 'no_audio'
+export type StartFallback = 'no_pyrowave' | 'h264' | 'no_audio'
 
-/** Replis déjà pris par cette page. */
+/** Replis déjà pris par cette session. */
 export interface Fallbacks {
+  noPyroWave: boolean
   h264: boolean
   noAudio: boolean
 }
 
-export const NO_FALLBACK: Fallbacks = { h264: false, noAudio: false }
+export const NO_FALLBACK: Fallbacks = { noPyroWave: false, h264: false, noAudio: false }
 
 /** Une raison du moteur qui désigne le son (lecteur audio, worklet) : on coupe le son d'abord. */
 function blamesAudio(reason: string): boolean {
   return /audio|worklet/i.test(reason)
+}
+
+/** PyroWave qui ne s'ouvre pas (le décodeur ou la carte graphique de la page, au début de l'image) : le
+ * format d'Auto, une fois, avant les replis ordinaires (`nextFallback`). */
+export function pyrowaveFallback(plan: Pick<StreamSettings, 'codec'>, done: Fallbacks): 'no_pyrowave' | null {
+  return plan.codec === 'pyrowave' && !done.noPyroWave ? 'no_pyrowave' : null
 }
 
 /**
@@ -43,10 +52,12 @@ export function nextFallback(
 
 /** Le repli retenu. */
 export function take(done: Fallbacks, next: StartFallback): Fallbacks {
-  return next === 'h264' ? { ...done, h264: true } : { ...done, noAudio: true }
+  return next === 'no_pyrowave' ? { ...done, noPyroWave: true } : next === 'h264' ? { ...done, h264: true } : { ...done, noAudio: true }
 }
 
-/** Les réglages de l'image avec les replis pris : H.264 (sans 4:4:4 s'il ne le lit pas), sans le son. */
+/** Les réglages de l'image avec les replis pris : H.264 (sans 4:4:4 s'il ne le lit pas), sans le son.
+ * PyroWave laissé (`noPyroWave`) se règle avant, sur les préférences de la session : le format d'Auto
+ * a son propre débit et sa propre définition (`choose`). */
 export function applyFallbacks<P extends Pick<StreamSettings, 'codec' | 'yuv444' | 'audio'>>(plan: P, done: Fallbacks, codecs: CodecSupport[]): P {
   let out = plan
   if (done.h264 && out.codec !== 'h264') {

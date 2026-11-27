@@ -53,3 +53,42 @@ export function installDiag() {
   })
   document.documentElement.addEventListener('mouseleave', () => diag.outside++)
 }
+
+/**
+ * Le panneau du diagnostic : quinze secondes d'historique, relevé chaque seconde (on reproduit, puis on
+ * capture après coup). `state` : ce que la session sait d'elle-même au moment du relevé. Rend de quoi
+ * l'arrêter ; rien sans `?diag`.
+ */
+export function watchDiag(show: (text: string) => void, state: () => string[]): () => void {
+  if (!diagEnabled) return () => {}
+  let prev = { ...diag }
+  const hist: { souris: number; relayee: number; entrees: number; flux: number; tailles: string }[] = []
+  const timer = setInterval(() => {
+    hist.push({
+      souris: diag.trusted - prev.trusted,
+      relayee: diag.relayed - prev.relayed,
+      entrees: diag.wsInputs - prev.wsInputs,
+      flux: diag.streamWrites - prev.streamWrites,
+      tailles: [...diag.sizes].sort((a, b) => a - b).join('/') || '-',
+    })
+    diag.sizes.clear()
+    if (hist.length > 15) hist.shift()
+    const row = (k: 'souris' | 'relayee' | 'entrees' | 'flux') => hist.map((h) => String(h[k]).padStart(3)).join('')
+    show(
+      [
+        `souris  ${row('souris')}`,
+        `relayée ${row('relayee')}`,
+        `entrées ${row('entrees')}`,
+        `flux    ${row('flux')}`,
+        `octets  ${hist
+          .slice(-8)
+          .map((h) => h.tailles)
+          .join(' ')} (8 dernières s)`,
+        ...state(),
+        `clavier tactile : frappe ${diag.lastKey} · saisie ${diag.lastInput}`,
+      ].join('\n'),
+    )
+    prev = { ...diag }
+  }, 1000)
+  return () => clearInterval(timer)
+}

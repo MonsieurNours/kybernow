@@ -51,7 +51,8 @@
       "soundStopped": "The computer’s sound stopped.",
       "imageRestart": "The picture stopped on the computer: restarting ({n} of {max})…",
       "gpuLost": "The graphics card was reset: the picture is resuming…",
-      "reconnecting": "Connection lost, retrying ({attempt} of {max})…"
+      "reconnecting": "Connection lost, retrying ({attempt} of {max})…",
+      "pyrowave": "Picture in {format}: PyroWave couldn't start on this device."
     },
     "start": {
       "ended": "Session ended",
@@ -68,32 +69,37 @@
       "click": "Click for sound",
       "mute": "Mute",
       "unmute": "Unmute",
-      "on": "Sound",
-      "muted": "Muted"
+      "stereo": "Stereo",
+      "off": "Sound off"
     },
     "gamepads": {
-      "count": {
-        "one": "{n} gamepad",
-        "other": "{n} gamepads"
-      },
-      "aria": "{count}: {names}",
       "unavailable": "Controllers unavailable on this computer."
     },
     "mouse": {
-      "auto": "Auto mouse",
+      "auto": "Auto",
       "game": "Game mouse",
       "desktop": "Desktop mouse",
-      "hint": "Auto: captured only when a game is full screen on the computer"
+      "hint": "Mouse: Auto switches to the game mouse when a game is full screen on the computer ({shortcut} switches)",
+      "name": "Mouse"
     },
     "bar": {
       "show": "Show the session bar",
-      "metrics": "Statistics",
       "keys": "Keys",
       "fullscreen": "Full screen",
-      "exitFullscreen": "Exit full screen",
       "quit": "Disconnect",
       "relay": "Via the relay",
-      "showHint": "Session bar: Ctrl + Alt + Shift"
+      "showHint": "Session bar: Ctrl + Alt + Shift",
+      "toolbar": "Session bar",
+      "fps": "{fps} fps",
+      "statsHint": "Statistics ({shortcut})",
+      "profileHint": "Profile: Game, Desktop or Max",
+      "fullscreenHint": "Full screen ({shortcut})",
+      "quitHint": "Disconnect ({shortcut})",
+      "more": "More",
+      "moreHint": "More controls",
+      "clipboard": "Clipboard",
+      "clipboardOn": "Clipboard shared with the computer (text)",
+      "clipboardOff": "Clipboard not shared (Settings)"
     },
     "keys": {
       "title": "Keys",
@@ -105,6 +111,16 @@
       "altTabSub": "switch apps",
       "print": "Print Screen",
       "printSub": "screenshot",
+      "desktop": "⊞ + D",
+      "desktopSub": "desktop",
+      "lock": "⊞ + L",
+      "lockSub": "lock",
+      "close": "Alt + F4",
+      "closeSub": "close the window",
+      "taskManager": "Task Manager",
+      "taskManagerSub": "Ctrl + Shift + Esc",
+      "f11": "F11",
+      "f11Sub": "full screen",
       "macSwitch": "⌘ ⇥",
       "macSwitchSub": "switch app",
       "macSpotlight": "⌘ Space",
@@ -116,20 +132,48 @@
       "macForceQuit": "⌥ ⌘ Esc",
       "macForceQuitSub": "force quit"
     },
-    "metrics": {
+    "stats": {
       "title": "Statistics",
-      "median": "median over 3 s",
-      "computer": "Computer",
-      "computerSub": "Capture and encoding",
+      "fromCapture": "from capture\nto your screen",
+      "close": "Close statistics",
+      "waiting": "Statistics appear as soon as the picture arrives.",
+      "framePath": "Path of a frame",
+      "onComputer": "On the computer",
+      "onDevice": "On this device",
+      "capture": "Capture",
+      "captureHelp": "From capturing the frame to the start of its encoding",
+      "encode": "Encoding",
+      "encodeHelp": "Frame compression by the computer's graphics card",
+      "send": "Sending",
+      "sendHelp": "Packetising and sending over the network",
       "network": "Network",
-      "networkSub": "To this device",
-      "browser": "This browser",
-      "browserSub": "Decoding and display",
-      "waiting": "Measurements arrive with the first few seconds of picture.",
-      "fps": "{fps} fps",
-      "reliable": "Reliable",
-      "fast": "Fast",
-      "browserNote": "In a browser, display waits for the screen refresh: expect a little more than in the KyberNow Link app."
+      "networkHelp": "From leaving the computer to the full frame received here",
+      "decode": "Decoding",
+      "decodeHelp": "Frame decompression by this device",
+      "display": "Display",
+      "displayHelp": "Rendering and waiting for the display's next refresh",
+      "latency": "Latency",
+      "bitrate": "Bitrate",
+      "oneFrame": "1 frame",
+      "target": "Target bitrate",
+      "targetFixed": "{mbps} Mbit/s · fixed",
+      "targetHidden": "{mbps} Mbit/s · window hidden",
+      "losses": "Losses · 30 s",
+      "lostFrames": "Lost frames",
+      "lostPackets": "Lost packets",
+      "keyframes": "Keyframes",
+      "sessionLosses": "Session: {frames} frames, {packets} packets",
+      "path": "Path",
+      "direct": "Direct",
+      "roundTrip": "round trip {ms}",
+      "image": "Picture",
+      "imageLine": "{width} × {height} · {format} · {fps} fps",
+      "hardware": "hardware",
+      "software": "software",
+      "graphics": "graphics card",
+      "measures": "Measurements",
+      "measured": "{pct}% of frames",
+      "sound": "Sound"
     },
     "touch": {
       "modes": "Touch",
@@ -158,7 +202,8 @@
       "lowered": "Resolution lowered to {width} × {height} to fit in {mbps} Mbit/s.",
       "lost": "Lost frames",
       "decode": "PyroWave decoding"
-    }
+    },
+    "shortcut": "Ctrl + Alt + Shift + {key}"
   },
   "web": {
     "app": {
@@ -731,7 +776,6 @@
       "delete": "Delete",
       "originalPassword": "Original password",
       "usedBy": "Used by {devices}.",
-      "and": " and ",
       "unused": "No device uses it yet: enter it in KyberNow Link.",
       "devicePill": "Device access",
       "deviceText": "Created when {device} was accepted with a code. No password to remember: the device carries it.",
@@ -1184,7 +1228,8 @@
       "noImage": "{host} is sending the picture, but it does not reach this browser. Try Chrome or Edge.",
       "decode": "This browser cannot decode {host}'s picture.",
       "lightened": "Picture lightened to keep up.",
-      "noMoreImage": "The computer can't make another picture: you get {quality}."
+      "noMoreImage": "The computer can't make another picture: you get {quality}.",
+      "leaveHint": "Leave ({shortcut})"
     }
   },
   "lend": {
@@ -1754,6 +1799,8 @@
     "echo": "Reduce echo and noise",
     "echo_help": "The device's voice processing removes the computer's sound and the noise around you. Turn it off for a studio microphone.",
     "no_microphone": "No microphone on this device.",
-    "shortcut": "Ctrl + Alt + Shift + V"
+    "status_connecting": "Connecting…",
+    "status_on": "On",
+    "status_off": "Off"
   }
 }

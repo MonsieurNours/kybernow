@@ -1,49 +1,39 @@
 <!--
-  Session dans le navigateur : la console prépare l'écran, le moteur de Kyber
-  dessine l'image dans une toile, la barre de session reste à portée (en haut
-  au survol, ou sous la languette en tactile). L'écran de connexion montre
-  ses trois étapes, puis l'image seule : rien ne s'affiche par-dessus quand
-  elle arrive (docs/link-ui.md). Trois rôles : l'hôte (session d'Admin), un
-  invité du partage (`guest`), un ami qui emprunte l'ordinateur (`borrow`,
-  docs/pret.md : « Préparation de l'ordinateur », puis sa barre « Prêté par
-  {hôte} »).
+  Session dans le navigateur : la page de l'image. La session elle-même (connexion, replis, fin) est
+  dans livesession.svelte.ts, l'invité, le prêt, l'enregistrement, le micro et les mesures dans leurs
+  modules ; la barre au pointeur (SessionBar, ses Statistiques) et celle du toucher (TouchBar) dans
+  leurs composants. Ici : la toile et la couche tactile, le clavier de l'appareil et sa rangée de
+  touches, les avis, le bandeau PyroWave, les panneaux « Partager » et « Prêter l'ordinateur… », les
+  raccourcis, et ce qui suit la page (focus, onglet masqué, fermeture). Rien ne s'affiche par-dessus
+  l'image quand elle arrive (docs/link-ui.md).
 -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { backend, endOnUnload, heartbeatBody, lend as lendApi, leaveLend, LendRefusal, type AutoCaps, type BorrowAnswer, type BorrowPending, type GuestBeat, type GuestJoin, type Info, type LendBeat } from './backend'
-  import { Heartbeat } from './heartbeat'
-  import { guestTarget, lendTarget, sendHeartbeat, type HeartbeatResult } from './heartbeat-call'
-  import { ApiError, joinedGuests, lendOps, shareRequests, type GuestImage, type LendView, type ShareQuality, type ShareRole, type ShareView } from '../lib/api'
-  import { Engine, allStopped, engineSendsMicrophone, isFixedEngine, isStartFailure, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
-  import { applyFallbacks, NO_FALLBACK, nextFallback, take, type Fallbacks, type StartFallback } from './fallback'
-  import { choose, preferredProtocol, setRelay, viaRelay, type Plan } from './plan'
-  import { deviceId, isCustom, MIN_SESSION_SECONDS, profileName, saveLastSession, type MouseMode, type Prefs, type TouchMode } from './prefs'
-  import { deviceKind, deviceName, hasKeyboardLock, isAppleDevice, hasTouchScreen, isIsolated, isTouch, measureRefresh, screenMode, type Mode } from './device'
-  import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setPositionMapper, setRemoteCursorHidden } from './pointer'
-  import { allowPackets, currentDisplayId, engineInputs, forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
-  import { installInputGuard, releaseAll, removeInputGuard } from './guard'
-  import { MAC_FORCE_QUIT, MAC_KEYS, MAC_SPECIAL_LABELS, SPECIAL_KEYS, TEXT_ATTRIBUTE, TouchInput, TypedText, sendKey, type Combo } from './touch'
-  import { stationIsMac } from './keyswap'
-  import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
-  import Icon from '../lib/Icon.svelte'
-  import { diag, diagEnabled, installDiag } from './diag'
-  import { i18n, t, tn } from '../lib/i18n/index.svelte'
-  import { tName } from './names'
-  import { lastResortAllowed, restartForConnection } from './station.svelte'
-  import { autoCaps, formatLabel, guestFormat, leaveShare, QUALITIES, qualityName, redact, saveQuality, tokenPreset, type GuestStart } from './share'
-  import { imageQuality } from '../lib/format'
+  import { t } from '../lib/i18n/index.svelte'
+  import { PointerBar } from './bar.svelte'
+  import type { BorrowStart } from './lend'
+  import { hasKeyboardLock, hasTouchScreen, isAppleDevice, isTouch } from './device'
+  import { diag, diagEnabled, installDiag, watchDiag } from './diag'
+  import { isFixedEngine } from './engine'
   import { gamepadsChanged, installGamepadGate, removeGamepadGate } from './gamepads'
-  import ShareBox from './ShareBox.svelte'
-  import LendBox from './LendBox.svelte'
+  import { installInputGuard, releaseAll, removeInputGuard } from './guard'
+  import { allowPackets, engineInputs, forgetInputSocket, injected, watchInputSocket } from './inputs'
+  import { MAC_FORCE_QUIT, sendCombo } from './keysmenu'
+  import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setPositionMapper } from './pointer'
+  import type { Prefs, TouchMode } from './prefs'
+  import { onGpuLost } from './pyrowave/stats'
+  import { LiveSession } from './livesession.svelte'
+  import type { GuestStart } from './share'
+  import { canvas, Stage } from './stage'
+  import { MAC_SPECIAL_LABELS, SPECIAL_KEYS, TEXT_ATTRIBUTE, TouchInput, TypedText, sendKey } from './touch'
   import LendAsk from './LendAsk.svelte'
-  import { borrowCaps, clearActive, lendEndText, lendNoticeText, lendRefusalText, markActive, type BorrowStart } from './lend'
-  import { leftText } from '../lib/lend'
-  import { elapsedNow, readRecording, recordingClock, recordingNotice, recordingTooltip, type RecordingState } from '../lib/recording'
-  import { offer, probeAtLoad } from './pyrowave/state.svelte'
-  import { onGpuLost, pyrowaveStats, type PyroWaveStats } from './pyrowave/stats'
-  import { MicCapture, micOn, micro, probeMicrophone, setMicOn } from './micro.svelte'
-  import type { EngineMicState } from './engine'
+  import LendBox from './LendBox.svelte'
+  import SessionBar from './SessionBar.svelte'
+  import SessionOverlay from './SessionOverlay.svelte'
+  import SessionStats from './SessionStats.svelte'
+  import ShareBox from './ShareBox.svelte'
+  import TouchBar from './TouchBar.svelte'
 
   /** `guest` : la session d'un invité du partage (KyberNow Share, docs/kybernow-share.md) : pas de
    * préparation de l'écran ni de jeton d'Admin, une barre réduite, les droits de son rôle.
@@ -51,7 +41,7 @@
    * clavier, la souris et les manettes, ni presse-papiers ni réglages de la Station ; `onLendEnd` dit
    * pourquoi elle n'a pas pu commencer, ou si le prêt est fini. */
   let {
-    hostname: hostnameProp,
+    hostname,
     prefs = $bindable(),
     guest = null,
     borrow = null,
@@ -65,1545 +55,63 @@
     onEnd: () => void
     onLendEnd?: (error: string | null, over: boolean) => void
   } = $props()
-  /** La session d'un invité, fixée pour toute la durée de la page. */
-  const g = untrack(() => guest)
-  /** La session d'un ami qui emprunte l'ordinateur, fixée elle aussi. */
-  const b = untrack(() => borrow)
-  /** Réponse de `borrow` (ou de `wait`) : le jeton, l'écran, l'hôte ; renouvelée par « Revenir ». */
-  let lendAnswer = $state<BorrowAnswer | null>(b?.answer ?? null)
-  /** L'hôte et l'ordinateur que dit la réponse `202` (l'attente de l'accord), même avec un code. */
-  let lendAsked = $state<{ host?: string; computer?: string } | null>(null)
-  /** Le nom de l'ordinateur (celui que donne Admin à l'ami, une fois le prêt ouvert ou demandé). */
-  const hostname = $derived(b ? (lendAnswer?.computer ?? lendAsked?.computer ?? hostnameProp) : hostnameProp)
-  /** Prénom de l'hôte qui prête l'ordinateur. */
-  const lendHost = $derived(lendAnswer?.host ?? lendAsked?.host ?? b?.host ?? '')
-  /** Titre de la session : le nom de l'ordinateur, « Invité sur {nom} », ou « Prêté par {hôte} ». */
-  const title = $derived(
-    g ? t('share.guest.on', { name: hostname }) : b ? (lendHost ? t('lend.bar.lentBy', { host: lendHost }) : t('lend.friend.titleUnknown')) : hostname,
-  )
-  /** Titre de l'écran de connexion d'un ami : « Ordinateur de {hôte} ». */
-  const startTitle = $derived(b ? (lendHost ? tName('lend.friend.card', 'host', lendHost) : t('lend.friend.titleUnknown')) : title)
 
-  /** `restarting` : dernier recours, la Station redémarre (station.svelte.ts). `waiting` : un ami attend l'accord de l'hôte. */
-  type Phase = 'preparing' | 'waiting' | 'connecting' | 'restarting' | 'live' | 'ended'
-  let phase = $state<Phase>('preparing')
-  let error = $state('')
-  /** Le message du moteur sous l'échec (« Détails »), à recopier. */
-  let errorDetail = $state('')
-  let reconnecting = $state('')
-  let plan = $state<Plan | null>(null)
-  let mode = $state<Mode | null>(null)
-  let latency = $state<Latency | null>(null)
-  let fps = $state(0)
-  let spark = $state<number[]>([])
-  let muted = $state(false)
-  let fullscreen = $state(!!document.fullscreenElement)
-  let barVisible = $state(false)
-  let metricsOpen = $state(false)
-  let keysOpen = $state(false)
-  let touchMode = $state<TouchMode>(untrack(() => prefs.touch))
-  let touchBar = $state(false)
-  let keyboardOpen = $state(false)
-  /** Fiche des gestes : à la première ouverture de la barre tactile, jamais à l'arrivée de l'image. */
-  let guide = $state(false)
-  let cursor = $state<{ x: number; y: number } | null>(null)
-  let mods = $state(new Set<string>())
-  // Un invité n'a pas le mode « auto » (il ne sait pas si un jeu est au premier plan) et ne change pas les réglages.
-  let mouseMode = $state<MouseMode>(untrack(() => ((g || b) && prefs.mouse === 'auto' ? 'bureau' : prefs.mouse)))
-  /** Le navigateur attend un geste pour jouer le son. */
-  let soundBlocked = $state(false)
-  /** Information passagère (écran changé, image relancée). */
-  let notice = $state('')
-  let noticeTimer: ReturnType<typeof setTimeout> | null = null
-  /** Manettes vues par le moteur (et transmises à l'ordinateur). */
-  let gamepads = $state<{ index: number; name: string }[]>([])
-  const gamepadText = $derived(tn('session.gamepads.count', gamepads.length))
-  const gamepadAria = $derived(t('session.gamepads.aria', { count: gamepadText, names: gamepads.map((p) => p.name).join(', ') }))
-  /** La Station ne sait pas créer de manettes (`gamepads.available` faux dans `/api/stream/info`) :
-   * un avis bref, une fois par session (docs/link-ui.md, « Manettes indisponibles »). Hôte seulement. */
-  let padsUnavailable = false
-  let padsNoticed = false
-  /** Face à une Station Mac (`os` de `/api/stream/info`) : menu « Touches » et touches à l'écran du
-   * Mac, « Ctrl agit comme ⌘ » (docs/link-ui.md, « Face à une Station Mac »). Hôte seulement : un
-   * invité ou un ami qui emprunte garde ceux d'un PC. */
-  let stationMac = $state(false)
-  /** Droits d'un invité : son rôle, changé en cours de partage par le signe de vie. L'hôte a tout. */
-  let role = $state<ShareRole>(g?.join.role ?? 'player_kbm')
-  // Deux droits indépendants : les manettes (`player`), le clavier et la souris (`kbm`), ou les deux.
-  const canPlay = $derived(!g || role === 'player' || role === 'player_kbm')
-  const canKbm = $derived(!g || role === 'kbm' || role === 'player_kbm')
-  const roleText = $derived(role === 'spectator' ? t('share.guest.spectator') : t('share.guest.player'))
-  /** Le partage de cet appareil (signe de vie de l'hôte), le panneau « Partager », et ce que la Station en dit. */
-  let share = $state<ShareView | null>(null)
-  let shareOpen = $state(false)
-  let shareSupport = $state<'ok' | 'old' | 'off'>('ok')
-  const shareHint = $derived(shareSupport === 'old' ? t('share.bar.tooOld') : shareSupport === 'off' ? t('share.off') : '')
-  /** Invités du partage ouvert : la pastille « 2 invités » (rien quand il n'y en a pas encore). */
-  const guestCount = $derived(joinedGuests(share).length)
-  /** Demandes venues par le relais : leur pastille « 1 demande », à côté de celle des invités. */
-  const requestCount = $derived(shareRequests(share).length)
-  /** « Partager », avec ses pastilles, pour les lecteurs d'écran. */
-  const shareAria = $derived([t('share.bar.share'), guestCount ? tn('share.guests', guestCount) : '', requestCount ? tn('share.requestCount', requestCount) : ''].filter(Boolean).join(' · '))
-  /** La session passe par le relais (un invité ou un ami venu d'internet) : puce « Par le relais ». */
-  let relayed = $state(viaRelay())
-  /** Le prêt (côté hôte) : la vue du signe de vie, le panneau « Prêter l'ordinateur… », et ce que la
-   * Station en dit (`none` : elle ne le connaît pas, la puce n'est pas là ; `off` : coupé dans Admin). */
-  let lend = $state<LendView | null>(null)
-  let lendOpen = $state(false)
-  let lendSupport = $state<'ok' | 'off' | 'none'>('none')
-  const lendRequests = $derived(lend?.requests ?? [])
-  const lendAria = $derived([t('lend.open'), lendRequests.length ? tn('share.requestCount', lendRequests.length) : ''].filter(Boolean).join(' · '))
-  /** Les routes du prêt de l'hôte : le client web dit son appareil (un code ou un accord y ferme la session). */
-  const hostLend = lendOps(() => ({ device_id: deviceId() }))
-  /** Le dernier appui sur « Prêter l'ordinateur… » est un doigt ou un stylet. */
-  let lendTouch = false
-  /** L'hôte a accepté qu'un ami emprunte l'ordinateur : sa session va se fermer. */
-  let lendAccepted = $state<string | null>(null)
-  /** Côté ami : le prêt est fini (rendu, repris, terminé) ; « Revenir » n'a plus lieu d'être. */
-  let lendOver = $state(false)
-  /** Côté ami : la fin prévue, et celle du préavis en cours (secondes Unix). */
-  let lendUntil = $state<number | null>(b?.answer?.until ?? null)
-  let lendNoticeAt = $state<number | null>(null)
-  let lendNoticeKey = ''
-  /** Côté ami : la demande qui attend l'accord de l'hôte, et de quoi arrêter l'attente. */
-  let pendingLend: BorrowPending | null = null
-  let lendAbort: AbortController | null = null
-  /** Côté ami : le prêt s'est ouvert une fois dans cette page (un refus de « Revenir » se dit sur la carte de fin). */
-  let lendOpened = false
-  /** L'enregistrement de la session (docs/link-ui.md, « Enregistrement de la session ») : l'état du
-   * dernier signe de vie (hôte ou invité ; `null` : la Station n'enregistre pas, rien n'est montré),
-   * quand il est arrivé, et l'heure de la page, relue chaque seconde pendant l'enregistrement. */
-  let recording = $state<RecordingState | null>(null)
-  let recordingAt = $state(Date.now())
-  let recordingNow = $state(Date.now())
-  /** Un signe de vie a déjà dit l'état : sans lui, un enregistrement en cours n'est pas « lancé » (hôte). */
-  let recordingSeen = false
-  let recordingBusy = $state(false)
-  /** Le dernier appui sur « Enregistrer » est un doigt ou un stylet (coupé dans Admin : la raison en avis). */
-  let recordingTouch = false
-  const recordingTime = $derived(recordingClock(elapsedNow(recording, recordingAt, recordingNow)))
-  /** « Enregistrement · 02:14 » (hôte), « Enregistrement » (invité). */
-  const recordingPill = $derived(g ? t('recording.guest_pill') : t('recording.pill', { time: recordingTime }))
-  const recordingHint = $derived(!recording ? '' : g ? t('recording.guest_notice', { name: hostname }) : recordingTooltip(recording))
-  /** Côté ami : « Rendre l'ordinateur à {hôte} ? » ouvert. */
-  let giveBackOpen = $state(false)
-  let clockNow = $state(Date.now() / 1000)
-  /** « Encore 1 h 20 », ou « Jusqu'à ce que {hôte} reprenne ». */
-  const lendTimeText = $derived.by(() => {
-    const at = lendNoticeAt ?? lendUntil
-    return at ? leftText(at - clockNow) : t('lend.bar.untilTaken', { host: lendHost })
-  })
-  /** Le dernier appui sur « Partager » est un doigt ou un stylet (pas une souris ni le clavier). */
-  let shareTouch = false
-  let diagText = $state('')
-  /** « Qualité de l'image » d'un invité (docs/link-ui.md, « Partage ») : celle qu'il demande (retenue
-   * quand il la choisit), et ce que la Station dit de son image (`null` avant sa première réponse). */
-  let quality = $state<ShareQuality>(g?.quality ?? 'auto')
-  let image = $state<GuestImage | null>(null)
-  /** La Station connaît la qualité d'un invité (son signe de vie donne `image`) : le choix est dans la barre. */
-  let qualityKnown = $state(false)
-  let qualityOpen = $state(false)
-  let qualityBusy = $state(false)
-  /** Le menu de la qualité s'ouvre sous sa puce (barre de la souris). */
-  let qualityChip = $state<HTMLElement | null>(null)
-  let qualityLeft = $state(0)
-  /** La barre montre la qualité reçue (« 1080p · 60 Hz »), celle demandée tant que Kyber ne la dit pas. */
-  const receivedText = $derived(imageQuality(image) || qualityName(quality))
-  /** Qualité changée en cours de session : les étapes (« Premières images ») jusqu'à la nouvelle image. */
-  let switching = $state(false)
-  let switchTarget: { width: number; height: number } | null = null
-  let switchTimer: ReturnType<typeof setTimeout> | null = null
-  /** Taille de l'image décodée (`resized`) ; `null` après une relance de l'image. */
-  let decoded: { width: number; height: number } | null = null
-  /** Dernier avis d'image ajustée (raison et taille) : un avis par changement, pas à chaque signe de vie. */
-  let imageNoticeKey = ''
-  /** Avis à montrer à la prochaine image (après une relance). */
-  let pendingNotice = ''
-  /** Dernier recours après une erreur de décodage : l'invité est déjà repassé en 720p30. */
-  let fallbackTried = false
-  /** Replis pris parce que l'image ne démarrait pas (H.264, son coupé) : pour toute la page, sans toucher aux réglages. */
-  let fallbacks: Fallbacks = NO_FALLBACK
-  /** PyroWave (docs/link-ui.md, « PyroWave ») : ce que la Station en dit (`/api/stream/info`, relu au démarrage). */
-  let stationInfo: Info | null = null
-  /** « Passer en HEVC » : PyroWave laissé pour la suite de cette session seulement. */
-  let pyrowaveOff = false
-  /** Bandeau du début d'une session PyroWave : 8 s, ou jusqu'à la croix. */
-  let pyroBanner = $state<'network' | 'relay' | null>(null)
-  let pyroBannerShown = false
-  let pyroBannerTimer: ReturnType<typeof setTimeout> | null = null
-  /** Temps de décodage et images perdues (Statistiques). */
-  let pyroStats = $state<PyroWaveStats | null>(null)
-  /** L'écran de cet appareil : la définition ramenée de PyroWave part de lui. */
-  let screen: Mode | null = null
-  /** Un échec a été dit à la Station : elle apprendra aussi comment l'image est partie. */
-  let reportedFailure = false
-
-  let stage: HTMLElement
-  let canvasBox: HTMLElement
-  let touchLayer: HTMLElement
-  let textInput: HTMLTextAreaElement
-  let canvasSize = { width: 0, height: 0 }
-  let engine: Engine | null = null
-  let touch: TouchInput | null = null
-  let barTimer: ReturnType<typeof setTimeout> | null = null
-  /** Largeur de la barre : celle de la zone du bord haut (sa largeur naturelle tant qu'elle est cachée). */
-  let barWidth = $state(0)
-  let barEl = $state<HTMLElement | null>(null)
   let sessionEl: HTMLElement
-  /** Le pointeur s'est posé sur la barre (ou contre le bord qui l'ouvre) depuis qu'elle est ouverte. */
-  let barSeen = false
-  /** Minuteur du pointeur posé contre le bord haut : la barre s'ouvre à son échéance. */
-  let dwellTimer: ReturnType<typeof setTimeout> | null = null
-  /** Dernière position de la souris sur la session (null : elle n'y est plus). */
-  let hoverPos: { x: number; y: number } | null = null
-  /** La page a le focus (le trait du bord haut n'apparaît que si le geste est possible). */
-  let pageFocused = $state(document.hasFocus())
-  /** Le pointeur est capturé (souris des jeux). */
-  let pointerLocked = $state(!!document.pointerLockElement)
-  /** Appareil tactile sans souris : le trait reste, la page n'a que les doigts. */
-  const mouseless = hasTouchScreen && typeof matchMedia === 'function' && !matchMedia('(any-pointer: fine)').matches
-  const edgeShown = $derived(!barVisible && (mouseless || (pageFocused && !pointerLocked)))
-  /** Un bouton de la souris est tenu (dernier état connu) : une fenêtre glissée contre le bord haut n'ouvre pas la barre. */
-  let buttonHeld = false
-  /** Le pointeur doit d'abord sortir de la zone du bord haut avant de rouvrir la barre. */
-  let edgeReady = true
-  /** Le dernier appui sur la languette est un doigt. */
+  let textInput: HTMLTextAreaElement
+  let fullscreen = $state(!!document.fullscreenElement)
+  let touchMode = $state<TouchMode>(untrack(() => prefs.touch))
+  let keyboardOpen = $state(false)
+  /** Pointeur du pavé tactile, dessiné par la page. */
+  let cursor = $state<{ x: number; y: number } | null>(null)
+  /** Touches collantes de la rangée au-dessus du clavier de l'appareil. */
+  let mods = $state(new Set<string>())
+  let diagText = $state('')
+  let touch: TouchInput | null = null
+  /** Le dernier appui sur le trait du haut est un doigt (la barre attend alors un temps sans toucher). */
   let edgeTouch = false
-  let ended = false
-  /** Jeton de Kyber : celui d'Admin (`/api/web/ticket`), ou celui de l'invité, renouvelé par son signe de vie. */
-  let ticketToken = g?.join.kyber.token ?? ''
-  /** Écran du partage que reçoit l'invité (il change si l'écran de l'hôte est recréé). */
-  let guestDisplay = g?.join.display
-  /** Écran virtuel de l'ami qui emprunte l'ordinateur. */
-  let lendDisplay = b?.answer?.display
-  /** L'invité est déjà sorti du partage (`share/leave` envoyé). */
-  let left = false
-  let codecList: import('./engine').CodecSupport[] = []
-  /** Kyber a démarré l'image, mais elle n'arrive pas : on essaie l'autre transport. */
-  let imageWatch: ReturnType<typeof setTimeout> | null = null
-  /** Le plan de contrôle ne se connecte pas : Kyber ne répond pas. */
-  let connectWatch: ReturnType<typeof setTimeout> | null = null
-  let connectStep = $state<'kyber' | 'image'>('kyber')
-  /** L'image est déjà arrivée dans cette session (l'échec n'est plus « de connexion »). */
-  let wasLive = $state(false)
-  /** Médiane de chaque seconde d'image, et l'heure de la première image :
-   * la dernière session (Statistiques) et la médiane envoyée à la fin. */
-  let secondMedians: number[] = []
-  const MAX_SECOND_MEDIANS = 6 * 3600
 
-  /** Le rectangle de la toile, gardé tant qu'elle ne change ni de taille ni de place (WEB-18 : sans lui, une mise en
-   * page forcée à chaque mouvement de souris). */
-  let rectCache: { el: Element; rect: DOMRect } | null = null
-  let rectWatch: ResizeObserver | null = null
-  function canvasRect(el: Element): DOMRect {
-    if (rectCache?.el === el) return rectCache.rect
-    rectWatch?.disconnect()
-    rectWatch = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => (rectCache = null)) : null
-    rectWatch?.observe(el)
-    rectCache = { el, rect: el.getBoundingClientRect() }
-    return rectCache.rect
-  }
-  const forgetRect = () => (rectCache = null)
-  let firstImageAt = 0
-  let lastSaved = false
-  /** D'où part le délai de l'image : la connexion (le démarrage de l'image
-   * peut ne jamais venir) ou le démarrage lui-même. */
-  let imageWatchFrom: 'connected' | 'streaming' | null = null
-  /** Numéro de la tentative en cours. `start`, `fail` et `quit` le changent :
-   * une tentative dépassée (fin, nouvelle tentative) s'arrête à son prochain
-   * `await` au lieu de créer un moteur ou de préparer un écran pour rien. */
-  let generation = 0
-  const stale = (gen: number) => gen !== generation || ended
-  /** Dernière liste des écrans de l'ordinateur. */
-  let displays: DisplayInfo[] | null = null
-  /** Relances de l'image après une erreur de capture ou d'encodage. */
-  let pipelineRestarts = 0
-  let stableTimer: ReturnType<typeof setTimeout> | null = null
-  const MAX_PIPELINE_RESTARTS = 3
-  let gameInForeground = false
-  /** La console a préparé l'écran : il faudra le lui rendre. */
-  let prepared = false
-  /** Champs ajoutés aux corps du signal de vie et de la fin : cet appareil. */
-  const extra = () => ({ device_id: deviceId() })
-  /** La session de la console (le cookie et le jeton durent 12 h) a expiré. */
-  const expired = () => t('session.error.expired')
-
-  // Signal de vie depuis un Worker : il continue dans un onglet masqué. Celui
-  // d'un invité du partage va à `/api/share/beat`, avec son secret.
-  const heartbeat = new Heartbeat(
-    (r) => {
-      if (ended || phase === 'ended') return
-      if (g) {
-        onGuestBeat(r)
-        return
-      }
-      if (b) {
-        onLendBeat(r)
-        return
-      }
-      if (r.status === 401) fail(expired())
-      // Fin demandée depuis la console, un autre appareil prend la main, ou l'ordinateur est prêté
-      // (demande acceptée, code créé depuis cette session, créneau d'un ami).
-      else if (r.end) {
-        const lentTo = lend?.borrower?.name ?? lendAccepted
-        fail(lentTo ? t('lend.host.lentComputer', { name: lentTo }) : t('session.error.taken'))
-      }
-      else if (r.status === 200) {
-        // Le partage de cet appareil, absent sans partage ; le prêt, absent quand il n'y a rien à dire.
-        share = r.data?.share?.open ? (r.data.share as ShareView) : null
-        lend = (r.data?.lend as LendView | undefined) ?? null
-        applyRecording(readRecording(r.data?.recording))
-      }
+  // La session, fixée pour toute la durée de la page (rôle compris).
+  const s = new LiveSession({
+    hostname: () => hostname,
+    prefs: () => prefs,
+    guest: untrack(() => guest),
+    borrow: untrack(() => borrow),
+    onEnd: () => onEnd(),
+    onLendEnd: (error, over) => onLendEnd(error, over),
+    view: {
+      freshCanvas: () => stage.freshCanvas(),
+      fit: () => stage.fit(),
+      textInput: () => textInput ?? null,
+      firstImage,
+      closeChrome: () => bar.reset(),
     },
-    g ? g.join.beat * 1000 : 5000,
-    g ? guestTarget(g.join.secret) : undefined,
-  )
-
-  /**
-   * Signe de vie d'un ami (`POST /api/lend/beat`) : le jeton renouvelé, la fin prévue, le préavis de 2 min,
-   * ou la fin du prêt. Un prêt inconnu (secret refusé, prêt fini sans nouvelles) : il est terminé.
-   */
-  function onLendBeat(r: HeartbeatResult) {
-    if ([401, 403, 404, 410].includes(r.status)) return lendEnded('stopped')
-    if (r.status !== 200 || !r.data) return
-    const beat = r.data as LendBeat
-    if (beat.end) return lendEnded(beat.end)
-    if (b) markActive(b.request)
-    if (beat.token) {
-      ticketToken = beat.token
-      engine?.updateCredentials(beat.token)
-    }
-    lendUntil = beat.until ?? null
-    const n = beat.notice && beat.notice.reason !== 'slot_start' ? beat.notice : null
-    lendNoticeAt = n?.at ?? null
-    const key = n ? `${n.reason} ${n.at}` : ''
-    if (key && key !== lendNoticeKey && phase === 'live') showNotice(lendNoticeText(n!.reason, lendHost), 15000)
-    if (phase === 'live' || !key) lendNoticeKey = key
-  }
-
-  /** Le prêt est fini : la carte de fin le dit, avec « Fermer » seulement. */
-  function lendEnded(end: NonNullable<LendBeat['end']>) {
-    lendOver = true
-    clearActive()
-    fail(lendEndText(end, lendHost))
-  }
-
-  /**
-   * Emprunte l'ordinateur (`POST /api/lend/borrow`) : l'écran de cet appareil et ce que son décodeur lit.
-   * Ordinateur utilisé : la demande attend l'accord de l'hôte (« En attente de {hôte}… », `wait` rappelé
-   * tant qu'il attend). `null` : la session a changé ou l'attente est annulée. Refus : `LendRefusal`.
-   */
-  async function borrowNow(gen: number): Promise<BorrowAnswer | null> {
-    if (!b) return null
-    const caps = await borrowCaps()
-    if (stale(gen)) return null
-    const abort = new AbortController()
-    lendAbort = abort
-    try {
-      const out = await lendApi.borrow(b.request, { name: b.name, ...caps }, abort.signal)
-      if (stale(gen)) return null
-      if (!('request' in out)) return out
-      pendingLend = out
-      lendAsked = { host: out.host, computer: out.computer }
-      phase = 'waiting'
-      let failures = 0
-      while (!abort.signal.aborted && !stale(gen)) {
-        try {
-          const answer = await lendApi.wait(out, abort.signal)
-          if (answer) return answer
-          failures = 0
-        } catch (e) {
-          if (abort.signal.aborted) return null
-          // Le relais ou le réseau hoquette : trois essais, deux secondes d'écart, avant de le dire.
-          if (!(e instanceof LendRefusal && (e.kind === 'relay' || e.kind === 'network')) || ++failures >= 3) throw e
-          await new Promise((done) => setTimeout(done, 2000))
-        }
-      }
-      return null
-    } finally {
-      if (lendAbort === abort) lendAbort = null
-      pendingLend = null
-    }
-  }
-
-  /** « Annuler » pendant l'attente de l'accord : la demande est retirée chez l'hôte, et l'écran d'avant revient. */
-  function cancelBorrow() {
-    const p = pendingLend
-    lendAbort?.abort()
-    if (p) void leaveLend(p.secret, { request: p.request })
-    quit()
-  }
-
-  /** « Rendre l'ordinateur », confirmé : le prêt finit pour de bon (`leave`), la page revient à la carte. */
-  function giveBack() {
-    giveBackOpen = false
-    if (lendAnswer) void leaveLend(lendAnswer.secret, { lend: lendAnswer.lend })
-    lendOver = true
-    clearActive()
-    quit()
-  }
-
-  /** « Revenir » après une fenêtre fermée ou un réseau perdu : le même prêt, de nouveau par `borrow`. */
-  function comeBack() {
-    ended = false
-    wasLive = false
-    lendAnswer = null
-    restart()
-  }
-
-  /** Signe de vie d'un invité : son rôle, le jeton renouvelé, l'écran du partage, ou la fin. */
-  function onGuestBeat(r: HeartbeatResult) {
-    // Parti (sorti sans nouvelles, partage rouvert) : comme un partage arrêté.
-    if (r.status === 404) return endedByHost('stopped')
-    // Station injoignable, ou passagèrement sans clé (503) : le signe suivant le dira.
-    if (r.status !== 200 || !r.data) return
-    const beat = r.data as GuestBeat
-    if (beat.end) return endedByHost(beat.end)
-    applyRecording(readRecording(beat.recording))
-    if (beat.role && beat.role !== role) changeRole(beat.role)
-    if (beat.token) ticketToken = beat.token
-    if (beat.image) {
-      qualityKnown = true
-      onImage(beat.image)
-    }
-    const display = beat.display
-    const moved = !!display && !!guestDisplay && display.id !== guestDisplay.id
-    if (display && guestDisplay) {
-      // Le format annoncé suit l'écran de l'hôte (taille et fréquence : `display_list_updated` relance l'image).
-      if (display.width !== guestDisplay.width || display.height !== guestDisplay.height || display.refresh !== guestDisplay.refresh) {
-        mode = { width: display.width, height: display.height, refresh: display.refresh }
-      }
-      guestDisplay = display
-    }
-    if (moved) {
-      // L'hôte s'est préparé de nouveau : son écran a un autre identifiant, que Kyber ne prend
-      // qu'à une nouvelle connexion, avec le jeton renouvelé. L'écran que visent les positions
-      // et la liste de Kyber sont à réapprendre (sinon les positions iraient à l'ancien écran).
-      if (phase === 'live' || phase === 'connecting') {
-        forgetInputSocket()
-        displays = null
-        restart()
-      }
-    } else if (beat.token) {
-      engine?.updateCredentials(beat.token)
-    }
-  }
-
-  /** La Station dit pourquoi l'invité est sorti : l'hôte a arrêté le partage ou l'a retiré. */
-  function endedByHost(end: 'stopped' | 'removed') {
-    fail(t(end === 'removed' ? 'share.guest.removed' : 'share.guest.stopped', { host: g?.join.host ?? '' }))
-  }
-
-  /** Un signe de vie tout de suite, sans attendre le Worker : le jeton renouvelé et l'image. */
-  async function beatNow(): Promise<HeartbeatResult | null> {
-    if (!g) return null
-    const r = await sendHeartbeat(location.origin, { guest: g.join.guest }, guestTarget(g.join.secret))
-    if (!ended && phase !== 'ended') onGuestBeat(r)
-    return r
-  }
-
-  /**
-   * Ce que la Station dit de l'image de l'invité. Quand elle l'ajuste (docs/link-ui.md, « Image ajustée par
-   * la Station »), un avis bref, une fois par changement : en retard sur l'image de l'hôte, « Image
-   * allégée pour suivre. » ; pas d'image de plus possible, « L'ordinateur ne peut pas faire une image de
-   * plus : vous recevez 720p · 30 Hz. ».
-   */
-  function onImage(next: GuestImage) {
-    image = next
-    const adjusted = next.reason === 'lag' || next.reason === 'limit'
-    const key = adjusted ? `${next.reason} ${next.width}x${next.height}@${next.fps}` : ''
-    if (key === imageNoticeKey) return
-    imageNoticeKey = key
-    if (!adjusted) return
-    const text = next.reason === 'lag' ? t('share.guest.lightened') : t('share.guest.noMoreImage', { quality: imageQuality(next) || qualityName(next.quality) })
-    // Déjà dit à l'instant (l'image décodée a rapetissé) : pas deux fois.
-    if (notice === text) return
-    if (phase === 'live' && !switching) showNotice(text)
-    else pendingNotice = text
-  }
-
-  /**
-   * L'image décodée a changé de taille. Pendant un changement de qualité, c'est la nouvelle image qui
-   * arrive. Sinon, une image plus petite sans que l'invité ait rien changé, et qui n'est pas l'écran de
-   * l'hôte (l'hôte a pu changer de définition) : la Station l'a allégée, l'avis tout de suite (« Image
-   * allégée pour suivre. »), la raison exacte au signe de vie suivant, demandé aussitôt.
-   */
-  function onDecoded(size: { width: number; height: number }) {
-    const before = decoded
-    decoded = size
-    if (!g) return
-    if (switching) {
-      if (!switchTarget || near(size, switchTarget)) endSwitch()
-      return
-    }
-    const hostScreen = (!!guestDisplay && near(size, guestDisplay)) || !!displays?.some((d) => near(size, d))
-    if (before && phase === 'live' && size.width * size.height < before.width * before.height && !hostScreen) {
-      showNotice(t('share.guest.lightened'))
-      void beatNow()
-    }
-  }
-
-  const near = (a: { width: number; height: number }, b: { width: number; height: number }) => Math.abs(a.width - b.width) <= 8 && Math.abs(a.height - b.height) <= 8
-
-  /** Les étapes jusqu'à la nouvelle image : elle arrive dans le flux (Kyber déplace l'image de l'invité :
-   * en-têtes puis image clé). Pas de nouvelle taille en 4 s : l'image est relancée proprement. */
-  function startSwitch(target: { width: number; height: number } | null) {
-    endSwitch()
-    switching = true
-    switchTarget = target
-    const e = engine
-    switchTimer = setTimeout(() => {
-      if (!switching || engine !== e || !e) return
-      console.warn('KyberNow : nouvelle image pas arrivée dans le flux ; image relancée')
-      e.restartVideo()
-      // La relance a son propre délai (5 s, puis la session entière) : les étapes ne restent pas au-delà.
-      switchTimer = setTimeout(endSwitch, 10_000)
-    }, 4000)
-  }
-
-  function endSwitch() {
-    if (switchTimer) clearTimeout(switchTimer)
-    switchTimer = null
-    switching = false
-    switchTarget = null
-  }
-
-  /** Le format que l'invité demande à Kyber, d'après le préréglage de son jeton (`kn_quality`). */
-  function guestFormatNow(): { codec: 'h264' | 'hevc'; yuv444: boolean } | null {
-    if (!g) return null
-    const preset = tokenPreset(ticketToken)
-    return guestFormat(g.join.codec, g.join.yuv444, codecList, preset === null || preset === 'host')
-  }
-
-  function toggleQuality() {
-    qualityOpen = !qualityOpen
-    if (!qualityOpen) return
-    metricsOpen = false
-    keysOpen = false
-    // Sous la puce, dans la barre (positionnée) qui la contient.
-    if (qualityChip) qualityLeft = qualityChip.offsetLeft
-  }
-
-  /**
-   * `POST /api/share/quality` : un changement trop rapproché (429, un par seconde et par invité) est refait
-   * après le délai donné par la Station, sans avis. `null` : la session a changé pendant l'attente.
-   */
-  async function askQuality(gen: number, join: GuestJoin, q: ShareQuality, auto?: AutoCaps): Promise<GuestImage | null> {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        return await backend.shareQuality(join, q, auto)
-      } catch (e) {
-        if (!(e instanceof ApiError) || e.status !== 429 || attempt >= 5) throw e
-        await new Promise((resolve) => setTimeout(resolve, Math.min(e.retryAfter ?? 1, 10) * 1000))
-        if (stale(gen)) return null
-      }
-    }
-  }
-
-  /**
-   * « Qualité de l'image » changée dans la barre : retenue pour la fois suivante, envoyée à la Station
-   * (`POST /api/share/quality`), qui fait relancer à Kyber l'image de l'invité seulement. Le jeton
-   * renouvelé porte le nouveau préréglage. Préréglage inchangé (« Auto » qui donnait déjà 1080p60) : rien
-   * ne bouge. Format à changer (4:4:4 de l'image de l'hôte ou 4:2:0 d'une image à part) : l'image est
-   * relancée proprement ; sinon la nouvelle image arrive dans le flux.
-   */
-  async function pickQuality(q: ShareQuality) {
-    qualityOpen = false
-    if (!g || q === quality || qualityBusy || phase !== 'live') return
-    const before = quality
-    const presetBefore = tokenPreset(ticketToken)
-    const gen = generation
-    quality = q
-    qualityBusy = true
-    try {
-      const auto = q === 'auto' ? await autoCaps() : undefined
-      const next = await askQuality(gen, g.join, q, auto)
-      saveQuality(q)
-      if (!next || stale(gen)) return
-      onImage(next)
-      await beatNow()
-      if (stale(gen) || phase !== 'live' || !engine || !plan) return
-      const preset = tokenPreset(ticketToken)
-      if (preset && preset === presetBefore) return
-      const format = guestFormatNow()
-      if (format && (format.codec !== plan.codec || format.yuv444 !== plan.yuv444)) {
-        plan = { ...plan, ...format }
-        engine.updateSettings(plan)
-        startSwitch(null)
-        engine.restartVideo()
-        return
-      }
-      const target = next.width && next.height ? { width: next.width, height: next.height } : null
-      // Même taille (la fréquence seule change) : rien à attendre à l'écran.
-      if (target && decoded && near(target, decoded)) return
-      startSwitch(target)
-    } catch (e) {
-      console.warn('KyberNow : qualité non changée', redact(e instanceof Error ? e.message : e, [g.join.secret, ticketToken]))
-      if (stale(gen)) return
-      quality = before
-      showNotice(t('share.quality.failed'))
-    } finally {
-      qualityBusy = false
-    }
-  }
-
-  /**
-   * Dernier recours d'un invité dont ce navigateur ne décode pas l'image (le moteur a redemandé une image
-   * clé, en vain) : il rejoint de nouveau son image en 720p30 (sa qualité retenue ne change pas), avec
-   * l'avis « Image allégée pour suivre. ». Déjà en 720p30, ou une seconde fois : l'échec est dit.
-   */
-  async function guestFallback() {
-    if (!g) return
-    fallbackTried = true
-    const gen = generation
-    const e = engine
-    engine = null
-    clearWatches()
-    endSwitch()
-    phase = 'connecting'
-    connectStep = 'image'
-    await retire(e)
-    if (stale(gen)) return
-    try {
-      const next = await askQuality(gen, g.join, '720p30')
-      if (!next) return
-      onImage(next)
-      // Le jeton renouvelé porte 720p30 (`kn_quality`) : Kyber le prend à la nouvelle connexion.
-      await beatNow()
-    } catch {
-      if (!stale(gen)) fail(t('share.guest.decode', { host: hostname }))
-      return
-    }
-    if (stale(gen)) return
-    quality = '720p30'
-    pendingNotice = t('share.guest.lightened')
-    start()
-  }
-
-  /**
-   * Droits changés par l'hôte : un avis bref par droit donné ou repris (plus aucun droit : « Vous regardez
-   * de nouveau. » à la place de l'avis de reprise), et ce que le nouveau rôle ne permet plus est relâché.
-   */
-  function changeRole(next: ShareRole) {
-    const pads = (r: ShareRole) => r === 'player' || r === 'player_kbm'
-    const kbm = (r: ShareRole) => r === 'kbm' || r === 'player_kbm'
-    const before = role
-    role = next
-    const notices: string[] = []
-    if (pads(next) && !pads(before)) notices.push(t('share.guest.canPlay'))
-    if (kbm(next) && !kbm(before)) notices.push(t('share.guest.gotKbm'))
-    if (next === 'spectator') notices.push(t('share.guest.watching'))
-    else {
-      if (!pads(next) && pads(before)) notices.push(t('share.guest.lostPads'))
-      if (!kbm(next) && kbm(before)) notices.push(t('share.guest.lostKbm'))
-    }
-    if (notices.length) showNotice(notices.join(' '))
-  }
-
-  /** Sort du partage (une seule fois) : « Quitter le partage », fermeture de la page, échec. */
-  function leaveGuest() {
-    if (!g || left) return
-    left = true
-    void leaveShare(g.join)
-  }
-
-  /** Connexion coupée sous un invité : l'hôte l'a peut-être retiré, ou arrêté le partage (Kyber
-   * coupe tout de suite). Le signe de vie dit pourquoi ; sans réponse en 2,5 s, l'échec est dit tel quel. */
-  function guestClosed(message: string) {
-    heartbeat.now()
-    const gen = generation
-    setTimeout(() => !stale(gen) && fail(message), 2500)
-  }
-
-  /** Jeton Kyber relu sur la console (reconnexion, puis toutes les heures),
-   * pour que le moteur ne se reconnecte pas avec un jeton périmé. Un invité
-   * n'a pas de jeton d'Admin : son signe de vie renouvelle le sien. */
-  let ticketAt = 0
-  async function refreshTicket(resume = false) {
-    if (g || b) {
-      heartbeat.now()
-      if (resume) engine?.updateCredentials(ticketToken, true)
-      return
-    }
-    if (!resume && Date.now() - ticketAt < 30_000) return
-    ticketAt = Date.now()
-    try {
-      const t = await backend.ticket()
-      ticketToken = t.token
-      engine?.updateCredentials(t.token, resume)
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) fail(expired())
-    }
-  }
-
-  // Valeur envoyée à la console (« Jeu », « Bureau », « Max », « Personnalisé ») : ne se traduit pas.
-  const profileLabel = $derived(profileName(prefs))
-  const profileText = $derived(isCustom(prefs) ? t('web.profile.custom') : t(`web.profile.${prefs.profile}`))
-  /** « 8,3 » en français, « 8.3 » en anglais. */
-  const decimal = (text: string) => (i18n.lang === 'fr' ? text.replace('.', ',') : text)
-  const latencyText = $derived(latency ? `${decimal(latency.total.toFixed(latency.total < 10 ? 1 : 0))} ms` : '— ms')
-  const formatText = $derived.by(() => {
-    if (!mode || !plan) return ''
-    // Un invité : l'image qu'il reçoit (une image à part est en 4:2:0), une fois que Kyber la dit.
-    if (g && image?.width && image.height) {
-      return `${image.width} × ${image.height} · ${image.fps ?? mode.refresh} Hz · ${formatLabel(image.codec ?? plan.codec, plan.yuv444 && image.follows_host !== false)}`
-    }
-    return `${mode.width} × ${mode.height} · ${mode.refresh} Hz · ${formatLabel(plan.codec, plan.yuv444)}`
   })
-  const sparkPath = $derived(
-    spark.length < 2
-      ? ''
-      : (() => {
-          const max = Math.max(20, ...spark)
-          return spark.map((v, i) => `${i ? 'L' : 'M'}${((i / (spark.length - 1)) * 64).toFixed(1)} ${(20 - (v / max) * 18).toFixed(1)}`).join(' ')
-        })(),
-  )
-  const parts = $derived(
-    latency
-      ? [
-          { label: t('session.metrics.computer'), sub: t('session.metrics.computerSub'), v: latency.server, cls: 'a' },
-          { label: t('session.metrics.network'), sub: t('session.metrics.networkSub'), v: latency.network, cls: 'b' },
-          { label: t('session.metrics.browser'), sub: t('session.metrics.browserSub'), v: latency.client, cls: 'c' },
-        ]
-      : [],
-  )
+  const stage = new Stage(() => s.canvasSize)
+  const bar = new PointerBar(s)
+  s.metrics.visible = () => bar.visible || bar.menu === 'stats' || bar.touchOpen
+  s.metrics.detailed = () => bar.menu === 'stats'
 
-  function ms(v: number): string {
-    return `${decimal(v.toFixed(1))} ms`
-  }
-
-  /** Médiane des médianes de chaque seconde, et leur 95e centile, comme le
-   * cœur des apps (`apps/core/src/latency.rs`). */
-  function sessionStats(): { median: number; p95: number } | null {
-    if (!secondMedians.length) return null
-    const v = [...secondMedians].sort((a, b) => a - b)
-    return { median: v[Math.floor(v.length / 2)], p95: v[Math.min(v.length - 1, Math.floor(v.length * 0.95))] }
-  }
-
-  /** Garde la dernière session (rubrique Statistiques) à partir de 3 s d'image. */
-  function keepLastSession() {
-    // Un invité ou un ami n'a pas de statistiques à garder : ce n'est pas son ordinateur.
-    if (g || b || lastSaved || !firstImageAt || !mode || !plan) return
-    const stats = sessionStats()
-    const duration = (Date.now() - firstImageAt) / 1000
-    if (!stats || duration < MIN_SESSION_SECONDS) return
-    lastSaved = true
-    saveLastSession({
-      median: stats.median,
-      p95: stats.p95,
-      duration,
-      endedAt: Date.now() / 1000,
-      width: canvasSize.width || mode.width,
-      height: canvasSize.height || mode.height,
-      refresh: mode.refresh,
-      codec: formatLabel(plan.codec, plan.yuv444),
-      mbps: plan.mbps,
+  /** Première image : la toile prend le clavier ; le pointeur du pavé tactile part du centre (sa couche
+   * était masquée quand il a été placé). */
+  function firstImage() {
+    canvas()?.focus()
+    tick().then(() => {
+      if (!touch || !stage.touchLayer) return
+      const r = stage.touchLayer.getBoundingClientRect()
+      touch.cursor = { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+      if (isTouch && touchMode === 'trackpad') cursor = touch.cursor
     })
   }
 
-  /** Session suivante (Se reconnecter après un échec) : mesures à zéro. */
-  function resetStats() {
-    secondMedians = []
-    firstImageAt = 0
-    lastSaved = false
-  }
-
-  /** Clavier de l'appareil ouvert : la zone visible (`visualViewport`, que le
-   * clavier réduit sur iPhone et iPad sans toucher à la page) donne la place
-   * de l'image et celle de la rangée de touches, juste au-dessus du clavier. */
-  function trackViewport() {
-    const vv = window.visualViewport
-    const el = stage?.parentElement
-    if (!el) return
-    if (vv && keyboardOpen) {
-      el.style.setProperty('--vv-top', `${vv.offsetTop}px`)
-      el.style.setProperty('--vv-h', `${vv.height}px`)
-    } else {
-      el.style.removeProperty('--vv-top')
-      el.style.removeProperty('--vv-h')
-    }
-    fit()
-  }
-
-  function fit() {
-    const canvas = document.getElementById('kn-canvas') as HTMLCanvasElement | null
-    if (!canvas || !canvasSize.width || !stage) return
-    const r = stage.getBoundingClientRect()
-    const scale = Math.min(r.width / canvasSize.width, r.height / canvasSize.height)
-    canvas.style.width = `${Math.floor(canvasSize.width * scale)}px`
-    canvas.style.height = `${Math.floor(canvasSize.height * scale)}px`
-  }
-
-  let cursorWatch: MutationObserver | null = null
-
-  /** Le moteur dessine le pointeur de l'ordinateur en curseur de la toile, et
-   * le masque (`cursor: none`) quand l'ordinateur le dit caché, ce que Windows
-   * fait sans cesse sans souris branchée. Hors capture, on garde une flèche. */
-  function keepPointerVisible(canvas: HTMLCanvasElement) {
-    cursorWatch?.disconnect()
-    setRemoteCursorHidden(false)
-    const fix = () => {
-      const c = canvas.style.cursor
-      // Le moteur pose `none` (masqué) ou l'image du pointeur ; `default` vient de nous.
-      if (c === 'none') setRemoteCursorHidden(true)
-      else if (c && c !== 'default') setRemoteCursorHidden(false)
-      if (c === 'none' && !document.pointerLockElement) canvas.style.cursor = 'default'
-      // La couche tactile recouvre la toile : le pointeur d'une souris ou d'un
-      // pavé (iPad avec clavier) y prend celui de l'ordinateur.
-      if (touchLayer) touchLayer.style.cursor = canvas.style.cursor
-    }
-    cursorWatch = new MutationObserver(fix)
-    cursorWatch.observe(canvas, { attributes: true, attributeFilter: ['style'] })
-    // Souris rendue après une capture : la flèche revient aussi.
-    document.removeEventListener('pointerlockchange', cursorFix)
-    cursorFix = fix
-    document.addEventListener('pointerlockchange', cursorFix)
-    fix()
-  }
-
-  let cursorFix = () => {}
-
-  function freshCanvas() {
-    canvasBox.querySelector('canvas')?.remove()
-    const canvas = document.createElement('canvas')
-    canvas.id = 'kn-canvas'
-    canvas.width = 800
-    canvas.height = 600
-    canvas.tabIndex = 0
-    canvasBox.appendChild(canvas)
-    keepPointerVisible(canvas)
-    return canvas
-  }
-
-  function streamHost(): string {
-    return location.hostname.replace(/^\[|\]$/g, '')
-  }
-
-  async function start() {
-    const gen = ++generation
-    error = ''
-    errorDetail = ''
-    endSwitch()
-    phase = 'preparing'
-    try {
-      // La session d'avant doit avoir rendu son écran et arrêté son moteur.
-      await allStopped()
-      if (stale(gen)) return
-      if (g && guestDisplay) {
-        // Invité : ni écran à préparer ni jeton d'Admin. Le jeton et l'écran viennent de `join`
-        // (le moteur est chargé, le format lu avant d'entrer : `Join.svelte`).
-        mode = { width: guestDisplay.width, height: guestDisplay.height, refresh: guestDisplay.refresh }
-        codecList = g.codecs
-        textInput?.toggleAttribute(TEXT_ATTRIBUTE, engineInputs() && canKbm)
-        await connect(preferredProtocol(), gen)
-        return
-      }
-      if (b) {
-        await startBorrow(gen)
-        return
-      }
-      const [refresh, codecs, ticket, info] = await Promise.all([
-        measureRefresh(),
-        supportedCodecs(),
-        backend.ticket(),
-        backend.info().catch(() => null),
-      ])
-      // La sonde PyroWave, face à une Station qui le propose seulement (déjà faite par l'accueil, le plus souvent).
-      if (info?.pyrowave?.available) await probeAtLoad()
-      if (stale(gen)) return
-      screen = screenMode(refresh)
-      codecList = codecs
-      if (info) stationInfo = info
-      // PyroWave choisi : l'écran demandé à l'ordinateur est à la définition ramenée s'il le faut.
-      mode = choose(sessionPrefs(), screen, codecList, preferredProtocol(), pyroOffer()).pyrowave?.mode ?? screen
-      // Moteur chargé : corrigé, il lit lui-même le champ du clavier de l'appareil.
-      textInput?.toggleAttribute(TEXT_ATTRIBUTE, engineInputs())
-      ticketToken = ticket.token
-      const device = deviceName()
-      await backend.prepare({
-        mode,
-        audio: prefs.audio,
-        virtualDisplay: prefs.virtualDisplay,
-        profile: profileLabel,
-        device: { id: deviceId(), name: device.name, kind: deviceKind(), os: device.os, app: device.app },
-      })
-      if (stale(gen)) {
-        // Finie pendant la préparation (Annuler, fin demandée) : l'écran est rendu.
-        retire(null, () => backend.end(null, extra()))
-        return
-      }
-      prepared = true
-      await connect(preferredProtocol(), gen)
-    } catch (e) {
-      if (!stale(gen)) fail(e instanceof ApiError && e.status === 401 ? expired() : errorText(e))
-    }
-  }
-
-  /**
-   * Ami : « Préparation de l'ordinateur » (Admin passe le PC en mode console et crée son écran, 30 s au
-   * plus), l'accord de l'hôte s'il le faut, puis la connexion à Kyber avec le jeton du prêt. Le cookie du
-   * prêt est posé par la réponse : le moteur de Kyber peut se charger. Un refus avant toute image ramène
-   * à l'écran d'avant, qui le dit (`onLendEnd`).
-   */
-  async function startBorrow(gen: number) {
-    if (!b) return
-    if (!isIsolated) {
-      ended = true
-      onLendEnd(t('web.home.blockedIsolation'), false)
-      return
-    }
-    let answer = lendAnswer
-    if (!answer) {
-      try {
-        answer = await borrowNow(gen)
-      } catch (e) {
-        if (stale(gen)) return
-        const text = lendRefusalText(e, lendHost || null)
-        if (!lendOpened) {
-          ended = true
-          clearActive()
-          onLendEnd(text, false)
-        } else {
-          // « Revenir » refusé (prêt fini, repris) : la carte de fin le dit.
-          lendOver = true
-          clearActive()
-          fail(text)
-        }
-        return
-      }
-      if (!answer || stale(gen)) return
-      lendAnswer = answer
-    }
-    lendOpened = true
-    phase = 'preparing'
-    lendUntil = answer.until
-    lendDisplay = answer.display
-    ticketToken = answer.kyber.token
-    if (answer.relay) {
-      setRelay(true)
-      relayed = true
-    }
-    markActive(b.request)
-    // Le signe de vie part tout de suite : sans nouvelles pendant 20 s, l'image de l'ami s'arrête.
-    heartbeat.start({ lend: answer.lend }, { target: lendTarget(answer.secret), period: Math.max(1, answer.beat) * 1000 })
-    let codecs
-    try {
-      codecs = await supportedCodecs()
-    } catch {
-      // Le moteur de Kyber ne se charge pas (Kyber arrêté) : « Revenir » le recharge.
-      if (!stale(gen)) fail(t('web.home.blockedEngine'))
-      return
-    }
-    if (stale(gen)) return
-    codecList = codecs
-    mode = { width: answer.display.width, height: answer.display.height, refresh: answer.display.refresh }
-    textInput?.toggleAttribute(TEXT_ATTRIBUTE, engineInputs())
-    await connect(preferredProtocol(), gen)
-  }
-
-  function clearWatches() {
-    if (imageWatch) clearTimeout(imageWatch)
-    if (connectWatch) clearTimeout(connectWatch)
-    imageWatch = null
-    connectWatch = null
-    imageWatchFrom = null
-  }
-
-  async function connect(protocol: 'kymux' | 'websocket', gen = generation) {
-    if (!mode || stale(gen)) return
-    phase = 'connecting'
-    connectStep = 'kyber'
-    clearWatches()
-    // PyroWave : la définition ramenée se calcule depuis l'écran de cet appareil.
-    plan = choose(sessionPrefs(), !g && !b && screen ? screen : mode, codecList, protocol, pyroOffer())
-    if (b) plan = { ...plan, clipboard: false }
-    if (g) plan = guestPlan(plan)
-    plan = applyFallbacks(plan, fallbacks, codecList)
-    // Jamais deux moteurs à la fois : chacun écoute souris et clavier sur la page.
-    await allStopped()
-    if (stale(gen)) return
-    await tick()
-    if (stale(gen)) return
-    freshCanvas()
-    const e: Engine = new Engine('kn-canvas', (ev) => onEngine(ev, e, protocol))
-    engine = e
-    connectWatch = setTimeout(() => noControlPlane(e), 25000)
-    await e.connect(streamHost(), location.port || '443', ticketToken, plan, g ? guestDisplay?.id : b ? lendDisplay?.id : undefined)
-  }
-
-  /**
-   * Les réglages de cette session. Un ami : le profil Jeu de la Station (docs/pret.md). Repli en H.264 :
-   * le débit du H.264 (plus élevé que celui du HEVC). PyroWave pour l'hôte seulement (un invité suit
-   * l'image de l'hôte, un ami celle du prêt), et plus après « Passer en HEVC ».
-   */
-  function sessionPrefs(): Prefs {
-    const base: Prefs = b ? { ...prefs, profile: 'jeu' } : prefs
-    if (fallbacks.h264) return { ...base, codec: 'h264' }
-    if (base.codec === 'pyrowave' && (g || b || pyrowaveOff)) return { ...base, codec: 'auto' }
-    return base
-  }
-
-  function pyroOffer() {
-    return g || b ? null : offer(stationInfo)
-  }
-
-  /** Bandeau du début (Wi-Fi ou réseau inconnu, relais) et définition ramenée, une fois par session. */
-  function showPyroBanner() {
-    const pw = plan?.pyrowave
-    if (!pw || pyroBannerShown) return
-    pyroBannerShown = true
-    pyroBanner = pw.warning
-    if (pyroBannerTimer) clearTimeout(pyroBannerTimer)
-    pyroBannerTimer = setTimeout(() => (pyroBanner = null), 8000)
-    if (pw.lowered) showNotice(t('session.pyrowave.lowered', { width: pw.lowered.width, height: pw.lowered.height, mbps: pw.lowered.mbps }), 8000)
-  }
-
-  function hidePyroBanner() {
-    if (pyroBannerTimer) clearTimeout(pyroBannerTimer)
-    pyroBannerTimer = null
-    pyroBanner = null
-  }
-
-  /** « Passer en HEVC » : l'image repart dans le format d'Auto, à la définition de l'écran, pour cette
-   * session seulement (les réglages ne changent pas). */
-  function leavePyroWave() {
-    hidePyroBanner()
-    if (!plan?.pyrowave || ended) return
-    pyrowaveOff = true
-    pendingNotice = t('session.pyrowave.switched', { format: formatLabel(plan.fallbackCodec ?? 'h264', false) })
-    void restart()
-  }
-
-  /** L'invité demande le format de l'hôte s'il le lit (il partage alors son image), sinon un format qu'il
-   * lit : Kyber lui fait une image à part (docs/kybernow-share.md, « L'image d'un invité »). Le 4:4:4
-   * seulement pour l'image de l'hôte (`host` dans son jeton) ; jamais de presse-papiers. Image de l'hôte
-   * pas encore démarrée : le format que ce navigateur lit le mieux (l'hôte garde le sien). */
-  function guestPlan(p: Plan): Plan {
-    const preset = tokenPreset(ticketToken)
-    const format = guestFormatNow()
-    if (!format) return { ...p, yuv444: p.yuv444 && (preset === null || preset === 'host'), clipboard: false }
-    return { ...p, ...format, clipboard: false }
-  }
-
-  /** Pas de plan de contrôle : Kyber ne répond pas (ce n'est pas une affaire de transport). */
-  function noControlPlane(e: Engine) {
-    connectWatch = null
-    if (engine !== e || ended || phase !== 'connecting') return
-    failOrRestart(tName('session.error.noReply', 'host', hostname))
-  }
-
-  /** Kyber a démarré l'image (`streaming`) : elle doit arriver dans les 12 s
-   * (20 s en WebSocket). Le délai part d'ici, pas de la connexion : préparer
-   * l'écran virtuel prend à lui seul jusqu'à 8 s. Dès la connexion
-   * (`connected`), un délai plus long couvre un démarrage qui ne vient pas. */
-  function watchImage(e: Engine, protocol: 'kymux' | 'websocket', from: 'connected' | 'streaming') {
-    if (engine !== e || phase !== 'connecting' || imageWatchFrom === 'streaming' || imageWatchFrom === from) return
-    if (imageWatch) clearTimeout(imageWatch)
-    imageWatchFrom = from
-    const delay = from === 'connected' ? 25000 : protocol === 'kymux' ? 12000 : 20000
-    imageWatch = setTimeout(() => noImage(e, protocol, from), delay)
-  }
-
-  /** Connecté, mais rien n'arrive : WebTransport bloqué (réseau, navigateur),
-   * on passe par WebSocket ; en WebSocket, on le dit. */
-  async function noImage(e: Engine, protocol: 'kymux' | 'websocket', from: 'connected' | 'streaming') {
-    imageWatch = null
-    imageWatchFrom = null
-    const gen = generation
-    if (engine !== e || phase !== 'connecting' || stale(gen)) return
-    if (protocol === 'kymux') {
-      console.warn('KyberNow : connecté, mais pas d’image en WebTransport ; essai par WebSocket')
-      engine = null
-      await retire(e)
-      if (!stale(gen) && phase === 'connecting') {
-        connect('websocket', gen).catch((err) => {
-          if (!stale(gen)) fail(errorText(err))
-        })
-      }
-    } else if (from === 'connected') {
-      failOrRestart(t('session.error.noImageStart', { host: hostname }))
-    } else {
-      fail(g ? t('share.guest.noImage', { host: hostname }) : t('session.error.noImageArrive', { host: hostname }))
-    }
-  }
-
-  function showNotice(text: string, duration = 5000) {
-    notice = text
-    if (noticeTimer) clearTimeout(noticeTimer)
-    noticeTimer = setTimeout(() => (notice = ''), duration)
-  }
-
-  /** Le nouvel état de l'enregistrement (signe de vie, réponse de l'appel) : l'avis bref de link-ui quand il change. */
-  function applyRecording(next: RecordingState | null) {
-    const text = recordingNotice(recordingSeen ? recording : undefined, next, g ? { guest: hostname } : 'host')
-    recording = next
-    recordingAt = recordingNow = Date.now()
-    recordingSeen = true
-    if (!text) return
-    if (phase === 'live') showNotice(text)
-    else pendingNotice = text
-  }
-
-  /** « Enregistrer » ou la pastille (hôte) : lance ou arrête. Coupé dans Admin : rien à la souris
-   * (l'infobulle dit pourquoi), la raison en avis au toucher. Un refus : le texte d'Admin en avis. */
-  async function toggleRecording() {
-    const touched = recordingTouch || isTouch
-    recordingTouch = false
-    if (!recording || recordingBusy || g || b) return
-    if (!recording.active && !recording.allowed) {
-      if (touched) showNotice(t('recording.disabled'))
-      return
-    }
-    recordingBusy = true
-    try {
-      applyRecording(readRecording(await backend.recording(!recording.active, deviceId())))
-    } catch (e) {
-      showNotice(e instanceof Error ? e.message : String(e))
-    } finally {
-      recordingBusy = false
-    }
-  }
-
-  /** « Manettes indisponibles sur cet ordinateur. » : à l'arrivée de l'image si une manette est
-   * branchée, sinon quand la première se branche ; une fois par session. */
-  function noticePads() {
-    if (!padsUnavailable || padsNoticed || phase !== 'live' || !gamepads.length) return
-    padsNoticed = true
-    showNotice(t('session.gamepads.unavailable'))
-  }
-
-  /** Combinaison d'un menu ou des touches à l'écran, envoyée telle quelle (sans « Ctrl agit comme ⌘ »). */
-  function sendMacCombo(c: Combo) {
-    sendKey(canvas(), c.key, c.code, new Set(c.mods))
-  }
-
-  /** La carte graphique perdue pendant une session PyroWave (veille, pilote) : l'image est relancée une fois le
-   * nouveau device prêt (2 s au plus), au lieu de rester figée sans message (WEB-01). */
-  async function onPyroWaveGpuLost() {
-    if (phase !== 'live') return
-    const m = await import('./pyrowave/live')
-    await m.pyrowaveReady(2000)
-    restartVideo(t('session.notice.gpuLost'))
-  }
-
-  /** Relance de l'image sans recharger la page ni se déconnecter. */
-  function restartVideo(text: string) {
-    if (!engine || phase !== 'live') return
-    showNotice(text)
-    engine.restartVideo()
-  }
-
-  /** Écran suivi disparu ou à une autre taille : on relance l'image (Kyber
-   * reprend alors l'écran à jour, ou le premier de la liste). */
-  function onDisplays(list: DisplayInfo[]) {
-    const before = displays
-    displays = list
-    const id = currentDisplayId()
-    if (phase !== 'live' || id === null) return
-    const now = list.find((d) => d.id === id)
-    const was = before?.find((d) => d.id === id)
-    if (!now || (was && (was.width !== now.width || was.height !== now.height))) {
-      console.warn('KyberNow : écran suivi', id, now ? `passé en ${now.width} × ${now.height}` : 'disparu')
-      restartVideo(t('session.notice.displayChanged'))
-    }
-  }
-
-  /** La relance prévue par `onPipeline`, arrêtée au démontage. */
-  let pipelineTimer: ReturnType<typeof setTimeout> | null = null
-
-  /** Erreur de la chaîne d'image de l'ordinateur : relance bornée. */
-  function onPipeline(kind: string, stage: string, event: string) {
-    console.warn('KyberNow : chaîne de l’ordinateur', kind, stage, event)
-    if (event !== 'error' || phase !== 'live') return
-    if (kind === 'audio') {
-      showNotice(t('session.notice.soundStopped'))
-      return
-    }
-    if (kind !== 'video') return
-    if (stableTimer) clearTimeout(stableTimer)
-    stableTimer = null
-    if (pipelineRestarts >= MAX_PIPELINE_RESTARTS) {
-      fail(tName('session.error.pipeline', 'host', hostname, { max: MAX_PIPELINE_RESTARTS }))
-      return
-    }
-    pipelineRestarts++
-    const n = pipelineRestarts
-    if (pipelineTimer) clearTimeout(pipelineTimer)
-    pipelineTimer = setTimeout(() => {
-      pipelineTimer = null
-      restartVideo(t('session.notice.imageRestart', { n, max: MAX_PIPELINE_RESTARTS }))
-    }, 1000)
-  }
-
-  function connectError(message: string): string {
-    if (message === 'unauthorized') {
-      if (g) return t('share.guest.unauthorized', { host: hostname })
-      // Un ami : son signe de vie dit d'abord si le prêt est fini ; sinon, la connexion s'est interrompue.
-      return b ? t('session.error.interrupted', { host: hostname }) : t('session.error.unauthorized', { host: hostname })
-    }
-    if (isStartFailure(message)) return t('session.error.startFailed', { host: hostname })
-    return tName('session.error.noReply', 'host', hostname)
-  }
-
-  function onEngine(e: import('./engine').EngineEvent, src: Engine, protocol: 'kymux' | 'websocket') {
-    // Un moteur remplacé ne décide plus de rien.
-    if (src !== engine) return
-    switch (e.type) {
-      case 'connected':
-        if (connectWatch) clearTimeout(connectWatch)
-        connectWatch = null
-        connectStep = 'image'
-        watchImage(src, protocol, 'connected')
-        break
-      case 'reconnecting':
-        reconnecting = t('session.notice.reconnecting', { attempt: e.attempt, max: e.max })
-        refreshTicket()
-        break
-      case 'auth-required':
-        refreshTicket(true)
-        break
-      case 'reconnected':
-        reconnecting = ''
-        break
-      case 'streaming':
-        reconnecting = ''
-        watchImage(src, protocol, 'streaming')
-        break
-      case 'resized':
-        canvasSize = { width: e.width, height: e.height }
-        fit()
-        onDecoded({ width: e.width, height: e.height })
-        break
-      case 'video-stopped':
-        // Relance de l'image : l'ancienne toile appartient au moteur, il en
-        // faut une neuve ; l'écran visé et la connexion des entrées changent.
-        forgetInputSocket()
-        freshCanvas()
-        decoded = null
-        break
-      case 'displays':
-        onDisplays(e.displays)
-        break
-      case 'pipeline':
-        onPipeline(e.kind, e.stage, e.event)
-        break
-      case 'gamepad':
-        gamepads = e.plugged ? [...gamepads.filter((g) => g.index !== e.index), { index: e.index, name: e.name }] : gamepads.filter((g) => g.index !== e.index)
-        if (e.plugged) noticePads()
-        break
-      case 'first-image': {
-        // Aussi après une relance de l'image : la session est déjà en cours.
-        const first = phase !== 'live'
-        clearWatches()
-        endSwitch()
-        phase = 'live'
-        reconnecting = ''
-        if (pendingNotice) {
-          showNotice(pendingNotice)
-          pendingNotice = ''
-        }
-        if (first) showPyroBanner()
-        if (reportedFailure && plan) {
-          // La Station apprend que l'image est partie, et dans quel format.
-          reportedFailure = false
-          toStation({ started: { codec: plan.codec, audio: plan.audio } })
-        }
-        noticePads()
-        if (!heartbeat.running) heartbeat.start(heartbeatBody(null, profileLabel, extra()))
-        learnDisplayId().then((list) => {
-          if (list && !displays) displays = list.map((d) => ({ id: d.id, name: String(d.name ?? ''), width: Number(d.width) || 0, height: Number(d.height) || 0 }))
-        })
-        probeAudio(src)
-        // Une image tenue 30 s remet le compte des relances à zéro.
-        if (stableTimer) clearTimeout(stableTimer)
-        stableTimer = setTimeout(() => (pipelineRestarts = 0), 30_000)
-        if (first) {
-          // Un invité apprend tout de suite ce que la Station dit de son image (et si elle connaît la qualité).
-          if (g) void beatNow()
-          // Pas après une relance : le clavier de l'appareil se fermerait.
-          document.getElementById('kn-canvas')?.focus()
-          wasLive = true
-          if (!firstImageAt) firstImageAt = Date.now()
-          // Le pointeur du pavé tactile part du centre : sa couche était masquée quand il a été placé.
-          tick().then(() => {
-            if (!touch || !touchLayer) return
-            const r = touchLayer.getBoundingClientRect()
-            touch.cursor = { x: r.left + r.width / 2, y: r.top + r.height / 2 }
-            if (isTouch && touchMode === 'trackpad') cursor = touch.cursor
-          })
-        }
-        break
-      }
-      case 'error': {
-        const detail = redact(e.detail ?? e.message, secrets())
-        console.warn('KyberNow : connexion impossible', detail)
-        // Un jeton refusé ne se répare pas en redémarrant la Station.
-        if (e.message === 'unauthorized') {
-          // Un invité retiré n'a plus de jeton : son signe de vie dit pourquoi (de même pour un prêt fini).
-          if (g || b) guestClosed(connectError(e.message))
-          else fail(connectError(e.message))
-        } else if (isStartFailure(e.message)) {
-          // L'image ne démarre pas dans ce navigateur : H.264, puis sans le son, puis l'échec et sa raison.
-          const next = plan ? nextFallback(plan, fallbacks, codecList, detail) : null
-          reportFailure(detail, next)
-          if (next) retryWith(next)
-          else failOrRestart(connectError(e.message), detail)
-        } else failOrRestart(connectError(e.message))
-        break
-      }
-      case 'stopped':
-        if (ended) return
-        if (e.reason === 'restart') {
-          // Le moteur a perdu sa toile en se reconnectant : on recommence proprement.
-          restart()
-        } else if (e.reason === 'decode_error') {
-          // Le moteur a redemandé une image clé, en vain (correctif 0020) : en HEVC, H.264 une fois (tous) ;
-          // puis un invité repasse en 720p30, une fois.
-          const next = plan ? nextFallback(plan, fallbacks, codecList, e.reason, true) : null
-          if (next) {
-            reportFailure(e.reason, next)
-            retryWith(next)
-          } else if (g && !fallbackTried && tokenPreset(ticketToken) !== '720p30') void guestFallback()
-          else {
-            reportFailure(e.reason, null)
-            fail(g ? t('share.guest.decode', { host: hostname }) : t('session.error.decode'), e.reason)
-          }
-        } else if (e.reason === 'controlplane_closed') {
-          const message = t('session.error.closed', { host: hostname })
-          if (g || b) guestClosed(message)
-          else fail(message)
-        } else if (e.reason === 'requested') {
-          // Arrêt demandé par ce client, sans que la page l'ait voulu.
-          fail(t('session.error.stopped'))
-        } else {
-          const message = t('session.error.interrupted', { host: hostname })
-          if (g || b) guestClosed(message)
-          else fail(message)
-        }
-        break
-    }
-  }
-
-  /** Les secrets à retirer d'un message avant de l'écrire (console, Station, écran). */
-  function secrets(): string[] {
-    return [ticketToken, g?.join.secret ?? '', lendAnswer?.secret ?? '']
-  }
-
-  /** Un rapport de l'ami ou de l'invité à la Station, dans un signe de vie (`error`, `started`). */
-  function toStation(extra: Record<string, unknown>) {
-    if (b && lendAnswer) void sendHeartbeat(location.origin, { lend: lendAnswer.lend, ...extra }, lendTarget(lendAnswer.secret))
-    else if (g) void sendHeartbeat(location.origin, { guest: g.join.guest, ...extra }, guestTarget(g.join.secret))
-  }
-
-  /** L'image n'a pas démarré : la raison, ce qui était demandé, et le repli essayé ensuite (docs/pret.md). */
-  function reportFailure(reason: string, next: StartFallback | null) {
-    if (!b && !g) return
-    reportedFailure = true
-    toStation({
-      error: {
-        reason: reason.slice(0, 300),
-        codec: plan?.codec ?? '',
-        yuv444: !!plan?.yuv444,
-        audio: !!plan?.audio,
-        browser: navigator.userAgent.slice(0, 200),
-        next,
-      },
-    })
-  }
-
-  /** Recommence la session avec un repli de plus ; son avis vient avec l'image. */
-  function retryWith(next: StartFallback) {
-    console.warn('KyberNow : image non démarrée, nouvel essai', next === 'h264' ? 'en H.264' : 'sans le son')
-    fallbacks = take(fallbacks, next)
-    pendingNotice = t(next === 'h264' ? 'session.notice.h264' : 'session.notice.noAudio')
-    restart()
-  }
-
-  async function restart() {
-    const e = engine
-    engine = null
-    const gen = generation
-    await retire(e)
-    if (!stale(gen)) start()
-  }
-
-  function fail(message: string, detail = '') {
-    generation++
-    errorDetail = detail
-    giveBackOpen = false
-    lendAbort?.abort()
-    endSwitch()
-    qualityOpen = false
-    keepLastSession()
-    leaveGuest()
-    clearWatches()
-    gamepads = []
-    soundBlocked = false
-    error = message
-    phase = 'ended'
-    barVisible = false
-    heartbeat.stop()
-    // Le moteur s'arrête, puis l'écran préparé pour cette session est rendu.
-    const e = engine
-    engine = null
-    const wasPrepared = prepared
-    prepared = false
-    retire(e, wasPrepared ? () => backend.end(null, extra()) : undefined)
-  }
-
-  /** Kyber ne se connecte pas ou ne démarre pas l'image alors qu'Admin
-   * répond : la Station redémarre une fois (dernier recours, docs/link-ui.md),
-   * puis la page reprend la connexion après le mot de passe. Pas pour une
-   * image qui part mais n'arrive pas : c'est ce navigateur ou le réseau. */
-  function failOrRestart(message: string, detail = '') {
-    // Un invité ou un ami ne redémarre jamais la Station.
-    if (g || b || wasLive || !lastResortAllowed()) fail(message, detail)
-    else void lastResort(message, detail)
-  }
-
-  async function lastResort(message: string, detail = '') {
-    const gen = ++generation
-    clearWatches()
-    phase = 'restarting'
-    heartbeat.stop()
-    // Le moteur s'arrête et l'écran préparé est rendu d'abord : Admin
-    // compterait sinon cette session et refuserait de redémarrer.
-    const e = engine
-    engine = null
-    const wasPrepared = prepared
-    prepared = false
-    await retire(e, wasPrepared ? () => backend.end(null, extra()) : undefined)
-    if (stale(gen)) return
-    const out = await restartForConnection(() => !ended)
-    if (stale(gen)) return
-    // Refusé (un autre appareil en session, trop tôt…) : l'échec d'origine.
-    fail(out === 'slow' ? t('web.station.slow') : message, out === 'slow' ? '' : detail)
-  }
-
-  async function quit() {
-    if (ended) return
-    ended = true
-    generation++
-    giveBackOpen = false
-    lendAbort?.abort()
-    clearWatches()
-    keepLastSession()
-    leaveGuest()
-    const median = sessionStats()?.median ?? null
-    const e = engine
-    engine = null
-    // On rend la main tout de suite ; le moteur et la console finissent derrière.
-    const wasPrepared = prepared
-    prepared = false
-    heartbeat.stop()
-    releasePointer()
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
-    // Un ami revient à l'écran d'où il vient : le prêt continue s'il n'est ni rendu ni fini (15 min).
-    if (b) onLendEnd(null, lendOver)
-    else onEnd()
-    await retire(e, wasPrepared ? () => backend.end(median, extra()) : undefined)
-  }
-
-  function setMouseMode(m: MouseMode) {
-    mouseMode = m
-    if (!g && !b) prefs.mouse = m
-    if (!pointerAllowed()) releasePointer()
-  }
-
-  function pointerAllowed(): boolean {
-    if (!canKbm) return false
-    return mouseMode === 'jeu' || (mouseMode === 'auto' && gameInForeground)
-  }
-
-  function cycleMouse() {
-    setMouseMode(mouseMode === 'auto' ? 'bureau' : mouseMode === 'bureau' ? 'jeu' : g || b ? 'bureau' : 'auto')
-  }
-
-  const mouseLabel = $derived(mouseMode === 'auto' ? t('session.mouse.auto') : mouseMode === 'jeu' ? t('session.mouse.game') : t('session.mouse.desktop'))
-
-  /** Largeur de la languette du haut, zone du bord tant que la barre n'est pas mesurée. */
-  const EDGE_WIDTH = 220
-  /** Distance au bord haut de la session, en pixels, qui compte comme « contre le bord ». */
-  const EDGE_REACH = 2
-  /** Le pointeur doit rester contre le bord haut ce temps-là pour ouvrir la barre. */
-  const EDGE_DWELL = 250
-  /** La barre se referme ce temps après que le pointeur l'a quittée. */
-  const BAR_LEAVE = 400
-  /** Barre ouverte sans pointeur dessus (doigt, raccourci) : elle se referme après ce temps. */
-  const BAR_IDLE = 2500
-
-  /** Le bord haut de l'image, centré sur la largeur de la barre. */
-  function inEdgeZone(x: number, y: number): boolean {
-    const r = sessionEl.getBoundingClientRect()
-    return y >= r.top && y - r.top <= EDGE_REACH && Math.abs(x - (r.left + r.width / 2)) <= (barWidth || EDGE_WIDTH) / 2
-  }
-
-  /** Le pointeur est sur la barre, ses menus, ou dans l'espace qui la sépare du bord haut. */
-  function barInside(): boolean {
-    if (!hoverPos) return false
-    const { x, y } = hoverPos
-    if (document.elementFromPoint(x, y)?.closest('.bar, .metrics, .sharebox, .lendbox')) return true
-    const r = sessionEl.getBoundingClientRect()
-    // Dispositions sans transformation : la barre en cours d'apparition compte déjà.
-    const bottom = r.top + (barEl ? barEl.offsetTop + barEl.offsetHeight : 0)
-    return y >= r.top && y <= bottom && Math.abs(x - (r.left + r.width / 2)) <= (barWidth || EDGE_WIDTH) / 2
-  }
-
-  function clearBarTimer() {
-    if (barTimer) clearTimeout(barTimer)
-    barTimer = null
-  }
-
-  function cancelDwell() {
-    if (dwellTimer) clearTimeout(dwellTimer)
-    dwellTimer = null
-  }
-
-  function showBar(byTouch = false) {
-    cancelDwell()
-    barVisible = true
-    barSeen = !byTouch && barInside()
-    settleBar()
-  }
-
-  function hideBar() {
-    clearBarTimer()
-    barVisible = false
-    edgeReady = !(hoverPos && inEdgeZone(hoverPos.x, hoverPos.y))
-  }
-
-  /** Arme la fermeture : jamais pendant qu'un menu est ouvert. */
-  function scheduleBarHide(delay: number) {
-    clearBarTimer()
-    if (isTouch || metricsOpen || keysOpen || shareOpen || lendOpen || giveBackOpen || qualityOpen || phase !== 'live') return
-    barTimer = setTimeout(() => {
-      barTimer = null
-      if (!metricsOpen && !keysOpen && !shareOpen && !lendOpen && !giveBackOpen && !qualityOpen) hideBar()
-    }, delay)
-  }
-
-  /** Barre ouverte : sous le pointeur, elle reste ; sinon elle se referme (vite
-   * si le pointeur l'a déjà vue, après un délai si elle est venue au doigt ou au raccourci). */
-  function settleBar() {
-    if (!barVisible) return
-    if (barInside()) clearBarTimer()
-    else scheduleBarHide(barSeen ? BAR_LEAVE : BAR_IDLE)
-  }
-
-  // Un menu qui se ferme sous un pointeur parti ailleurs laisse la barre se refermer.
+  // Un invité sans clavier ni souris n'envoie rien de la page, et ce qu'il tenait est relâché (touches,
+  // boutons, pointeur capturé, clavier de l'appareil, menus de la souris et des touches).
   $effect(() => {
-    if (barVisible && !metricsOpen && !keysOpen && !shareOpen && !lendOpen && !giveBackOpen && !qualityOpen) untrack(settleBar)
-  })
-
-  // Un invité sans clavier ni souris n'envoie rien de la page, et ce qu'il tenait est relâché
-  // (touches, boutons, pointeur capturé, clavier de l'appareil, menu Touches).
-  $effect(() => {
-    allowPackets(canKbm)
-    if (canKbm) return
+    allowPackets(s.canKbm)
+    if (s.canKbm) return
     untrack(() => {
       releaseAll()
       releasePointer()
-      keysOpen = false
+      if (bar.menu === 'keys' || bar.menu === 'mouse') bar.close()
       if (keyboardOpen) closeKeyboard()
     })
   })
@@ -1612,10 +120,10 @@
   // (Chrome, Edge), toutes les touches vont à l'ordinateur seulement avec le clavier et la souris ; sans,
   // elles reviennent au navigateur (Échap, raccourcis), et le champ que le moteur lit n'écoute plus.
   $effect(() => {
-    const kbm = canKbm
+    const kbm = s.canKbm
     untrack(() => {
       textInput?.toggleAttribute(TEXT_ATTRIBUTE, engineInputs() && kbm)
-      if (!g || !hasKeyboardLock || !document.fullscreenElement) return
+      if (!s.guest || !hasKeyboardLock || !document.fullscreenElement) return
       const keyboard = (navigator as any).keyboard
       if (kbm) keyboard.lock().catch(() => {})
       else keyboard.unlock?.()
@@ -1623,50 +131,15 @@
   })
 
   // Les manettes d'un invité suivent son rôle (voir `gamepads.ts`) : le moteur ne les voit que s'il joue.
-  let padsAllowed = untrack(() => canPlay)
+  let padsAllowed = untrack(() => s.canPlay)
   $effect(() => {
-    const play = canPlay
+    const play = s.canPlay
     untrack(() => {
       if (play === padsAllowed) return
       padsAllowed = play
       gamepadsChanged(play)
     })
   })
-
-  /** Le pointeur est resté contre le bord haut : la barre s'ouvre si la page a le focus et la souris n'est pas capturée. */
-  function openFromEdge() {
-    dwellTimer = null
-    if (barVisible || phase !== 'live' || buttonHeld || !document.hasFocus() || document.pointerLockElement) return
-    if (hoverPos && inEdgeZone(hoverPos.x, hoverPos.y)) showBar()
-  }
-
-  function onPointerMove(e: PointerEvent) {
-    if (isTouch || e.pointerType === 'touch') return
-    hoverPos = { x: e.clientX, y: e.clientY }
-    buttonHeld = e.buttons !== 0
-    if (barVisible) {
-      if (barInside()) {
-        barSeen = true
-        clearBarTimer()
-      } else if (barSeen && !barTimer) scheduleBarHide(BAR_LEAVE)
-      return
-    }
-    if (!inEdgeZone(e.clientX, e.clientY)) {
-      edgeReady = true
-      cancelDwell()
-    } else if (buttonHeld) {
-      cancelDwell()
-    } else if (edgeReady && !dwellTimer && !document.pointerLockElement && document.hasFocus()) {
-      dwellTimer = setTimeout(openFromEdge, EDGE_DWELL)
-    }
-  }
-
-  function onPointerLeave(e: PointerEvent) {
-    if (isTouch || e.pointerType === 'touch') return
-    hoverPos = null
-    cancelDwell()
-    if (barVisible && barSeen && !barTimer) scheduleBarHide(BAR_LEAVE)
-  }
 
   async function toggleFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen().catch(() => {})
@@ -1675,176 +148,10 @@
 
   async function onFullscreenChange() {
     fullscreen = !!document.fullscreenElement
+    stage.forgetRect()
     // Plein écran : toutes les touches vont à l'ordinateur (Chrome, Edge).
-    if (fullscreen && hasKeyboardLock && canKbm) {
-      await (navigator as any).keyboard.lock().catch(() => {})
-    }
-    setTimeout(fit, 50)
-  }
-
-  /** Sonde du son en cours (une seule à la fois). */
-  let audioProbe = 0
-
-  /** Après la première image : le son a-t-il démarré, ou le navigateur
-   * attend-il un geste ? Le moteur crée son lecteur au premier paquet de son,
-   * parfois quelques secondes après l'image : on sonde toutes les 200 ms
-   * jusqu'à le savoir, 30 s au plus (un ordinateur sans son n'en envoie pas). */
-  async function probeAudio(e: Engine) {
-    if (!prefs.audio) return
-    const id = ++audioProbe
-    const t0 = performance.now()
-    while (id === audioProbe && engine === e && phase === 'live' && performance.now() - t0 < 30_000) {
-      const state = await e.audioState()
-      if (id !== audioProbe || engine !== e) return
-      if (state !== 'absent') {
-        soundBlocked = state === 'suspended'
-        return
-      }
-      await new Promise((r) => setTimeout(r, 200))
-    }
-  }
-
-  /** Puce « Toucher pour le son » : la reprise se demande dans le geste. */
-  async function unlockSound() {
-    const e = engine
-    if (!e) return
-    await e.audioResume()
-    soundBlocked = (await e.audioState()) === 'suspended'
-  }
-
-  /**
-   * « Partager » : le panneau de l'hôte ; les autres menus de la barre se ferment. Impossible (Station
-   * trop ancienne, partage coupé) : à la souris et au clavier, sans effet (l'infobulle dit pourquoi) ;
-   * au toucher, il ouvre le panneau réduit à la raison (docs/link-ui.md, « Partage »).
-   */
-  function toggleShare() {
-    const touched = shareTouch || isTouch
-    shareTouch = false
-    if (shareSupport !== 'ok' && !touched && !shareOpen) return
-    shareOpen = !shareOpen
-    if (shareOpen) {
-      metricsOpen = false
-      keysOpen = false
-      lendOpen = false
-    }
-  }
-
-  /** « Prêter l'ordinateur… » : comme « Partager » (prêt coupé : la raison, au toucher seulement). */
-  function toggleLend() {
-    const touched = lendTouch || isTouch
-    lendTouch = false
-    if (lendSupport !== 'ok' && !touched && !lendOpen) return
-    lendOpen = !lendOpen
-    if (lendOpen) {
-      metricsOpen = false
-      keysOpen = false
-      shareOpen = false
-    }
-  }
-
-  /** Demande acceptée depuis cette session : elle va se fermer (le signe de vie le dira). */
-  function lendAcceptedBy(name: string) {
-    lendAccepted = name
-    lendOpen = false
-    showNotice(t('lend.requests.sessionCloses'), 8000)
-  }
-
-  function toggleMute() {
-    muted = !muted
-    engine?.setMute(muted)
-  }
-
-  // Micro de l'appareil vers l'ordinateur (docs/link-ui.md, « Micro ») : proposé quand ce navigateur
-  // encode l'Opus et que le moteur sait l'envoyer ; allumé ou coupé retenu pour chaque ordinateur. Sonde
-  // seulement quand le moteur l'envoie (WEB-24 : sinon, une sonde par session pour une tuile cachée).
-  if (engineSendsMicrophone()) void probeMicrophone()
-  /** Ce que l'ordinateur dit du micro (lu au moteur pendant la session). */
-  let micEngine = $state<EngineMicState>({ state: 'idle' })
-  /** La capture tourne (autorisation donnée, encodeur prêt). */
-  let micCapturing = $state(false)
-  /** Allumé à la main : l'avis « Micro envoyé à {nom}. » vient quand l'ordinateur le prend. */
-  let micAsked = false
-  let micTouch = false
-  const micWanted = $derived(micOn(hostname))
-  const micRefusal = $derived(micEngine.state === 'refused' ? micEngine.reason : null)
-  // Un invité ne voit « Micro » que si l'hôte le laisse parler.
-  const micShown = $derived(micro.browser && engineSendsMicrophone() && !(g && micRefusal === 'not_allowed'))
-  const micReason = $derived(micRefusal ? t(`micro.${micRefusal}`) : '')
-  /** Allumé dans la barre : choisi, et pas refusé par l'ordinateur. */
-  const micLit = $derived(micWanted && !micRefusal)
-  const micTip = $derived(micReason || t(micLit ? 'micro.tooltip_on' : 'micro.tooltip_off', { shortcut: t('micro.shortcut') }))
-  const mic = new MicCapture((packet, pts) => engine?.sendMicrophone(packet, pts))
-  let micStarting = false
-
-  function toggleMic() {
-    if (micRefusal) {
-      // Au toucher, la raison en avis ; à la souris, l'infobulle la dit déjà.
-      if (micTouch) showNotice(micReason)
-      return
-    }
-    const on = !micWanted
-    micAsked = on
-    setMicOn(hostname, on)
-  }
-
-  // La capture suit le choix : pendant l'image, allumé et pris (ou pas encore refusé) par l'ordinateur.
-  $effect(() => {
-    const want = phase === 'live' && micShown && micWanted && !micRefusal
-    untrack(() => {
-      if (want && !micCapturing && !micStarting) void startMic()
-      else if (!want && (micCapturing || micStarting)) {
-        mic.stop()
-        micCapturing = false
-      }
-    })
-  })
-
-  async function startMic() {
-    micStarting = true
-    const r = await mic.start(prefs.micDevice, prefs.micProcessing)
-    micStarting = false
-    if (r === 'ok') {
-      micCapturing = true
-      return
-    }
-    // Arrêtée en route (session quittée pendant la demande) : le choix retenu pour cet ordinateur reste (WEB-13).
-    if (r === 'cancelled') return
-    // Refusé par le navigateur, ou pas de micro : « Micro » reste coupé.
-    micAsked = false
-    setMicOn(hostname, false)
-    if (r === 'denied') showNotice(t('micro.permission_web'), 8000)
-    else if (r === 'none') showNotice(t('micro.no_microphone'))
-  }
-
-  // Micro choisi ou traitement voix changés en cours d'envoi : la capture reprend avec eux.
-  $effect(() => {
-    void prefs.micDevice
-    void prefs.micProcessing
-    untrack(() => {
-      if (micCapturing) {
-        mic.stop(false)
-        micCapturing = false
-        void startMic()
-      }
-    })
-  })
-
-  // L'état du micro dit par l'ordinateur, et l'avis bref quand il le prend après un allumage.
-  $effect(() => {
-    if (phase !== 'live' || !micShown) return
-    const timer = setInterval(() => {
-      const s = engine?.microphoneState() ?? { state: 'idle' as const }
-      if (s.state !== micEngine.state || (s.state === 'refused' && micEngine.state === 'refused' && s.reason !== micEngine.reason)) micEngine = s
-      if (micAsked && s.state === 'open') {
-        micAsked = false
-        showNotice(t('micro.sent', { name: hostname }))
-      }
-    }, 500)
-    return () => clearInterval(timer)
-  })
-
-  function canvas(): HTMLElement | null {
-    return document.getElementById('kn-canvas')
+    if (fullscreen && hasKeyboardLock && s.canKbm) await (navigator as any).keyboard.lock().catch(() => {})
+    setTimeout(stage.fit, 50)
   }
 
   function pressSpecial(k: (typeof SPECIAL_KEYS)[number]) {
@@ -1859,10 +166,6 @@
     mods = new Set()
   }
 
-  function sendCombo(keys: { key: string; code: string }[], last: { key: string; code: string }) {
-    sendKey(canvas(), last.key, last.code, new Set(keys.map((k) => k.key)))
-  }
-
   // Clavier de l'appareil : texte en Unicode (par le moteur s'il est corrigé), touches par leur code.
   const typed = new TypedText(
     () => textInput ?? null,
@@ -1873,21 +176,21 @@
 
   async function openKeyboard() {
     keyboardOpen = true
-    touchBar = false
-    guide = false
+    bar.touchOpen = false
+    bar.guide = false
     await tick()
     textInput.focus()
-    trackViewport()
+    stage.trackViewport(keyboardOpen)
   }
 
   function closeKeyboard() {
     keyboardOpen = false
     textInput?.blur()
-    tick().then(trackViewport)
+    tick().then(() => stage.trackViewport(keyboardOpen))
   }
 
-  /** Clavier fermé par l'appareil (bouton du clavier, autre app) : la rangée
-   * de touches part avec lui. Les touches de la rangée gardent le focus. */
+  /** Clavier fermé par l'appareil (bouton du clavier, autre app) : la rangée de touches part avec lui.
+   * Les touches de la rangée gardent le focus. */
   function onTextBlur() {
     if (keyboardOpen) closeKeyboard()
   }
@@ -1899,243 +202,152 @@
     cursor = m === 'trackpad' ? (touch?.cursor ?? null) : null
   }
 
-  function closeGuide() {
-    guide = false
-    prefs.touchGuideSeen = true
+  /** Ctrl + Alt + Maj : la barre, et la souris rendue ; avec une lettre, les raccourcis de la session
+   * (docs/link-ui.md : D se déconnecter, F plein écran, M souris, R enregistrer, S statistiques, V micro). */
+  function shortcut(e: KeyboardEvent) {
+    if (!(e.ctrlKey && e.altKey && e.shiftKey)) return
+    if (['Control', 'Alt', 'Shift'].includes(e.key)) {
+      releasePointer()
+      bar.toggleVisible()
+      return
+    }
+    const actions: Record<string, (() => void) | null> = {
+      KeyD: () => void s.quit(),
+      KeyF: () => void toggleFullscreen(),
+      KeyM: s.canKbm ? () => s.controls.toggleMouse() : null,
+      KeyR: s.hosting && s.recording.state ? () => void s.recording.toggle(false) : null,
+      KeyS: isTouch ? null : () => bar.toggle('stats'),
+      KeyV: s.mic.shown ? () => s.mic.toggle(false) : null,
+    }
+    const run = s.phase === 'live' ? actions[e.code] : null
+    if (!run) return
+    e.preventDefault()
+    e.stopPropagation()
+    if (!e.repeat) run()
   }
 
   onMount(() => {
     installDiag()
-    // Avant le moteur : seuls les clics sur l'image partent à l'ordinateur, et
-    // tout ce qui y est tenu enfoncé est relâché quand la page perd la main.
+    // Avant le moteur : seuls les clics sur l'image partent à l'ordinateur, et tout ce qui y est tenu
+    // enfoncé est relâché quand la page perd la main.
     installInputGuard({
-      isVideo: (t) => t === canvas() || (!!touchLayer && t === touchLayer),
+      isVideo: (target) => target === canvas() || (!!stage.touchLayer && target === stage.touchLayer),
       canvas,
       onRelease: () => {
         if (mods.size) mods = new Set()
       },
-      allowed: () => ({ keyboard: canKbm, mouse: canKbm }),
+      allowed: () => ({ keyboard: s.canKbm, mouse: s.canKbm }),
       // Un clavier d'Apple a sa touche ⌘ : elle part comme ⌘, sans échange.
-      swapControl: () => stationMac && !isAppleDevice && prefs.controlAsCommand,
+      swapControl: () => s.stationMac && !isAppleDevice && prefs.controlAsCommand,
     })
-    installPointerGate(pointerAllowed)
+    installPointerGate(() => s.controls.pointerAllowed())
     installAbsoluteMouse()
     watchInputSocket()
-    if (g) installGamepadGate(() => canPlay)
-    // La toile a les proportions de l'image : un point de la toile donne une
-    // position sur l'écran de l'ordinateur (taille de l'image reçue).
-    setPositionMapper((cx, cy) => {
-      const c = document.getElementById('kn-canvas')
-      if (!c || !canvasSize.width) return null
-      const r = canvasRect(c)
-      if (cx < r.left || cy < r.top || cx >= r.right || cy >= r.bottom) return null
-      return {
-        x: Math.min(canvasSize.width - 1, ((cx - r.left) * canvasSize.width) / r.width),
-        y: Math.min(canvasSize.height - 1, ((cy - r.top) * canvasSize.height) / r.height),
-      }
-    })
-    start()
-    // Un invité signale sa présence dès l'arrivée : sans nouvelles pendant 20 s, il sort du partage.
-    // Celui d'un ami part avec la réponse de `borrow` (son secret et son rythme).
-    if (g) heartbeat.start({ guest: g.join.guest })
-    else if (!b) {
-      // Ce que la Station sait du partage et du prêt : une Station d'avant la 0.8.0 (0.9.0) ne les
-      // connaît pas ; le partage est coupé quand `multi_client` l'est, le prêt dans Admin (docs/link-ui.md).
-      backend
-        .info()
-        .then((i: Info) => {
-          shareSupport = !i.share ? 'old' : i.share.enabled ? 'ok' : 'off'
-          lendSupport = !i.lend ? 'none' : i.lend.enabled ? 'ok' : 'off'
-          stationMac = stationIsMac(i.os)
-          padsUnavailable = i.gamepads?.available === false
-          noticePads()
-        })
-        .catch(() => {})
-    }
-    // Le temps qui reste au prêt d'un ami (« Encore 1 h 20 »).
-    const lendClock = b ? setInterval(() => (clockNow = Date.now() / 1000), 10_000) : null
-    // Le temps de l'enregistrement, chaque seconde (barre fermée comprise).
-    const recordingClockTimer = setInterval(() => recording?.active && (recordingNow = Date.now()), 1000)
-    // Ctrl + Alt + Maj : la barre, et la souris rendue.
-    const shortcut = (e: KeyboardEvent) => {
-      // Ctrl + Alt + Maj + V : « Micro » (docs/link-ui.md).
-      if (e.ctrlKey && e.altKey && e.shiftKey && e.code === 'KeyV' && micShown) {
-        e.preventDefault()
-        e.stopPropagation()
-        if (!e.repeat) {
-          micTouch = false
-          toggleMic()
-        }
-        return
-      }
-      if (e.ctrlKey && e.altKey && e.shiftKey && ['Control', 'Alt', 'Shift'].includes(e.key)) {
-        releasePointer()
-        if (barVisible) hideBar()
-        else showBar()
-      }
-    }
-    window.addEventListener('keydown', shortcut, true)
+    if (s.guest) installGamepadGate(() => s.canPlay)
+    setPositionMapper(stage.position)
+    bar.host = sessionEl
+    void s.start()
+    // Un invité signale sa présence dès l'arrivée : sans nouvelles pendant 20 s, il sort du partage. Celui
+    // d'un ami part avec la réponse de `borrow` (son secret et son rythme).
+    if (s.g) s.heartbeat.start({ guest: s.g.join.guest })
+    else if (!s.b) s.learnStation()
+
+    const timers = [
+      // Le temps qui reste au prêt d'un ami (« Encore 1 h 20 »).
+      setInterval(() => s.borrowing?.tick(), 10_000),
+      // Le temps de l'enregistrement, chaque seconde (barre fermée comprise).
+      setInterval(() => s.recording.tick(), 1000),
+      // Souris « Auto » de l'hôte.
+      setInterval(() => void s.controls.pollForeground(), 1000),
+      setInterval(() => s.metrics.halfSecond(), 500),
+      setInterval(() => s.metrics.second(), 1000),
+      // La latence du signal de vie (le Worker envoie la dernière connue).
+      setInterval(() => s.updateBeat(), 5000),
+      setInterval(() => s.phase === 'live' && !s.g && !s.b && void s.refreshTicket(), 3_600_000),
+    ]
+    const stopDiag = watchDiag(
+      (text) => (diagText = text),
+      () => {
+        const c = canvas()
+        const r = c?.getBoundingClientRect()
+        return [
+          `positions page ${injected.count} · sorties ${diag.outside} · dernière ${diag.lastX},${diag.lastY} · toile ${r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}` : '—'}`,
+          `capture ${document.pointerLockElement ? 'oui' : 'non'} · pointeur de l'ordinateur ${isRemoteCursorHidden() ? 'masqué' : 'visible'} · transport ${s.plan?.protocol ?? '—'} · moteur ${isFixedEngine() ? 'corrigé' : 'd’origine'}${engineInputs() ? ', entrées par le moteur' : ''}`,
+        ]
+      },
+    )
+
     const onBlur = () => {
-      pageFocused = false
-      cancelDwell()
+      bar.pageFocused = false
+      bar.cancelDwell()
     }
-    const onFocus = () => (pageFocused = true)
+    const onFocus = () => (bar.pageFocused = true)
     const onLockChange = () => {
-      pointerLocked = !!document.pointerLockElement
-      if (pointerLocked) cancelDwell()
+      bar.pointerLocked = !!document.pointerLockElement
+      if (bar.pointerLocked) bar.cancelDwell()
     }
-    pageFocused = document.hasFocus()
-    window.addEventListener('blur', onBlur)
-    window.addEventListener('focus', onFocus)
-    document.addEventListener('pointerlockchange', onLockChange)
-    let prev = { ...diag }
-    // Quinze secondes d'historique : on reproduit, puis on capture après coup.
-    const hist: { souris: number; relayee: number; entrees: number; flux: number; tailles: string }[] = []
-    const diagTimer = diagEnabled
-      ? setInterval(() => {
-          const c = document.getElementById('kn-canvas')
-          const r = c?.getBoundingClientRect()
-          hist.push({
-            souris: diag.trusted - prev.trusted,
-            relayee: diag.relayed - prev.relayed,
-            entrees: diag.wsInputs - prev.wsInputs,
-            flux: diag.streamWrites - prev.streamWrites,
-            tailles: [...diag.sizes].sort((a, b) => a - b).join('/') || '-',
-          })
-          diag.sizes.clear()
-          if (hist.length > 15) hist.shift()
-          const row = (k: 'souris' | 'relayee' | 'entrees' | 'flux') => hist.map((h) => String(h[k]).padStart(3)).join('')
-          diagText = [
-            `souris  ${row('souris')}`,
-            `relayée ${row('relayee')}`,
-            `entrées ${row('entrees')}`,
-            `flux    ${row('flux')}`,
-            `octets  ${hist.slice(-8).map((h) => h.tailles).join(" ")} (8 dernières s)`,
-            `positions page ${injected.count} · sorties ${diag.outside} · dernière ${diag.lastX},${diag.lastY} · toile ${r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}` : '—'}`,
-            `capture ${document.pointerLockElement ? 'oui' : 'non'} · pointeur de l'ordinateur ${isRemoteCursorHidden() ? 'masqué' : 'visible'} · transport ${plan?.protocol ?? '—'} · moteur ${isFixedEngine() ? 'corrigé' : 'd’origine'}${engineInputs() ? ', entrées par le moteur' : ''}`,
-            `clavier tactile : frappe ${diag.lastKey} · saisie ${diag.lastInput}`,
-          ].join('\n')
-          prev = { ...diag }
-        }, 1000)
-      : null
-    const foreground = setInterval(async () => {
-      // Un invité ou un ami n'a pas de compte pour le demander : sa souris reste celle du bureau (ou des jeux, à la main).
-      if (g || b || phase !== 'live' || mouseMode !== 'auto') return
-      const f = await backend.foreground().catch(() => null)
-      const game = !!f?.game
-      if (game !== gameInForeground) {
-        gameInForeground = game
-        if (!game) releasePointer()
-      }
-    }, 1000)
-    const resize = () => fit()
-    const viewport = () => keyboardOpen && trackViewport()
-    window.visualViewport?.addEventListener('resize', viewport)
-    window.visualViewport?.addEventListener('scroll', viewport)
-    // Ctrl+W, ⌘W, ⌘Q en pleine session : le navigateur demande confirmation.
+    bar.pageFocused = document.hasFocus()
+    const resize = () => {
+      stage.fit()
+      stage.forgetRect()
+      void bar.relayout()
+    }
+    const viewport = () => {
+      stage.forgetRect()
+      if (keyboardOpen) stage.trackViewport(keyboardOpen)
+    }
+    // Ctrl+W, ⌘W, ⌘Q en pleine session : le navigateur demande confirmation. Un invité sort sans façon (il
+    // rejoint de nouveau avec le code), un ami aussi (fermer la fenêtre ne rend pas l'ordinateur).
     const beforeUnload = (e: BeforeUnloadEvent) => {
-      // Un invité sort sans façon : il rejoint de nouveau avec le code. Un ami aussi : fermer la fenêtre
-      // ne rend pas l'ordinateur, il peut revenir pendant 15 min.
-      if (g || b || phase !== 'live' || ended) return
+      if (s.g || s.b || s.phase !== 'live' || s.ended) return
       e.preventDefault()
       e.returnValue = ''
     }
-    window.addEventListener('beforeunload', beforeUnload)
     // Tout clic ou toute touche est un geste : le son peut y reprendre.
-    const unlockAudio = async () => {
-      if (engine && (await engine.audioState()) === 'running') soundBlocked = false
+    const gesture = () => void s.controls.soundGesture()
+    const leave = () => s.leavePage()
+    // Onglet qui passe en arrière-plan : un signal tout de suite, et le débit plafonné jusqu'au retour.
+    const visibility = () => {
+      if (document.visibilityState === 'hidden' && s.heartbeat.running) s.heartbeat.now()
+      s.controls.applyBitrate()
     }
-    const leave = () => {
-      keepLastSession()
-      // Un invité sort du partage à la fermeture de la page ; un ami qui attend l'accord retire sa demande.
-      leaveGuest()
-      if (pendingLend) void leaveLend(pendingLend.secret, { request: pendingLend.request })
-      if (ended || !prepared) return
-      endOnUnload(extra())
-    }
-    // Onglet qui passe en arrière-plan : un signal tout de suite.
-    const hidden = () => {
-      if (document.visibilityState === 'hidden' && heartbeat.running) heartbeat.now()
-    }
-    window.addEventListener('resize', resize)
-    window.addEventListener('resize', forgetRect)
-    window.addEventListener('scroll', forgetRect, true)
-    window.visualViewport?.addEventListener('resize', forgetRect)
-    document.addEventListener('fullscreenchange', forgetRect)
-    document.addEventListener('fullscreenchange', onFullscreenChange)
-    window.addEventListener('pointerdown', unlockAudio)
-    window.addEventListener('keydown', unlockAudio)
-    window.addEventListener('pagehide', leave)
-    document.addEventListener('visibilitychange', hidden)
-    if (document.fullscreenElement) onFullscreenChange()
-
-    // Mesures et signal de vie. L'historique se tient toujours ; l'état affiché ne change que quand quelque chose le
-    // montre (WEB-18 : la barre et les statistiques fermées, rien n'est à redessiner).
-    const sparkBuf: number[] = []
-    const metrics = setInterval(() => {
-      if (!engine || phase !== 'live') return
-      const l = engine.latency.median()
-      if (l) {
-        sparkBuf.push(l.total)
-        if (sparkBuf.length > 32) sparkBuf.shift()
-      }
-      if (!(barVisible || metricsOpen || touchBar)) return
-      latency = l
-      fps = engine.latency.fps()
-      pyroStats = plan?.pyrowave ? pyrowaveStats() : null
-      spark = sparkBuf.slice()
-    }, 500)
-    // Médiane de chaque seconde d'image, pour la dernière session (bornée à 6 h, WEB-18).
-    const seconds = setInterval(() => {
-      if (!engine || phase !== 'live') return
-      const v = engine.latency.lastSecond()
-      if (v !== null) secondMedians.push(v)
-      if (secondMedians.length > MAX_SECOND_MEDIANS) secondMedians.splice(0, secondMedians.length - MAX_SECOND_MEDIANS)
-    }, 1000)
-    // La latence du signal de vie (le Worker envoie la dernière connue).
-    const sampler = setInterval(() => {
-      // Le signe de vie d'un invité (d'un ami) porte seulement son identifiant (celui du prêt).
-      if (g || b || !engine || phase !== 'live') return
-      const l = engine.sample()
-      heartbeat.update(heartbeatBody(l?.total ?? null, profileLabel, extra()))
-    }, 5000)
-    const ticketTimer = setInterval(() => phase === 'live' && !g && !b && refreshTicket(), 3_600_000)
+    const listen: [EventTarget | undefined | null, string, EventListener, boolean?][] = [
+      [window, 'keydown', shortcut as EventListener, true],
+      [window, 'blur', onBlur],
+      [window, 'focus', onFocus],
+      [document, 'pointerlockchange', onLockChange],
+      [window, 'resize', resize],
+      [window, 'scroll', stage.forgetRect, true],
+      [window.visualViewport, 'resize', viewport],
+      [window.visualViewport, 'scroll', viewport],
+      [window, 'beforeunload', beforeUnload as EventListener],
+      [document, 'fullscreenchange', onFullscreenChange],
+      [window, 'pointerdown', gesture],
+      [window, 'keydown', gesture],
+      [window, 'pagehide', leave],
+      [document, 'visibilitychange', visibility],
+    ]
+    for (const [target, type, fn, capture] of listen) target?.addEventListener(type, fn, capture)
+    if (document.fullscreenElement) void onFullscreenChange()
 
     // Safari : pas de correction automatique (elle remplacerait un mot déjà parti).
     textInput.setAttribute('autocorrect', 'off')
-    // Écran tactile, même avec une souris ou un pavé à côté (iPad avec
-    // clavier) : les doigts passent par la couche tactile. Avec un pointeur
-    // précis à côté, le doigt touche directement (le pointeur reste la souris).
-    if (hasTouchScreen) {
-      touch = new TouchInput(touchLayer, canvas, isTouch ? touchMode : 'direct', (p) => (cursor = isTouch && touchMode === 'trackpad' ? p : null))
+    // Écran tactile, même avec une souris ou un pavé à côté (iPad avec clavier) : les doigts passent par la
+    // couche tactile. Avec un pointeur précis à côté, le doigt touche directement (le pointeur reste la souris).
+    if (hasTouchScreen && stage.touchLayer) {
+      touch = new TouchInput(stage.touchLayer, canvas, isTouch ? touchMode : 'direct', (p) => (cursor = isTouch && touchMode === 'trackpad' ? p : null))
       if (isTouch && touchMode === 'trackpad') cursor = touch.cursor
     }
-
-    const offGpuLost = onGpuLost(() => void onPyroWaveGpuLost())
+    const offGpuLost = onGpuLost(() => void s.onGpuLost())
 
     return () => {
       offGpuLost()
-      clearInterval(metrics)
-      clearInterval(seconds)
-      clearInterval(sampler)
-      clearInterval(ticketTimer)
-      if (lendClock) clearInterval(lendClock)
-      clearInterval(recordingClockTimer)
-      lendAbort?.abort()
-      heartbeat.stop()
-      clearInterval(foreground)
-      if (diagTimer) clearInterval(diagTimer)
-      cursorWatch?.disconnect()
-      document.removeEventListener('pointerlockchange', cursorFix)
-      clearWatches()
-      if (noticeTimer) clearTimeout(noticeTimer)
-      if (stableTimer) clearTimeout(stableTimer)
-      endSwitch()
-      window.removeEventListener('keydown', shortcut, true)
-      mic.stop()
-      window.removeEventListener('blur', onBlur)
-      window.removeEventListener('focus', onFocus)
-      document.removeEventListener('pointerlockchange', onLockChange)
+      for (const timer of timers) clearInterval(timer)
+      stopDiag()
+      for (const [target, type, fn, capture] of listen) target?.removeEventListener(type, fn, capture)
+      s.destroy()
+      bar.destroy()
+      stage.destroy()
       releasePointer()
       removePointerGate()
       removeAbsoluteMouse()
@@ -2144,457 +356,74 @@
       allowPackets(true)
       setPositionMapper(() => null)
       forgetInputSocket()
-      clearBarTimer()
-      cancelDwell()
       touch?.destroy()
-      window.removeEventListener('resize', resize)
-      window.removeEventListener('resize', forgetRect)
-      window.removeEventListener('scroll', forgetRect, true)
-      window.visualViewport?.removeEventListener('resize', forgetRect)
-      document.removeEventListener('fullscreenchange', forgetRect)
-      rectWatch?.disconnect()
-      window.visualViewport?.removeEventListener('resize', viewport)
-      window.visualViewport?.removeEventListener('scroll', viewport)
-      window.removeEventListener('beforeunload', beforeUnload)
-      document.removeEventListener('fullscreenchange', onFullscreenChange)
-      window.removeEventListener('pointerdown', unlockAudio)
-      window.removeEventListener('keydown', unlockAudio)
-      window.removeEventListener('pagehide', leave)
-      document.removeEventListener('visibilitychange', hidden)
-      if (!ended) {
-        ended = true
-        keepLastSession()
-        leaveGuest()
-        retire(engine, prepared ? () => backend.end(null, extra()) : undefined)
-      }
-      // Démontage complet (WEB-10) : bandeau PyroWave, relance d'image prévue, sonde du son sur un moteur arrêté.
-      hidePyroBanner()
-      if (pipelineTimer) clearTimeout(pipelineTimer)
-      pipelineTimer = null
-      audioProbe++
-      engine = null
     }
   })
 </script>
 
-<div class="session" class:touch={isTouch} bind:this={sessionEl} onpointermove={onPointerMove} onpointerleave={onPointerLeave} role="application" aria-label={t('session.aria', { host: hostname })}>
-  <div class="stage" class:kb={keyboardOpen} bind:this={stage} oncontextmenu={(e) => e.preventDefault()} role="presentation">
-    <div class="canvas-box" bind:this={canvasBox}></div>
-    <div class="touch-layer" class:active={hasTouchScreen && phase === 'live' && canKbm} bind:this={touchLayer}></div>
-    {#if cursor && phase === 'live'}
+<div class="session" class:touch={isTouch} bind:this={sessionEl} onpointermove={(e) => bar.onPointerMove(e)} onpointerleave={(e) => bar.onPointerLeave(e)} role="application" aria-label={t('session.aria', { host: s.hostname })}>
+  <div class="stage" class:kb={keyboardOpen} bind:this={stage.el} oncontextmenu={(e) => e.preventDefault()} role="presentation">
+    <div class="canvas-box" bind:this={stage.box}></div>
+    <div class="touch-layer" class:active={hasTouchScreen && s.phase === 'live' && s.canKbm} bind:this={stage.touchLayer}></div>
+    {#if cursor && s.phase === 'live'}
       <div class="tcursor" style="left: {cursor.x}px; top: {cursor.y}px" aria-hidden="true"></div>
     {/if}
   </div>
 
-  {#if phase !== 'live' || switching}
-    <div class="overlay" role="status">
-      {#if phase === 'ended'}
-        <div class="card">
-          <Mark size={34} state="now" />
-          <h2 class="disp">{wasLive || lendOver ? t('session.start.ended') : t('session.start.failed')}</h2>
-          <p>{error}</p>
-          {#if errorDetail}<p class="detail">{t('session.error.details')}{' '}<code>{errorDetail}</code></p>{/if}
-          {#if b && !lendOver}<p class="comeback">{t('lend.friend.comeBackHint')}</p>{/if}
-          <div class="row">
-            {#if g}
-              <!-- Un invité sorti du partage ne le reprend pas : il rejoint de nouveau avec un code. -->
-              <button type="button" class="primary" onclick={quit}>{t('share.join.button')}</button>
-            {:else if b}
-              <!-- Un ami : « Revenir » au même prêt tant qu'il n'est pas fini (15 min), ou « Fermer ». -->
-              {#if !lendOver}<button type="button" class="primary" onclick={comeBack}>{t('lend.friend.comeBack')}</button>{/if}
-              <button type="button" class={lendOver ? 'primary' : 'ghost'} onclick={quit}>{t('lend.close')}</button>
-            {:else}
-              <button type="button" class="primary" onclick={() => { ended = false; wasLive = false; padsNoticed = false; resetStats(); restart() }}>{t('session.start.reconnect')}</button>
-              <button type="button" class="ghost" onclick={quit}>{t('session.start.home')}</button>
-            {/if}
-          </div>
-        </div>
-      {:else if phase === 'waiting'}
-        <!-- Un ami attend l'accord de l'hôte (ordinateur utilisé). -->
-        <div class="card">
-          <Mark size={34} state="now" lit breathe />
-          <h2 class="disp">{startTitle}</h2>
-          <p class="waiting"><span class="wdot" aria-hidden="true"></span>{lendHost ? tName('lend.friend.waiting', 'host', lendHost) : t('share.join.waiting')}</p>
-          <button type="button" class="ghost" onclick={cancelBorrow}>{t('share.cancel')}</button>
-        </div>
-      {:else}
-        {@const current = phase === 'live' ? 2 : phase === 'preparing' ? 0 : connectStep === 'kyber' ? 1 : 2}
-        <div class="card">
-          <Mark size={34} state="now" lit breathe />
-          <h2 class="disp">{startTitle}</h2>
-          <ol class="steps">
-            {#if phase === 'restarting'}
-              <li class="current" aria-current="step"><span class="mark" aria-hidden="true"></span>{t('web.station.restarting')}</li>
-            {:else}
-              {#each [b ? t('lend.steps.preparing') : t('session.start.preparing'), t('session.start.connecting'), t('session.start.firstImages')] as label, i (i)}
-                <li class:done={i < current} class:current={i === current} aria-current={i === current ? 'step' : undefined}><span class="mark" aria-hidden="true"></span>{label}</li>
-              {/each}
-            {/if}
-          </ol>
-          <button type="button" class="ghost" onclick={b ? cancelBorrow : quit}>{t('session.start.cancel')}</button>
-        </div>
-      {/if}
-    </div>
+  {#if s.phase !== 'live' || s.guest?.switching}
+    <SessionOverlay {s} />
   {/if}
 
-  {#if phase === 'live' && (reconnecting || notice)}
-    <div class="toast glass" role="status">{reconnecting || notice}</div>
+  {#if s.phase === 'live' && (s.reconnecting || s.notice)}
+    <div class="toast frost" role="status">{s.reconnecting || s.notice}</div>
   {/if}
 
-  {#if phase === 'live' && pyroBanner}
+  {#if s.phase === 'live' && s.pyroBanner}
     <!-- PyroWave sans câble connu ou par le relais : au début de la session, 8 s (docs/link-ui.md, « PyroWave »). -->
-    <div class="pwbanner glass" class:below={!!(reconnecting || notice)} role="status">
+    <div class="pwbanner frost" class:below={!!(s.reconnecting || s.notice)} role="status">
       <div class="pwtext">
-        <strong>{pyroBanner === 'relay' ? t('session.pyrowave.titleRelay') : t('session.pyrowave.titleNetwork')}</strong>
-        <span>{pyroBanner === 'relay' ? t('session.pyrowave.textRelay') : t('session.pyrowave.textNetwork')}</span>
+        <strong>{s.pyroBanner === 'relay' ? t('session.pyrowave.titleRelay') : t('session.pyrowave.titleNetwork')}</strong>
+        <span>{s.pyroBanner === 'relay' ? t('session.pyrowave.textRelay') : t('session.pyrowave.textNetwork')}</span>
       </div>
-      <button type="button" class="pwswitch" onclick={leavePyroWave}>{t('session.pyrowave.switch', { format: formatLabel(plan?.fallbackCodec ?? 'hevc', false) })}</button>
-      <button type="button" class="pwclose" aria-label={t('session.pyrowave.close')} onclick={hidePyroBanner}>
+      <button type="button" class="pwswitch" onclick={() => s.leavePyroWave()}>{t('session.pyrowave.switch', { format: s.autoFormat() })}</button>
+      <button type="button" class="pwclose" aria-label={t('session.pyrowave.close')} onclick={() => s.hidePyroBanner()}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
       </button>
     </div>
   {/if}
 
-  {#if phase === 'live' && soundBlocked && prefs.audio && !muted}
-    <button type="button" class="sound glass" onpointerdown={(e) => e.preventDefault()} onclick={unlockSound}>
+  {#if s.phase === 'live' && s.controls.soundBlocked && prefs.audio && !s.controls.muted}
+    <button type="button" class="sound frost" onpointerdown={(e) => e.preventDefault()} onclick={() => s.controls.unlockSound()}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" /><path d="M17 9a4 4 0 0 1 0 6" /><path d="M19.5 6.5a8 8 0 0 1 0 11" /></svg>
       {isTouch ? t('session.sound.tap') : t('session.sound.click')}
     </button>
   {/if}
 
-  <!-- Barre de session (souris et clavier) -->
-  {#if phase === 'live' && recording?.active && (isTouch ? !touchBar : !barVisible)}
+  {#if s.phase === 'live' && s.recording.state?.active && (isTouch ? !bar.touchOpen : !bar.visible)}
     <!-- Barre fermée : la pastille reste là, toujours visible (tout le monde dans la session le voit). -->
-    <div class="recfloat" role="status" aria-label={g ? recordingHint : recordingPill}>
+    <div class="recfloat" role="status" aria-label={s.g ? s.recording.hint : s.recording.pill}>
       <span class="beat" aria-hidden="true"></span>
-      <span class="mono">{g ? recordingPill : recordingTime}</span>
+      <span class="mono">{s.g ? s.recording.pill : s.recording.time}</span>
     </div>
   {/if}
 
-  {#if !isTouch && phase === 'live'}
-    {#if edgeShown}
-      <button type="button" class="edge" aria-label={t('session.bar.show')} title={t('session.bar.showHint')} onpointerdown={(e) => (edgeTouch = e.pointerType === 'touch')} onclick={() => showBar(edgeTouch)}><span></span></button>
+  {#if !isTouch && s.phase === 'live'}
+    {#if bar.edgeShown}
+      <!-- Le trait du bord haut, touchable aussi (docs/link-ui.md, « Barre de session au pointeur »). -->
+      <button type="button" class="edge" aria-label={t('session.bar.show')} title={t('session.bar.showHint')} onpointerdown={(e) => (edgeTouch = e.pointerType === 'touch')} onclick={() => bar.show(edgeTouch)}><span></span></button>
     {/if}
-    <!-- Souris : la fermeture suit le pointeur (onPointerMove). Doigt : elle attend un temps sans toucher. -->
-    <div class="bar glass" class:hidden={!barVisible} role="toolbar" tabindex="-1" aria-label="Session" bind:this={barEl} bind:clientWidth={barWidth} onpointerenter={(e) => e.pointerType === 'touch' && clearBarTimer()} onpointerleave={(e) => e.pointerType === 'touch' && scheduleBarHide(BAR_IDLE)}>
-      <Mark size={22} state="now" lit breathe />
-      <span class="host">{title}</span>
-      <span class="sep" aria-hidden="true"></span>
-      <button type="button" class="lat" aria-expanded={metricsOpen} aria-label={t('session.bar.metrics')} onclick={() => { metricsOpen = !metricsOpen; keysOpen = false; shareOpen = false; lendOpen = false; giveBackOpen = false; qualityOpen = false }}>
-        <span class="mono value">{latencyText}</span>
-        <svg width="64" height="22" viewBox="0 0 64 22" aria-hidden="true"><path d={sparkPath} fill="none" stroke="#9A8CFF" stroke-width="1.5" stroke-linejoin="round" /></svg>
-        <span class="mono fmt">{formatText}</span>
-      </button>
-      <span class="sep" aria-hidden="true"></span>
-      {#if g}
-        <!-- Invité : son rôle, ni profil ni réglages de l'ordinateur. -->
-        <span class="chip static role">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            {#if role === 'spectator'}<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" /><circle cx="12" cy="12" r="2.6" />{:else}<path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" />{/if}
-          </svg>
-          <span class="label">{roleText}</span>
-        </span>
-        {#if relayed}
-          <!-- Par le relais (docs/link-ui.md, « Hors de chez vous ») : toujours visible dans la barre. -->
-          <span class="chip static relay">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" /></svg>
-            <span class="label">{t('session.bar.relay')}</span>
-          </span>
-        {/if}
-        {#if recording?.active}
-          <!-- L'hôte enregistre : la pastille rouge, sans action. -->
-          <span class="chip static rec" title={recordingHint} aria-label={recordingHint}>
-            <span class="beat" aria-hidden="true"></span>
-            <span class="label">{recordingPill}</span>
-          </span>
-        {/if}
-        {#if qualityKnown}
-          <!-- « Qualité de l'image » : la qualité reçue ; le menu la change (l'image de l'invité seulement). -->
-          <button type="button" class="chip" bind:this={qualityChip} aria-haspopup="menu" aria-expanded={qualityOpen} aria-label="{t('share.quality.title')} · {receivedText}" title={t('share.quality.title')} disabled={qualityBusy} onclick={toggleQuality}>
-            <Icon name="display" size={16} stroke={1.7} />
-            <span class="label">{receivedText}</span>
-          </button>
-        {/if}
-      {:else if b}
-        <!-- Ami : le temps qui reste au prêt (ou jusqu'à la reprise), ni profil ni réglages de l'ordinateur. -->
-        <span class="chip static time" class:soon={lendNoticeAt !== null} title={lendTimeText}>
-          <Icon name="clock" size={16} stroke={1.8} />
-          <span class="label">{lendTimeText}</span>
-        </span>
-        {#if relayed}
-          <span class="chip static relay">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" /></svg>
-            <span class="label">{t('session.bar.relay')}</span>
-          </span>
-        {/if}
-      {:else}
-        <span class="chip static">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
-          <span class="label">{profileText}</span>
-        </span>
-        {#if plan?.pyrowave?.warning === 'relay'}
-          <!-- PyroWave par le relais : la puce ambre reste dans la barre (docs/link-ui.md, « PyroWave »). -->
-          <span class="chip static amber">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 17h-19z" /><path d="M12 10v4M12 17.5v.5" /></svg>
-            <span class="label">{t('session.pyrowave.titleRelay')}</span>
-          </span>
-        {/if}
-      {/if}
-      {#if canKbm}
-        <button type="button" class="chip" aria-label={mouseLabel} title={t('session.mouse.hint')} onclick={cycleMouse}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 7-6 2-2 6z" /></svg>
-          <span class="label">{mouseLabel}</span>
-        </button>
-      {/if}
-      {#if gamepads.length && canPlay}
-        <span class="chip static" title={gamepads.map((p) => p.name).join(', ')} aria-label={gamepadAria}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" /></svg>
-          <span class="label">{gamepadText}</span>
-        </span>
-      {/if}
-      {#if prefs.audio}
-        <button type="button" class="chip" aria-pressed={muted} aria-label={muted ? t('session.sound.unmute') : t('session.sound.mute')} onclick={toggleMute}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" />{#if muted}<path d="M17 9l4 6M21 9l-4 6" />{:else}<path d="M17 9a4 4 0 0 1 0 6" />{/if}</svg>
-          <span class="label">{muted ? t('session.sound.muted') : t('session.sound.on')}</span>
-        </button>
-      {/if}
-      {#if micShown}
-        <!-- « Micro » : allumé tant qu'il est envoyé ; inactif avec la raison quand l'ordinateur ne le prend pas. -->
-        <button type="button" class="chip" class:inactive={!!micRefusal} aria-pressed={micLit} aria-disabled={!!micRefusal} aria-label={micTip} title={micTip} onpointerdown={(e) => (micTouch = e.pointerType === 'touch' || e.pointerType === 'pen')} onclick={toggleMic}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />{#if !micLit}<path d="M4 4l16 16" />{/if}</svg>
-          <span class="label">{micLit ? t('micro.label') : t('micro.label_off')}</span>
-        </button>
-      {/if}
-      {#if canKbm}
-        <button type="button" class="chip" aria-label={t('session.bar.keys')} aria-expanded={keysOpen} onclick={() => { keysOpen = !keysOpen; metricsOpen = false; shareOpen = false; lendOpen = false; giveBackOpen = false; qualityOpen = false }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
-          <span class="label">{t('session.bar.keys')}</span>
-        </button>
-      {/if}
-      {#if !g && !b}
-        <!-- « Partager » (KyberNow Share) : inactif si la Station ne le sait pas ou l'a coupé ; le panneau dit pourquoi. -->
-        <button type="button" class="chip" class:inactive={shareSupport !== 'ok'} aria-expanded={shareOpen} aria-disabled={shareSupport !== 'ok'} aria-label={shareAria} title={shareHint} onpointerdown={(e) => (shareTouch = e.pointerType === 'touch' || e.pointerType === 'pen')} onclick={toggleShare}>
-          <Icon name="share" size={16} stroke={1.7} />
-          <span class="label">{t('share.bar.share')}</span>
-          {#if guestCount}<span class="count" aria-hidden="true"><span class="full">{tn('share.guests', guestCount)}</span><span class="num">{guestCount}</span></span>{/if}
-          {#if requestCount}<span class="count ask" aria-hidden="true"><span class="full">{tn('share.requestCount', requestCount)}</span><span class="num">{requestCount}</span></span>{/if}
-        </button>
-      {/if}
-      {#if !g && !b && lendSupport !== 'none'}
-        <!-- « Prêter l'ordinateur… » (docs/pret.md) : inactif si le prêt est coupé dans Admin ; ses demandes en pastille. -->
-        <button type="button" class="chip" class:inactive={lendSupport !== 'ok'} aria-expanded={lendOpen} aria-disabled={lendSupport !== 'ok'} aria-label={lendAria} title={lendSupport === 'off' ? t('lend.off') : ''} onpointerdown={(e) => (lendTouch = e.pointerType === 'touch' || e.pointerType === 'pen')} onclick={toggleLend}>
-          <Icon name="lend" size={16} stroke={1.7} />
-          <span class="label">{t('lend.open')}</span>
-          {#if lendRequests.length}<span class="count ask" aria-hidden="true"><span class="full">{tn('share.requestCount', lendRequests.length)}</span><span class="num">{lendRequests.length}</span></span>{/if}
-        </button>
-      {/if}
-      {#if !g && !b && recording}
-        <!-- « Enregistrer » (docs/link-ui.md) : pendant, la pastille rouge et son temps, un clic l'arrête ;
-             coupé dans Admin : estompé, la raison en infobulle (au toucher, en avis). -->
-        {#if recording.active}
-          <button type="button" class="chip rec" title={recordingHint} aria-label="{recordingPill} · {recordingHint}" disabled={recordingBusy} onclick={toggleRecording}>
-            <span class="beat" aria-hidden="true"></span>
-            <span class="label">{recordingPill}</span>
-            <span class="clock mono" aria-hidden="true">{recordingTime}</span>
-          </button>
-        {:else}
-          <button type="button" class="chip" class:inactive={!recording.allowed} aria-disabled={!recording.allowed} aria-label={t('recording.record')} title={recordingHint} disabled={recordingBusy} onpointerdown={(e) => (recordingTouch = e.pointerType === 'touch' || e.pointerType === 'pen')} onclick={toggleRecording}>
-            <span class="dot-rec" aria-hidden="true"></span>
-            <span class="label">{t('recording.record')}</span>
-          </button>
-        {/if}
-      {/if}
-      <span class="sep" aria-hidden="true"></span>
-      <button type="button" class="chip icon" aria-label={fullscreen ? t('session.bar.exitFullscreen') : t('session.bar.fullscreen')} onclick={toggleFullscreen}>
-        {#if fullscreen}
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></svg>
-        {:else}
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
-        {/if}
-      </button>
-      {#if b}
-        <!-- « Rendre l'ordinateur » : après confirmation, le prêt finit ; fermer la fenêtre ne le rend pas. -->
-        <button type="button" class="quit" aria-expanded={giveBackOpen} aria-label={t('lend.bar.giveBack')} onclick={() => { giveBackOpen = !giveBackOpen; metricsOpen = false; keysOpen = false }}>
-          <Icon name="lend" size={15} stroke={2} />
-          <span class="label">{t('lend.bar.giveBack')}</span>
-        </button>
-      {:else}
-        <button type="button" class="quit" aria-label={g ? t('share.guest.leave') : t('session.bar.quit')} onclick={quit}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9" /><path d="M6.3 6.3a8 8 0 1 0 11.4 0" /></svg>
-          <span class="label">{g ? t('share.guest.leave') : t('session.bar.quit')}</span>
-        </button>
-      {/if}
-
-      {#if giveBackOpen && b}
-        <div class="menu glass giveback" role="alertdialog" aria-labelledby="giveback-q">
-          <p id="giveback-q">{t('lend.bar.confirm', { host: lendHost })}</p>
-          <div class="gb-row">
-            <button type="button" class="gb-cancel" onclick={() => (giveBackOpen = false)}>{t('share.cancel')}</button>
-            <button type="button" class="gb-ok" onclick={giveBack}>{t('lend.bar.giveBack')}</button>
-          </div>
-        </div>
-      {/if}
-
-      {#if qualityOpen && g}
-        <div class="menu glass qmenu" role="menu" aria-label={t('share.quality.title')} style:left="{qualityLeft}px">
-          {#each QUALITIES as q (q)}
-            <button type="button" role="menuitemradio" aria-checked={q === quality} onclick={() => pickQuality(q)}>{qualityName(q)}{#if q === quality}<Icon name="check" size={15} stroke={2} />{/if}</button>
-          {/each}
-        </div>
-      {/if}
-
-      {#if keysOpen && canKbm}
-        <div class="menu glass" role="menu" aria-label={t('session.keys.title')}>
-          {#if stationMac}
-            <!-- Face à une Station Mac : ses combinaisons, envoyées telles quelles. -->
-            {#each MAC_KEYS as k (k.code)}
-              <button type="button" role="menuitem" onclick={() => { sendMacCombo(k); keysOpen = false }}>{k.label}<span class="mono">{k.sub}</span></button>
-            {/each}
-          {:else}
-            <button type="button" role="menuitem" onclick={() => { engine?.ctrlAltDel(); keysOpen = false }}>{t('session.keys.cad')}<span class="mono">{t('session.keys.cadSub')}</span></button>
-            <button type="button" role="menuitem" onclick={() => { sendKey(canvas(), 'Meta', 'MetaLeft', new Set()); keysOpen = false }}>{t('session.keys.win')}<span class="mono">{t('session.keys.winSub')}</span></button>
-            <button type="button" role="menuitem" onclick={() => { sendCombo([{ key: 'Alt', code: 'AltLeft' }], { key: 'Tab', code: 'Tab' }); keysOpen = false }}>{t('session.keys.altTab')}<span class="mono">{t('session.keys.altTabSub')}</span></button>
-            <button type="button" role="menuitem" onclick={() => { sendKey(canvas(), 'PrintScreen', 'PrintScreen', new Set()); keysOpen = false }}>{t('session.keys.print')}<span class="mono">{t('session.keys.printSub')}</span></button>
-          {/if}
-        </div>
-      {/if}
-    </div>
-
-    {#if metricsOpen}
-      <section class="metrics glass" aria-label={t('session.bar.metrics')}>
-        <div class="mhead">
-          <span>{t('session.metrics.title')}</span>
-          <span class="mono muted">{t('session.metrics.median')}</span>
-        </div>
-        {#if latency}
-          <div class="bars">
-            {#each parts as p (p.cls)}<div class={p.cls} style="flex: {Math.max(p.v, 0.3)}">{p.label}</div>{/each}
-          </div>
-          <div class="nums">
-            {#each parts as p (p.cls)}<div><span class="lit-number">{ms(p.v)}</span><span class="muted">{p.sub}</span></div>{/each}
-          </div>
-        {:else}
-          <p class="muted">{t('session.metrics.waiting')}</p>
-        {/if}
-        <div class="mono foot">
-          <span>{t('session.metrics.fps', { fps })}</span>{#if !g}<span>{plan?.mbps ?? '—'} Mbit/s</span>{/if}<span>{plan?.reliable ? t('session.metrics.reliable') : t('session.metrics.fast')}</span>{#if relayed}<span>{t('session.bar.relay')}</span>{/if}
-        </div>
-        {#if plan?.pyrowave}
-          <div class="mono foot">
-            <span>{t('session.pyrowave.decode')} {pyroStats?.decodeMs != null ? ms(pyroStats.decodeMs) : '—'}</span>
-            <span>{t('session.pyrowave.lost')} {pyroStats?.lostPercent != null ? `${decimal(pyroStats.lostPercent.toFixed(1))} %` : '—'}</span>
-          </div>
-          {#if plan.pyrowave.lowered}
-            <p class="muted small">{t('session.pyrowave.lowered', { width: plan.pyrowave.lowered.width, height: plan.pyrowave.lowered.height, mbps: plan.pyrowave.lowered.mbps })}</p>
-          {/if}
-        {/if}
-        <p class="muted small">{t('session.metrics.browserNote')}</p>
-      </section>
+    <SessionBar {s} {bar} {fullscreen} ontogglefullscreen={toggleFullscreen} />
+    {#if bar.menu === 'stats'}
+      <SessionStats {s} onclose={() => bar.close()} />
     {/if}
-
   {/if}
 
   <!-- Tactile : languette, barre compacte, clavier -->
-  {#if isTouch && phase === 'live'}
-    {#if !touchBar}
-      <button type="button" class="tab glass" aria-label={t('session.bar.show')} onpointerdown={(e) => e.preventDefault()} onclick={() => { touchBar = true; guide = canKbm && !prefs.touchGuideSeen }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
-      </button>
-    {:else}
-      <div class="tbar glass" role="toolbar" tabindex="-1" aria-label="Session" onpointerdown={(e) => e.preventDefault()}>
-        <Mark size={20} state="now" lit />
-        <span class="mono tlat">{latencyText}</span>
-        {#if g}<span class="trole">{roleText}</span>{/if}
-        {#if b}<span class="trole ttime" class:soon={lendNoticeAt !== null}>{lendTimeText}</span>{/if}
-        {#if g && recording?.active}<span class="trec" role="img" aria-label={recordingHint}><span class="beat" aria-hidden="true"></span></span>{/if}
-        {#if relayed}
-          <span class="trelay" role="img" title={t('session.bar.relay')} aria-label={t('session.bar.relay')}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" /></svg>
-          </span>
-        {/if}
-        {#if g && qualityKnown}
-          <button type="button" class="tb" aria-haspopup="menu" aria-expanded={qualityOpen} aria-label="{t('share.quality.title')} · {receivedText}" disabled={qualityBusy} onclick={() => (qualityOpen = !qualityOpen)}>
-            <Icon name="display" size={20} stroke={1.7} />
-          </button>
-        {/if}
-        {#if gamepads.length && canPlay}
-          <span class="tpad" title={gamepads.map((p) => p.name).join(', ')} aria-label={gamepadAria}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" /></svg>
-            {#if gamepads.length > 1}<span class="mono">{gamepads.length}</span>{/if}
-          </span>
-        {/if}
-        <span class="sep" aria-hidden="true"></span>
-        {#if canKbm}
-          <div class="tmodes" role="radiogroup" aria-label={t('session.touch.modes')}>
-            <button type="button" role="radio" aria-checked={touchMode === 'trackpad'} onclick={() => setTouchMode('trackpad')}>{t('session.touch.trackpad')}</button>
-            <button type="button" role="radio" aria-checked={touchMode === 'direct'} onclick={() => setTouchMode('direct')}>{t('session.touch.direct')}</button>
-          </div>
-          <button type="button" class="tb" onclick={openKeyboard} aria-label={t('session.touch.keyboard')}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
-          </button>
-        {/if}
-        {#if prefs.audio}
-          <button type="button" class="tb" aria-pressed={muted} onclick={toggleMute} aria-label={muted ? t('session.sound.unmute') : t('session.sound.mute')}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" />{#if muted}<path d="M17 9l4 6M21 9l-4 6" />{:else}<path d="M17 9a4 4 0 0 1 0 6" />{/if}</svg>
-          </button>
-        {/if}
-        {#if micShown}
-          <button type="button" class="tb" class:inactive={!!micRefusal} aria-pressed={micLit} aria-disabled={!!micRefusal} aria-label={micTip} onpointerdown={(e) => (micTouch = e.pointerType === 'touch' || e.pointerType === 'pen')} onclick={toggleMic}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />{#if !micLit}<path d="M4 4l16 16" />{/if}</svg>
-          </button>
-        {/if}
-        {#if !g && !b}
-          <button type="button" class="tb" class:inactive={shareSupport !== 'ok'} aria-expanded={shareOpen} aria-disabled={shareSupport !== 'ok'} aria-label={shareAria} onclick={toggleShare}>
-            <Icon name="share" size={20} stroke={1.7} />
-            {#if guestCount}<span class="tcount mono" aria-hidden="true">{guestCount}</span>{/if}
-            {#if requestCount}<span class="tcount ask mono" aria-hidden="true">{requestCount}</span>{/if}
-          </button>
-          {#if lendSupport !== 'none'}
-            <button type="button" class="tb" class:inactive={lendSupport !== 'ok'} aria-expanded={lendOpen} aria-disabled={lendSupport !== 'ok'} aria-label={lendAria} onclick={toggleLend}>
-              <Icon name="lend" size={20} stroke={1.7} />
-              {#if lendRequests.length}<span class="tcount ask mono" aria-hidden="true">{lendRequests.length}</span>{/if}
-            </button>
-          {/if}
-          {#if recording?.active}
-            <button type="button" class="tb trec-on" aria-label="{recordingPill} · {t('recording.stop')}" disabled={recordingBusy} onclick={toggleRecording}>
-              <span class="beat" aria-hidden="true"></span><span class="mono">{recordingTime}</span>
-            </button>
-          {:else if recording}
-            <button type="button" class="tb" class:inactive={!recording.allowed} aria-disabled={!recording.allowed} aria-label={t('recording.record')} disabled={recordingBusy} onclick={toggleRecording}>
-              <span class="dot-rec" aria-hidden="true"></span>
-            </button>
-          {/if}
-        {/if}
-        <span class="sep" aria-hidden="true"></span>
-        <button type="button" class="tb" onclick={() => { touchBar = false; guide = false; qualityOpen = false }} aria-label={t('session.touch.hideBar')}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
-        </button>
-        <button type="button" class="tb danger-tb" onclick={b ? () => (giveBackOpen = !giveBackOpen) : quit} aria-label={b ? t('lend.bar.giveBack') : g ? t('share.guest.leave') : t('session.bar.quit')}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9" /><path d="M6.3 6.3a8 8 0 1 0 11.4 0" /></svg>
-        </button>
-        {#if giveBackOpen && b}
-          <div class="menu glass tmenu giveback" role="alertdialog" aria-labelledby="giveback-tq">
-            <p id="giveback-tq">{t('lend.bar.confirm', { host: lendHost })}</p>
-            <div class="gb-row">
-              <button type="button" class="gb-cancel" onclick={() => (giveBackOpen = false)}>{t('share.cancel')}</button>
-              <button type="button" class="gb-ok" onclick={giveBack}>{t('lend.bar.giveBack')}</button>
-            </div>
-          </div>
-        {/if}
-        {#if qualityOpen && g}
-          <div class="menu glass tmenu" role="menu" aria-label={t('share.quality.title')}>
-            <span class="mhead-q">{t('share.quality.title')} · {receivedText}</span>
-            {#each QUALITIES as q (q)}
-              <button type="button" role="menuitemradio" aria-checked={q === quality} onclick={() => pickQuality(q)}>{qualityName(q)}{#if q === quality}<Icon name="check" size={16} stroke={2} />{/if}</button>
-            {/each}
-          </div>
-        {/if}
-      </div>
-    {/if}
-
+  {#if isTouch && s.phase === 'live'}
+    <TouchBar {s} {bar} {touchMode} onmode={setTouchMode} onkeyboard={openKeyboard} />
     {#if !keyboardOpen}
-      {#if canKbm}
-        <button type="button" class="fab glass" onpointerdown={(e) => e.preventDefault()} onclick={openKeyboard} aria-label={t('session.touch.openKeyboard')}>
+      {#if s.canKbm}
+        <button type="button" class="fab frost" onpointerdown={(e) => e.preventDefault()} onclick={openKeyboard} aria-label={t('session.touch.openKeyboard')}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
         </button>
       {/if}
@@ -2602,42 +431,32 @@
       <div class="keys" role="toolbar" aria-label={t('session.touch.specialKeys')}>
         {#each SPECIAL_KEYS as k (k.code)}
           <!-- Face à une Station Mac : « ⌃ », « ⌥ », « ⌘ » au lieu de « Ctrl », « Alt », « ⊞ » (mêmes touches envoyées). -->
-          {@const mac = stationMac ? MAC_SPECIAL_LABELS[k.code] : undefined}
+          {@const mac = s.stationMac ? MAC_SPECIAL_LABELS[k.code] : undefined}
           <button type="button" class="key" aria-pressed={k.sticky ? mods.has(k.key) : undefined} aria-label={mac?.aria ?? k.aria} onpointerdown={(e) => e.preventDefault()} onclick={() => pressSpecial(k)}>{mac?.label ?? k.label}</button>
         {/each}
-        {#if stationMac}
-          <button type="button" class="key" onpointerdown={(e) => e.preventDefault()} onclick={() => sendMacCombo(MAC_FORCE_QUIT)}>{MAC_FORCE_QUIT.label}</button>
+        {#if s.stationMac}
+          <button type="button" class="key" onpointerdown={(e) => e.preventDefault()} onclick={() => sendCombo(canvas(), MAC_FORCE_QUIT)}>{MAC_FORCE_QUIT.label}</button>
         {:else}
-          <button type="button" class="key" onpointerdown={(e) => e.preventDefault()} onclick={() => engine?.ctrlAltDel()}>{t('session.touch.cad')}</button>
+          <button type="button" class="key" onpointerdown={(e) => e.preventDefault()} onclick={() => s.engine?.ctrlAltDel()}>{t('session.touch.cad')}</button>
         {/if}
         <button type="button" class="key close" aria-label={t('session.touch.closeKeyboard')} onclick={closeKeyboard}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
         </button>
       </div>
     {/if}
+  {/if}
 
-    {#if guide}
-      <section class="guide glass" aria-label={t('session.touch.gestures')}>
-        <strong>{touchMode === 'trackpad' ? t('session.touch.trackpad') : t('session.touch.direct')}</strong>
-        {#if touchMode === 'trackpad'}
-          <p>{t('session.touch.guideTrackpad')}</p>
-        {:else}
-          <p>{t('session.touch.guideDirect')}</p>
-        {/if}
-        <button type="button" onclick={closeGuide}>{t('session.touch.gotIt')}</button>
-      </section>
+  {#if s.hosting && s.phase === 'live'}
+    {@const host = s.hosting}
+    {#if bar.menu === 'share'}
+      <ShareBox share={host.share} support={host.shareSupport} computer={s.hostname} onshare={(view) => (host.share = view)} onclose={() => bar.close()} />
     {/if}
-  {/if}
-
-  {#if shareOpen && !g && !b && phase === 'live'}
-    <ShareBox {share} support={shareSupport} computer={hostname} onshare={(view) => (share = view)} onclose={() => (shareOpen = false)} />
-  {/if}
-
-  {#if lendOpen && !g && !b && phase === 'live'}
-    <LendBox view={lend} support={lendSupport} computer={hostname} ops={hostLend} onlend={(view) => (lend = view)} onclose={() => (lendOpen = false)} />
-  {:else if lend && !g && !b && phase === 'live' && !lendAccepted}
-    <!-- Une demande (ou le créneau d'un ami) : visible même barre fermée. -->
-    <LendAsk view={lend} ops={hostLend} onlend={(view) => (lend = view)} onaccepted={lendAcceptedBy} />
+    {#if bar.menu === 'lend'}
+      <LendBox view={host.lend} support={host.lendSupport} computer={s.hostname} ops={host.ops} onlend={(view) => (host.lend = view)} onclose={() => bar.close()} />
+    {:else if host.lend && !host.accepted}
+      <!-- Une demande (ou le créneau d'un ami) : visible même barre fermée. -->
+      <LendAsk view={host.lend} ops={host.ops} onlend={(view) => (host.lend = view)} onaccepted={(name) => host.acceptedBy(name)} />
+    {/if}
   {/if}
 
   {#if diagEnabled && diagText}
@@ -2647,7 +466,7 @@
   <textarea
     class="ime"
     bind:this={textInput}
-    disabled={!canKbm}
+    disabled={!s.canKbm}
     onkeydown={typed.keydown}
     onbeforeinput={typed.beforeinput}
     oncompositionstart={typed.compositionstart}
@@ -2681,8 +500,8 @@
     place-items: center;
   }
 
-  /* Clavier ouvert : l'image au-dessus de la rangée de touches, elle-même
-     juste au-dessus du clavier (variables posées par trackViewport). */
+  /* Clavier ouvert : l'image au-dessus de la rangée de touches, elle-même juste au-dessus du clavier
+     (variables posées par `Stage.trackViewport`). */
   .stage.kb {
     top: var(--vv-top, 0px);
     bottom: auto;
@@ -2732,132 +551,14 @@
     box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6);
   }
 
-  .glass {
+  .frost {
     background: rgb(9 12 17 / 0.7);
     backdrop-filter: blur(26px) saturate(1.4);
     -webkit-backdrop-filter: blur(26px) saturate(1.4);
     box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1), inset 0 1px 0 rgb(255 255 255 / 0.07), 0 18px 50px -12px rgb(0 0 0 / 0.7);
   }
 
-  .overlay {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    padding: 24px;
-    background: radial-gradient(60% 50% at 50% 40%, rgb(109 91 255 / 0.14), transparent 70%), var(--ink-0);
-  }
-
-  .overlay .card {
-    width: min(480px, 100%);
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 16px;
-  }
-
-  .overlay h2 {
-    font-size: clamp(26px, 4vw, 36px);
-    line-height: 1.05;
-    font-weight: 650;
-    letter-spacing: -0.03em;
-  }
-
-  .overlay p {
-    color: var(--muted);
-  }
-
-  .overlay .comeback {
-    color: var(--signal-light);
-  }
-
-  /* « Détails » : le message du moteur, à recopier tel quel. */
-  .overlay .detail {
-    font-size: 12px;
-    opacity: 0.75;
-    overflow-wrap: anywhere;
-  }
-
-  .overlay .detail code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    user-select: all;
-    -webkit-user-select: all;
-  }
-
-  .overlay .waiting {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .wdot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex: none;
-    background: var(--signal);
-    box-shadow: 0 0 10px var(--signal);
-    animation: step 0.8s ease-in-out infinite alternate;
-  }
-
-  .overlay .row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 6px;
-  }
-
-  /* Les trois étapes de la connexion : faite, en cours (point qui respire), à venir. */
-  .steps {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    font-size: 14px;
-    color: var(--ghost);
-  }
-
-  .steps li {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .steps li.done,
-  .steps li.current {
-    color: var(--text);
-  }
-
-  .steps .mark {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex: none;
-    box-shadow: inset 0 0 0 1px var(--ghost);
-  }
-
-  .steps li.done .mark {
-    background: var(--signal-light);
-    box-shadow: 0 0 6px rgb(154 140 255 / 0.8);
-  }
-
-  .steps li.current .mark {
-    width: 10px;
-    height: 10px;
-    margin: 0 -1px;
-    box-shadow: inset 0 0 0 2px var(--text);
-    animation: step 1.2s ease-in-out infinite alternate;
-  }
-
-  @keyframes step {
-    to {
-      opacity: 0.35;
-    }
-  }
-
-  /* Languette du haut : la barre au clic, sans viser le bord de l'écran. */
+  /* Le trait du haut : la barre au clic, sans viser le bord de l'écran. */
   .edge {
     position: absolute;
     left: 50%;
@@ -2878,362 +579,14 @@
     height: 4px;
     border-radius: 0 0 4px 4px;
     background: rgb(255 255 255 / 0.3);
-    transition: height 0.2s, background-color 0.2s;
+    transition:
+      height 0.2s,
+      background-color 0.2s;
   }
 
   .edge:hover span {
     height: 8px;
     background: rgb(154 140 255 / 0.7);
-  }
-
-  .bar {
-    position: absolute;
-    left: 50%;
-    top: 14px;
-    translate: -50% 0;
-    height: 54px;
-    padding: 0 8px 0 14px;
-    border-radius: 14px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    white-space: nowrap;
-    transition:
-      translate 0.35s var(--ease-out),
-      opacity 0.35s;
-    z-index: 5;
-  }
-
-  .bar.hidden {
-    translate: -50% -90px;
-    opacity: 0;
-  }
-
-  .host {
-    font-size: 14px;
-    font-weight: 600;
-    margin: 0 8px 0 6px;
-  }
-
-  .sep {
-    width: 1px;
-    height: 26px;
-    background: rgb(255 255 255 / 0.12);
-    margin: 0 2px;
-  }
-
-  .lat {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    height: 40px;
-    padding: 0 12px;
-    border: 0;
-    border-radius: 9px;
-    background: none;
-    color: inherit;
-  }
-
-  .lat[aria-expanded='true'] {
-    background: rgb(154 140 255 / 0.16);
-    box-shadow: inset 0 0 0 1px rgb(154 140 255 / 0.5);
-  }
-
-  .lat .value {
-    font-size: 15px;
-    font-weight: 500;
-    color: var(--signal-light);
-    min-width: 64px;
-    text-align: right;
-  }
-
-  .fmt {
-    font-size: 11px;
-    color: var(--muted);
-  }
-
-  .chip {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    height: 36px;
-    padding: 0 11px;
-    border: 0;
-    border-radius: 8px;
-    background: none;
-    color: var(--text-2);
-    font-size: 13px;
-  }
-
-  button.chip:hover,
-  .chip[aria-expanded='true'] {
-    background: rgb(255 255 255 / 0.07);
-    color: #fff;
-  }
-
-  .chip.static {
-    cursor: default;
-  }
-
-  .chip.role {
-    color: var(--signal-light);
-  }
-
-  /* « Partager » impossible (la Station ne le sait pas, ou l'a coupé) : estompé ; à la souris sans effet
-     (l'infobulle dit pourquoi), au toucher il ouvre le panneau réduit à la raison. */
-  .chip.inactive,
-  .tb.inactive {
-    opacity: 0.5;
-  }
-
-  button.chip.inactive:hover {
-    background: none;
-    color: var(--text-2);
-  }
-
-  /* Pastille du partage ouvert : « 2 invités ». */
-  .count {
-    margin-left: 2px;
-    padding: 2px 9px;
-    border-radius: 10px;
-    background: rgb(154 140 255 / 0.2);
-    box-shadow: inset 0 0 0 1px rgb(154 140 255 / 0.5);
-    color: #fff;
-    font-size: 12px;
-    font-weight: 600;
-  }
-
-  .count .num {
-    display: none;
-  }
-
-  /* Pastille des demandes venues par le relais : « 1 demande », à côté de celle des invités. */
-  .count.ask {
-    background: var(--warn-bg);
-    box-shadow: inset 0 0 0 1px var(--warn);
-    color: var(--warn-text);
-  }
-
-  .chip.icon {
-    width: 40px;
-    padding: 0;
-    justify-content: center;
-  }
-
-  .quit {
-    height: 38px;
-    padding: 0 14px;
-    margin-left: 4px;
-    border: 0;
-    border-radius: 9px;
-    background: var(--bad-bg);
-    box-shadow: inset 0 0 0 1px var(--bad-line);
-    color: var(--bad-text);
-    font-size: 13px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .menu {
-    position: absolute;
-    top: 62px;
-    right: 120px;
-    width: 300px;
-    border-radius: 12px;
-    padding: 6px;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .menu button {
-    height: 42px;
-    padding: 0 11px;
-    border: 0;
-    border-radius: 8px;
-    background: none;
-    color: var(--text-2);
-    font-size: 13px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-  }
-
-  .menu button:hover {
-    background: rgb(255 255 255 / 0.07);
-    color: #fff;
-  }
-
-  .menu .mono {
-    font-size: 10px;
-    color: var(--faint);
-  }
-
-  /* « Qualité de l'image » : sous sa puce (barre de la souris), sous la barre tactile. */
-  .menu.qmenu {
-    right: auto;
-    width: 220px;
-  }
-
-  .menu.tmenu {
-    top: calc(100% + 8px);
-    right: 0;
-    width: 240px;
-    white-space: normal;
-  }
-
-  .menu button[aria-checked='true'] {
-    color: #fff;
-  }
-
-  .menu button[aria-checked='true'] :global(svg) {
-    color: var(--signal-light);
-  }
-
-  /* Ami : le temps qui reste au prêt ; pendant le préavis, il passe à l'orange. */
-  .chip.time {
-    color: var(--signal-light);
-  }
-
-  .chip.time.soon,
-  .ttime.soon {
-    color: var(--warn-text);
-  }
-
-  /* « Rendre l'ordinateur à {hôte} ? » sous son bouton (barre de la souris), sous la barre tactile. */
-  .menu.giveback {
-    right: 8px;
-    width: 300px;
-    padding: 14px;
-    gap: 12px;
-    white-space: normal;
-  }
-
-  .menu.giveback p {
-    font-size: 14px;
-    line-height: 1.4;
-    color: var(--text);
-  }
-
-  .gb-row {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-
-  .menu .gb-row button {
-    height: 38px;
-    padding: 0 14px;
-    justify-content: center;
-    font-weight: 600;
-  }
-
-  .menu .gb-row .gb-ok {
-    background: var(--bad-bg);
-    box-shadow: inset 0 0 0 1px var(--bad-line);
-    color: var(--bad-text);
-  }
-
-  .menu .gb-row .gb-cancel {
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
-  }
-
-  .mhead-q {
-    padding: 8px 11px 6px;
-    font-size: 11.5px;
-    color: var(--faint);
-  }
-
-  .metrics {
-    position: absolute;
-    left: 50%;
-    top: 80px;
-    translate: -50% 0;
-    width: min(620px, calc(100% - 32px));
-    border-radius: 16px;
-    padding: 18px 20px 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    z-index: 5;
-  }
-
-  .mhead {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    font-size: 15px;
-    font-weight: 600;
-  }
-
-  .mhead .mono {
-    font-size: 11px;
-    font-weight: 400;
-  }
-
-  .bars {
-    display: flex;
-    height: 34px;
-    border-radius: 8px;
-    overflow: hidden;
-    gap: 2px;
-    font-size: 12px;
-  }
-
-  .bars div {
-    display: flex;
-    align-items: center;
-    padding-left: 10px;
-    white-space: nowrap;
-    overflow: hidden;
-  }
-
-  .bars .a {
-    background: var(--signal-strong);
-  }
-
-  .bars .b {
-    background: var(--signal);
-    color: #05070a;
-  }
-
-  .bars .c {
-    background: var(--signal-light);
-    color: #05070a;
-  }
-
-  .nums {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
-  }
-
-  .nums div {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 12px;
-  }
-
-  .nums .lit-number {
-    font-size: 20px;
-  }
-
-  .foot {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 22px;
-    padding-top: 14px;
-    border-top: 1px solid rgb(255 255 255 / 0.1);
-    font-size: 11.5px;
-    color: var(--muted);
-  }
-
-  .small {
-    font-size: 12px;
   }
 
   .toast {
@@ -3303,11 +656,6 @@
     color: var(--muted);
   }
 
-  .chip.amber {
-    color: var(--warn-text);
-    box-shadow: inset 0 0 0 1px var(--warn-line);
-  }
-
   /* Son en attente d'un geste : au-dessus de tout, en bas au centre. */
   .sound {
     position: absolute;
@@ -3327,147 +675,45 @@
     z-index: 7;
   }
 
-  /* Tactile */
-  .tab {
+  /* L'enregistrement, barre fermée : la pastille rouge et son rond qui bat une fois par seconde. */
+  .recfloat {
     position: absolute;
-    left: 50%;
-    top: 0;
-    translate: -50% 0;
-    width: 72px;
-    height: 32px;
-    border: 0;
-    border-radius: 0 0 14px 14px;
+    top: max(12px, env(safe-area-inset-top));
+    left: max(12px, env(safe-area-inset-left));
+    z-index: 6;
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 8px;
-    color: var(--signal-light);
-    font-size: 12.5px;
-    z-index: 5;
-  }
-
-  .tbar {
-    position: absolute;
-    left: 50%;
-    top: max(8px, env(safe-area-inset-top));
-    translate: -50% 0;
-    max-width: calc(100% - 16px);
-    padding: 4px 6px 4px 12px;
-    border-radius: 16px;
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    white-space: nowrap;
-    z-index: 5;
-    animation: down 0.35s var(--ease-out) both;
-  }
-
-  @keyframes down {
-    from {
-      opacity: 0;
-      translate: -50% -12px;
-    }
-    to {
-      opacity: 1;
-      translate: -50% 0;
-    }
-  }
-
-  .tlat {
-    font-size: 12px;
-    color: var(--signal-light);
-    margin: 0 8px;
-    min-width: 46px;
-  }
-
-  .trole {
-    font-size: 12px;
-    color: var(--text-2);
-    margin-right: 6px;
-  }
-
-  .trelay {
-    display: grid;
-    place-items: center;
-    margin-right: 6px;
-  }
-
-  .tpad {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    margin-right: 6px;
-    font-size: 11px;
-    color: var(--signal-light);
-  }
-
-  .tmodes {
-    display: flex;
-    padding: 2px;
-    margin: 0 4px;
-    border-radius: 11px;
-    background: rgb(255 255 255 / 0.06);
-  }
-
-  .tmodes button {
-    height: 40px;
-    padding: 0 12px;
-    border: 0;
-    border-radius: 9px;
-    background: none;
-    color: var(--muted);
-    font-size: 12.5px;
-  }
-
-  .tmodes button[aria-checked='true'] {
-    background: rgb(154 140 255 / 0.2);
-    box-shadow: inset 0 0 0 1px rgb(154 140 255 / 0.6);
-    color: #fff;
-  }
-
-  .tb {
-    position: relative;
-    width: 44px;
-    height: 44px;
-    border: 0;
-    border-radius: 11px;
-    background: none;
-    color: var(--text-2);
-    display: grid;
-    place-items: center;
-  }
-
-  .tb[aria-pressed='true'] {
-    color: var(--warn);
-  }
-
-  .tcount {
-    position: absolute;
-    right: 3px;
-    top: 3px;
-    min-width: 16px;
-    height: 16px;
-    padding: 0 4px;
-    border-radius: 8px;
-    background: var(--signal-strong);
-    color: #fff;
-    font-size: 10px;
-    line-height: 16px;
-    text-align: center;
-  }
-
-  /* Demandes : en haut à gauche de l'icône, couleur d'une attente. */
-  .tcount.ask {
-    right: auto;
-    left: 3px;
-    background: var(--warn);
-    color: #1a1406;
-  }
-
-  .danger-tb {
-    color: var(--bad-text);
+    gap: 7px;
+    height: 28px;
+    padding: 0 11px;
+    border-radius: 14px;
     background: var(--bad-bg);
     box-shadow: inset 0 0 0 1px var(--bad-line);
+    color: var(--bad-text);
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  .beat {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--bad);
+    flex: none;
+    animation: beat 1s ease-in-out infinite;
+  }
+
+  @keyframes beat {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
   }
 
   .fab {
@@ -3525,39 +771,6 @@
     place-items: center;
   }
 
-  .guide {
-    position: absolute;
-    right: max(16px, env(safe-area-inset-right));
-    bottom: 90px;
-    width: min(340px, calc(100% - 32px));
-    border-radius: 16px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--text-2);
-    z-index: 6;
-  }
-
-  .guide strong {
-    font-size: 15px;
-    color: var(--text);
-  }
-
-  .guide button {
-    align-self: flex-end;
-    height: 44px;
-    padding: 0 18px;
-    border: 0;
-    border-radius: 10px;
-    background: rgb(154 140 255 / 0.18);
-    box-shadow: inset 0 0 0 1px rgb(154 140 255 / 0.55);
-    color: #fff;
-    font-size: 14px;
-    font-weight: 600;
-  }
-
   .diag {
     position: absolute;
     left: 12px;
@@ -3587,184 +800,9 @@
     font-size: 16px;
   }
 
-  /* Barre de l'hôte, avec « Partager » : le nombre d'invités passe en pastille sur l'icône avant que la barre ne déborde. */
-  @media (max-width: 1400px) {
-    .count {
-      position: absolute;
-      right: 1px;
-      top: 1px;
-      margin: 0;
-      min-width: 16px;
-      height: 16px;
-      padding: 0 4px;
-      border-radius: 8px;
-      background: var(--signal-strong);
-      box-shadow: none;
-      font-size: 10px;
-      line-height: 16px;
-      text-align: center;
-    }
-
-    .count .full {
-      display: none;
-    }
-
-    .count .num {
-      display: inline;
-    }
-
-    .count.ask {
-      right: auto;
-      left: 1px;
-      background: var(--warn);
-      box-shadow: none;
-      color: #1a1406;
-    }
-  }
-
-  /* Fenêtre étroite : la barre se resserre. */
-  @media (max-width: 1180px) {
-    .fmt {
-      display: none;
-    }
-  }
-
-  @media (max-width: 880px) {
-    .host,
-    .label {
-      display: none;
-    }
-
-    .bar {
-      padding: 0 8px;
-    }
-
-    .chip {
-      width: 40px;
-      padding: 0;
-      justify-content: center;
-    }
-
-    .quit {
-      width: 40px;
-      padding: 0;
-      justify-content: center;
-    }
-
-    .menu {
-      right: 8px;
-    }
-  }
-
-  /* Enregistrement : la pastille rouge (--bad, le --kn-bad de la marque), son rond qui bat une fois
-     par seconde ; « Enregistrer » : le rond plein. Barre étroite : « 02:14 » seul. */
-  .chip.rec,
-  .recfloat,
-  .tb.trec-on {
-    background: var(--bad-bg);
-    box-shadow: inset 0 0 0 1px var(--bad-line);
-    color: var(--bad-text);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-
-  button.chip.rec:hover {
-    background: rgb(255 107 107 / 0.22);
-    color: #fff;
-  }
-
-  .chip.rec .clock {
-    display: none;
-    font-size: 11.5px;
-  }
-
-  .beat,
-  .dot-rec {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--bad);
-    flex: none;
-  }
-
-  .beat {
-    animation: beat 1s ease-in-out infinite;
-  }
-
-  @keyframes beat {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.35;
-    }
-  }
-
-  .dot-rec {
-    width: 11px;
-    height: 11px;
-  }
-
-  .chip.inactive .dot-rec,
-  .tb.inactive .dot-rec {
-    background: var(--faint);
-  }
-
-  .recfloat {
-    position: absolute;
-    top: max(12px, env(safe-area-inset-top));
-    left: max(12px, env(safe-area-inset-left));
-    z-index: 6;
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    height: 28px;
-    padding: 0 11px;
-    border-radius: 14px;
-    font-size: 12px;
-    font-weight: 600;
-    pointer-events: none;
-  }
-
-  .tb.trec-on {
-    width: auto;
-    padding: 0 10px;
-    display: flex;
-    gap: 6px;
-    font-size: 12px;
-  }
-
-  .trec {
-    display: grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-  }
-
-  @media (max-width: 880px) {
-    .chip.rec {
-      width: auto;
-      padding: 0 10px;
-    }
-
-    .chip.rec .clock {
-      display: inline;
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .beat {
       animation: none;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .bar,
-    .tbar,
-    .steps li.current .mark {
-      animation: none;
-      transition: none;
     }
   }
 </style>
