@@ -47,6 +47,9 @@ const ADMIN_STREAM_IDLE: Duration = Duration::from_secs(300);
 /// Les messages de contrôle d'un client (hors `ping` et `pong`) : 64 d'un coup, 32 par seconde (REL-19).
 const CLIENT_MSGS_BURST: u32 = 64;
 const CLIENT_MSGS_PERIOD: Duration = Duration::from_secs(2);
+/// Les demandes d'une Station aux comptes (`attach_request`, `attach_status`, `enroll`) : 20 par
+/// minute (REL-36) ; Admin n'en envoie qu'une ou deux par connexion.
+const STATION_ACCOUNT_MSGS: u32 = 20;
 /// Messages en attente d'envoi vers un bout, au plus : un bout qui ne lit pas
 /// ses réponses (`pong`, `presence`…) est coupé au lieu de faire grossir la
 /// mémoire du relais.
@@ -69,6 +72,8 @@ pub struct StationPeer {
     admin: Mutex<(Vec<String>, bool)>,
     /// Retirée de la table ou remplacée : ses paquets ne passent plus (lu sans verrou à chaque paquet, REL-34).
     gone: std::sync::atomic::AtomicBool,
+    /// Ses demandes aux comptes (REL-36).
+    account_msgs: Mutex<Bucket>,
 }
 
 /// Les adresses d'Admin sur le réseau données par une Station : 4 au plus, `http(s)://hôte[:port]`.
@@ -501,6 +506,7 @@ impl Hub {
             pending: Mutex::new(HashMap::new()),
             admin: Mutex::new((clean_admin_lan(hello.admin_lan.clone()), hello.remote_admin)),
             gone: std::sync::atomic::AtomicBool::new(false),
+            account_msgs: Mutex::new(Bucket::new(STATION_ACCOUNT_MSGS, Duration::from_secs(60), Instant::now())),
         });
         let old = self.stations.lock().unwrap().insert(id.clone(), peer.clone());
         if let Some(old) = old {
@@ -583,10 +589,20 @@ impl Hub {
             Msg::Pong { n } => pong(&peer.conn, n),
             // Comptes KyberNow (docs/comptes.md, « Rattacher une Station ») :
             // seulement par la connexion de contrôle de la Station elle-même.
-            Msg::AttachRequest { req, name } => match &self.accounts {
+            Msg::AttachRequest { req, .. } | Msg::AttachStatus { req } | Msg::Enroll { req, .. }
+                if peer.account_msgs.lock().unwrap().take(Instant::now()).is_err() =>
+            {
+                self.metrics.limit_hit("station_account_msgs");
+                let _ = peer.ctl.send(Msg::error(Some(req), ErrorCode::TooMany, None));
+            }
+            // La table des codes en attente se parcourt hors de l'exécuteur (REL-36).
+            Msg::AttachRequest { req, name } => match self.accounts.clone() {
                 Some(accounts) => {
-                    let (code, url, expires) = accounts.attach_request(&peer.id, &name);
-                    let _ = peer.ctl.send(Msg::AttachCode { req, code, url, expires });
+                    let (ctl, station) = (peer.ctl.clone(), peer.id.clone());
+                    tokio::task::spawn_blocking(move || {
+                        let (code, url, expires) = accounts.attach_request(&station, &name);
+                        let _ = ctl.send(Msg::AttachCode { req, code, url, expires });
+                    });
                 }
                 None => {
                     let _ = peer.ctl.send(Msg::error(Some(req), ErrorCode::NoAccounts, None));
