@@ -28,10 +28,18 @@ kyber_patch_files() {
 # donnés après le premier sont ceux déjà posés sur ces sources : un fichier
 # qu'ils touchent reste tel quel.
 kyber_patch_reset() {
-    local repo=$1 patch=$2 f sub dir rel
+    local repo=$1 patch=$2 f sub dir rel kept=""
     shift 2
+    # La liste des fichiers déjà touchés, lue une fois. Pas de
+    # « kyber_patch_files … | grep -q » : grep -q s'arrête au premier fichier
+    # trouvé, kyber_patch_files reçoit SIGPIPE, et sous « set -o pipefail » le
+    # test échoue au hasard ; le fichier était alors remis à l'origine, ce qui
+    # effaçait ce qu'un correctif commun y avait mis (Station Linux, 0.11.8 :
+    # avconv/video.rs perdu avant le correctif 0013, décalages et échecs
+    # changeant d'une construction à l'autre).
+    [ $# -gt 0 ] && kept="$(kyber_patch_files "$@")"
     while IFS= read -r f; do
-        if [ $# -gt 0 ] && kyber_patch_files "$@" | grep -qxF -- "$f"; then continue; fi
+        if [ -n "$kept" ] && grep -qxF -- "$f" <<< "$kept"; then continue; fi
         case "$f" in
             subprojects/txproto/* | subprojects/libavconv/*)
                 sub=${f#subprojects/}; sub=${sub%%/*}

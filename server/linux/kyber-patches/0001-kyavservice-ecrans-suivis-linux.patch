@@ -1,7 +1,8 @@
 diff --git a/kyavservice/src/avconv/display_watcher.rs b/kyavservice/src/avconv/display_watcher.rs
+index e8acf32..c24b45a 100644
 --- a/kyavservice/src/avconv/display_watcher.rs
 +++ b/kyavservice/src/avconv/display_watcher.rs
-@@ -110,3 +110,44 @@
+@@ -110,3 +110,44 @@ pub(crate) fn spawn(
  
      Some(WatcherHandle { join, shutdown })
  }
@@ -47,9 +48,10 @@ diff --git a/kyavservice/src/avconv/display_watcher.rs b/kyavservice/src/avconv/
 +    WatcherHandle { join, shutdown }
 +}
 diff --git a/kyavservice/src/avconv/displays.rs b/kyavservice/src/avconv/displays.rs
+index d6d6248..6141a38 100644
 --- a/kyavservice/src/avconv/displays.rs
 +++ b/kyavservice/src/avconv/displays.rs
-@@ -78,15 +78,15 @@
+@@ -99,15 +99,15 @@ pub(crate) fn collect_displays(sources: &GrabSourceSet) -> Vec<Display> {
  }
  
  #[cfg(target_os = "linux")]
@@ -70,9 +72,10 @@ diff --git a/kyavservice/src/avconv/displays.rs b/kyavservice/src/avconv/display
  }
  
 diff --git a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
+index 1683da5..ea586b0 100644
 --- a/kyavservice/src/avconv/mod.rs
 +++ b/kyavservice/src/avconv/mod.rs
-@@ -294,6 +294,16 @@
+@@ -303,6 +303,16 @@ async fn handle_command(
              #[cfg(not(target_os = "linux"))]
              let display_watcher_enabled = true;
  
@@ -90,9 +93,10 @@ diff --git a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
                  #[cfg(target_os = "linux")]
                  let backend = Some(config.grab_backend());
 diff --git a/kyavservice/src/config.rs b/kyavservice/src/config.rs
+index e4de631..ab31322 100644
 --- a/kyavservice/src/config.rs
 +++ b/kyavservice/src/config.rs
-@@ -158,6 +158,15 @@
+@@ -158,6 +158,15 @@ pub(crate) struct GstreamerVideoSource {
      pub(crate) codec: Option<VideoCodec>,
      #[serde(default)]
      pub(crate) mode: VideoSourceMode,
@@ -108,7 +112,7 @@ diff --git a/kyavservice/src/config.rs b/kyavservice/src/config.rs
  }
  
  #[cfg(target_os = "linux")]
-@@ -229,6 +238,56 @@
+@@ -229,6 +238,56 @@ struct GstreamerConfig {
      default_source: Option<String>,
      #[serde(default)]
      video_sources: Vec<GstreamerVideoSource>,
@@ -164,8 +168,8 @@ diff --git a/kyavservice/src/config.rs b/kyavservice/src/config.rs
 +        .collect()
  }
  
- #[derive(Debug, Default, Deserialize)]
-@@ -377,7 +436,7 @@
+ /// Pointer moves forwarded per second by default (`cursor_move_rate`).
+@@ -434,7 +493,7 @@ impl Config {
          }
  
          let sources = self.gstreamer_sources_slice();
@@ -174,7 +178,7 @@ diff --git a/kyavservice/src/config.rs b/kyavservice/src/config.rs
              return Err(ConfigError::Invalid(
                  "GStreamer backend requires configured video_sources".to_string(),
              ));
-@@ -417,26 +476,36 @@
+@@ -474,26 +533,36 @@ impl Config {
      /// Configured GStreamer sources in display-id order (empty unless the
      /// GStreamer backend is selected).
      #[cfg(target_os = "linux")]
