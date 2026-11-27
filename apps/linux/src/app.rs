@@ -2190,7 +2190,7 @@ pub struct SessionUi {
     pub recording_busy: bool,
     /// « Micro » (docs/micro.md) : `None` sans micro sur l'appareil (ni puce, ni tuile) et pour une partie sur une
     /// console ; sinon le choix retenu pour cet ordinateur et l'état dit par le cœur.
-    pub mic: Option<crate::micro::MicUi>,
+    pub mic: Option<crate::micro::MicView>,
 }
 
 impl SessionUi {
@@ -7430,13 +7430,12 @@ impl App {
     }
 
     /// « Micro » d'une session qui démarre : le choix retenu pour cet ordinateur (hôte, ordinateur emprunté ; un
-    /// invité part coupé) ; `None` sans micro sur l'appareil.
-    pub fn mic_ui(&self, host: &str, guest: bool) -> Option<crate::micro::MicUi> {
+    /// invité part coupé) ; `None` sans micro sur l'appareil. Le pilote en fait le `MicUi` du cœur.
+    pub fn mic_choice(&self, host: &str, guest: bool) -> Option<bool> {
         if !self.has_mic() {
             return None;
         }
-        let on = !guest && (self.store.host(host).map(|h| h.settings.mic).or_else(|| self.store.borrowed(host).map(|b| b.mic)).unwrap_or(false));
-        Some(crate::micro::MicUi::new(on))
+        Some(!guest && (self.store.host(host).map(|h| h.settings.mic).or_else(|| self.store.borrowed(host).map(|b| b.mic)).unwrap_or(false)))
     }
 
     /// Retient le choix « Micro » pour l'ordinateur de cette session (hôte, ordinateur emprunté ; rien pour un
@@ -7449,66 +7448,48 @@ impl App {
         }
     }
 
-    /// « Micro » de la barre, de la tuile ou de Ctrl+Alt+Maj+V : l'allume ou le coupe, et le retient pour cet
-    /// ordinateur ; rien ne relance l'image. L'ordinateur ne le prend pas : rien ne change ; `notify` (manette,
-    /// raccourci) dit la raison en capsule, la souris l'a déjà en infobulle.
+    /// La vue du micro d'une session, refaite par le pilote (`MicUi::ui_json` du cœur), et l'avis bref qu'il rend
+    /// (« Micro envoyé à {nom}. »).
+    pub fn set_mic(&mut self, id: SessionId, view: crate::micro::MicView, notice: Option<String>) {
+        let Some(s) = self.session_by_mut(id) else { return };
+        s.mic = Some(view);
+        if let Some(n) = notice {
+            s.notice = Some((n, Instant::now()));
+        }
+    }
+
+    /// « Micro » de la barre, de la tuile ou de Ctrl+Alt+Maj+V : l'allume ou le coupe (le pilote le dit au `MicUi`
+    /// du cœur et à la session), et le retient pour cet ordinateur ; rien ne relance l'image. L'ordinateur ne le prend
+    /// pas : rien ne change ; `notify` (manette, raccourci) dit la raison en capsule, la souris l'a déjà en infobulle.
     pub fn toggle_mic(&mut self, id: SessionId, notify: bool) -> Vec<Action> {
         let Some(s) = self.session_by_mut(id) else { return Vec::new() };
-        let Some(m) = s.mic.as_mut() else { return Vec::new() };
-        if let Some(r) = m.refused() {
+        let Some(m) = s.mic.as_ref() else { return Vec::new() };
+        if let Some(r) = m.reason.clone() {
             if notify {
-                s.notice = Some((r.text().into(), Instant::now()));
+                s.notice = Some((r, Instant::now()));
             }
             return Vec::new();
         }
         let on = !m.on;
-        m.on = on;
-        // L'avis « Micro envoyé à {nom}. » quand l'état passera à « On » (tout de suite s'il y est déjà).
-        m.announce = on;
         let key = s.host.clone();
-        let guest = s.guest.is_some();
-        if on && m.state == crate::micro::MicState::On {
-            self.mic_changed(id, crate::micro::MicState::On);
-        }
-        if guest {
+        if s.guest.is_some() {
             return vec![Action::SetMic(id, on)];
         }
         self.remember_mic(&key, on);
         vec![Action::SetMic(id, on), Action::Save]
     }
 
-    /// L'état dit par le cœur (`Platform::on_microphone`) : la puce et la tuile le suivent ; à « On » après un
-    /// allumage, l'avis bref « Micro envoyé à {nom}. ».
-    pub fn mic_changed(&mut self, id: SessionId, state: crate::micro::MicState) {
-        let Some(s) = self.session_by_mut(id) else { return };
-        let name = s.name.clone();
-        let Some(m) = s.mic.as_mut() else { return };
-        m.state = state;
-        match state {
-            crate::micro::MicState::On if m.announce && m.on => {
-                m.announce = false;
-                s.notice = Some((crate::micro::sent_notice(&name), Instant::now()));
-            }
-            crate::micro::MicState::Refused(_) => m.announce = false,
-            _ => {}
-        }
-    }
-
-    /// L'appareil n'a pas donné son micro (la capture ne s'ouvre pas) : « Micro » reste coupé, avec l'avis.
-    pub fn mic_failed(&mut self, id: SessionId) -> Vec<Action> {
+    /// L'appareil n'a pas donné son micro (la capture ne s'ouvre pas) : « Micro » reste coupé (le pilote le dit au
+    /// `MicUi` du cœur, `denied`), avec l'avis, et le choix retenu coupé.
+    pub fn mic_denied(&mut self, id: SessionId) -> Vec<Action> {
         let Some(s) = self.session_by_mut(id) else { return Vec::new() };
-        let Some(m) = s.mic.as_mut() else { return Vec::new() };
-        if !m.on {
-            return Vec::new();
-        }
-        m.on = false;
-        m.announce = false;
         s.notice = Some((crate::micro::no_access().into(), Instant::now()));
         let (key, guest) = (s.host.clone(), s.guest.is_some());
-        if !guest {
-            self.remember_mic(&key, false);
+        if guest {
+            return Vec::new();
         }
-        vec![Action::SetMic(id, false), Action::Save]
+        self.remember_mic(&key, false);
+        vec![Action::Save]
     }
 
     /// Les lignes du micro des Réglages de l'app : « Micro » (« Celui du système », puis les micros de l'appareil),
@@ -7548,12 +7529,7 @@ impl App {
         let mut actions = vec![Action::Save];
         let ids: Vec<SessionId> = self.sessions.iter().filter(|s| s.host == host && s.running() && s.guest.is_none()).map(|s| s.id).collect();
         for id in ids {
-            if let Some(m) = self.session_by_mut(id).and_then(|s| s.mic.as_mut())
-                && m.refused().is_none()
-                && m.on != on
-            {
-                m.on = on;
-                m.announce = on;
+            if self.session_by(id).and_then(|s| s.mic.as_ref()).is_some_and(|m| m.reason.is_none() && m.on != on) {
                 actions.push(Action::SetMic(id, on));
             }
         }

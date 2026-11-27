@@ -1,100 +1,36 @@
 //! Le micro de l'appareil dans l'interface (docs/micro.md, docs/link-ui.md « Micro ») : la puce « Micro » de la
 //! barre, la tuile du menu, l'icône près de l'indicateur de la session, le réglage « Micro » de la rubrique Son et
-//! ceux des Réglages de l'app. Les textes sont ceux de link-ui, mot pour mot. Sans SDL ni cœur : les captures s'en
-//! servent ; `device::mic` capte et traduit l'état du cœur (`kybernow_core::micro::MicState`) en celui-ci.
+//! ceux des Réglages de l'app. L'état et ses textes viennent du cœur (`micro::MicUi`, tenu par `device::mic` et
+//! donné en `MicView`) ; restent ici ce qui est propre à l'app : le raccourci, les libellés des réglages, l'avis du
+//! système qui ne donne pas le micro. Sans SDL ni cœur : les captures s'en servent.
+
+use serde::Deserialize;
 
 use crate::i18n::tr;
 
-/// Pourquoi l'ordinateur ne prend pas le micro (`MicRefusal` du cœur).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MicRefusal {
-    /// Invité d'un partage que l'hôte ne laisse pas parler.
-    NotAllowed,
-    /// Pas de micro virtuel sur l'ordinateur.
-    NoDevice,
-    /// La Station ne peut pas le prendre.
-    Unsupported,
-    /// Station d'avant le micro.
-    OldStation,
-}
-
-impl MicRefusal {
-    pub fn text(self) -> &'static str {
-        match self {
-            MicRefusal::NotAllowed => tr("L'hôte ne laisse pas les invités parler.", "The host isn't letting guests speak."),
-            MicRefusal::NoDevice => tr("L'ordinateur n'a pas de micro virtuel : voyez Admin › Image et son.", "The computer has no virtual microphone: see Admin › Picture and sound."),
-            MicRefusal::Unsupported => tr("Cet ordinateur ne reçoit pas le micro.", "This computer can't receive the microphone."),
-            MicRefusal::OldStation => tr("Mettez à jour la Station pour envoyer le micro.", "Update the Station to send your microphone."),
-        }
-    }
-}
-
-/// Ce que dit le cœur (`Platform::on_microphone`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum MicState {
-    /// Coupé : rien n'est capté.
-    #[default]
-    Off,
-    /// Allumé, la réponse de l'ordinateur pas encore venue.
-    Waiting,
-    /// Allumé et pris : le son part.
-    On,
-    /// L'ordinateur ne le prend pas.
-    Refused(MicRefusal),
-}
-
-/// « Micro » d'une session : le choix (retenu pour cet ordinateur), l'état du cœur, et l'avis « Micro envoyé à
-/// {nom}. » attendu (allumé par l'utilisateur, l'état pas encore passé à « On »).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub struct MicUi {
+/// Le micro d'une session tel que l'interface le montre : la vue de `micro::MicUi` du cœur (`ui_json`, donnée par le
+/// pilote à chaque changement, comme l'enregistrement), textes de link-ui compris : la puce (« Micro », « Micro
+/// coupé »), son infobulle (l'état et le raccourci, ou la raison du refus), la tuile (« Envoyé », « Coupé », « Envoi… »
+/// tant que l'ordinateur n'a pas répondu). L'interface ne décide de rien : l'appui part au pilote (`Action::SetMic`),
+/// qui tient le `MicUi` du cœur.
+#[derive(Clone, Debug, PartialEq, Eq, Default, Deserialize)]
+#[serde(default)]
+pub struct MicView {
+    /// Allumé par l'utilisateur.
     pub on: bool,
-    pub state: MicState,
-    pub announce: bool,
-}
-
-impl MicUi {
-    pub fn new(on: bool) -> Self {
-        Self { on, state: MicState::Off, announce: false }
-    }
-
+    /// `off`, `waiting`, `on`, `refused`.
+    pub state: String,
+    /// La puce est allumée (allumé, pas refusé).
+    pub lit: bool,
+    /// Le son part : l'icône près de l'indicateur de la session.
+    pub sent: bool,
     /// La raison quand l'ordinateur ne le prend pas : la puce est estompée.
-    pub fn refused(&self) -> Option<MicRefusal> {
-        match self.state {
-            MicState::Refused(r) => Some(r),
-            _ => None,
-        }
-    }
-
-    /// La puce est allumée : allumé et pas refusé (pris, ou la réponse attendue).
-    pub fn lit(&self) -> bool {
-        self.on && self.refused().is_none()
-    }
-
-    /// Le son part vers l'ordinateur : l'icône près de l'indicateur de la session.
-    pub fn sent(&self) -> bool {
-        self.on && self.state == MicState::On
-    }
-
-    /// L'infobulle de la puce : la raison quand l'ordinateur ne le prend pas, sinon l'état et le raccourci.
-    pub fn tooltip(&self) -> String {
-        if let Some(r) = self.refused() {
-            return r.text().into();
-        }
-        if self.lit() {
-            format!("{} ({})", tr("Micro : envoyé à l'ordinateur", "Microphone: sent to the computer"), shortcut())
-        } else {
-            format!("{} ({})", tr("Micro coupé", "Microphone off"), shortcut())
-        }
-    }
-
-    /// Le sous-titre de la tuile « Micro » : « Envoyé », « Coupé », « Envoi… » avant la réponse.
-    pub fn tile_sub(&self) -> &'static str {
-        match (self.lit(), self.state) {
-            (true, MicState::On) => tr("Envoyé", "On"),
-            (true, _) => tr("Envoi…", "Connecting…"),
-            (false, _) => tr("Coupé", "Off"),
-        }
-    }
+    pub reason: Option<String>,
+    pub label: String,
+    pub tooltip: String,
+    pub tile: String,
+    /// La puce est montrée (`MicUi::shown` : pas un invité que l'hôte ne laisse pas parler).
+    pub shown: bool,
 }
 
 /// Le raccourci de la puce (Ctrl+Alt+Maj + V).
@@ -105,11 +41,6 @@ pub fn shortcut() -> &'static str {
 /// « Micro ».
 pub fn label_on() -> &'static str {
     tr("Micro", "Microphone")
-}
-
-/// L'avis bref à l'allumage.
-pub fn sent_notice(name: &str) -> String {
-    if crate::i18n::english() { format!("Microphone sent to {name}.") } else { format!("Micro envoyé à {name}.") }
 }
 
 /// L'avis quand l'appareil ne donne pas son micro (le micro reste coupé).
@@ -165,23 +96,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn puce_et_tuile() {
-        crate::i18n::force_english(false);
-        let mut m = MicUi::new(false);
-        assert_eq!((m.tile_sub(), m.lit(), m.sent()), ("Coupé", false, false));
-        assert_eq!(m.tooltip(), "Micro coupé (Ctrl+Alt+Maj+V)");
-        m.on = true;
-        m.state = MicState::Waiting;
-        assert_eq!((m.tile_sub(), m.lit(), m.sent()), ("Envoi…", true, false));
-        m.state = MicState::On;
-        assert_eq!((m.tile_sub(), m.sent()), ("Envoyé", true));
-        assert_eq!(m.tooltip(), "Micro : envoyé à l'ordinateur (Ctrl+Alt+Maj+V)");
-        // Refusé : estompé, la raison en infobulle, coupé dans la tuile.
-        m.state = MicState::Refused(MicRefusal::OldStation);
-        assert_eq!((m.lit(), m.tile_sub()), (false, "Coupé"));
-        assert_eq!(m.tooltip(), "Mettez à jour la Station pour envoyer le micro.");
-        crate::i18n::force_english(true);
-        assert_eq!(sent_notice("Atelier"), "Microphone sent to Atelier.");
+    fn vue_du_coeur() {
+        // Le JSON de `MicUi::ui_json` du cœur (et `shown`, ajouté par le pilote).
+        let v: MicView = serde_json::from_str(r#"{"on":true,"state":"waiting","lit":true,"sent":false,"reason":null,"label":"Micro","tooltip":"Micro : envoyé à l'ordinateur (Ctrl+Alt+Maj+V)","tile":"Envoi…","shown":true}"#).unwrap();
+        assert_eq!((v.on, v.lit, v.sent, v.tile.as_str(), v.reason), (true, true, false, "Envoi…", None));
     }
 
     #[test]

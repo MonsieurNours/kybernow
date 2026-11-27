@@ -725,6 +725,9 @@ struct Live {
     changed: Option<(screens::Detected, Instant)>,
     /// Le micro capté pour l'ordinateur (docs/micro.md) : ouvert tant que le cœur dit de capter.
     mic: Option<mic::Capture>,
+    /// « Micro » de la session (`micro::MicUi` du cœur : choix, réponse de l'ordinateur, textes) ; `None` sans micro
+    /// sur l'appareil. L'interface en reçoit la vue (`mic::view`).
+    mic_ui: Option<kybernow_core::micro::MicUi>,
 }
 
 /// Ce que tient chaque session en cours (`App::sessions` en est l'interface), dans l'ordre d'ouverture.
@@ -3336,11 +3339,23 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
         // Le micro : la puce et la tuile suivent ; la capture s'ouvre tant que le cœur dit de capter.
         SessionEvent::Mic(state) => {
             log::info!("micro : {state:?}");
-            app.mic_changed(id, mic::state_of(state));
+            let (name, guest) = app.session_by(id).map(|s| (s.name.clone(), s.guest.is_some())).unwrap_or_default();
             if let Some(l) = lives.get_mut(id) {
+                if let Some(m) = l.mic_ui.as_mut() {
+                    let notice = m.changed(state, &name);
+                    app.set_mic(id, mic::view(m, guest), notice);
+                }
                 sync_mic(app, l, state.capturing());
-                if state.capturing() && l.mic.is_none() {
-                    actions.extend(app.mic_failed(id));
+                // L'appareil ne donne pas son micro (la capture ne s'ouvre pas) : coupé, avec l'avis.
+                if state.capturing()
+                    && l.mic.is_none()
+                    && let Some(m) = l.mic_ui.as_mut()
+                    && m.on
+                {
+                    m.denied();
+                    l.handle.session.set_microphone(false);
+                    app.set_mic(id, mic::view(m, guest), None);
+                    actions.extend(app.mic_denied(id));
                 }
             }
         }
@@ -3696,9 +3711,18 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 l.handle.shared.set_silenced(on);
             }
         }
+        // « Micro » allumé ou coupé : le `MicUi` du cœur (déjà pris par l'ordinateur : l'avis « Micro envoyé à
+        // {nom}. » tout de suite), la session, puis la vue de l'interface.
         Action::SetMic(id, on) => {
-            if let Some(l) = lives.get(id) {
+            if let Some(l) = lives.get_mut(id)
+                && let Some(m) = l.mic_ui.as_mut()
+            {
+                m.set(on);
                 l.handle.session.set_microphone(on);
+                let name = app.session_by(id).map(|s| s.name.clone()).unwrap_or_default();
+                let notice = if on && m.state == kybernow_core::micro::MicState::On { m.changed(kybernow_core::micro::MicState::On, &name) } else { None };
+                let guest = app.session_by(id).is_some_and(|s| s.guest.is_some());
+                app.set_mic(id, mic::view(m, guest), notice);
             }
         }
         // Le micro choisi ou le traitement voix changés : les captures en cours se rouvrent avec eux.
@@ -4255,9 +4279,10 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
     ui.pw_wired = wired;
     // « HDR » dans la barre et le menu : la puce de l'ordinateur (hôte, emprunt) sur un écran HDR ; un invité n'en a pas.
     // « Micro » : le choix retenu pour cet ordinateur (un invité part coupé) ; donné au cœur juste après le départ.
-    ui.mic = app.mic_ui(borrow_key.as_deref().unwrap_or(&h.id), guest.is_some());
-    if let Some(m) = ui.mic {
+    let mic_ui = app.mic_choice(borrow_key.as_deref().unwrap_or(&h.id), guest.is_some()).map(kybernow_core::micro::MicUi::new);
+    if let Some(m) = &mic_ui {
         handle.session.set_microphone(m.on);
+        ui.mic = Some(mic::view(m, guest.is_some()));
     }
     ui.hdr = match (&guest, &borrow_key) {
         (Some(_), _) => None,
@@ -4311,6 +4336,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         rescan_at: Instant::now(),
         changed: None,
         mic: None,
+        mic_ui,
     };
     let vsync = if first { wants_vsync(app, &h) } else { false };
     if first {

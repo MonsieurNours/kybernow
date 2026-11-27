@@ -450,8 +450,8 @@ fn bar_icons(app: &App, s: &SessionUi, computers: bool, sound: bool) -> Vec<BarI
     }
     // « Micro », après le son (un micro sur l'appareil) : allumé tant qu'il est envoyé, estompé quand l'ordinateur
     // ne le prend pas (la raison en infobulle). Un invité ne l'a que si l'hôte laisse les invités parler.
-    if let Some(m) = s.mic.filter(|m| !(s.guest.is_some() && m.refused() == Some(crate::micro::MicRefusal::NotAllowed))) {
-        v.push(BarIcon { target: Target::BarMic, icon: if m.lit() { Icon::Mic } else { Icon::MicOff }, on: m.lit(), name: m.tooltip(), dim: m.refused().is_some() });
+    if let Some(m) = s.mic.as_ref().filter(|m| m.shown) {
+        v.push(BarIcon { target: Target::BarMic, icon: if m.lit { Icon::Mic } else { Icon::MicOff }, on: m.lit, name: m.tooltip.clone(), dim: m.reason.is_some() });
     }
     // La caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil ») : seulement si l'ordinateur la propose.
     if s.camera_offered {
@@ -1619,9 +1619,9 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
     tiles.push((MenuItem::Sound, tr("Son", "Sound").into(), audio, s.muted, false));
     // « Micro » (un micro sur l'appareil) : « Envoyé », « Coupé », « Envoi… » ; estompé, il dit sa raison.
-    let mic = s.mic.filter(|m| !(s.guest.is_some() && m.refused() == Some(crate::micro::MicRefusal::NotAllowed)));
+    let mic = s.mic.as_ref().filter(|m| m.shown);
     if let Some(m) = mic {
-        tiles.push((MenuItem::Mic, crate::micro::label_on().into(), m.tile_sub().into(), m.lit(), false));
+        tiles.push((MenuItem::Mic, crate::micro::label_on().into(), m.tile.clone(), m.lit, false));
     }
     if kbm {
         tiles.push((MenuItem::PadMouse, tr("Manette en souris", "Controller as mouse").into(), format!("{} · {}", on_off(s.pad_mouse), tr("stick gauche", "left stick")), s.pad_mouse, false));
@@ -1699,7 +1699,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         let r = Rect::new(x0 + col as f32 * (tw + gap), ty + row as f32 * (th + gap), tw, th);
         let hdr_blocked = s.hdr.is_some_and(|u| !u.available());
         let rec_blocked = s.recording.as_ref().is_some_and(|r| r.guest || r.blocked());
-        let mic_blocked = mic.is_some_and(|m| m.refused().is_some());
+        let mic_blocked = mic.is_some_and(|m| m.reason.is_some());
         let dim = (*item == MenuItem::Share && share_blocked) || (*item == MenuItem::Lend && lend_blocked) || (*item == MenuItem::Hdr && hdr_blocked) || (*item == MenuItem::Record && rec_blocked) || (*item == MenuItem::Mic && mic_blocked);
         tile(cv, f, Target::Menu(*item), r, u, title, sub, i == 0, *on, *danger, dim);
     }
@@ -1709,7 +1709,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     widgets::dot(cv, x0 + 4.0 * u, sy - 4.0 * u, 3.5 * u, OK, false);
     // Le micro envoyé : une petite icône à côté de l'indicateur de la session.
     let mut line_x = x0 + 16.0 * u;
-    if mic.is_some_and(|m| m.sent()) {
+    if mic.is_some_and(|m| m.sent) {
         cv.icon(&Icon::Mic, line_x - 2.0 * u, sy - 12.0 * u, 14.0 * u, 1.6, SPECTRE);
         line_x += 18.0 * u;
     }
