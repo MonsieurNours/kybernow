@@ -65,8 +65,9 @@ PW="$HERE/../../PyroWave"
 for f in pyrowave_common.mm pyrowave_decoder.mm pyrowave_bitstream.cpp; do
     clang++ -std=c++17 -O2 -fobjc-arc -c "$PW/upstream/$f" -o "$f.o"
 done
-SOURCES=("$HERE/common.swift" "$KIT/AV1.swift" "$KIT/VideoDecoder.swift" "$KIT/PyroWaveDecoder.swift" "$KIT/DecoderCapabilities.swift" "$KIT/VideoRenderer.swift" "$KIT/Upscaler.swift" "$KIT/LatencyReporting.swift")
-LINK=(-I "$KIT/../Vendor/include" -I "$PW/module" -L "$KIT/../Vendor/Frameworks" -lkyclient.0.1 -Xlinker -rpath -Xlinker "$KIT/../Vendor/Frameworks"
+SOURCES=("$HERE/common.swift" "$KIT/AV1.swift" "$KIT/VideoDecoder.swift" "$KIT/PyroWaveDecoder.swift" "$KIT/PyroWaveConfig.swift" "$KIT/DecoderCapabilities.swift" "$KIT/VideoRenderer.swift" "$KIT/Upscaler.swift" "$KIT/LatencyReporting.swift")
+# Le paquet de configuration de PyroWave est lu par le cœur (libkybernow).
+LINK=(-I "$KIT/../Vendor/include" -I "$KIT/../Vendor/KyberNow/include" -I "$PW/module" -L "$KIT/../Vendor/Frameworks" -lkyclient.0.1 -lkybernow -Xlinker -rpath -Xlinker "$KIT/../Vendor/Frameworks"
       ./pyrowave_*.o -lc++ -framework IOSurface)
 compile -O -o decode "$HERE/decode/main.swift" "${SOURCES[@]}" "${LINK[@]}"
 compile -O -o color "$HERE/color/main.swift" "${SOURCES[@]}" "${LINK[@]}"

@@ -9,7 +9,9 @@
 //   la session) : moyenne, médiane, 95e centile, maximum ;
 // - à la chaîne : une image dès la précédente sortie ; images par seconde ;
 // - fidélité : PSNR de la première image décodée contre la source (Y, Cb, Cr) ;
-// - perte : une image tronquée est sautée sans casser la suivante.
+// - perte : une image tronquée est sautée sans casser la suivante ;
+// - en-tête KNPW version 2 (KYB-29) : lu, et ses métadonnées HDR10 sur les
+//   images décodées en HDR.
 import CoreVideo
 import Foundation
 
@@ -135,10 +137,44 @@ lock.lock()
 let afterLoss = delivered
 lock.unlock()
 
+// En-tête KNPW version 2 (KYB-29) : le même paquet, 48 octets, avec les
+// métadonnées HDR10 (primaires de Display P3, 1 000 nits, MaxCLL 1 000,
+// MaxFALL 400) ; en HDR, les images décodées les portent au format de
+// CoreVideo, vert d'abord. Le paquet v1 reste lu (plus haut).
+var v2 = configBytes
+v2[4] = 2
+v2 += [3, 0, 0, 0]
+func le16(_ v: UInt16) -> [UInt8] { [UInt8(v & 0xFF), UInt8(v >> 8)] }
+for v: UInt16 in [34000, 16000, 13250, 34500, 7500, 3000, 15635, 16450] { v2 += le16(v) }
+v2 += [0x80, 0x96, 0x98, 0x00] // 10 000 000 (1 000 cd/m²)
+v2 += [1, 0, 0, 0]
+v2 += le16(1000) + le16(400)
+var metadata = "—"
+let v2Config = v2.withUnsafeBufferPointer { PyroWaveConfig($0) }
+lock.lock(); delivered = 0; lock.unlock()
+let mastering = NSLock()
+var seen: Data?
+decoder.onFrame = { frame in
+    mastering.lock()
+    seen = CVBufferCopyAttachment(frame.buffer, kCVImageBufferMasteringDisplayColorVolumeKey, nil) as? Data
+    mastering.unlock()
+}
+v2.withUnsafeBufferPointer { decoder.decode($0, isConfig: true, isKey: true, pts: 0) }
+frames[2].withUnsafeBufferPointer { decoder.decode($0, isConfig: false, isKey: true, pts: 30_000) }
+decoder.flush()
+mastering.lock()
+let attached = seen
+mastering.unlock()
+let expected = Data([0x33, 0xC2, 0x86, 0xC4, 0x1D, 0x4C, 0x0B, 0xB8, 0x84, 0xD0, 0x3E, 0x80, 0x3D, 0x13, 0x40, 0x42,
+                     0x00, 0x98, 0x96, 0x80, 0x00, 0x00, 0x00, 0x01])
+let v2Ok = v2Config != nil && (config.hdr ? attached == expected : attached == nil)
+metadata = v2Config == nil ? "ILLISIBLE" : config.hdr ? (attached == expected ? "écran de mastering sur l'image" : "ATTENDU : écran de mastering sur l'image") : (attached == nil ? "lu, rien en SDR" : "ATTENDU : rien en SDR")
+
 print("\((args[1] as NSString).lastPathComponent) — \(config.label), sortie \(format.isEmpty ? "?" : format)")
 print(String(format: "  sonde du lancement : %@ en %.0f ms", probed ? "réussie" : "ÉCHOUÉE", probeMs))
 print("  cadencé 60 i/s : \(pacedDelivered)/\(frames.count) images, \(stats(paced))")
 print(String(format: "  à la chaîne : %d images en %.2f s, %.0f i/s", chained, elapsed, Double(chained) / elapsed))
 if !psnr.isEmpty { print("  \(psnr)") }
 print("  image tronquée puis entière : \(afterLoss) sortie(s) \(afterLoss == 1 ? "(tronquée sautée, suivante décodée)" : "(ATTENDU : 1)")")
-if !probed || pacedDelivered != frames.count || afterLoss != 1 { exit(1) }
+print("  en-tête KNPW version 2 : \(metadata)")
+if !probed || pacedDelivered != frames.count || afterLoss != 1 || !v2Ok { exit(1) }
