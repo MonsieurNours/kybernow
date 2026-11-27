@@ -1207,8 +1207,7 @@ fn console_route(s: &AppState, client: &str, target: &ConsoleTarget, tcp: bool) 
         return Err(ConsoleRefusal::NotAuthorized);
     }
     let Some(console) = s.consoles.addr_of(&target.host_id) else { return Err(ConsoleRefusal::Unknown) };
-    let allowed: &[u16] = if tcp { &crate::consoles::TCP_PORTS } else { &crate::consoles::UDP_PORTS };
-    if !allowed.contains(&target.port) {
+    if !kybernow_tunnel::console::allowed(target.port, tcp) {
         return Err(ConsoleRefusal::PortForbidden);
     }
     let lan: IpAddr = crate::tls::lan_ip().and_then(|ip| ip.parse().ok()).ok_or(ConsoleRefusal::Lan)?;

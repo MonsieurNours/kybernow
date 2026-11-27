@@ -14,12 +14,14 @@
 //! - [`station`] et [`identity`] (fonction `station`) : l'agent de la Station ;
 //! - [`lookup`] : la réponse de `GET /v1/codes/{code}` et la signature de
 //!   l'empreinte d'Admin ;
+//! - [`console`] : les ports d'une console PlayStation qui passent par le tunnel ;
 //! - [`access`] : le jeton d'accès des comptes KyberNow (docs/comptes.md),
 //!   signé par le relais, vérifié par la Station, et la clé de `GET /v1/keys`.
 
 pub mod access;
 pub mod addr;
 pub mod congestion;
+pub mod console;
 #[cfg_attr(not(all(feature = "client", feature = "station")), allow(dead_code))]
 mod dial;
 pub mod error;

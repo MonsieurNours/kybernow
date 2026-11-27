@@ -30,15 +30,10 @@ use serde_json::{Value, json};
 use crate::AppState;
 use crate::api::ApiResult;
 
-/// Port de découverte et de réveil d'une PS5.
-pub const PORT_PS5: u16 = 9302;
-/// Port de découverte et de réveil d'une PS4.
-pub const PORT_PS4: u16 = 987;
-/// Ports TCP qu'un appareil peut joindre par le relais : session, canal de
-/// contrôle et association (9295), dialogue de la PS4 (997).
-pub const TCP_PORTS: [u16; 2] = [9295, 997];
-/// Ports UDP : recherche de l'association (9295), Takion (9296), état et réveil (9302, 987).
-pub const UDP_PORTS: [u16; 4] = [9295, 9296, PORT_PS5, PORT_PS4];
+/// Ports d'une console : ceux du tunnel, les mêmes pour le relais, Admin et le cœur des apps
+/// (TRANS-42). TCP : session, canal de contrôle et association (9295), dialogue de la PS4 (997) ;
+/// UDP : recherche de l'association (9295), Takion (9296), état et réveil (9302, 987).
+pub use kybernow_tunnel::console::{PORT_PS4, PORT_PS5};
 /// Recherche de fond.
 const SEARCH_EVERY: Duration = Duration::from_secs(30);
 /// `GET /api/consoles` cherche de nouveau quand la dernière recherche a plus que ça.
