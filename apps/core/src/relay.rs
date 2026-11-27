@@ -524,11 +524,6 @@ pub(crate) fn open_with(route: &RelayRoute, roots: Option<Arc<rustls::RootCertSt
     Ok(handle)
 }
 
-/// Tunnels ouverts en ce moment (journaux, essais).
-pub fn open_tunnels() -> usize {
-    cache().lock().unwrap().len()
-}
-
 // MARK: - Recherche d'un code, présence
 
 /// Un agent HTTPS par relais (et par délais), gardé : la connexion TLS au

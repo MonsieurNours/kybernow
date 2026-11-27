@@ -1197,6 +1197,7 @@ impl std::error::Error for ShareError {}
 /// part) ; « Comme l'hôte » et la barre peuvent s'en servir.
 /// Rend le format lu, ou [`ShareError::Unreadable`] avec son nom
 /// (« HEVC », « HEVC 4:4:4 », « AV1 »).
+#[cfg(test)]
 pub fn check_codec(codec: Option<&str>, yuv444: bool, caps: Capabilities) -> Result<Option<Codec>, ShareError> {
     let Some(raw) = codec.map(str::trim).filter(|c| !c.is_empty()) else { return Ok(None) };
     let Some(codec) = Codec::parse(raw) else {

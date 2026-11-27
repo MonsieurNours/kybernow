@@ -765,11 +765,6 @@ impl InputPipeline {
         self.reader_attached.load(Ordering::Relaxed)
     }
 
-    /// Manettes lues par le fil SDL du cœur pour cette chaîne (Mac, Windows).
-    pub fn core_reads_gamepads(&self) -> bool {
-        self.core_pads
-    }
-
     /// Le nom de l'ordinateur au début des lignes du journal de cette chaîne.
     pub(crate) fn label(&self) -> &Arc<Label> {
         &self.label

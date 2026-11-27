@@ -324,11 +324,6 @@ pub fn random_did() -> [u8; 32] {
 pub enum CtrlEvent {
     /// L'identifiant de session (`0x33`) : la suite (Takion) peut démarrer.
     SessionId(String),
-    /// La console demande le code de connexion de son compte (réglage de la
-    /// console) : pas encore géré.
-    LoginPinRequested,
-    /// Résultat de la connexion au compte (`0x5`) : `true` si accepté.
-    Login(bool),
     /// La console ne peut pas afficher ce qu'elle montre (contenu protégé),
     /// ou de nouveau (`false`), d'après `0x1` et `0x16` comme chiaki-ng.
     CantDisplay(bool),
@@ -341,8 +336,6 @@ pub enum CtrlEvent {
     KeyboardText(String),
     /// La console a refermé son clavier (`0x22`).
     KeyboardClosed,
-    /// Message d'un autre type, déchiffré.
-    Other(u16, Vec<u8>),
     /// Canal fermé (par la console, le réseau ou [`Ctrl::stop`]).
     Closed(String),
 }
@@ -595,12 +588,11 @@ fn read_loop(
                         }
                     });
                 }
-                msg::LOGIN_PIN_REQ => {
-                    let _ = tx.send(CtrlEvent::LoginPinRequested);
-                }
-                msg::LOGIN => {
-                    let _ = tx.send(CtrlEvent::Login(payload.first() == Some(&0)));
-                }
+                // Code de connexion du compte demandé par la console (réglage
+                // de la console) : pas géré, seulement noté. Rien ne lisait
+                // ces événements (COEUR-45).
+                msg::LOGIN_PIN_REQ => log::warn!("PlayStation : la console demande le code de connexion de son compte (pas géré)"),
+                msg::LOGIN => log::info!("PlayStation : connexion au compte {}", if payload.first() == Some(&0) { "acceptée" } else { "refusée" }),
                 msg::KEYBOARD_OPEN => match parse_keyboard_open(&payload) {
                     Some(text) => {
                         log::info!("PlayStation : la console ouvre son clavier ({} caractères déjà)", text.chars().count());
@@ -623,10 +615,7 @@ fn read_loop(
                         let _ = tx.send(CtrlEvent::CantDisplay(cant));
                     }
                 }
-                other => {
-                    log::debug!("PlayStation : message de contrôle {other:#x} ({} octets)", payload.len());
-                    let _ = tx.send(CtrlEvent::Other(other, payload));
-                }
+                other => log::debug!("PlayStation : message de contrôle {other:#x} ({} octets)", payload.len()),
             }
         }
         if stop.load(Ordering::SeqCst) {

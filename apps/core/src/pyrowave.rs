@@ -63,6 +63,7 @@ fn floor_bits_per_second(modes: &[Mode], yuv444: bool) -> f64 {
 }
 
 /// Le plancher en Mbit/s ([`MIN_BITS_PER_PIXEL`]) : au-dessous, la définition baisse.
+#[cfg(test)]
 pub fn floor_mbps(modes: &[Mode], yuv444: bool) -> u32 {
     (floor_bits_per_second(modes, yuv444) / 1e6).ceil() as u32
 }

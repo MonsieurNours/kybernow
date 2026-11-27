@@ -85,6 +85,7 @@ impl CameraResolution {
         if relay { b / 2 } else { b }
     }
 
+    #[cfg(test)]
     pub fn from_label(s: &str) -> CameraResolution {
         if s == "1080p" { CameraResolution::P1080 } else { CameraResolution::P720 }
     }
@@ -282,6 +283,7 @@ impl CameraLink {
     }
 
     /// Envoyée (voyant allumé) : l'ordinateur l'a acceptée.
+    #[cfg(test)]
     pub fn is_sending(&self) -> bool {
         matches!(self.inner.lock().unwrap().state, State::On | State::Paused)
     }

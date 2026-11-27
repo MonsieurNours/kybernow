@@ -1515,13 +1515,6 @@ impl Session {
         self.focus.attach_audio(engine);
     }
 
-    /// Le nom de l'ordinateur, au début des lignes du journal de la session
-    /// (« [PC-ATELIER] … ») ; vide : rien, comme avant. [`crate::focus`] le
-    /// donne à l'inscription.
-    pub fn set_name(&self, name: &str) {
-        self.focus.label().set(name);
-    }
-
     pub fn name(&self) -> String {
         self.focus.label().name()
     }
@@ -5419,7 +5412,7 @@ impl Worker {
                         Err(e) => warn!("ordinateur pas rendu : {}", e.text(Lang::Fr)),
                     }
                 } else if self.lend_end.is_none() {
-                    info!("emprunt fermé sans rendre l'ordinateur : retour possible pendant 15 min");
+                    info!("emprunt fermé sans rendre l'ordinateur : retour possible pendant {} min", crate::lend::COME_BACK.as_secs() / 60);
                 }
             }
             return None;

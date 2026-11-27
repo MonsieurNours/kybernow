@@ -509,6 +509,11 @@ fn reglages_synchronises_envoyes() {
     assert!(matches!(settings::put_settings_with(&*fake, &account(), STATION, None, &values), Err(AccountError::Other(e)) if e.contains("bad_values")));
     // Un identifiant illisible ne part pas.
     assert_eq!(settings::put_settings_with(&*fake, &account(), "pc", None, &values), Err(AccountError::UnknownComputer));
+    // Trop grand pour le relais : refusé sans appel (COEUR-43, `MAX_BYTES`).
+    let calls = fake.calls().len();
+    let huge = SyncedSettings { station: STATION.into(), updated_at: 1, values: json!({ "futur": "x".repeat(settings::MAX_BYTES) }).as_object().unwrap().clone() };
+    assert!(matches!(settings::put_settings_with(&*fake, &account(), STATION, Some(&huge), &values), Err(AccountError::Other(e)) if e.contains("too_large")));
+    assert_eq!(fake.calls().len(), calls, "rien d'envoyé");
     assert_eq!(fake.calls().len(), 4);
     // Les réglages d'un autre ordinateur ne servent pas de base.
     let mut other = last.clone();

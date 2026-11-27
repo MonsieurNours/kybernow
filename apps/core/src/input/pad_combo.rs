@@ -98,6 +98,7 @@ impl PadButton {
         Self::ALL.into_iter().find(|b| b.to_u32() == value)
     }
 
+    #[cfg(test)]
     pub fn from_kynput(button: GamepadButton) -> Self {
         match button {
             GamepadButton::A => Self::A,
@@ -168,6 +169,7 @@ impl PadAxis {
         Self::ALL.into_iter().find(|a| a.to_u32() == value)
     }
 
+    #[cfg(test)]
     pub fn from_kynput(axis: GamepadAxis) -> Self {
         match axis {
             GamepadAxis::LeftX => Self::LeftX,

@@ -713,6 +713,7 @@ impl LendCodeView {
 
     /// Le lien du relais se prépare : l'app attend (10 s au plus) avant de
     /// donner celui du réseau, comme [`crate::share::ShareState::relay_connecting`].
+    #[cfg(test)]
     pub fn relay_connecting(&self) -> bool {
         self.relay.is_some_and(|r| r.state == crate::share::ShareRelayState::Connecting)
     }

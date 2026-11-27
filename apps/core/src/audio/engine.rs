@@ -234,14 +234,6 @@ impl AudioEngine {
         f64::from_bits(self.output_latency_ms.load(Ordering::Relaxed))
     }
 
-    /// L'ordre des voies qu'attend la sortie (une sortie changée en cours de session).
-    pub fn set_order(&self, order: OutputOrder) {
-        *self.order.lock().unwrap() = order;
-        if let Ok(mut c) = self.consumer.try_lock() {
-            c.output_channels = 0;
-        }
-    }
-
     /// Voies du flux en cours (0 : pas de flux).
     pub fn channels(&self) -> usize {
         self.current.lock().unwrap().as_ref().map_or(0, |s| s.channels)

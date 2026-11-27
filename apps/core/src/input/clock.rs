@@ -41,10 +41,6 @@ impl ManualClock {
         Self(Mutex::new(Duration::ZERO))
     }
 
-    pub fn starting_at(at: Duration) -> Self {
-        Self(Mutex::new(at))
-    }
-
     pub fn advance(&self, by: Duration) {
         *self.0.lock().unwrap() += by;
     }

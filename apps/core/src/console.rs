@@ -841,6 +841,7 @@ impl Console {
     }
 
     /// Le compte KyberNow de cette console, s'il y en a un.
+    #[cfg(test)]
     pub fn station_access(&self) -> Option<&Arc<crate::account::StationAccess>> {
         match &self.authorization {
             Auth::Account(a) => Some(a),
@@ -1668,11 +1669,6 @@ fn watch_refusal(status: u16, body: Option<&serde_json::Value>) -> Option<ShareE
         (409, Some("full")) => Some(ShareError::Full),
         _ => None,
     }
-}
-
-#[cfg(test)]
-pub(crate) fn watch_refusal_for_tests(status: u16, body: &serde_json::Value) -> Option<ShareError> {
-    watch_refusal(status, Some(body))
 }
 
 #[cfg(test)]

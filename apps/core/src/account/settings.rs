@@ -27,7 +27,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value, json};
 
-use super::{Account, AccountError, RelayHttp, call, http, refusal};
+use super::{Account, AccountError, RelayHttp, Reply, call, http, refusal};
 use crate::profile::{Capabilities, Codec, Profile, StreamSettings};
 
 /// Taille la plus grande des valeurs d'un ordinateur chez le relais (octets
@@ -266,6 +266,11 @@ pub(super) fn put_settings_with(
     let mut raw = last.filter(|l| l.station == station).map(|l| l.values.clone()).unwrap_or_default();
     values.merge_into(&mut raw);
     let addr = account.addr()?;
+    // Trop grand pour le relais : refusé ici, comme il le ferait (413).
+    if serde_json::to_vec(&raw).map_or(0, |v| v.len()) > MAX_BYTES {
+        log::warn!("comptes : réglages de {station} trop grands pour le relais, pas envoyés");
+        return Err(refusal(&Reply { status: 413, body: json!({ "error": "too_large" }), retry_after: None }, true));
+    }
     let body = json!({ "values": Value::Object(raw.clone()) });
     let r = call(http, &addr, "PUT", &format!("/v1/settings/{station}"), Some(&account.token), Some(&body))?;
     if r.status != 200 {

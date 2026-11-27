@@ -557,6 +557,7 @@ impl LatencyTracker {
     }
 
     /// Médiane de la dernière seconde seulement (voir [`Self::drain`]).
+    #[cfg(test)]
     pub fn drain_second(&self) -> Option<f64> {
         self.drain().latency_ms
     }
