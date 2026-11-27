@@ -12,7 +12,10 @@
 //!
 //! `retour` n'est qu'une adresse du réseau local (adresse IP privée, nom
 //! sans point, `.local`, `.lan`, `.home.arpa`), en `http` ou `https`, sans
-//! chemin : le jeton ne part pas vers un site quelconque.
+//! chemin : le jeton ne part pas vers un site quelconque. Quand la Station a
+//! donné ses adresses d'Admin (`admin_lan`), une adresse IP n'est acceptée que
+//! parmi elles (ou en boucle locale), et un nom seulement dans leur schéma
+//! (REL-10) : un voisin du réseau ne fait pas partir le jeton vers sa machine.
 
 use std::net::IpAddr;
 
@@ -73,6 +76,29 @@ pub fn local_origin(retour: &str) -> Option<String> {
     ok.then(|| format!("{scheme}://{rest}"))
 }
 
+/// `retour`, s'il est l'une des adresses d'Admin données par la Station (`published`, vide :
+/// inconnues, la règle de [`local_origin`] seule) ; sinon une adresse en boucle locale, ou un nom
+/// du réseau dans le schéma de ces adresses. Une adresse IP du réseau qu'Admin n'a pas donnée
+/// est refusée (REL-10).
+pub fn admin_origin(retour: &str, published: &[String]) -> Option<String> {
+    let origin = local_origin(retour)?;
+    if published.is_empty() || published.iter().any(|p| p.trim_end_matches('/') == origin) {
+        return Some(origin);
+    }
+    let (scheme, rest) = origin.split_once("://")?;
+    let host = match rest.strip_prefix('[') {
+        Some(v6) => v6.split_once(']')?.0.to_string(),
+        None => rest.rsplit_once(':').map(|(h, _)| h).unwrap_or(rest).to_string(),
+    };
+    match host.parse::<IpAddr>() {
+        Ok(ip) => ip.to_canonical().is_loopback().then_some(origin),
+        Err(_) => {
+            let same_scheme = published.iter().any(|p| p.starts_with(&format!("{scheme}://")));
+            (host == "localhost" || same_scheme).then_some(origin)
+        }
+    }
+}
+
 fn refused(cx: Cx<'_>, text_fr: &str, text_en: &str) -> Reply {
     let page = super::super::pages::message(
         &cx.view(),
@@ -95,7 +121,8 @@ pub(super) fn open_admin(cx: Cx<'_>, post: bool) -> Reply {
     let acc = cx.acc;
     let remote_origin = acc.station_origin(&station_id);
     let remote = retour.trim().trim_end_matches('/') == remote_origin;
-    let Some(origin) = (if remote { Some(remote_origin.clone()) } else { local_origin(&retour) }) else {
+    let published = acc.stations.admin(&station_id).map(|(lan, _)| lan).unwrap_or_default();
+    let Some(origin) = (if remote { Some(remote_origin.clone()) } else { admin_origin(&retour, &published) }) else {
         return refused(
             cx,
             "Cette adresse n'est ni celle d'Admin sur le réseau local, ni celle de cet ordinateur par KyberNow Share.",
@@ -230,5 +257,21 @@ mod tests {
         }
         assert_eq!(local_origin("https://192.168.1.20:8443/").as_deref(), Some("https://192.168.1.20:8443"));
         assert!(nonce_ok("abcdefghijklmnopqrstuvwxyz") && !nonce_ok("ABCDEFGHIJKLMNOPQRSTUVWXYZ") && !nonce_ok("abc"));
+    }
+
+    #[test]
+    fn seulement_les_adresses_qu_admin_a_donnees() {
+        // REL-10 : la Station a donné https://192.168.1.20:8443.
+        let published = vec!["https://192.168.1.20:8443".to_string()];
+        assert_eq!(admin_origin("https://192.168.1.20:8443/", &published).as_deref(), Some("https://192.168.1.20:8443"));
+        assert!(admin_origin("http://192.168.1.66", &published).is_none(), "la machine d'un voisin");
+        assert!(admin_origin("https://192.168.1.66:8443", &published).is_none());
+        assert!(admin_origin("https://192.168.1.20:9000", &published).is_none(), "autre port");
+        assert!(admin_origin("https://127.0.0.1:8443", &published).is_some(), "Admin sur ce même ordinateur");
+        assert!(admin_origin("https://localhost:8443", &published).is_some());
+        assert!(admin_origin("https://pc-salon.local:8443", &published).is_some(), "par son nom, en https");
+        assert!(admin_origin("http://pc-salon.local:8443", &published).is_none(), "pas en http quand Admin est en https");
+        // Adresses inconnues (Station hors ligne, Admin ancien) : la règle du réseau local seule.
+        assert!(admin_origin("http://192.168.1.66", &[]).is_some());
     }
 }
