@@ -201,11 +201,54 @@ fn knpw_v2_metadata(d: &[u8]) -> (Option<serde_json::Value>, Option<serde_json::
     (mastering, light)
 }
 
+/// Les métadonnées HDR10 au format de CoreVideo (celui des SEI HEVC,
+/// gros-boutiste) : `kCVImageBufferMasteringDisplayColorVolumeKey` (24
+/// octets : primaires vert, bleu, rouge, puis le blanc, luminances max et
+/// min) et `kCVImageBufferContentLightLevelInfoKey` (4 octets : MaxCLL,
+/// MaxFALL), en base64.
+fn knpw_v2_sei(mastering: &Option<serde_json::Value>, light: &Option<serde_json::Value>) -> (Option<String>, Option<String>) {
+    use base64::Engine;
+    let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
+    let mdcv = mastering.as_ref().map(|m| {
+        let p: Vec<u16> = (0..6).map(|i| m["primaries"][i].as_u64().unwrap_or(0) as u16).collect();
+        let w: Vec<u16> = (0..2).map(|i| m["white"][i].as_u64().unwrap_or(0) as u16).collect();
+        let mut out = Vec::with_capacity(24);
+        // KNPW : rouge, vert, bleu ; le SEI 137 : vert, bleu, rouge.
+        for i in [2, 3, 4, 5, 0, 1] {
+            out.extend_from_slice(&p[i].to_be_bytes());
+        }
+        out.extend_from_slice(&w[0].to_be_bytes());
+        out.extend_from_slice(&w[1].to_be_bytes());
+        out.extend_from_slice(&(m["max_luminance"].as_u64().unwrap_or(0) as u32).to_be_bytes());
+        out.extend_from_slice(&(m["min_luminance"].as_u64().unwrap_or(0) as u32).to_be_bytes());
+        b64(&out)
+    });
+    let cll = light.as_ref().map(|l| {
+        let mut out = Vec::with_capacity(4);
+        out.extend_from_slice(&(l["max_cll"].as_u64().unwrap_or(0) as u16).to_be_bytes());
+        out.extend_from_slice(&(l["max_fall"].as_u64().unwrap_or(0) as u16).to_be_bytes());
+        b64(&out)
+    });
+    (mdcv, cll)
+}
+
+fn config_json(c: &pyrowave::Config, version: u8, d: &[u8]) -> String {
+    let (mastering, light) = knpw_v2_metadata(d);
+    let (mastering_sei, light_sei) = knpw_v2_sei(&mastering, &light);
+    serde_json::json!({
+        "version": version, "chroma444": c.chroma444, "hdr": c.hdr, "full_range": c.full_range,
+        "width": c.width, "height": c.height, "label": c.label(),
+        "mastering": mastering, "light": light, "mastering_sei": mastering_sei, "light_sei": light_sei,
+    })
+    .to_string()
+}
+
 /// Un paquet de configuration PyroWave (`KNPW`, versions 1 et 2) :
 /// `{version, chroma444, hdr, full_range, width, height, label, mastering,
-/// light}` (`mastering` : `primaries` [rx, ry, gx, gy, bx, by], `white`
-/// [x, y], `max_luminance`, `min_luminance`, aux unités du SEI ; `light` :
-/// `max_cll`, `max_fall` ; nuls sans leur drapeau ou en version 1), ou nul
+/// light, mastering_sei, light_sei}` (`mastering` : `primaries` [rx, ry, gx,
+/// gy, bx, by], `white` [x, y], `max_luminance`, `min_luminance`, aux unités
+/// du SEI ; `light` : `max_cll`, `max_fall` ; `…_sei` : les mêmes au format
+/// de CoreVideo, en base64 ; nuls sans leur drapeau ou en version 1), ou nul
 /// si ce n'en est pas un (définition impossible, version 2 de moins de 48
 /// octets). Les octets au-delà de ce que l'app connaît sont ignorés.
 #[unsafe(no_mangle)]
@@ -221,15 +264,25 @@ pub unsafe extern "C" fn kn_pyrowave_config(data: *const u8, len: usize) -> *mut
         if d[4] >= 2 && d.len() < KNPW_V2_SIZE {
             return std::ptr::null_mut();
         }
-        let (mastering, light) = knpw_v2_metadata(d);
-        give(
-            serde_json::json!({
-                "version": d[4], "chroma444": c.chroma444, "hdr": c.hdr, "full_range": c.full_range,
-                "width": c.width, "height": c.height, "label": c.label(),
-                "mastering": mastering, "light": light,
-            })
-            .to_string(),
-        )
+        give(config_json(&c, d[4], d))
+    })
+}
+
+/// Sans paquet de configuration (perdu) : la définition et la chroma lues
+/// dans l'en-tête de séquence d'une image (`Config::from_sequence_header`),
+/// SDR et plage pleine ; même JSON que `kn_pyrowave_config` (version 0), nul
+/// si l'en-tête ne se lit pas.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_pyrowave_config_from_sequence_header(data: *const u8, len: usize) -> *mut c_char {
+    kybernow_core::ffi_guard!(null => {
+        if data.is_null() {
+            return std::ptr::null_mut();
+        }
+        let d = unsafe { std::slice::from_raw_parts(data, len) };
+        match pyrowave::Config::from_sequence_header(d) {
+            Some(c) => give(config_json(&c, 0, &[])),
+            None => std::ptr::null_mut(),
+        }
     })
 }
 
@@ -388,6 +441,17 @@ mod tests {
         assert_eq!(c2["light"]["max_cll"], 1000);
         assert_eq!(c2["light"]["max_fall"], 400);
 
+        // Au format de CoreVideo : vert d'abord, gros-boutiste.
+        use base64::Engine;
+        let sei = base64::engine::general_purpose::STANDARD.decode(c2["mastering_sei"].as_str().unwrap()).unwrap();
+        assert_eq!(sei.len(), 24);
+        assert_eq!(u16::from_be_bytes([sei[0], sei[1]]), 8500, "vert x");
+        assert_eq!(u16::from_be_bytes([sei[8], sei[9]]), 35400, "rouge x");
+        assert_eq!(u16::from_be_bytes([sei[12], sei[13]]), 15635, "blanc x");
+        assert_eq!(u32::from_be_bytes([sei[16], sei[17], sei[18], sei[19]]), 10_000_000);
+        let cll = base64::engine::general_purpose::STANDARD.decode(c2["light_sei"].as_str().unwrap()).unwrap();
+        assert_eq!(cll, vec![0x03, 0xE8, 0x01, 0x90]);
+
         // Drapeau du niveau de lumière seul.
         let c3 = config(&knpw_v2(2)).unwrap();
         assert!(c3["mastering"].is_null() && c3["light"]["max_cll"] == 1000);
@@ -397,6 +461,17 @@ mod tests {
         let mut longer = knpw_v2(3);
         longer.extend_from_slice(&[9; 8]);
         assert_eq!(config(&longer).unwrap()["light"]["max_fall"], 400);
+    }
+
+    #[test]
+    fn en_tete_de_sequence() {
+        // extended (bit 31), 1920 × 1080 (largeur et hauteur moins un), 4:2:0, début d'image.
+        let w0: u32 = (1 << 31) | (1919 & 0x3FFF) | ((1079 & 0x3FFF) << 14);
+        let mut d = w0.to_le_bytes().to_vec();
+        d.extend_from_slice(&0u32.to_le_bytes());
+        let v: serde_json::Value = serde_json::from_str(&take(unsafe { kn_pyrowave_config_from_sequence_header(d.as_ptr(), d.len()) }).unwrap()).unwrap();
+        assert_eq!((v["width"].as_u64(), v["height"].as_u64(), v["hdr"].as_bool(), v["full_range"].as_bool()), (Some(1920), Some(1080), Some(false), Some(true)));
+        assert!(take(unsafe { kn_pyrowave_config_from_sequence_header(d.as_ptr(), 4) }).is_none());
     }
 
     #[test]
