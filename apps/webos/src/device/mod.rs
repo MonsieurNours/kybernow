@@ -897,6 +897,10 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
         Event::Station { id, op, result } => app.station_answer(&id, op, result),
         Event::StationChecked { id, station } => offer::checked(app, &id, station),
         Event::Preview { id, jpeg } => {
+            // Ordinateur retiré pendant la sonde : son aperçu n'est pas recréé (WEBOS-17).
+            if app.store.host(&id).is_none() {
+                return;
+            }
             if let Some(img) = ui::canvas::decode_jpeg(&jpeg) {
                 let _ = std::fs::write(Store::image_path(&id), &jpeg);
                 app.images.insert(id, img);
@@ -920,17 +924,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 actions.push(Action::StartPairing);
             }
         }
-        Event::Probed { address, port, fingerprint } => {
-            app.add.busy = false;
-            match fingerprint {
-                Ok(fp) => {
-                    app.add.step = AddStep::Verify { address, port, fingerprint: fp };
-                    app.add.message = None;
-                    app.go(Screen::Add);
-                }
-                Err(e) => app.add.message = Some(e),
-            }
-        }
+        Event::Probed { address, port, fingerprint } => app.probed(address, port, fingerprint),
         Event::PairAsked { name, .. } => {
             app.add.message = Some(format!("{} {name} : {}", tr("Code présenté à", "Code shown to"), tr("acceptez-le dans Admin", "accept it in Admin")));
         }

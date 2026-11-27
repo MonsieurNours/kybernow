@@ -6,6 +6,7 @@
 #include <libavcodec/avcodec.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/opt.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -17,8 +18,10 @@ struct kn_eac3 {
     int64_t pts;
 };
 
-int kn_eac3_frame_size(void) {
-    return 1536;
+/* Images par trame : celle de l'encodeur ouvert (1536 pour l'E-AC-3), lue
+ * plutôt que supposée : l'entrée en est découpée d'autant (WEBOS-18). */
+int kn_eac3_frame_size(const struct kn_eac3 *e) {
+    return e->ctx->frame_size;
 }
 
 /* channels : 2 ou 6 ; bitrate en bit/s. NULL si l'encodeur manque. */
@@ -65,8 +68,9 @@ fail:
 }
 
 /* Encode une trame de kn_eac3_frame_size() images entrelacées ; écrit au
- * plus `cap` octets dans `out`. Rend la taille, 0 si rien n'est sorti, < 0
- * en cas d'erreur. */
+ * plus `cap` octets dans `out`. Rend la taille, 0 si rien n'est sorti (une
+ * trame d'avance), < 0 en cas d'erreur : -1 trame non inscriptible, -2
+ * refusée, -3 paquet plus grand que `cap`, -4 autre erreur de sortie. */
 int kn_eac3_encode(struct kn_eac3 *e, const float *interleaved, unsigned char *out, int cap) {
     if (av_frame_make_writable(e->frame) < 0) {
         return -1;
@@ -84,12 +88,15 @@ int kn_eac3_encode(struct kn_eac3 *e, const float *interleaved, unsigned char *o
         return -2;
     }
     int ret = avcodec_receive_packet(e->ctx, e->pkt);
-    if (ret < 0) {
+    if (ret == AVERROR(EAGAIN)) {
         return 0;
+    }
+    if (ret < 0) {
+        return -4;
     }
     int size = e->pkt->size;
     if (size > cap) {
-        size = 0;
+        size = -3;
     } else {
         memcpy(out, e->pkt->data, size);
     }

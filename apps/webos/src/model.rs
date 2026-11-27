@@ -912,6 +912,10 @@ impl Store {
         if self.selected.as_deref() == Some(id) {
             self.selected = None;
         }
+        // Son aperçu aussi (WEBOS-17) ; seulement pour le fichier de l'app, pas pour un magasin d'essai.
+        if self.path.is_some() {
+            let _ = std::fs::remove_file(Self::image_path(id));
+        }
     }
 
     /// Aperçu d'Admin gardé pour l'accueil (un fichier par ordinateur).

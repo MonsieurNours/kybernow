@@ -80,6 +80,8 @@ impl Pads {
             let joy = sdl::SDL_GameControllerGetJoystick(ctrl);
             let instance = sdl::SDL_JoystickInstanceID(joy);
             if self.pads.iter().any(|p| p.instance == instance) {
+                // Déjà ouverte : SDL compte chaque ouverture, celle-ci est rendue (WEBOS-16).
+                sdl::SDL_GameControllerClose(ctrl);
                 return None;
             }
             let name = sdl::pad_name(ctrl);
@@ -88,7 +90,11 @@ impl Pads {
                 sdl::SDL_GameControllerClose(ctrl);
                 return None;
             }
-            let slot = (0..4).find(|s| !self.pads.iter().any(|p| p.slot == *s))?;
+            let Some(slot) = (0..4).find(|s| !self.pads.iter().any(|p| p.slot == *s)) else {
+                // Quatre places prises : la cinquième manette est refermée (WEBOS-16).
+                sdl::SDL_GameControllerClose(ctrl);
+                return None;
+            };
             let pad = Pad {
                 ctrl,
                 instance,

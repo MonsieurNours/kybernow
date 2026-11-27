@@ -2642,6 +2642,24 @@ impl App {
         }
     }
 
+    /// La réponse de « Par adresse » (jusqu'à 5 s) : prise seulement si l'écran l'attend encore (WEBOS-13) ; repartie
+    /// ailleurs entre-temps (une session ouverte…), elle n'ouvre plus Ajouter par-dessus.
+    pub fn probed(&mut self, address: String, port: u16, fingerprint: Result<String, String>) {
+        let waiting = self.add.busy && self.screen == Screen::Add && self.add.step == AddStep::Address;
+        self.add.busy = false;
+        if !waiting {
+            return;
+        }
+        match fingerprint {
+            Ok(fp) => {
+                self.add.step = AddStep::Verify { address, port, fingerprint: fp };
+                self.add.message = None;
+                self.go(Screen::Add);
+            }
+            Err(e) => self.add.message = Some(e),
+        }
+    }
+
     /// Pointeur de la Magic Remote déplacé : le focus suit ce qu'il survole.
     pub fn pointer_moved(&mut self, x: f32, y: f32) -> bool {
         self.pointer = Some((x, y));
@@ -4724,6 +4742,10 @@ impl App {
     /// Un sondage d'Admin : état, système, Station ; suit le retour de la
     /// Station après un redémarrage ou une mise à jour.
     pub fn polled(&mut self, id: &str, p: Polled) -> bool {
+        // Ordinateur retiré pendant la sonde : rien n'est recréé pour lui (WEBOS-17).
+        if self.store.host(id).is_none() {
+            return false;
+        }
         let entry = self.live.entry(id.to_string()).or_default();
         entry.online = if p.online {
             Online::Online
@@ -5005,6 +5027,23 @@ mod tests {
         app.borrow.busy = true;
         assert_eq!(app.nav(Nav::Back), vec![Action::BorrowCancel]);
         assert_eq!(app.nav(Nav::Back), vec![Action::Quit]);
+    }
+
+    /// WEBOS-13 : une réponse tardive de « Par adresse » n'ouvre pas Ajouter hors de l'écran qui l'attend.
+    #[test]
+    fn late_probe_ignored() {
+        let mut app = App::new(Store::default());
+        app.screen = Screen::Add;
+        app.add.step = AddStep::Address;
+        app.add.busy = true;
+        app.screen = Screen::Session;
+        app.probed("192.168.1.2".into(), 24811, Ok("sha256:aa".into()));
+        assert_eq!(app.screen, Screen::Session);
+        assert!(!app.add.busy);
+        app.screen = Screen::Add;
+        app.add.busy = true;
+        app.probed("192.168.1.2".into(), 24811, Ok("sha256:aa".into()));
+        assert!(matches!(app.add.step, AddStep::Verify { .. }));
     }
 
     /// WEBOS-12 : OK sur un focus absent de l'écran dessiné le ramène sur le premier élément, sans rien activer.

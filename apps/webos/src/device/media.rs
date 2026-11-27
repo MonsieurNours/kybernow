@@ -371,12 +371,14 @@ pub struct AudioSink {
     head: Mutex<Vec<u8>>,
     /// Décodeur 5.1 des routes NDL et Dolby, et ses tampons.
     decoder: Mutex<Option<(opus::Decoder, Vec<f32>, Vec<u8>)>>,
-    /// Encodeur E-AC-3 de la route Dolby.
+    /// Encodeur E-AC-3 de la route Dolby, son PCM remis dans l'ordre et ses trames (tampons réutilisés, WEBOS-22).
     encoder: Mutex<Option<eac3::Encoder>>,
+    ordered: Mutex<Vec<f32>>,
+    frames: Mutex<eac3::Frames>,
     /// Son 5.1 demandé : PCM (`false`) ou Dolby (`true`).
     dolby: bool,
     /// Paquets donnés à NDL ou à la chaîne Dolby (journal).
-    ndl_packets: Mutex<u64>,
+    ndl_packets: std::sync::atomic::AtomicU64,
     /// Le chargement de la chaîne Dolby de ce puits (`esplayer::load`, 0 : aucun) : à sa fin, il ne décharge que le
     /// sien (WEBOS-02).
     dolby_token: std::sync::atomic::AtomicU64,
@@ -396,25 +398,26 @@ impl AudioSink {
             head: Mutex::new(Vec::new()),
             decoder: Mutex::new(None),
             encoder: Mutex::new(None),
+            ordered: Mutex::new(Vec::new()),
+            frames: Mutex::new(eac3::Frames::default()),
             dolby,
-            ndl_packets: Mutex::new(0),
+            ndl_packets: std::sync::atomic::AtomicU64::new(0),
             dolby_token: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
     /// Les trames E-AC-3 de ce PCM 5.1 (ordre G, D, C, LFE, arrière G, arrière D) à la chaîne Dolby.
     fn feed_dolby(&self, pcm: &[f32]) {
-        let frames = {
+        let mut frames = self.frames.lock().unwrap();
+        {
             let mut g = self.encoder.lock().unwrap();
             let Some(enc) = g.as_mut() else { return };
-            enc.push(pcm)
-        };
-        for f in frames {
-            match esplayer::feed(&f) {
+            enc.push(pcm, &mut frames);
+        }
+        for f in frames.iter() {
+            match esplayer::feed(f) {
                 Ok(()) => {
-                    let mut n = self.ndl_packets.lock().unwrap();
-                    *n += 1;
-                    if *n == 1 {
+                    if self.ndl_packets.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
                         log::info!("son : première trame E-AC-3 acceptée par la chaîne Dolby");
                     }
                 }
@@ -443,7 +446,8 @@ impl AudioSink {
         }
         if self.dolby {
             // Même ordre de voies que le PCM de NDL, en flottant pour l'encodeur.
-            let mut ordered = Vec::with_capacity(frames * 6);
+            let mut ordered = self.ordered.lock().unwrap();
+            ordered.clear();
             for f in 0..frames {
                 let src = &pcm[f * 6..f * 6 + 6];
                 ordered.extend(PCM_ORDER.iter().map(|&i| src[i]));
@@ -462,12 +466,8 @@ impl AudioSink {
         }
         match ndl::play_audio(bytes) {
             Ok(sent) => {
-                if sent {
-                    let mut n = self.ndl_packets.lock().unwrap();
-                    *n += 1;
-                    if *n == 1 {
-                        log::info!("son : premier paquet PCM 5.1 accepté par NDL ; sortie multicanal du téléviseur : {:?}", ndl::multichannel());
-                    }
+                if sent && self.ndl_packets.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+                    log::info!("son : premier paquet PCM 5.1 accepté par NDL ; sortie multicanal du téléviseur : {:?}", ndl::multichannel());
                 }
             }
             Err(e) => {
