@@ -381,6 +381,8 @@ struct kn_pw_session
 	uint32_t width = 0, height = 0;
 	bool chroma444 = false, hdr = false, full_range = true;
 	float max_nits = 0, max_fall = 0, min_nits = 0;
+	// Métadonnées HDR10 du contenu (en-tête KNPW v2) : `content.has_*` à 0 sans elles.
+	kn_pw_content_hdr content = {};
 	bool configured = false;
 	std::string description;
 };
@@ -504,6 +506,47 @@ bool create_pipeline(kn_pw_session *s)
 
 // (Re)crée la swapchain à la taille de la surface ; l'ancienne est passée en
 // oldSwapchain puis détruite.
+// Les métadonnées HDR10 de la swapchain : celles du contenu (en-tête KNPW v2)
+// champ par champ, sinon les valeurs de l'écran de l'appareil (primaires
+// BT.2020, blanc D65). Rien sans sortie HDR10 ni l'extension.
+void apply_hdr_metadata(kn_pw_session *s)
+{
+	Gpu *g = s->g;
+	const kn_pw_content_hdr &c = s->content;
+	if (!s->swapchain || !s->hdr_output || !g->hdr_metadata || (s->max_nits <= 0 && !c.has_mastering && !c.has_light))
+		return;
+	VkHdrMetadataEXT md = { VK_STRUCTURE_TYPE_HDR_METADATA_EXT };
+	if (c.has_mastering)
+	{
+		md.displayPrimaryRed = { c.primaries[0], c.primaries[1] };
+		md.displayPrimaryGreen = { c.primaries[2], c.primaries[3] };
+		md.displayPrimaryBlue = { c.primaries[4], c.primaries[5] };
+		md.whitePoint = { c.white[0], c.white[1] };
+		md.maxLuminance = c.max_luminance;
+		md.minLuminance = c.min_luminance;
+	}
+	else
+	{
+		md.displayPrimaryRed = { 0.708f, 0.292f };
+		md.displayPrimaryGreen = { 0.170f, 0.797f };
+		md.displayPrimaryBlue = { 0.131f, 0.046f };
+		md.whitePoint = { 0.3127f, 0.3290f };
+		md.maxLuminance = s->max_nits;
+		md.minLuminance = s->min_nits;
+	}
+	if (c.has_light)
+	{
+		md.maxContentLightLevel = c.max_cll;
+		md.maxFrameAverageLightLevel = c.max_fall;
+	}
+	else
+	{
+		md.maxContentLightLevel = md.maxLuminance;
+		md.maxFrameAverageLightLevel = s->max_fall > 0 && !c.has_mastering ? s->max_fall : md.maxLuminance;
+	}
+	vkSetHdrMetadataEXT(g->device, 1, &s->swapchain, &md);
+}
+
 bool create_swapchain(kn_pw_session *s)
 {
 	Gpu *g = s->g;
@@ -585,20 +628,7 @@ bool create_swapchain(kn_pw_session *s)
 		vkCreateSemaphore(g->device, &si, nullptr, &sem);
 		s->rendered.push_back(sem);
 	}
-	if (s->hdr_output && g->hdr_metadata && s->max_nits > 0)
-	{
-		VkHdrMetadataEXT md = { VK_STRUCTURE_TYPE_HDR_METADATA_EXT };
-		// Primaires BT.2020, blanc D65.
-		md.displayPrimaryRed = { 0.708f, 0.292f };
-		md.displayPrimaryGreen = { 0.170f, 0.797f };
-		md.displayPrimaryBlue = { 0.131f, 0.046f };
-		md.whitePoint = { 0.3127f, 0.3290f };
-		md.maxLuminance = s->max_nits;
-		md.minLuminance = s->min_nits;
-		md.maxContentLightLevel = s->max_nits;
-		md.maxFrameAverageLightLevel = s->max_fall > 0 ? s->max_fall : s->max_nits;
-		vkSetHdrMetadataEXT(g->device, 1, &s->swapchain, &md);
-	}
+	apply_hdr_metadata(s);
 	if (!create_pipeline(s))
 	{
 		LOGW("PyroWave : pipeline creation failed");
@@ -1144,22 +1174,30 @@ kn_pw_session *kn_pw_open(ANativeWindow *window, char *error, size_t error_size)
 }
 
 int kn_pw_configure(kn_pw_session *s, uint32_t width, uint32_t height, int chroma444, int hdr, int full_range, float max_nits,
-                    float max_fall, float min_nits)
+                    float max_fall, float min_nits, const kn_pw_content_hdr *content)
 {
 	std::lock_guard<std::mutex> holder(lock);
 	if (!s)
 		return 0;
+	kn_pw_content_hdr c = content ? *content : kn_pw_content_hdr{};
+	bool metadata = memcmp(&c, &s->content, sizeof c) != 0 || s->max_nits != max_nits || s->max_fall != max_fall || s->min_nits != min_nits;
+	s->content = c;
+	s->max_nits = max_nits;
+	s->max_fall = max_fall;
+	s->min_nits = min_nits;
 	if (s->configured && s->width == width && s->height == height && s->chroma444 == bool(chroma444) && s->hdr == bool(hdr) &&
 	    s->full_range == bool(full_range))
+	{
+		// Même image : seules les métadonnées HDR10 ont pu changer.
+		if (metadata)
+			apply_hdr_metadata(s);
 		return 1;
+	}
 	s->width = width;
 	s->height = height;
 	s->chroma444 = chroma444 != 0;
 	s->hdr = hdr != 0;
 	s->full_range = full_range != 0;
-	s->max_nits = max_nits;
-	s->max_fall = max_fall;
-	s->min_nits = min_nits;
 	return configure_locked(s) ? 1 : 0;
 }
 

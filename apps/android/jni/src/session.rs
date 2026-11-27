@@ -23,7 +23,7 @@ use kybernow_core::input::{Clock, GamepadRumble, InputPipeline, InputPlatform, M
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::Second;
 use kybernow_core::media::PacketHandler;
-use kybernow_core::micro::MicState;
+use kybernow_core::micro::{MicState, MicUi};
 use kybernow_core::profile::{HdrLuminance, StreamSettings};
 use kybernow_core::session::{Notice, Platform, Session, SessionParams, Status};
 use kybernow_core::share::{ShareEnd, ShareImage, ShareRole, ShareState};
@@ -62,6 +62,15 @@ pub struct Shared {
     /// Caméra de l'appareil (docs/webcam.md) : l'appareil en a une (`sends_camera`
     /// des paramètres) ; le cœur la demande alors à l'ordinateur.
     sends_camera: bool,
+    /// « Micro » tel que l'interface le montre (`micro::MicUi` du cœur) : le
+    /// choix de l'utilisateur et la réponse de l'ordinateur.
+    mic: Mutex<MicUi>,
+    /// Le nom de l'ordinateur (avis « Micro envoyé à {nom}. »).
+    computer: String,
+    /// Le raccourci du micro, pour son infobulle (propre à l'app).
+    mic_shortcut: String,
+    /// Session d'invité (KyberNow Share).
+    guest: bool,
 }
 
 impl Shared {
@@ -96,6 +105,35 @@ impl Shared {
         if let Some(p) = self.current_input() {
             p.set_control_as_command(on);
         }
+    }
+
+    /// « Micro » allumé ou coupé par l'utilisateur (ou refusé par le système) :
+    /// l'interface le montre tout de suite, puis la session suit.
+    pub fn set_microphone(&self, on: bool) {
+        let json = {
+            let mut m = self.mic.lock().unwrap();
+            m.set(on);
+            self.mic_json(&m)
+        };
+        self.mic_changed(&json, None);
+    }
+
+    /// `MicUi::ui_json`, plus `shown` (`MicUi::shown` : la puce se montre ;
+    /// jamais chez un invité que l'hôte ne laisse pas parler).
+    fn mic_json(&self, m: &MicUi) -> String {
+        let mut v = m.ui_json(kybernow_core::i18n::current(), &self.mic_shortcut);
+        v["shown"] = m.shown(self.guest).into();
+        v.to_string()
+    }
+
+    /// `SessionListener.onMicrophone(json, notice)` : `MicUi::ui_json` et l'avis
+    /// bref à montrer (« Micro envoyé à {nom}. »), nul s'il n'y a rien à dire.
+    fn mic_changed(&self, json: &str, notice: Option<&str>) {
+        self.listener.with(|env, obj| {
+            let j = env.new_string(json)?;
+            let n = jstring_or_null(env, notice)?;
+            env.call_method(obj, "onMicrophone", "(Ljava/lang/String;Ljava/lang/String;)V", &[JValue::Object(&j), JValue::Object(&n)]).map(|_| ())
+        });
     }
 
     /// L'écran de l'appareil a changé de valeurs HDR (`screen_hdr_changed`).
@@ -182,6 +220,12 @@ impl MediaHost for Shared {
     fn frame_displayed(&self, pts: u64, received: i64, decoded: i64, shown: i64) {
         if let Some(s) = self.session() {
             s.frame_displayed(pts, received, decoded, shown);
+        }
+    }
+
+    fn pyrowave_failed(&self) {
+        if let Some(s) = self.session() {
+            s.pyrowave_failed();
         }
     }
 }
@@ -297,14 +341,28 @@ impl Platform for AndroidPlatform {
         });
     }
 
-    /// Micro de l'appareil (docs/micro.md) : `SessionListener.onMicrophone(json)`,
-    /// `MicState::to_json` (`{"state":"on"}`, `{"state":"refused","reason":"no_device","text":"…"}`).
-    /// Kotlin capte tant que l'état est `waiting` ou `on`.
+    /// Micro de l'appareil (docs/micro.md) : la réponse de l'ordinateur passe
+    /// par `MicUi` du cœur, puis `SessionListener.onMicrophone(json, notice)`
+    /// (`MicUi::ui_json` : `on`, `state` — Kotlin capte tant qu'il est
+    /// `waiting` ou `on` —, `lit`, `sent`, `reason`, `label`, `tooltip`, `tile`).
     fn on_microphone(&self, state: MicState) {
-        let json = state.to_json();
+        let (json, notice) = {
+            let mut m = self.0.mic.lock().unwrap();
+            let notice = m.changed(state, &self.0.computer);
+            (self.0.mic_json(&m), notice)
+        };
+        self.0.mic_changed(&json, notice.as_deref());
+    }
+
+    /// PyroWave n'a pas pu démarrer sur l'appareil (`Session::pyrowave_failed`,
+    /// demandé par le fil de l'image) : `SessionListener.onPyroWaveFallback(format,
+    /// text)`, l'avis de link-ui à montrer une fois.
+    fn on_pyrowave_fallback(&self, codec: kybernow_core::profile::Codec, text: &str) {
+        let format = codec.label();
         self.0.listener.with(|env, obj| {
-            let s = env.new_string(&json)?;
-            env.call_method(obj, "onMicrophone", "(Ljava/lang/String;)V", &[JValue::Object(&s)]).map(|_| ())
+            let f = env.new_string(format)?;
+            let t = env.new_string(text)?;
+            env.call_method(obj, "onPyroWaveFallback", "(Ljava/lang/String;Ljava/lang/String;)V", &[JValue::Object(&f), JValue::Object(&t)]).map(|_| ())
         });
     }
 
@@ -656,6 +714,12 @@ struct AndroidJson {
     /// L'appareil a une caméra et l'app a le droit de la demander (docs/webcam.md).
     #[serde(default)]
     sends_camera: bool,
+    /// Le nom de l'ordinateur (avis du micro).
+    #[serde(default)]
+    computer_name: String,
+    /// Le raccourci du micro (« Ctrl + Alt + Maj + V »), pour son infobulle.
+    #[serde(default)]
+    mic_shortcut: String,
 }
 
 fn yes() -> bool {
@@ -696,7 +760,13 @@ pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>
         hdr: AtomicBool::new(false),
         luminance: Mutex::new(luminance),
         sends_camera: android.sends_camera,
+        mic: Mutex::new(MicUi::default()),
+        computer: android.computer_name,
+        mic_shortcut: android.mic_shortcut,
+        guest: params.is_guest(),
     });
+    // « Micro » se montre dès le départ, coupé, avec ses textes.
+    shared.mic_changed(&shared.mic_json(&MicUi::default()), None);
     // Le pointeur à dessiner : position, visibilité, forme.
     let weak = Arc::downgrade(&shared);
     pointer.set_on_changed(move |state, change| {

@@ -32,12 +32,31 @@ KN_PW_API int kn_pw_probe(char *report, size_t report_size);
 // kn_pw_configure). Nul si impossible (raison dans `error`).
 KN_PW_API kn_pw_session *kn_pw_open(struct ANativeWindow *window, char *error, size_t error_size);
 
+// Métadonnées HDR10 du contenu, lues dans l'en-tête KNPW version 2
+// (docs/kyber-changes.md, « En-tête KNPW version 2 ») : un champ sans son
+// drapeau ne veut rien dire.
+typedef struct kn_pw_content_hdr
+{
+	int has_mastering;    // mastering display présent
+	float primaries[6];   // rouge x, y, vert x, y, bleu x, y (CIE 1931)
+	float white[2];       // blanc x, y
+	float max_luminance;  // nits
+	float min_luminance;  // nits
+	int has_light;        // niveaux de lumière présents
+	float max_cll;        // nits
+	float max_fall;       // nits
+} kn_pw_content_hdr;
+
 // Format de l'image : définition, 4:4:4, HDR10 (BT.2020 PQ) ou SDR BT.709,
 // plage pleine ou réduite (paquet de configuration KNPW). Recrée le décodeur,
 // les plans et, si le HDR change, la swapchain. `max_nits`, `max_fall`,
-// `min_nits` : métadonnées HDR10 de l'écran (0 : rien à donner). 1 si prêt.
+// `min_nits` : valeurs HDR de l'écran de l'appareil (0 : rien à donner),
+// métadonnées HDR10 de secours ; `content` (nul : aucune) : celles du
+// contenu (en-tête KNPW v2), prises en premier, champ par champ. Des
+// métadonnées seules changées sont redonnées à la swapchain sans rien
+// recréer. 1 si prêt.
 KN_PW_API int kn_pw_configure(kn_pw_session *session, uint32_t width, uint32_t height, int chroma444, int hdr, int full_range,
-                    float max_nits, float max_fall, float min_nits);
+                    float max_nits, float max_fall, float min_nits, const kn_pw_content_hdr *content);
 
 enum
 {

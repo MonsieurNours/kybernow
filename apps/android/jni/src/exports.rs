@@ -347,6 +347,68 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_adminUrl(mu
     })
 }
 
+/// L'empreinte d'Admin telle qu'on la montre (`console::short_fingerprint`) :
+/// les quatre premiers groupes, `7C41 E09B AABB CCDD` ; vide sans chiffre (TRANS-34).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shortFingerprint(mut env: Env, _: JClass, fp: JString) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let fp = string(&mut env, &fp);
+        give(&mut env, &kybernow_core::console::short_fingerprint(&fp))
+    })
+}
+
+/// Deux empreintes sont la même (`console::same_fingerprint` : préfixe,
+/// deux-points, espaces et casse ignorés ; une empreinte vide n'est jamais la même).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_fingerprintSame(mut env: Env, _: JClass, a: JString, b: JString) -> jboolean {
+    kybernow_core::ffi_guard!({
+        let (a, b) = (string(&mut env, &a), string(&mut env, &b));
+        jbool(kybernow_core::console::same_fingerprint(&a, &b))
+    })
+}
+
+/// Une adresse tapée (`console::parse_address`) : `{"host", "port"}`, le port
+/// d'Admin quand il manque si `default_port` > 0 (sinon il est exigé) ; une
+/// IPv6 nue est l'hôte entier ; nul si elle ne se lit pas.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_parseAddress(mut env: Env, _: JClass, text: JString, default_port: jint) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let text = string(&mut env, &text);
+        let default = u16::try_from(default_port).ok().filter(|&p| p > 0);
+        match kybernow_core::console::parse_address(&text, default) {
+            Some((host, port)) => give(&mut env, &serde_json::json!({ "host": host, "port": port }).to_string()),
+            None => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Les valeurs communes des apps (`plan::values_json`) pour les décodeurs de
+/// l'appareil (`capabilities_json` : `{hevc, hevc444, av1, hdr, pyrowave}`) :
+/// profils, bornes du débit à la main, débit en arrière-plan, maxima,
+/// délais, port d'Admin. Une fois au lancement. Nul si le JSON est illisible.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_valuesJson(mut env: Env, _: JClass, capabilities_json: JString) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let caps = string(&mut env, &capabilities_json);
+        match serde_json::from_str::<kybernow_core::profile::Capabilities>(&caps) {
+            Ok(c) => give(&mut env, &kybernow_core::plan::values_json(c).to_string()),
+            Err(e) => {
+                log::warn!("valeurs communes : décodeurs illisibles ({e})");
+                std::ptr::null_mut()
+            }
+        }
+    })
+}
+
+/// Le texte ressemble à un lien d'invitation (`lend::looks_like_invite`), lisible ou non.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_looksLikeInvite(mut env: Env, _: JClass, text: JString) -> jboolean {
+    kybernow_core::ffi_guard!({
+        let text = string(&mut env, &text);
+        jbool(kybernow_core::lend::looks_like_invite(&text))
+    })
+}
+
 // MARK: - Réveil par le réseau
 
 /// Une adresse MAC tapée à la main, lue par le cœur (`wake::parse_mac` :
@@ -486,17 +548,19 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetS
     })
 }
 
-/// Arrière-plan : débit plafonné (bit/s, 0 le retire) et image figée.
+/// L'image n'est plus regardée (app en arrière-plan), puis l'est de nouveau
+/// (docs/link-ui.md, « Image qui n'est plus regardée ») : touches et boutons
+/// tenus relâchés, puis `Session::set_background` du cœur, débit plafonné
+/// pour Android (`background_bitrate`, 2 Mbit/s) et image figée.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetBackground(_: Env, _: JClass, h: jlong, background: jboolean, cap: jint) {
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetBackground(_: Env, _: JClass, h: jlong, background: jboolean) {
     kybernow_core::ffi_guard!({
         let Some(h) = handle(h) else { return };
         let bg = background != 0;
         if bg && let Some(p) = h.shared.current_input() {
             p.release_all();
         }
-        h.session.set_bitrate_cap((bg && cap > 0).then_some(cap as u32));
-        h.session.set_hidden(bg);
+        h.session.set_background(bg, kybernow_core::session::Device::Android);
     })
 }
 
@@ -540,12 +604,15 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_setDeviceHa
     })
 }
 
-/// « Micro » allumé ou coupé (barre, réglage de l'ordinateur) : juste après
-/// `sessionStart`, puis à chaque changement. `onMicrophone` suit.
+/// « Micro » allumé ou coupé (barre, réglage de l'ordinateur ; coupé aussi
+/// quand le système en refuse l'accès) : juste après `sessionStart`, puis à
+/// chaque changement. `onMicrophone` suit tout de suite (`MicUi`), puis à la
+/// réponse de l'ordinateur.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetMicrophone(_: Env, _: JClass, h: jlong, on: jboolean) {
     kybernow_core::ffi_guard!({
         if let Some(h) = handle(h) {
+            h.shared.set_microphone(on != 0);
             h.session.set_microphone(on != 0);
         }
     })

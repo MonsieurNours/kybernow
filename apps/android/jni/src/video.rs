@@ -33,7 +33,9 @@ use kybernow_core::latency;
 use kybernow_core::media::{Packet, PacketHandler, ResumeGate, FOURCC_AV1, FOURCC_HEVC, FOURCC_PYROWAVE};
 
 use crate::media::MediaHost;
-use crate::pyrowave::{PwConfig, PwSession, Shown};
+use kybernow_core::pyrowave::Config;
+
+use crate::pyrowave::{PwFormat, PwSession, Shown};
 
 const BUFFER_FLAG_KEY_FRAME: u32 = 1;
 
@@ -160,9 +162,11 @@ struct DecodeLoop {
     /// le dernier paquet de configuration, un échec d'ouverture (réessayé avec
     /// la surface suivante) et le format dont le nom a été donné à Kotlin.
     pw: Option<PwSession>,
-    pw_config: Option<PwConfig>,
+    pw_format: Option<PwFormat>,
     pw_failed: bool,
-    pw_announced: Option<PwConfig>,
+    pw_announced: Option<PwFormat>,
+    /// Le repli de la session a été demandé au cœur (une fois : `pyrowave_failed`).
+    pw_fallback: bool,
     /// Le dernier changement de surface pris en compte (`SurfaceGate`).
     surface_gen: u64,
     /// Images en file (`VideoSink::queued`).
@@ -183,9 +187,10 @@ impl DecodeLoop {
             last_request: None,
             received: Arc::new(Mutex::new(VecDeque::with_capacity(64))),
             pw: None,
-            pw_config: None,
+            pw_format: None,
             pw_failed: false,
             pw_announced: None,
+            pw_fallback: false,
             surface_gen: 0,
             queued,
         }
@@ -240,12 +245,12 @@ impl DecodeLoop {
                     self.config.clear();
                     self.waiting_key = true;
                     self.pw = None;
-                    self.pw_config = None;
+                    self.pw_format = None;
                     self.pw_failed = false;
                     self.pw_announced = None;
                 }
-                Msg::Config(bytes) if self.pyrowave() => match PwConfig::parse(&bytes) {
-                    Some(c) => self.pw_config = Some(c),
+                Msg::Config(bytes) if self.pyrowave() => match PwFormat::parse(&bytes) {
+                    Some(f) => self.pw_format = Some(f),
                     None => log::warn!("PyroWave : paquet de configuration illisible ({} octets)", bytes.len()),
                 },
                 Msg::Config(bytes) => {
@@ -301,10 +306,11 @@ impl DecodeLoop {
     /// à la taille de la session en SDR), puis décodage et présentation.
     fn pyrowave_frame(&mut self, pts: u64, data: Vec<u8>, received: i64) {
         // Paquet de configuration reconnu à sa signature (s'il arrive sans `is_config`).
-        if data.len() == PwConfig::SIZE
-            && let Some(c) = PwConfig::parse(&data)
-        {
-            self.pw_config = Some(c);
+        if Config::is_config(&data) {
+            match PwFormat::parse(&data) {
+                Some(f) => self.pw_format = Some(f),
+                None => log::warn!("PyroWave : paquet de configuration illisible ({} octets)", data.len()),
+            }
             return;
         }
         if self.pw.is_none() {
@@ -316,25 +322,27 @@ impl DecodeLoop {
                 Ok(s) => self.pw = Some(s),
                 Err(e) => {
                     log::error!("PyroWave : affichage impossible ({e})");
-                    self.pw_failed = true;
+                    self.failed();
                     return;
                 }
             }
         }
-        let config = self.pw_config.unwrap_or_else(|| {
+        let format = self.pw_format.unwrap_or_else(|| {
             let (w, h) = self.host.video_size();
-            PwConfig::fallback(w, h)
+            PwFormat::fallback(&data, w, h)
         });
+        let config = format.config;
         let luminance = if config.hdr { self.host.hdr_luminance() } else { None };
         let Some(pw) = self.pw.as_mut() else { return };
-        if !pw.configure(config, luminance) {
-            log::error!("PyroWave : décodeur impossible pour {config:?}");
+        if !pw.configure(format, luminance) {
+            log::error!("PyroWave : décodeur impossible pour {}", config.label());
             self.pw = None;
-            self.pw_failed = true;
+            self.failed();
             return;
         }
-        if self.pw_announced != Some(config) {
-            self.pw_announced = Some(config);
+        let Some(pw) = self.pw.as_ref() else { return };
+        if self.pw_announced != Some(format) {
+            self.pw_announced = Some(format);
             let name = pw.describe();
             log::info!("image : décodeur {name} ({} × {})", config.width, config.height);
             self.host.listener().with(|env, obj| {
@@ -358,6 +366,19 @@ impl DecodeLoop {
                 log::warn!("PyroWave : surface ou GPU perdu, affichage refait à l'image suivante");
                 self.pw = None;
             }
+        }
+    }
+
+    /// PyroWave ne s'ouvre pas sur cet appareil (swapchain, décodeur) : plus
+    /// d'essai avec cette surface, et, une fois pour le flux, le repli de la
+    /// session (« Image en HEVC : PyroWave n'a pas pu démarrer sur cet
+    /// appareil. », docs/link-ui.md, « PyroWave ») : l'image repart dans le
+    /// format qu'aurait pris Auto.
+    fn failed(&mut self) {
+        self.pw_failed = true;
+        if !self.pw_fallback {
+            self.pw_fallback = true;
+            self.host.pyrowave_failed();
         }
     }
 

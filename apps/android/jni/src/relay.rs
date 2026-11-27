@@ -104,3 +104,29 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_relayErrorT
         }
     })
 }
+
+/// Les parties d'une adresse de relais (`rules::relay::parse`) :
+/// `{"authority": "hôte[:port]", "pin": "sha256:aa:bb:…" | null}`
+/// (`authority` : celle des pages du relais, sans le port 443, une IPv6 entre
+/// crochets) ; `null` si elle ne se lit pas. Pour les appels de l'app au relais
+/// hors du cœur (dépôt d'un journal).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_relayParts(mut env: Env, _: JClass, addr: JString) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let addr = string(&mut env, &addr);
+        match kybernow_core::rules::relay::parse(&addr) {
+            Some(r) => give(&mut env, &serde_json::json!({ "authority": r.web_authority(), "pin": r.pin }).to_string()),
+            None => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Le relais tel qu'on le montre (`rules::relay::label`) : `share.kybernow.app`,
+/// `relais.exemple.org:9443`, sans empreinte épinglée ni port 443.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_relayLabel(mut env: Env, _: JClass, addr: JString) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let addr = string(&mut env, &addr);
+        give(&mut env, &kybernow_core::rules::relay::label(&addr))
+    })
+}
