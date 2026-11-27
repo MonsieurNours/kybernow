@@ -28,9 +28,9 @@ fn unavailable() -> Option<&'static str> {
 #[cfg(target_os = "macos")]
 fn unavailable() -> Option<&'static str> {
     use std::path::PathBuf;
-    use std::process::{Command, Stdio};
+    use std::process::Command;
     use std::sync::OnceLock;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     /// Comme kynputserver (correctif Kyber Mac 0011) : `KYBERNOW_GAMEPADS_HELPER`,
     /// sinon l'aide de l'app, à côté de kyber-admin.
@@ -51,26 +51,17 @@ fn unavailable() -> Option<&'static str> {
             tracing::info!("manettes indisponibles : aide KyberNow Manettes absente");
             return Some("helper");
         };
-        let mut child = match Command::new(&path).arg("--check").stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
-            Ok(c) => c,
-            Err(e) => {
+        let mut cmd = Command::new(&path);
+        cmd.arg("--check");
+        let code = match crate::proc::run(cmd, Duration::from_secs(5)) {
+            Ok(out) => out.code(),
+            Err(crate::proc::Failure::Spawn(e)) => {
                 tracing::warn!("manettes : aide {} non lancée : {e}", path.display());
                 return Some("helper");
             }
+            Err(crate::proc::Failure::Timeout { .. }) => None,
         };
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let status = loop {
-            match child.try_wait() {
-                Ok(Some(s)) => break Some(s),
-                Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-                _ => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break None;
-                }
-            }
-        };
-        match status.and_then(|s| s.code()) {
+        match code {
             Some(0) => None,
             Some(2) => {
                 tracing::info!(

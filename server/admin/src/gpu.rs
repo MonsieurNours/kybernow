@@ -584,7 +584,7 @@ mod windows_monitor {
     /// Programme de Kyber qui capture et encode l'image.
     const ENCODER_PROCESS: &str = "kyavserver.exe";
     const PDH_FMT_NOCAP100: u32 = 0x0000_8000;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    use crate::proc::CREATE_NO_WINDOW;
     const ADAPTERS_EVERY: Duration = Duration::from_secs(300);
 
     pub fn run() {

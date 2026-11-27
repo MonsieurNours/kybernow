@@ -15,9 +15,9 @@
 //! `{"ok": null, "error": "…"}` (pas pu essayer). Une sonde à la fois (429).
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::Json;
 use axum::extract::{Query, State};
@@ -180,38 +180,20 @@ pub fn check(kyber_dir: &Path, probe: &Probe) -> Outcome {
         return Outcome::Unknown("kybernow-encoder-check introuvable".into());
     };
     let mut cmd = Command::new(&tool);
-    cmd.args(probe.args()).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+    cmd.args(probe.args());
     if cfg!(windows) {
         // Les DLL de FFmpeg sont dans le dossier de Kyber.
         cmd.current_dir(kyber_dir);
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    match crate::proc::run(cmd, TOOL_TIMEOUT) {
+        Ok(out) => outcome(out.code(), out.stderr.trim()),
+        Err(crate::proc::Failure::Spawn(e)) => Outcome::Unknown(format!("{} ne se lance pas ({e})", tool.display())),
+        // Ce que l'outil a dit avant d'être arrêté (pilote bloqué) aide à comprendre.
+        Err(crate::proc::Failure::Timeout { stderr }) => Outcome::Unknown(match stderr.lines().last().map(str::trim) {
+            Some(last) if !last.is_empty() => format!("délai dépassé ({})", last.chars().take(200).collect::<String>()),
+            _ => "délai dépassé".into(),
+        }),
     }
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => return Outcome::Unknown(format!("{} ne se lance pas ({e})", tool.display())),
-    };
-    let deadline = Instant::now() + TOOL_TIMEOUT;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(s)) => break s,
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Outcome::Unknown("délai dépassé".into());
-            }
-        }
-    };
-    let mut said = String::new();
-    if let Some(mut err) = child.stderr.take() {
-        use std::io::Read;
-        let _ = err.read_to_string(&mut said);
-    }
-    outcome(status.code(), said.trim())
 }
 
 /// Code de sortie de l'outil : 0 accepté, 1 refusé, autre (2 : encodeur

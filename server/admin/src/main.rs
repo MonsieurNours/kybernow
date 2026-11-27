@@ -47,6 +47,7 @@ mod migrate;
 mod pairing;
 mod preview;
 mod probe;
+mod proc;
 mod pyrowave;
 /// Enregistrement des sessions (docs/enregistrement.md).
 mod recording;

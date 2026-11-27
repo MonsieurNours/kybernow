@@ -40,11 +40,11 @@ pub fn ensure_registered(kyber_dir: &Path, data_dir: &Path) {
     }
     let mut probe = Command::new(&tool);
     probe.arg("--probe");
-    let probed = crate::micro::run(probe, PROBE_TIMEOUT);
+    let probed = crate::proc::code_and_stderr(probe, PROBE_TIMEOUT);
     if needs_install(probed.as_ref()) {
         let mut install = Command::new(&tool);
         install.arg("--install");
-        match crate::micro::run(install, INSTALL_TIMEOUT) {
+        match crate::proc::code_and_stderr(install, INSTALL_TIMEOUT) {
             Some((Some(0), _)) => tracing::info!("caméra « KyberNow Camera » inscrite dans Windows"),
             Some((code, err)) => tracing::warn!("caméra « KyberNow Camera » non inscrite ({}) : {err}", exit_text(code)),
             None => tracing::warn!("caméra « KyberNow Camera » non inscrite : kybernow-camera --install ne répond pas"),

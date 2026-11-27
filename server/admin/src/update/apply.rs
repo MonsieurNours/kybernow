@@ -992,7 +992,7 @@ mod windows {
             let _ = run("sc.exe", &["failureflag", service, "1"]);
         }
     }
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    use crate::proc::CREATE_NO_WINDOW;
     /// Noms affichés posés par l'installateur (`server/installer/i18n`,
     /// `install.serviceName`, `install.serviceDescription`,
     /// `install.trayShortcut`), repris ici pour les installations d'avant le

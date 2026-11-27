@@ -9,8 +9,8 @@
 //! (`drivers\vbcable`), sans fenêtre.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::time::Duration;
 
 use axum::Json;
 use axum::extract::State;
@@ -78,7 +78,7 @@ pub fn ensure_on_new_version(kyber_dir: &Path, data_dir: &Path) {
     {
         let mut cmd = Command::new(h);
         cmd.arg("--check");
-        let _ = run(cmd, CHECK_TIMEOUT);
+        let _ = crate::proc::code_and_stderr(cmd, CHECK_TIMEOUT);
     }
     let mark = data_dir.join(VBCABLE_MARK);
     // Marques d'avant la 0.11.8, une par version : VB-CABLE a déjà été proposé.
@@ -104,7 +104,7 @@ pub fn ensure_on_new_version(kyber_dir: &Path, data_dir: &Path) {
         matches!(helper(kyber_dir).map(|h| {
             let mut cmd = Command::new(h);
             cmd.arg("--check");
-            run(cmd, CHECK_TIMEOUT)
+            crate::proc::code_and_stderr(cmd, CHECK_TIMEOUT)
         }), Some(Some((Some(0), _))))
     };
     if present() {
@@ -112,7 +112,7 @@ pub fn ensure_on_new_version(kyber_dir: &Path, data_dir: &Path) {
     } else {
         let mut cmd = Command::new(&setup);
         cmd.args(["-i", "-h"]);
-        let outcome = run(cmd, INSTALL_TIMEOUT);
+        let outcome = crate::proc::code_and_stderr(cmd, INSTALL_TIMEOUT);
         if !present() {
             tracing::warn!("micro : VB-CABLE pas installé ({outcome:?}) : nouvel essai au prochain démarrage");
             return;
@@ -120,47 +120,6 @@ pub fn ensure_on_new_version(kyber_dir: &Path, data_dir: &Path) {
         tracing::info!("micro : VB-CABLE installé après la mise à jour (VB-Audio Software, donationware : vb-cable.com)");
     }
     let _ = std::fs::write(&mark, b"");
-}
-
-fn no_window(cmd: &mut Command) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    #[cfg(not(windows))]
-    let _ = cmd;
-}
-
-/// Attend la fin de `cmd` (`timeout` au plus) ; `None` s'il ne se lance pas ou dépasse.
-/// La sortie d'erreur est lue au fil de l'eau (un tube plein bloquerait
-/// l'aide), et un processus tué est attendu (pas de zombie).
-pub(crate) fn run(mut cmd: Command, timeout: Duration) -> Option<(Option<i32>, String)> {
-    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
-    no_window(&mut cmd);
-    let mut child = cmd.spawn().ok()?;
-    let reader = child.stderr.take().map(|mut e| {
-        std::thread::spawn(move || {
-            use std::io::Read;
-            let mut err = String::new();
-            let _ = e.read_to_string(&mut err);
-            err
-        })
-    });
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(s)) => break Some(s),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
-        }
-    };
-    let err = reader.and_then(|r| r.join().ok()).unwrap_or_default();
-    status.map(|s| (s.code(), err.trim().to_owned()))
 }
 
 /// L'état de la carte : `ready` (avec `device`, le nom que prennent les apps
@@ -172,7 +131,7 @@ pub fn status(kyber_dir: &Path) -> Value {
     };
     let mut cmd = Command::new(&helper);
     cmd.arg("--check");
-    match run(cmd, CHECK_TIMEOUT) {
+    match crate::proc::code_and_stderr(cmd, CHECK_TIMEOUT) {
         Some((Some(0), err)) => {
             let device = err.rsplit(" : ").next().unwrap_or_default().to_owned();
             json!({ "state": "ready", "device": device })
@@ -202,7 +161,7 @@ pub async fn install(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     let result = blocking(move || {
         let mut cmd = Command::new(&setup);
         cmd.args(["-i", "-h"]);
-        let outcome = run(cmd, INSTALL_TIMEOUT);
+        let outcome = crate::proc::code_and_stderr(cmd, INSTALL_TIMEOUT);
         tracing::info!("micro : VB-CABLE installé depuis Admin ({outcome:?})");
         Ok(status(&dir))
     })
@@ -233,22 +192,6 @@ mod tests {
         std::fs::write(root.join("drivers/vbcable/VBCABLE_Setup_x64.exe"), b"").unwrap();
         assert_eq!(vbcable_setup(&kyber).unwrap(), root.join("drivers/vbcable/VBCABLE_Setup_x64.exe"));
         let _ = std::fs::remove_dir_all(&root);
-    }
-
-    /// Une aide qui dépasse son délai est tuée puis attendue ; sa sortie
-    /// d'erreur est lue même longue.
-    #[cfg(unix)]
-    #[test]
-    fn une_aide_trop_lente_ne_laisse_pas_de_zombie() {
-        let mut slow = Command::new("/bin/sh");
-        slow.args(["-c", "sleep 5"]);
-        let t = Instant::now();
-        assert!(run(slow, Duration::from_millis(200)).is_none());
-        assert!(t.elapsed() < Duration::from_secs(3));
-        let mut chatty = Command::new("/bin/sh");
-        chatty.args(["-c", "head -c 200000 /dev/zero | tr '\\0' x >&2; exit 3"]);
-        let (code, err) = run(chatty, Duration::from_secs(10)).unwrap();
-        assert_eq!((code, err.len()), (Some(3), 200000));
     }
 
     #[test]

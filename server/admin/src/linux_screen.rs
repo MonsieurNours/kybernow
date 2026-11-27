@@ -119,32 +119,13 @@ pub fn capture(out: &Path, width: u32, quality: u8) -> anyhow::Result<()> {
     let sources = parse_sources(&text);
     let Some(screen) = primary(&sources) else { bail!("aucun écran à capturer") };
     let Some(args) = pipeline(screen, width, quality, out) else { bail!("source d'écran inattendue : {}", screen.source) };
-    let mut child = std::process::Command::new("gst-launch-1.0")
-        .args(&args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .context("gst-launch-1.0 introuvable")?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
-        if let Some(status) = child.try_wait()? {
-            if status.success() && out.metadata().is_ok_and(|m| m.len() > 0) {
-                return Ok(());
-            }
-            let mut err = String::new();
-            if let Some(mut e) = child.stderr.take() {
-                use std::io::Read;
-                let _ = e.read_to_string(&mut err);
-            }
-            bail!("capture de l'écran : {}", err.lines().last().unwrap_or("échec").trim());
-        }
-        if std::time::Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            bail!("capture de l'écran : pas d'image en 10 s (écran éteint ?)");
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
+    let mut cmd = std::process::Command::new("gst-launch-1.0");
+    cmd.args(&args);
+    match crate::proc::run(cmd, std::time::Duration::from_secs(10)) {
+        Ok(done) if done.status.success() && out.metadata().is_ok_and(|m| m.len() > 0) => Ok(()),
+        Ok(done) => bail!("capture de l'écran : {}", done.stderr.lines().last().unwrap_or("échec").trim()),
+        Err(crate::proc::Failure::Spawn(e)) => Err(e).context("gst-launch-1.0 introuvable"),
+        Err(crate::proc::Failure::Timeout { .. }) => bail!("capture de l'écran : pas d'image en 10 s (écran éteint ?)"),
     }
 }
 
