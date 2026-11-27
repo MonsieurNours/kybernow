@@ -96,7 +96,8 @@ export async function listMicrophones(): Promise<MicDevice[]> {
 }
 
 /** `denied` : le navigateur n'a pas l'autorisation ; `none` : pas de micro ; `failed` : le reste. */
-export type MicStart = 'ok' | 'denied' | 'none' | 'failed'
+/** `cancelled` : arrêtée par `stop` pendant la demande d'autorisation. */
+export type MicStart = 'ok' | 'denied' | 'none' | 'failed' | 'cancelled'
 
 /**
  * Une capture du micro, de `start` à `stop`. `onPacket` reçoit chaque paquet
@@ -138,8 +139,9 @@ export class MicCapture {
       return name === 'NotAllowedError' || name === 'SecurityError' ? 'denied' : name === 'NotFoundError' || name === 'OverconstrainedError' ? 'none' : 'failed'
     }
     if (!this.running) {
+      // Arrêtée pendant la demande d'autorisation (la session est partie) : rien n'a échoué (WEB-13).
       this.release()
-      return 'failed'
+      return 'cancelled'
     }
     try {
       await this.pipeline()

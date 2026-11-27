@@ -58,6 +58,14 @@ export class TouchInput {
     this.layer.removeEventListener('touchmove', this.move)
     this.layer.removeEventListener('touchend', this.up)
     this.layer.removeEventListener('touchcancel', this.up)
+    // Fin de session pendant un geste (WEB-09) : pas de clic droit d'un appui long après coup, et un glisser en
+    // cours est relâché.
+    if (this.longPress) clearTimeout(this.longPress)
+    this.longPress = null
+    if (this.dragging) {
+      this.dragging = false
+      this.mouse('mouseup', this.cursor, 0)
+    }
   }
 
   private bounds(p: Point): Point {

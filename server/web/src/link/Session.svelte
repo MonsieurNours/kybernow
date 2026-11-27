@@ -1193,6 +1193,9 @@
     }
   }
 
+  /** La relance prévue par `onPipeline`, arrêtée au démontage. */
+  let pipelineTimer: ReturnType<typeof setTimeout> | null = null
+
   /** Erreur de la chaîne d'image de l'ordinateur : relance bornée. */
   function onPipeline(kind: string, stage: string, event: string) {
     console.warn('KyberNow : chaîne de l’ordinateur', kind, stage, event)
@@ -1210,7 +1213,11 @@
     }
     pipelineRestarts++
     const n = pipelineRestarts
-    setTimeout(() => restartVideo(t('session.notice.imageRestart', { n, max: MAX_PIPELINE_RESTARTS })), 1000)
+    if (pipelineTimer) clearTimeout(pipelineTimer)
+    pipelineTimer = setTimeout(() => {
+      pipelineTimer = null
+      restartVideo(t('session.notice.imageRestart', { n, max: MAX_PIPELINE_RESTARTS }))
+    }, 1000)
   }
 
   function connectError(message: string): string {
@@ -1785,6 +1792,8 @@
       micCapturing = true
       return
     }
+    // Arrêtée en route (session quittée pendant la demande) : le choix retenu pour cet ordinateur reste (WEB-13).
+    if (r === 'cancelled') return
     // Refusé par le navigateur, ou pas de micro : « Micro » reste coupé.
     micAsked = false
     setMicOn(hostname, false)
@@ -2125,6 +2134,12 @@
         leaveGuest()
         retire(engine, prepared ? () => backend.end(null, extra()) : undefined)
       }
+      // Démontage complet (WEB-10) : bandeau PyroWave, relance d'image prévue, sonde du son sur un moteur arrêté.
+      hidePyroBanner()
+      if (pipelineTimer) clearTimeout(pipelineTimer)
+      pipelineTimer = null
+      audioProbe++
+      engine = null
     }
   })
 </script>

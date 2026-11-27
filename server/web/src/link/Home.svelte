@@ -8,6 +8,7 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { poll } from '../lib/poll'
   import { backend, type Info, type Live, type Preview } from './backend'
   import { supportedCodecs, type CodecSupport } from './engine'
   import { choose, preferredProtocol } from './plan'
@@ -72,9 +73,16 @@
 
   const profileNote = $derived(custom ? t('web.profile.customNote') : t(`web.profile.${prefs.profile}Note`))
 
+  /** L'accueil est encore à l'écran : une réponse arrivée après le démontage est jetée (WEB-12). */
+  let alive = true
+
   async function loadPreview() {
     const width = Math.min(1920, Math.round(window.innerWidth * (window.devicePixelRatio || 1)))
     const next = await backend.preview(width).catch(() => null)
+    if (next && !alive) {
+      URL.revokeObjectURL(next.url)
+      return
+    }
     if (next) {
       if (preview) URL.revokeObjectURL(preview.url)
       preview = next
@@ -83,6 +91,7 @@
 
   async function loadState() {
     const [l, i] = await Promise.all([backend.live().catch(() => null), backend.info().catch(() => null)])
+    if (!alive) return
     live = l
     if (i) info = i
     // PyroWave proposé par la Station : la sonde de ce navigateur, une fois par page (WEB-17).
@@ -122,13 +131,13 @@
   }
 
   onMount(() => {
-    loadPreview()
-    loadState()
     measureRefresh().then((hz) => (refresh = hz))
     loadCodecs()
-    const timers = [setInterval(loadState, 8000), setInterval(loadPreview, 30000)]
+    // Relevés en pause onglet masqué (WEB-12 : la capture de l'écran coûte à la Station).
+    const stops = [poll(loadState, 8000), poll(loadPreview, 30000)]
     return () => {
-      timers.forEach(clearInterval)
+      alive = false
+      for (const stop of stops) stop()
       if (preview) URL.revokeObjectURL(preview.url)
     }
   })
