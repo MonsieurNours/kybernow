@@ -23,11 +23,19 @@ Branche `claude/fix-stations-mac-linux-e1c42f`, d'après [stations-mac-linux.md]
 | STMAC-11 | `create` sur un rang occupé passe par la garde de `remove` (et vide `retina`, `modes`, `scaled` de l'écran retiré : une partie de STMAC-22) |
 | STMAC-12 | `display-off.json` écrit de façon atomique |
 | STMAC-13 | Notifications gardées quand Admin ne répond pas |
-| STMAC-14 | Un relevé de l'icône à la fois (pas d'intervalle plus long menu fermé) |
+| STMAC-14 | Un relevé de l'icône à la fois ; toutes les 2 s menu ouvert, toutes les 6 s menu fermé |
+| STMAC-15 | Pilote son : un compteur d'E/S par appareil du micro (« Micro KyberNow » et sortie cachée), un verrou par horloge (micro à part), anneaux vidés hors du verrou des fils temps réel |
+| STMAC-20 | Caméra : image grise gardée par taille ; l'attente de 5 ms de l'entrée gardée et expliquée (CoreMediaIO ne prévient pas qu'une image arrive) |
+| STMAC-22 | `sequence` de la caméra retiré ; `retina`, `modes`, `scaled` vidés au retrait d'un écran ; P010 pleine plage refusé par PyroWave |
 | STMAC-18 | `--path-format=absolute --git-common-dir` dans `build-station-app.sh` et `run-station.sh` |
 | STMAC-25 | `docs/station-macos.md` (filet de l'agent, écrans éteints, applicateur, LaunchAgents seulement, nombre de correctifs, droits), en-tête de `build-kyber.sh`, 44,1 kHz dans le pilote |
 | STLIN-02 (unité) | Socket 0660, groupe `kybernow-station` (sysusers), compte qui installe (`sudo`, `pkexec`) ajouté au groupe et noté `SocketUser` (effet immédiat, sans rouvrir la session) ; message sinon |
 | STLIN-04 | Agent des écrans Linux : SIGTERM/SIGINT/SIGHUP bloqués puis attendus par un fil, l'agent rend les écrans et s'arrête |
+| STLIN-09 | Fil de la disposition : numéro par disposition (n'efface que celle appliquée), verrou rendu pendant `desk.apply`, essais espacés (8 s au plus) et abandon après 12, journal allégé |
+| STLIN-10 | GNOME : session Mutter arrêtée sur toute erreur après `CreateSession` ; le fil d'attente écoute aussi `Closed` et se termine |
+| STLIN-11 | KDE : événements rangés par objet Wayland, seulement pour les flux attendus ; capture établie fermée par KWin relevée (`Recorder::lost`) et retirée, celles de l'ordinateur refaites |
+| STLIN-14 | NVENC seulement avec le pilote NVIDIA (`/proc/driver/nvidia/version` ou `libnvidia-encode.so.1`), sinon VA-API puis x264 ; `kybernow-station-setup --encoder` |
+| STLIN-15 | `ConditionUser=!@system` dans les trois services ; une seule session à la fois écrite dans la doc |
 | STLIN-05 (doc) | Limite écrite dans `docs/station-linux.md` : pendant un prêt, clavier et souris de l'ordinateur ne sont pas bloqués |
 | STLIN-16 | postrm / `%postun` : rechargements, purge de `/var/lib/kybernow-station` et du propriétaire noté |
 | STLIN-17 | Installation dans le dossier de l'utilisateur : `uhid` chargé, déclenché et dans `modules-load.d` |
@@ -38,6 +46,7 @@ Branche `claude/fix-stations-mac-linux-e1c42f`, d'après [stations-mac-linux.md]
 | STLIN-26 (en partie) | `INSTALLATION.md` (noms publiés, Sway et Hyprland), `docs/station-linux.md` (`import-environment` sous Sway/Hyprland, fichier des écrans relu toutes les 250 ms) |
 | STLIN-27 | Choix écrit dans `docs/station-linux.md` (Clavier, souris, pointeur) |
 | STCOM-05 (en partie) | Les deux `build-kyber.sh` repèrent un correctif posé avec décalage du contexte (essai à blanc `patch -F0`) et le signalent ; `KYBERNOW_PATCH_STRICT=1` en fait un échec |
+| TRANS-08 | `x86-chroot.sh` : refus d'effacer s'il reste un montage sous le chroot, `rm -rf --one-file-system` |
 | TRANS-07 (Mac) | `build-station-app.sh` retire `work/kybernow-camera` avant de le reconstruire : un échec de `clang` arrête la construction |
 
 ## Constats laissés
@@ -57,14 +66,22 @@ Branche `claude/fix-stations-mac-linux-e1c42f`, d'après [stations-mac-linux.md]
 | STMAC-02 (Admin) | `process_group(0)` dans `display/mac.rs` : inutile, l'agent prend son groupe lui-même |
 | STLIN-26 (reste) | `PROJECT.md` (fichier commun) et commentaires de `server/camera/linux` (hors zone) |
 | STMAC-25 (reste) | Commentaire du correctif Mac 0020 (« 0016 ») : `kyber-patches` |
-| STLIN-15, STLIN-14, STMAC-15, STMAC-17, STMAC-19 à 22, STLIN-09 à 11 | Hors des listes demandées pour cette vague |
+| STMAC-17, STMAC-19 | Correctifs Mac 0006 et 0013 (`server/macos/kyber-patches`) : session des correctifs Kyber, pour ne pas avoir deux sessions sur les mêmes correctifs. 0006 : mettre à jour `channels`/`ch_layout` dans la branche « entrée existante » et au démarrage de la capture. 0006/0013 : anneau sans verrou rempli par le rappel de Core Audio, `AVFrame` faits sur un fil ordinaire, journal limité |
+| STMAC-21 | `pyrowave_encoder_encode_gpu` ne prend ni tampon de commandes ni événement Metal (le décodeur, lui, prend un tampon) : l'attente ne peut partir qu'avec cette entrée dans PyroWave (`apps/macos/PyroWave`, zone de l'app Mac). Expliqué dans `kn_pyrowave_metal.mm` |
+| STMAC-23, STMAC-24, STLIN-18, STLIN-20, STLIN-21, STCOM-01, 02, 04, 06, 07, 08, 13 | `server/admin` : session Admin |
+| STLIN-24, STCOM-09, STCOM-10, STCOM-14 | Correctifs Kyber : session des correctifs Kyber |
+| STCOM-11 | Mise en commun des deux `build-kyber.sh` et de l'empreinte de `release.sh` : les fonctions communes iraient dans `server/kyber-patches/apply.sh` (hors zone) ; la fonction `kyber_patch_fuzz_warn` est pour l'instant écrite dans les deux scripts |
+| TRANS-21 | Rien dans la zone : pi-gen, webOS, Android et `server/camera` ; les dossiers temporaires de `server/macos` et `server/linux` ont déjà leur `trap` |
 
 ## Vérifié, et comment
 
 - **Icône** : `server/macos/menubar/build.sh` compile et lance `--check-strings` puis `--check-instance` (décision dans les 8 cas : LaunchAgent seul, LaunchAgent après Spotlight, Spotlight avec ou sans LaunchAgent en marche, essais sans LaunchAgent ; verrou pris, refusé à une seconde ouverture du fichier, titulaire lu, rendu puis repris). Cause lue dans le journal du Mac. Pas lancée en vrai : la Station de l'auteur tourne.
 - **Agent des écrans Mac** : `display-agent/build.sh` lance `kybernow-display self-test` (commandes ponctuelles reconnues, `lock` compris ; choix de la sortie rendue dans 7 cas ; sortie d'avant retenue). Commande inconnue : code 2 et erreur. Mode agent lancé à part (`HOME` d'essai) : `ping` répond, son propre groupe de processus (PGID = PID), SIGTERM → arrêt propre, fichier des écrans écrit dans le `HOME` d'essai (celui de l'auteur intact).
 - **Caméra** : `main.swift` compile (`swiftc`). Pas essayée.
-- **Agent des écrans Linux** : `cargo check` pour `aarch64-unknown-linux-gnu`, `cargo test` sur le Mac (6 essais, dont le nouveau `signal_d_arret_attendu`), clippy sans nouvel avertissement.
+- **Pilote son** : `clang -Wall -Wextra -Werror` passe. Pas chargé (il faudrait le réinstaller, ce que la mise à jour ne fait pas).
+- **PyroWave Mac** : `kn_pyrowave_metal.mm` compile ; reconstruit avec Kyber, voir plus bas.
+- **Choix de l'encodeur Linux** : `server/linux/scripts/test-setup.sh` (6 cas : NVIDIA avec et sans pilote, AMD, Intel, avec et sans nœud de rendu), sur le Mac.
+- **Agent des écrans Linux** : `cargo check` pour `aarch64-unknown-linux-gnu`, `cargo test` sur le Mac (8 essais, dont `signal_d_arret_attendu`, `essais_espaces_puis_abandon`, `numero_change_a_chaque_disposition`), clippy sans nouvel avertissement. GNOME et KDE pas essayés (pas de VM).
 - **Scripts** : `bash -n` sur tous les scripts de `server/linux` et `server/macos/scripts` ; `shellcheck` sans nouvel avertissement ; postinst, prerm et postrm extraits de `package.sh` passés à `sh -n` et `shellcheck -s sh`.
 - **Correctifs de Kyber pour la Station Mac** : arbre à moi (`third_party/arbres-fix-stations-mac-linux/station-mac`), `KYBER_PATCH_ONLY=1` : tout se pose ; avertissement pour 0009 et 0030.
 - **Construction de la Station Mac** : dans le même arbre, `build-kyber.sh` complet (kycontroller, kyavserver, kynputserver, kybernow-pyrowave-check produits par ce build) puis `build-station-app.sh` signé ad hoc (`KYBER_SIGN_IDENTITY=-`, sans trousseau) : app, installateur, désinstalleur, .dmg et zip de mise à jour construits. Droit `audio-input` relu par `codesign -d --entitlements` : présent pour l'app, kyavserver et kybernow-micro, absent des autres. `--check-instance` et `self-test` repassés sur les exécutables de l'app. Pas de caméra dans cette construction (pas de profil sans trousseau) : STMAC-03 et TRANS-07 compilés, pas emballés. Rien d'installé ; la Station de l'auteur n'a pas été touchée.
@@ -76,6 +93,8 @@ Branche `claude/fix-stations-mac-linux-e1c42f`, d'après [stations-mac-linux.md]
 - Mac : caméra de l'appareil vue dans FaceTime (kybernow-camera admis ; une autre app refusée, ligne « entrée refusée » au journal `fr.leslignesclaires.kybernow.station.camera`). Si macOS refuse `SecCodeCopyGuestWithAttributes` dans le bac à sable, la caméra ne marche plus : c'est le premier point à regarder.
 - Mac : son de la session (kyavserver) et micro de l'appareil (kybernow-micro) avec les droits restreints ; Admin, kycontroller et kybernow-display sans le droit.
 - Mac : notification d'emprunt sur l'écran verrouillé : « Accepter » demande le déverrouillage.
+- Mac : « Micro KyberNow » et la sortie cachée après réinstallation du pilote (indicateur de micro seulement quand une app lit le micro).
+- Linux : GNOME (une capture refusée ne laisse pas de session Mutter, `gdbus` ou `busctl`), KDE sans kscreen-doctor (quelques lignes de journal puis abandon), NVIDIA sous nouveau (VA-API choisi).
 - Linux : installation du .deb et du .rpm avec `sudo` (groupe créé, `owner.conf`, mise à jour depuis Admin) ; avec un second compte, demande refusée ; `apt purge` / `dnf remove` ; Sway/Hyprland : `systemctl --user stop kybernow-admin` rallume les écrans.
 
 ## Notes de version
@@ -91,6 +110,9 @@ Branche `claude/fix-stations-mac-linux-e1c42f`, d'après [stations-mac-linux.md]
 - Station Linux : sous Sway et Hyprland, les écrans de l'ordinateur se rallument quand la Station s'arrête.
 - Station Linux : la désinstallation complète (purge) retire aussi les anciennes versions gardées pour le retour arrière.
 - Station Linux (Bazzite, SteamOS) : les manettes PlayStation sont reconnues sans redémarrer.
+- Station Mac : « Micro KyberNow » ne se dit plus en marche quand il ne l'est pas (après réinstallation de la Station).
+- Station Linux : avec une carte NVIDIA sans son pilote propriétaire, la Station choisit un encodeur qui marche.
+- Station Linux : la disposition des écrans tient quand vous ajoutez deux écrans coup sur coup, sous GNOME et KDE.
 - Station Linux : pendant un prêt, le clavier et la souris de l'ordinateur ne sont pas encore bloqués ; ne prêtez pas un ordinateur que d'autres peuvent toucher.
 
 **EN**
@@ -104,4 +126,7 @@ Branche `claude/fix-stations-mac-linux-e1c42f`, d'après [stations-mac-linux.md]
 - Linux Station: on Sway and Hyprland, the computer's displays come back on when the Station stops.
 - Linux Station: a full uninstall (purge) also removes the older versions kept for rollback.
 - Linux Station (Bazzite, SteamOS): PlayStation controllers are recognized without restarting.
+- Mac Station: “Micro KyberNow” no longer says it is in use when it is not (after reinstalling the Station).
+- Linux Station: with an NVIDIA card without its proprietary driver, the Station picks an encoder that works.
+- Linux Station: the display layout holds when you add two displays in a row, on GNOME and KDE.
 - Linux Station: during a loan, the computer's keyboard and mouse are not blocked yet; do not lend a computer that others can touch.
