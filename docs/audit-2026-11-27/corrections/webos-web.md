@@ -20,6 +20,17 @@ Zone : `apps/webos` (hors `kyber-patches` et `sdl-patches`) et `server/web` (hor
 - **WEBOS-12** : OK sur un focus absent de l'écran dessiné le ramène au premier élément ; la confirmation « Forcer » fermée hors des Réglages rend le focus de l'écran ; une confirmation arrivée en jeu reçoit OK et les flèches.
 - **WEBOS-14** : retour au premier plan (`SDL_APP_DIDENTERFOREGROUND`) : sondage d'Admin, réseau et comptes relus tout de suite ; en session, décodeur et chaîne Dolby rechargés à l'image clé suivante.
 - **WEBOS-15** : le test Auto ne décharge que le décodeur qu'il tient (propriétaire à lui, plus de `ndl::unload` final inconditionnel).
+- **WEBOS-13** : la réponse tardive de « Par adresse » n'ouvre plus Ajouter hors de l'écran qui l'attend (`App::probed`).
+- **WEBOS-16** : une manette déjà ouverte, ou une cinquième, est refermée.
+- **WEBOS-17** : l'aperçu d'un ordinateur retiré est effacé ; un sondage ou un aperçu arrivé après le retrait ne recrée rien.
+- **WEBOS-18** : taille de trame lue sur l'encodeur ouvert (`kn_eac3_frame_size(e)`) ; erreurs de l'encodeur distinguées (-1 à -4), comptées et journalisées (la première, puis toutes les 1000).
+- **WEBOS-19** : `kybernow.log` tourné au-delà de 5 Mo.
+- **WEBOS-20** : Rejoindre, Compte, Manettes et l'attente du code redessinés toutes les 250 ms au lieu de 60 fois par seconde ; QR code gardé ; glyphes empruntés au cache ; offres des Stations calculées une fois par seconde ou après un événement ; la Magic Remote ne redessine qu'au changement de focus.
+- **WEBOS-21** : SPS et SEI seuls désémulés ; métadonnées HDR lues une fois par mire.
+- **WEBOS-22** : tampons du chemin Dolby réutilisés (PCM remis dans l'ordre, trames E-AC-3), compteurs atomiques.
+- **WEBOS-24** : crochet `Feed` et réécriture retirés ; seule la journalisation de `Load` reste (README FR et EN).
+- **WEBOS-25** : plus de `allow(dead_code)` dans `sdl.rs` ; 14 déclarations inutilisées, `SignInFail::Cancelled`, `PairAsked::address` et `let _ = (w, h, codec)` retirés. La partie téléviseur compile sans aucun avertissement venant de webOS.
+- **WEBOS-29 et TRANS-21 (webOS)** : chaîne figée sur `2026.08-webos` ; archives téléchargées dans un fichier, extraites à part puis mises en place ; FFmpeg vérifié par SHA-256 et compilé en `--cpu=armv7-a` ; relogement interrompu refait (marqueur) sans toucher une chaîne déjà en place ; dossiers temporaires retirés par `trap`. README FR et EN.
 - **WEBOS-23** : le générateur de captures (`preview.rs`) n'est plus dans le binaire du téléviseur ; `open_link`, `adjust_for_preview`, `encode_png` suivent.
 - **WEBOS-28** : README FR et EN corrigés (horodatage, ~5 s au pire, jetons).
 - **TRANS-35 (copie LG)** : `parse_address` juste en IPv6 (`[fe80::1]:24811` ; `fe80::1` sans port n'est plus l'hôte `fe80:` au port 1).
@@ -35,7 +46,16 @@ Zone : `apps/webos` (hors `kyber-patches` et `sdl-patches`) et `server/web` (hor
 - **WEB-06** : Admin injoignable au chargement : « La Station ne répond pas. Nouvel essai dans un instant… », nouvel essai espacé (2 à 15 s).
 - **WEB-07** : erreur réseau traduite (`NetworkError`, `common.unreachable`) ; relevés de Compte silencieux sur une erreur réseau.
 - **WEB-08** : effets des pages en `untrack` ; `langHeaders` lit la langue sans la suivre.
-- **WEB-14** : un seul jeton de streaming par page, réutilisé par la rubrique Station et la session tant qu'il lui reste plus d'une heure (`link/ticket.ts`).
+- **WEB-07, suite** : toute erreur du navigateur (`TypeError`, délai, annulation) est dite « La Station ne répond pas… » dans les toasts ; le même avis n'est pas reposé.
+- **WEB-09** : appui long et glisser en cours arrêtés à `TouchInput.destroy()`.
+- **WEB-10** : démontage de la session complet (bandeau PyroWave, relance prévue par `onPipeline`, sonde du son).
+- **WEB-11** : un signal de vie à la fois, abandonné au bout d'une période (Worker et repli de la page).
+- **WEB-12** : accueil du client web : réponses arrivées après le démontage jetées (aperçu `blob:` révoqué), relevés par `poll()`.
+- **WEB-13** : micro arrêté pendant la demande d'autorisation : `cancelled`, le choix retenu pour l'ordinateur reste.
+- **WEB-14** : compte de streaming lu dans `stream_user` (`/api/stream/info`, puis `/api/session`) sans signer de jeton ; repli pour une Station 0.11.7 : un seul jeton par page, réutilisé par la rubrique Station et la session tant qu'il lui reste plus d'une heure (`link/ticket.ts`).
+- **WEB-16** : onglets du téléphone qui rétrécissent (ellipse), icônes seules sous 480 px avec le libellé lu par les lecteurs d'écran.
+- **WEB-18** : paquet de position de 9 octets réutilisé, rectangle de la toile gardé (`ResizeObserver`, redimensionnement, défilement), métriques réactives seulement barre ou statistiques ouvertes, médianes bornées à 6 h.
+- **WEB-27** : plus d'effet de bord dans le `$derived` des invitations, relecture qui ne se recrée plus ; version de Kyber en un seul endroit (`KYBER_VERSION`, ou `kyber_version` si Admin la donne).
 - **WEB-15** : code de prêt gardé en empreinte seulement, effacé après 15 min ; comptes d'amis inutilisés depuis 90 jours oubliés ; phrase sous « Retenir le mot de passe ».
 - **WEB-17** : sonde PyroWave et décodeur chargés à la demande (`import()`), face à une Station qui le propose, pour l'hôte seulement ; mesures dans `pyrowave/stats.ts`.
 - **WEB-19** : `poll()` commun (`lib/poll.ts`) : un tour à la fois, en pause onglet masqué, relevé au retour. Pris par l'état, Vue d'ensemble, Appareils, Image et son, Prêt, Enregistrements, Compte, Système.
@@ -46,20 +66,19 @@ Zone : `apps/webos` (hors `kyber-patches` et `sdl-patches`) et `server/web` (hor
 
 ## Constats laissés
 
-- **WEBOS-13, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 29** : hors des priorités de la vague 1 (latence d'interface, code mort à risque, factorisation, construction). WEBOS-26 et 27 relèvent de la vague 2 (vers le cœur).
-- **WEBOS-01, copie Linux** (`apps/linux/src/model.rs`) : zone d'une autre session.
-- **WEB-09, 10, 11, 12, 13, 16, 18, 21, 22, 27** : hors des priorités. WEB-21 (découpage de `Session.svelte`) et WEB-22 relèvent de la vague 2.
-- **WEB-14, vraie cause** : Admin n'expose le compte de streaming que par `/api/web/ticket`, qui signe un jeton de 12 h. Le correctif ici réduit à un jeton par page ; le compte devrait venir de `/api/session` ou `/api/stream/info` (`server/admin`, hors zone). Le client web doit rester compatible avec une Station 0.11.7 : il ne peut pas encore compter sur ce champ.
-- **WEB-25, 26** : `docs/link-ui.md` (fichier commun) et `server/README.md` (hors zone).
-- **TRANS-30, reste** : le message « Le code a six chiffres, et le prénom ne peut pas être vide. » et les apostrophes typographiques du catalogue (vague 2, traductions).
-- **TRANS-34, reste** : la fonction commune `short_fingerprint` du cœur (vague 2) ; Android est dans une autre zone.
-- **WEB-07, reste** : les toasts d'erreur des actions (clic) restent affichés, en français ou en anglais désormais.
+Seule la vague 2 reste :
+
+- **WEBOS-26, WEBOS-27** : interface Rust partagée avec `apps/linux`, découpage NAL et `sym<T>` dans le cœur.
+- **WEB-21, WEB-22** : découpage de `Session.svelte`, petits doublons (presse-papiers, listes).
+- **WEB-25, `docs/link-ui.md`** et **TRANS-30, reste** (« Le code a six chiffres, et le prénom… », apostrophes typographiques du catalogue) ; **TRANS-34, reste** (`short_fingerprint` du cœur).
+
+Hors de ma zone, signalé : la copie Linux de WEBOS-01 (`apps/linux/src/model.rs`) ; **WEB-26** (`server/README.md`) ; pour WEB-14, Admin doit donner `stream_user` (la valeur de `web_user`) dans `/api/stream/info` ou `/api/session` (note dans le dossier partagé, `webos-web-stream-user.md`) ; pour WEB-27, `kyber_version` dans `/api/status` si Admin veut la donner. Le `-C target-cpu=cortex-a73` de Rust (`scripts/build.sh`) n'a pas été touché : il change toute la compilation du cœur et se mesure sur un téléviseur.
 
 ## Vérifié, et comment
 
-- `apps/webos` : `cargo test --no-default-features` dans mon arbre `webos` (`third_party/arbres-fix-webos-web`) : 101 essais passés, dont les nouveaux `model::tests` (fichier tronqué mis de côté, fichier d'une version plus récente, fichier absent), `av_clock::tests`, `app::tests::back_cancels_a_pending_borrow`, `ok_on_a_focus_not_on_screen`, `address` (IPv6), `ui::settings` (empreinte).
-- Compilation croisée `armv7-unknown-linux-gnueabi` (`apps/webos/scripts/build.sh --check`) dans le même arbre : passe, sans avertissement nouveau.
-- `server/web` : `npm run check` (svelte-check, tsc, `i18n-check.mjs` avec la détection des textes inutilisés : 1 373 textes alignés), `npm run build` (le décodeur PyroWave dans son propre morceau, `live-*.js`), `npx vitest run` : 46 essais passés, dont les nouveaux `lib/poll.test.ts`, `lib/http.test.ts`, `link/ticket.test.ts`, `link/lend.test.ts`.
+- `apps/webos` : `cargo test --no-default-features` dans mon arbre `webos` (`third_party/arbres-fix-webos-web`) : 102 essais passés, dont les nouveaux `app::tests::late_probe_ignored`, `model::tests` (fichier tronqué mis de côté, fichier d'une version plus récente, fichier absent), `av_clock::tests`, `app::tests::back_cancels_a_pending_borrow`, `ok_on_a_focus_not_on_screen`, `address` (IPv6), `ui::settings` (empreinte).
+- Compilation croisée `armv7-unknown-linux-gnueabi` (`apps/webos/scripts/build.sh --check`) dans le même arbre : passe, sans aucun avertissement venant de webOS. FFmpeg 7.1.1 configuré et compilé en `--cpu=armv7-a` avec la chaîne du Mac ; `fetch_extract` essayé : bonne somme acceptée, mauvaise refusée, dossier temporaire retiré. Le téléchargement de la chaîne `2026.08-webos` n'a pas été refait (chaîne du Mac déjà en place).
+- `server/web` : `npm run check` (svelte-check, tsc, `i18n-check.mjs` avec la détection des textes inutilisés : 1 373 textes alignés), `npm run build` (le décodeur PyroWave dans son propre morceau, `live-*.js`), `npx vitest run` : 49 essais passés, dont les nouveaux `lib/poll.test.ts`, `lib/http.test.ts`, `lib/store.test.ts`, `link/ticket.test.ts`, `link/lend.test.ts`.
 - Compatibilité avec une Station 0.11.7 : mêmes routes et mêmes corps ; seuls s'ajoutent l'en-tête de langue sur quelques appels `keepalive` et `x-kyber-admin` sur la déconnexion (déjà là).
 
 ## Reste à essayer sur la LG G2
@@ -71,8 +90,11 @@ Zone : `apps/webos` (hors `kyber-patches` et `sdl-patches`) et `server/web` (hor
 - Vibrations et combinaison du menu sans manette qui bouge (WEBOS-10).
 - Retour sur l'accueil pendant « En attente de {hôte}… » : la demande disparaît chez l'hôte.
 - Saisie d'une adresse IPv6 entre crochets ; empreinte en quatre groupes à l'appairage.
+- Curseur de Rejoindre et minute du code à 4 dessins par seconde : clignotement correct ; Magic Remote sur les menus.
+- 5.1 Dolby avec l'encodeur relu (taille de trame), FFmpeg en `armv7-a` (le son reste juste), journal tourné après des jours d'app ouverte.
+- Une construction neuve sur Linux x86_64 avec la chaîne `2026.08-webos`.
 
-Côté navigateur, à essayer : une perte du GPU en session PyroWave (veille du Mac, `chrome://gpucrash`), et l'onglet Admin masqué pendant une partie (plus de requêtes).
+Côté navigateur, à essayer : une perte du GPU en session PyroWave (veille du Mac, `chrome://gpucrash`), l'onglet Admin masqué pendant une partie (plus de requêtes), la barre d'onglets d'Admin à 375 px, le toucher (appui long pendant la fin de session).
 
 ## Notes de version
 
@@ -85,6 +107,8 @@ Côté navigateur, à essayer : une perte du GPU en session PyroWave (veille du 
 - Navigateur : avec PyroWave, l'image reprend toute seule si la carte graphique se réinitialise.
 - Admin : le champ « Votre prénom » de la page Prêt ne se vide plus pendant la saisie ; Admin vous dit quand la Station ne répond pas et réessaie ; les pages ne sollicitent plus la Station quand l'onglet est caché.
 - Navigateur : le code d'un prêt n'est plus gardé en clair, et les comptes d'amis inutilisés depuis 90 jours sont oubliés.
+- LG : l'app consomme moins quand elle attend (écrans redessinés à leur rythme), et son journal ne grossit plus sans fin.
+- Admin : la barre d'onglets tient sur un petit téléphone, et les messages d'erreur sont toujours dans votre langue.
 
 **EN**
 
@@ -95,3 +119,5 @@ Côté navigateur, à essayer : une perte du GPU en session PyroWave (veille du 
 - Browser: with PyroWave, the picture comes back on its own if the graphics card resets.
 - Admin: the “Your name” field on the Lend page no longer clears while you type; Admin tells you when the Station is not responding and tries again; pages no longer poll the Station while the tab is hidden.
 - Browser: a loan code is no longer kept in clear text, and friend accounts unused for 90 days are forgotten.
+- LG: the app uses less while it waits (screens redrawn at their own pace), and its log no longer grows without end.
+- Admin: the tab bar fits on a small phone, and error messages are always in your language.
