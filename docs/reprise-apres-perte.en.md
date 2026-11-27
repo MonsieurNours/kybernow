@@ -113,15 +113,25 @@ tests only):
 
 1. **NVENC** (Windows Station, NVIDIA card, HEVC): cut the Wi-Fi for a split
    second, or lose packets (`clumsy` on Windows), then read kyavserver's
-   log: “Loss repaired by invalidation” or “by a long-term reference”. Check
+   log. FFmpeg's lines are at VERBOSE level, only written with
+   `txproto_log_level = "debug"` (txproto engine) or `ffmpeg_log_level =
+   "debug"` (libavconv engine) in the `[kyavserver]` section of
+   `kyber_config.toml`. When the stream starts: “Repairs without keyframe:
+   DPB …, invalidation …, … long-term references” (otherwise “No
+   invalidation nor long-term reference: losses are repaired by IDR”); at
+   each loss: “Repair up to {pts} at {pts}: invalidation” (or “long-term
+   reference”, or “IDR”). Check
    that the picture comes back sharp, with no corrupt picture, and that the
    bitrate no longer spikes. To check as well: does the card accept
    invalidation with progressive refresh (the default setting)?
-2. **VideoToolbox** (Mac Station): same test; the log should say “by a
-   long-term reference”. If VideoToolbox refuses `EnableLTR` in HEVC, it
-   says so (“No long-term references”) and everything goes through the
-   keyframe.
-3. **Each app**: “reprise sans image clé” in the log (Mac, Windows) or the
+2. **VideoToolbox** (Mac Station): same test, same log level. VideoToolbox
+   writes a single line, when the stream starts: “Repairs without keyframe:
+   long-term references”; if it refuses `EnableLTR` in HEVC, “No long-term
+   references (…): losses are repaired by keyframes” (WARNING level, always
+   written), and everything goes through the keyframe. Nothing is written
+   at each repair: the app's keyframe counter (point 3) shows it.
+3. **Each app**: “image perdue après le pts … : reprise demandée” in the
+   log (written by the core, in every app), then the
    keyframe counter no longer growing at each loss (Statistics). Above all
    the hardware decoders we don't know from the inside: MediaCodec (by
    manufacturer), NDL (LG), V4L2 (Raspberry Pi).
