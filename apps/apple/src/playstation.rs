@@ -315,10 +315,13 @@ pub unsafe extern "C" fn kn_ps_start(
         return std::ptr::null_mut();
     };
     let cb = *cb;
+    // La partie s'arrête en attendant ses fils (`kn_ps_stop`) : l'app garde
+    // elle-même son `userdata`, rien à rendre ici.
+    let owner = crate::Owner::new(cb.userdata, None);
     let sink = |packet_cb: KnPacketCb| -> Option<Arc<dyn PacketHandler>> {
         let f = packet_cb?;
         let stream = STREAMS.fetch_add(1, Ordering::Relaxed);
-        Some(Arc::new(Sink { cb: f, userdata: cb.userdata, stream, screen: 0 }))
+        Some(Arc::new(Sink { cb: f, userdata: cb.userdata, stream, screen: 0, _owner: owner.clone() }))
     };
     let Some(video) = sink(cb.video_packet) else { return std::ptr::null_mut() };
     let audio = sink(cb.audio_packet);

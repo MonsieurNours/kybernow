@@ -485,7 +485,16 @@ final class InputPipeline: @unchecked Sendable {
             pasteboard_text: Self.pasteboardText,
             pasteboard_set_text: Self.pasteboardSetText,
             pasteboard_has_text: Self.pasteboardHasText,
-            pasteboard_reading_asks_user: Self.pasteboardReadingAsksUser
+            pasteboard_reading_asks_user: Self.pasteboardReadingAsksUser,
+            // La boîte est rendue par le cœur quand plus rien ne tient la
+            // chaîne (Kyber, fil des minuteries), sur le fil principal (MAC-01).
+            release_userdata: { ud in
+                guard let ud else { return }
+                let bits = UInt(bitPattern: ud)
+                DispatchQueue.main.async {
+                    Unmanaged<Callbacks>.fromOpaque(UnsafeMutableRawPointer(bitPattern: bits)!).release()
+                }
+            }
         )
         core = kn_input_new(options, pointer.core, callbacks)
         gamepad.owner = self
@@ -545,11 +554,9 @@ final class InputPipeline: @unchecked Sendable {
     #endif
 
     deinit {
+        // La boîte des rappels part avec le dernier détenteur de la chaîne
+        // (`release_userdata`), plus après un délai fixe.
         kn_input_free(core)
-        let ud = Unmanaged.passUnretained(box).toOpaque()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            Unmanaged<Callbacks>.fromOpaque(ud).release()
-        }
     }
 
     /// La chaîne kynput avec une référence prise, pour la session.
@@ -584,14 +591,18 @@ final class InputPipeline: @unchecked Sendable {
     /// `mouse(on:x:y:)` à l'écran de Kyber de leur écran.
     func setScreens(_ screens: [Screen]) {
         let pointers = screens.compactMap(\.pointer)
-        screensLock.lock()
-        screenPointers = pointers
-        screensLock.unlock()
         var list = screens.map { s in
             KnInputScreen(screen: UInt32(s.index), display_id: s.displayID, host_width: UInt32(max(0, s.hostSize.width)),
                           host_height: UInt32(max(0, s.hostSize.height)), pointer: s.pointer?.core)
         }
+        // Le cœur détourne d'abord les paquets du curseur vers les nouvelles
+        // couches ; les anciennes ne sont lâchées qu'ensuite (MAC-01).
         list.withUnsafeMutableBufferPointer { kn_input_set_screens(core, $0.baseAddress, UInt($0.count)) }
+        screensLock.lock()
+        let previous = screenPointers
+        screenPointers = pointers
+        screensLock.unlock()
+        withExtendedLifetime(previous) {}
     }
 
     /// Multi-écrans : position absolue sur l'écran `index` de l'appareil, en

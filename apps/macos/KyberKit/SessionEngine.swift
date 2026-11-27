@@ -571,6 +571,15 @@ public final class SessionEngine: @unchecked Sendable {
 
         platform = KnPlatform()
         platform.userdata = Unmanaged.passRetained(self).toOpaque()
+        // Rendu par le cœur quand plus rien ne peut rappeler (session finie,
+        // dernier flux lâché par Kyber), sur le fil principal (MAC-01).
+        platform.release_userdata = { ud in
+            guard let ud else { return }
+            let bits = UInt(bitPattern: ud)
+            DispatchQueue.main.async {
+                Unmanaged<SessionEngine>.fromOpaque(UnsafeMutableRawPointer(bitPattern: bits)!).release()
+            }
+        }
         platform.window_handle = UInt64(UInt(bitPattern: Unmanaged.passUnretained(view.videoView).toOpaque()))
         platform.has_audio = p.audioChannels > 0
         platform.input_pipeline = { ud in SessionEngine.from(ud).makeInputPipeline() }
@@ -1314,9 +1323,8 @@ public final class SessionEngine: @unchecked Sendable {
         }
     }
 
-    /// Fin : la vue est détachée, les décodeurs arrêtés ; la session du cœur
-    /// et cet objet vivent encore 30 s, le temps que Kyber finisse de livrer
-    /// (et de fermer) ses flux.
+    /// Fin : la vue est détachée, les décodeurs arrêtés ; cet objet vit
+    /// jusqu'à ce que Kyber ait fermé ses flux (`release_userdata`).
     private func finish() {
         lock.lock()
         guard !ended else {
@@ -1335,7 +1343,6 @@ public final class SessionEngine: @unchecked Sendable {
         let audios = Array(self.audios.values)
         let input = self.input
         self.input = nil
-        let ud = platform.userdata
         var views = [view]
         for v in screenViews.values where !views.contains(where: { $0 === v }) { views.append(v) }
         lock.unlock()
@@ -1349,9 +1356,12 @@ public final class SessionEngine: @unchecked Sendable {
             videos.forEach { $0.stop() }
             audios.forEach { $0.stop() }
         }
+        // La session du cœur est rendue 30 s plus tard (un fil de la caméra
+        // ou du son a pu lire son adresse juste avant) ; cet objet, lui, est
+        // rendu par le cœur (`release_userdata`) quand plus rien ne peut le
+        // rappeler, Kyber eût-il gardé un flux plus longtemps (MAC-01).
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
             if let s { kn_session_free(s) }
-            if let ud { Unmanaged<SessionEngine>.fromOpaque(ud).release() }
         }
     }
 

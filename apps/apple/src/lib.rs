@@ -556,6 +556,36 @@ struct Sink {
     userdata: *mut c_void,
     stream: u64,
     screen: u32,
+    /// Le `userdata` reste à la plateforme tant qu'un flux peut rappeler (MAC-01).
+    _owner: Arc<Owner>,
+}
+
+/// Le `userdata` d'une plateforme (l'objet Swift, retenu par `passRetained`),
+/// partagé par tous ceux qui peuvent le rappeler : la plateforme de la
+/// session, chaque flux que Kyber garde. Le dernier rend l'objet par
+/// `release_userdata` (MAC-01 : Kyber gardait un flux plus de 30 s après la
+/// fin, et son `Drop` rappelait un objet déjà libéré). Sans `release_userdata`
+/// (une app d'avant), rien n'est rendu : l'app libère elle-même, comme avant.
+pub(crate) struct Owner {
+    userdata: *mut c_void,
+    release: Option<unsafe extern "C" fn(userdata: *mut c_void)>,
+}
+
+unsafe impl Send for Owner {}
+unsafe impl Sync for Owner {}
+
+impl Owner {
+    pub(crate) fn new(userdata: *mut c_void, release: Option<unsafe extern "C" fn(userdata: *mut c_void)>) -> Arc<Self> {
+        Arc::new(Self { userdata, release })
+    }
+}
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        if let Some(release) = self.release {
+            unsafe { release(self.userdata) };
+        }
+    }
 }
 
 unsafe impl Send for Sink {}
@@ -973,10 +1003,15 @@ pub struct KnPlatform {
     /// « Caméra » apparaît ou disparaît ; allumée, la caméra repart d'elle-même
     /// quand le flux revient (`kn_camera_*`).
     pub on_camera_offer: Option<unsafe extern "C" fn(userdata: *mut c_void, offered: bool)>,
+    /// Rend `userdata` quand plus rien ne peut le rappeler (la session finie
+    /// et le dernier flux lâché par Kyber), d'un fil quelconque ; nul : l'app
+    /// le garde et le rend elle-même. Ajouté en dernier.
+    pub release_userdata: Option<unsafe extern "C" fn(userdata: *mut c_void)>,
 }
 
 struct ApplePlatform {
     cb: KnPlatform,
+    owner: Arc<Owner>,
     streams: AtomicU64,
     /// Raison d'un échec, donnée juste avant `Status::Ending` (`on_ending`).
     ending_error: Mutex<Option<String>>,
@@ -989,7 +1024,7 @@ impl ApplePlatform {
     fn sink(&self, cb: KnPacketCb, screen: u32) -> Option<Arc<dyn PacketHandler>> {
         let cb = cb?;
         let stream = self.streams.fetch_add(1, Ordering::Relaxed) + 1;
-        Some(Arc::new(Sink { cb, userdata: self.cb.userdata, stream, screen }))
+        Some(Arc::new(Sink { cb, userdata: self.cb.userdata, stream, screen, _owner: self.owner.clone() }))
     }
 }
 
@@ -1380,7 +1415,8 @@ pub unsafe extern "C" fn kn_session_start(
             return std::ptr::null_mut();
         }
     };
-    let platform = Arc::new(ApplePlatform { cb: *cb, streams: AtomicU64::new(0), ending_error: Mutex::new(None) });
+    let owner = Owner::new(cb.userdata, cb.release_userdata);
+    let platform = Arc::new(ApplePlatform { cb: *cb, owner, streams: AtomicU64::new(0), ending_error: Mutex::new(None) });
     let session = match screens {
         Some(screens) => Session::start_with_screens(params, screens, platform),
         None => Session::start(params, platform),
@@ -1952,5 +1988,34 @@ mod tests {
         assert!(available("{}") && available("illisible"), "Station d'avant ou réponse illisible : disponibles");
         assert!(!available(r#"{"os": "macOS 26.1", "gamepads": {"available": false, "reason": "entitlement"}}"#));
         assert!(available(r#"{"gamepads": {"available": true}}"#));
+    }
+
+    static RELEASED: AtomicU64 = AtomicU64::new(0);
+    static CLOSED: AtomicU64 = AtomicU64::new(0);
+    unsafe extern "C" fn release(ud: *mut c_void) {
+        assert_eq!(ud as usize, 0x1234);
+        RELEASED.fetch_add(1, Ordering::SeqCst);
+    }
+    unsafe extern "C" fn packet(ud: *mut c_void, p: *const KnPacket) {
+        assert_eq!(ud as usize, 0x1234);
+        // Le `userdata` est encore là quand le flux se ferme (MAC-01).
+        assert_eq!(RELEASED.load(Ordering::SeqCst), 0);
+        if unsafe { (*p).kind } == KN_PACKET_CLOSED {
+            CLOSED.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn userdata_rendu_au_dernier_detenteur() {
+        let owner = Owner::new(0x1234 as *mut c_void, Some(release));
+        let sink = Sink { cb: packet, userdata: 0x1234 as *mut c_void, stream: 1, screen: 0, _owner: owner.clone() };
+        drop(owner);
+        assert_eq!(RELEASED.load(Ordering::SeqCst), 0, "un flux tenu par Kyber garde le userdata");
+        drop(sink);
+        assert_eq!(CLOSED.load(Ordering::SeqCst), 1, "le flux dit sa fermeture");
+        assert_eq!(RELEASED.load(Ordering::SeqCst), 1, "rendu une fois, après la fermeture du dernier flux");
+        // Sans `release_userdata` (app d'avant) : rien n'est rendu.
+        drop(Owner::new(0x1234 as *mut c_void, None));
+        assert_eq!(RELEASED.load(Ordering::SeqCst), 1);
     }
 }

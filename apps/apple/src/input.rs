@@ -110,7 +110,11 @@ pub unsafe extern "C" fn kn_pointer_new(holds_position: bool, callbacks: KnPoint
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_pointer_free(p: *mut KnPointer) {
     if !p.is_null() {
-        drop(unsafe { Box::from_raw(p) });
+        let p = unsafe { Box::from_raw(p) };
+        // La couche vit encore dans les chaînes qui l'ont clonée : son rappel
+        // est remplacé d'abord (sous son verrou : un appel en cours finit
+        // avant), plus rien n'atteint l'objet de l'app (MAC-01).
+        p.layer.set_on_changed(|_, _| {});
     }
 }
 
@@ -288,6 +292,10 @@ pub struct KnInputCallbacks {
     /// Lire le texte demande l'accord de l'utilisateur (iOS) : il n'est lu
     /// que quand l'ordinateur le demande.
     pub pasteboard_reading_asks_user: bool,
+    /// Rend `userdata` quand la chaîne n'est plus tenue par personne (Kyber,
+    /// le fil des minuteries, l'app), d'un fil quelconque ; nul : l'app le
+    /// rend elle-même. Ajouté en dernier (MAC-01).
+    pub release_userdata: Option<unsafe extern "C" fn(userdata: *mut c_void)>,
 }
 
 unsafe impl Send for KnInputCallbacks {}
@@ -309,6 +317,14 @@ pub const KN_MOUSE_SIDE: u32 = 3;
 pub const KN_MOUSE_EXTRA: u32 = 4;
 
 struct Callbacks(KnInputCallbacks);
+
+impl Drop for Callbacks {
+    fn drop(&mut self) {
+        if let Some(release) = self.0.release_userdata {
+            unsafe { release(self.0.userdata) };
+        }
+    }
+}
 
 impl InputPlatform for Callbacks {
     fn rumble(&self, r: GamepadRumble) {
@@ -829,6 +845,9 @@ pub extern "C" fn kn_combo_new(callbacks: KnComboCallbacks) -> *mut KnCombo {
 pub unsafe extern "C" fn kn_combo_free(c: *mut KnCombo) {
     if !c.is_null() {
         let c = unsafe { Box::from_raw(c) };
+        // Le fil de la combinaison peut tenir encore la combinaison : son
+        // rappel est coupé d'abord (sous son verrou), MAC-01.
+        c.combo.set_on_formed(|_| {});
         c.driver.wake(true);
     }
 }
@@ -903,6 +922,26 @@ pub unsafe extern "C" fn kn_pointer_resend_held(p: *const KnPointer) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static CHANGES: AtomicU32 = AtomicU32::new(0);
+    unsafe extern "C" fn changed(_: *mut c_void, _: *const KnPointerState, _: bool, _: bool) {
+        CHANGES.fetch_add(1, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn couche_liberee_ne_rappelle_plus() {
+        let p = unsafe { kn_pointer_new(false, KnPointerCallbacks { userdata: std::ptr::null_mut(), on_changed: Some(changed) }) };
+        // Une chaîne d'entrées garde son clone de la couche.
+        let clone = unsafe { &*p }.layer.clone();
+        let hide = |visible| kybernow_core::input::pointer_layer::RemoteCursor { visible, image: None, position: (10, 20) };
+        clone.remote_cursor_changed(hide(false));
+        let before = CHANGES.load(Ordering::SeqCst);
+        assert!(before >= 1, "la couche rappelle tant qu'elle est à l'app");
+        unsafe { kn_pointer_free(p) };
+        clone.remote_cursor_changed(hide(true));
+        assert_eq!(CHANGES.load(Ordering::SeqCst), before, "libérée : plus de rappel vers l'objet de l'app (MAC-01)");
+    }
 
     #[test]
     fn commande_face_a_un_mac() {
