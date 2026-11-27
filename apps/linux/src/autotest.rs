@@ -131,7 +131,7 @@ pub fn adaptive_help(pyrowave: bool) -> String {
 /// Le réseau d'un test, à montrer : le relais (`relay`) a son nom (« Par le relais ») ; les autres tels quels
 /// (« Ethernet », le nom du Wi-Fi).
 pub fn network_label(network: &str) -> String {
-    if network == "relay" { tr("Par le relais", "Through the relay").into() } else { network.into() }
+    if network == "relay" { tr("Par le relais", "Via the relay").into() } else { network.into() }
 }
 
 /// « Choisi par le test du 26 novembre (Ethernet). » ; sans réseau connu, sans parenthèses.

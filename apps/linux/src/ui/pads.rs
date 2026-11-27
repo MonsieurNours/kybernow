@@ -37,7 +37,7 @@ fn body(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let back = Rect::new(96.0, 40.0, 150.0, 50.0);
     widgets::ghost(cv, f, Target::Back, back.x, back.y, back.h, 18.0, Some(super::icons::Icon::Back), tr("Retour", "Back"), MUTED);
     eyebrow(cv, 96.0, 140.0, 16.0, FAINT, tr("Manettes", "Controllers"));
-    cv.text(92.0, 200.0, Text::new(Font::Title, 64.0, FROST).tracking(-1.5), tr("Tester les manettes", "Test controllers"));
+    cv.text(92.0, 200.0, Text::new(Font::Title, 64.0, FROST).tracking(-1.5), tr("Tester les manettes", "Test the controllers"));
 
     let mut y = 250.0;
     if app.pads.is_empty() {
@@ -106,7 +106,7 @@ fn body(app: &App, cv: &mut Canvas, f: &mut Frame) {
 
     let y = cv.h - 48.0;
     let mut x = 96.0;
-    x += legend(cv, x, y, 34.0, &["A"], tr("Choisir", "Select")) + 40.0;
+    x += legend(cv, x, y, 34.0, &["A"], tr("Choisir", "Choose")) + 40.0;
     legend(cv, x, y, 34.0, &["B"], tr("Retour", "Back"));
 }
 

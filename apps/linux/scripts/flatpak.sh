@@ -3,9 +3,10 @@
 # le runtime org.freedesktop.Platform 25.08 (plus rust-stable et llvm20), pour
 # l'architecture de la machine ou celle donnée :
 #
-#   apps/linux/scripts/flatpak.sh [x86_64|aarch64] [--kyber-pyrowave]
+#   apps/linux/scripts/flatpak.sh [x86_64|aarch64] [--sans-pyrowave]
 #
-# --kyber-pyrowave : l'app demande PyroWave à Kyber (build.sh --kyber-pyrowave).
+# PyroWave est demandé à Kyber par défaut (build.sh --kyber-pyrowave) ;
+# --sans-pyrowave construit l'app qui le décode sans le demander.
 #
 # → apps/linux/dist/KyberNow-Link-Linux-<arch>.flatpak, un paquet unique qui
 # s'installe par `flatpak install --user <fichier>` (le runtime vient de Flathub).

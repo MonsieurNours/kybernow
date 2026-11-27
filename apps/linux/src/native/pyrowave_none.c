@@ -1,5 +1,6 @@
-// PyroWave absent de cette compilation (Raspberry Pi, build.sh --rpi : pas de
-// bibliothèque PyroWave dans le préfixe) : la sonde dit indisponible.
+// PyroWave absent de cette compilation (en-têtes de PyroWave ou de Vulkan absents
+// du préfixe : build.sh sans sa 4e étape, ou une construction à la main) : la
+// sonde dit indisponible. build.sh pose PyroWave partout, --rpi compris.
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>

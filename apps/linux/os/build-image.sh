@@ -41,7 +41,10 @@ done
 [ "$(uname -m)" = aarch64 ] || { echo "à lancer sur un Linux arm64 (VM ou Pi) : $(uname -m)" >&2; exit 1; }
 [ -f "$DEB" ] || { echo "paquet absent : $DEB (apps/linux/scripts/deb.sh)" >&2; exit 1; }
 sudo -n true 2>/dev/null || { echo "sudo sans mot de passe requis (pi-gen monte des systèmes de fichiers)" >&2; exit 1; }
-for t in debootstrap quilt parted zerofree bsdtar pigz xz arch-test; do command -v "$t" >/dev/null || { echo "$t absent (apt install $(sed -n 's/^.*:\(.*\)$/\1/p' <<< "$t" 2>/dev/null || echo "$t"))" >&2; exit 1; }; done
+# commande:paquet (le paquet d'Ubuntu qui la donne).
+for t in debootstrap:debootstrap quilt:quilt parted:parted zerofree:zerofree bsdtar:libarchive-tools pigz:pigz xz:xz-utils arch-test:arch-test; do
+    command -v "${t%%:*}" >/dev/null || { echo "${t%%:*} absent (apt install ${t#*:})" >&2; exit 1; }
+done
 VERSION="$(dpkg-deb -f "$DEB" Version)"
 mkdir -p "$WORK"
 

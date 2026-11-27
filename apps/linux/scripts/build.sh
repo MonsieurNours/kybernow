@@ -12,13 +12,13 @@
 #      le Pi 4 et le Pi 5 en Vulkan par Mesa v3dv : docs/pyrowave-client-pi.md) ;
 #   5. l'app (cargo build -p kybernow-linux).
 #
-# Usage : apps/linux/scripts/build.sh [--check] [--debug] [--deps-only] [--rpi] [--kyber-pyrowave] [--prefix DIR] [--install DIR]
+# Usage : apps/linux/scripts/build.sh [--check] [--debug] [--deps-only] [--media-only] [--rpi] [--kyber-pyrowave | --sans-pyrowave] [--prefix DIR] [--install DIR]
 #   --kyber-pyrowave  le correctif kyclient de PyroWave (server/kyber-patches/0025,
 #             `VideoCodec::PyroWave`, `fallback_codec`) et la fonctionnalité
 #             `pyrowave` du cœur, qui vont ensemble (apps/core/README.md,
-#             « PyroWave ») : sans eux, l'app décode PyroWave mais ne le demande
-#             jamais. Comme les autres apps, seulement sur demande tant qu'ils ne
-#             sont pas allumés partout (le SDK de Kyber est partagé).
+#             « PyroWave ») : l'app demande PyroWave à Kyber. **Par défaut**
+#             (KYBER_PYROWAVE=1) ; il reste accepté pour les scripts d'avant.
+#   --sans-pyrowave   sans eux : l'app décode PyroWave mais ne le demande jamais.
 #   --deps-only  s'arrête après libkynput, FFmpeg et PyroWave (module du Flatpak mis en cache)
 #   --media-only FFmpeg et PyroWave seuls, sans le SDK de Kyber (premier module du Flatpak :
 #                ils ne sont plus refaits quand Kyber ou build.sh changent ailleurs, LINAPP-38)

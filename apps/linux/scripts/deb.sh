@@ -2,10 +2,11 @@
 # Construit le paquet .deb de KyberNow Link pour Raspberry Pi OS (Debian 13
 # « trixie », arm64), sur un Linux arm64 (la VM « KyberNow Linux », ou un Pi) :
 #
-#   apps/linux/scripts/deb.sh [--check] [--no-build] [--kyber-pyrowave] [--prefix DIR]
+#   apps/linux/scripts/deb.sh [--check] [--no-build] [--sans-pyrowave] [--prefix DIR]
 #
-#   --kyber-pyrowave  passé à build.sh : l'app demande PyroWave à Kyber (sans lui,
-#             le Pi 5 le décode mais ne le demande jamais)
+#   PyroWave est demandé à Kyber par défaut (build.sh) ; --sans-pyrowave, passé
+#             à build.sh, s'en passe (le Pi 5 le décode alors sans le demander
+#             jamais) ; --kyber-pyrowave reste accepté (c'est le défaut)
 #   --prefix  préfixe des dépendances passé à build.sh (par défaut
 #             third_party/linux-<arch>-rpi) ; avec --no-build, où prendre
 #             libpyrowave-shared.so.1

@@ -18,7 +18,7 @@ for f in pyrowave_common.mm pyrowave_encoder.mm pyrowave_decoder.mm pyrowave_bit
 done
 swiftc -O -I "$MAC/PyroWave/module" -framework Metal -framework IOSurface -lc++ ./*.o "$MAC/tests/pyrowave/common.swift" \
     "$MAC/KyberKit/PyroWaveDecoder.swift" "$MAC/KyberKit/VideoDecoder.swift" "$MAC/KyberKit/AV1.swift" \
-    -o encode "$MAC/tests/pyrowave/encode/main.swift" 2>&1 | grep error: || true
+    -o encode "$MAC/tests/pyrowave/encode/main.swift" > swiftc.log 2>&1 || { grep error: swiftc.log >&2 || tail -20 swiftc.log >&2; echo "swiftc en échec" >&2; exit 1; }
 mbps=$(( w * h * 60 * 12 / 10 / 1000000 ))
 for c in 420 444; do
     ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=${SIZE}:rate=60" -frames:v "$N" \

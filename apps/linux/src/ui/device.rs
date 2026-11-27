@@ -77,7 +77,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let gy = h - 40.0;
     let mut lx2 = x0;
     lx2 += legend(cv, lx2, gy, 34.0, &["A"], tr("Choisir", "Choose")) + 40.0;
-    legend(cv, lx2, gy, 34.0, &["B"], tr("Retour à l'accueil", "Back home"));
+    legend(cv, lx2, gy, 34.0, &["B"], tr("Retour à l'accueil", "Back to home"));
     let other = if app.store.app.interface == "desktop" { tr("passer au Salon", "switch to Living room") } else { tr("passer au Bureau", "switch to Desktop") };
     let label = format!("{} : {other}", tr("Tenu 3 s", "Held 3 s"));
     let lw = widgets::legend_width(cv, 34.0, &["☰"], &label);

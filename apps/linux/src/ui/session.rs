@@ -458,7 +458,7 @@ fn bar_icons(app: &App, s: &SessionUi, computers: bool, sound: bool) -> Vec<BarI
         let on = s.camera == CameraState::Sending || s.bar_menu == Some(BarMenu::Camera);
         let name = if s.camera == CameraState::Off { tr("Allumer la caméra", "Turn on camera") } else { tr("Éteindre la caméra", "Turn off camera") };
         let glyph = if s.camera == CameraState::Off { Icon::CameraOff } else { Icon::Camera };
-        v.push(BarIcon { target: Target::BarCamera, icon: glyph, on, name: format!("{name} (Ctrl+Alt+Maj+C)").replace("Maj", if crate::i18n::english() { "Shift" } else { "Maj" }), dim: s.camera == CameraState::Off });
+        v.push(BarIcon { target: Target::BarCamera, icon: glyph, on, name: format!("{name} (Ctrl+Alt+{}+C)", tr("Maj", "Shift")), dim: s.camera == CameraState::Off });
     }
     if !s.multi() {
         v.push(icon(Target::BarFullscreen, Icon::Fullscreen, s.fullscreen, tr("Plein écran", "Full screen")));
