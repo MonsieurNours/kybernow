@@ -29,7 +29,6 @@ use kybernow_core::account::{self, AccessParams, Account, AccountComputer, Accou
 use kybernow_core::console::Console;
 use kybernow_core::i18n;
 use kybernow_core::profile::{Capabilities, StreamSettings};
-use kybernow_core::relay::RelayRoute;
 
 use crate::{KN_ERROR, KN_OK, KnConsole, give, give_to, optional, text};
 
@@ -258,7 +257,7 @@ pub unsafe extern "C" fn kn_console_new_account(
     route_json: *const c_char,
 ) -> *mut KnConsole {
     let Ok(params) = serde_json::from_str::<AccessParams>(&text(access_json)) else { return std::ptr::null_mut() };
-    let route = optional(route_json).and_then(|r| serde_json::from_str::<RelayRoute>(&r).ok());
+    let route = crate::relay::route_or_broken(optional(route_json));
     let access = account::StationAccess::new(params);
     let console = Console::account(&text(host), port, access, optional(pinned)).with_relay(route);
     Box::into_raw(Box::new(KnConsole(std::sync::Arc::new(console))))

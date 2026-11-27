@@ -112,7 +112,7 @@ impl log::Log for Logger {
         if !self.enabled(record.metadata()) {
             return;
         }
-        let Some(cb) = *LOG_CB.lock().unwrap() else { return };
+        let Some(cb) = *LOG_CB.lock().unwrap_or_else(|e| e.into_inner()) else { return };
         let target = CString::new(record.target().replace('\0', " ")).unwrap_or_default();
         let message = CString::new(record.args().to_string().replace('\0', " ")).unwrap_or_default();
         unsafe { cb(record.level() as u32, target.as_ptr(), message.as_ptr()) };
@@ -124,7 +124,7 @@ impl log::Log for Logger {
 /// Branche le journal du cœur (à appeler une fois, avant tout le reste).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_set_log_callback(cb: KnLogCb) {
-    *LOG_CB.lock().unwrap() = cb;
+    *LOG_CB.lock().unwrap_or_else(|e| e.into_inner()) = cb;
     static ONCE: OnceLock<()> = OnceLock::new();
     ONCE.get_or_init(|| {
         let _ = log::set_logger(&LOGGER);
@@ -1161,7 +1161,7 @@ impl Platform for ApplePlatform {
         };
         let (error, report): (Option<String>, Option<EndReport>) = match status {
             Status::Ended { error, report } => (error.clone(), report.clone()),
-            Status::Ending => (self.ending_error.lock().unwrap().take(), None),
+            Status::Ending => (self.ending_error.lock().unwrap_or_else(|e| e.into_inner()).take(), None),
             _ => (None, None),
         };
         let error_c = error.map(|e| CString::new(e.replace('\0', " ")).unwrap_or_default());
@@ -1271,7 +1271,7 @@ impl Platform for ApplePlatform {
 
     /// Gardée pour `KN_STATUS_ENDING`, qui suit tout de suite.
     fn on_ending(&self, error: Option<&str>) {
-        *self.ending_error.lock().unwrap() = error.map(str::to_string);
+        *self.ending_error.lock().unwrap_or_else(|e| e.into_inner()) = error.map(str::to_string);
     }
 
     fn on_notice(&self, notice: &Notice) {

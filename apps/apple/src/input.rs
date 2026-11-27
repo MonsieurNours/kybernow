@@ -617,14 +617,14 @@ pub unsafe extern "C" fn kn_input_release_all(i: *const KnInput) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_modifier(i: *const KnInput, id: u16, pressed: bool) -> bool {
     let mut changed = false;
-    with(i, |p| changed = p.held().lock().unwrap().modifier(id, pressed));
+    with(i, |p| changed = p.held().lock().unwrap_or_else(|e| e.into_inner()).modifier(id, pressed));
     changed
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_modifier_held(i: *const KnInput, id: u16) -> bool {
     let mut held = false;
-    with(i, |p| held = p.held().lock().unwrap().modifiers().contains(&id));
+    with(i, |p| held = p.held().lock().unwrap_or_else(|e| e.into_inner()).modifiers().contains(&id));
     held
 }
 
@@ -633,7 +633,7 @@ pub unsafe extern "C" fn kn_input_modifier_held(i: *const KnInput, id: u16) -> b
 pub unsafe extern "C" fn kn_input_held_modifiers(i: *const KnInput, out: *mut u16, cap: usize) -> usize {
     let mut n = 0;
     with(i, |p| {
-        for id in p.held().lock().unwrap().modifiers() {
+        for id in p.held().lock().unwrap_or_else(|e| e.into_inner()).modifiers() {
             if n == cap || out.is_null() {
                 break;
             }
@@ -647,7 +647,7 @@ pub unsafe extern "C" fn kn_input_held_modifiers(i: *const KnInput, out: *mut u1
 /// Les modificateurs repartent de zéro (service d'entrées neuf sur l'ordinateur).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_forget_modifiers(i: *const KnInput) {
-    with(i, |p| p.held().lock().unwrap().forget_modifiers());
+    with(i, |p| p.held().lock().unwrap_or_else(|e| e.into_inner()).forget_modifiers());
 }
 
 /// La fenêtre retrouve le clavier : `held` (codes de la plateforme) sont les
@@ -658,7 +658,7 @@ pub unsafe extern "C" fn kn_input_resync_modifiers(i: *const KnInput, held: *con
     let held = if held.is_null() || count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(held, count) } };
     let mut n = 0;
     with(i, |p| {
-        p.held().lock().unwrap().resync_modifiers(held, |id| {
+        p.held().lock().unwrap_or_else(|e| e.into_inner()).resync_modifiers(held, |id| {
             if n < cap && !out.is_null() {
                 unsafe { *out.add(n) = id };
                 n += 1;
@@ -769,7 +769,7 @@ struct ComboDriver {
 
 impl ComboDriver {
     fn wake(&self, stop: bool) {
-        let mut w = self.woken.lock().unwrap();
+        let mut w = self.woken.lock().unwrap_or_else(|e| e.into_inner());
         w.0 = true;
         w.1 |= stop;
         self.cvar.notify_one();
@@ -807,7 +807,7 @@ pub extern "C" fn kn_combo_new(callbacks: KnComboCallbacks) -> *mut KnCombo {
             combo.poll();
             let wait = combo.next_deadline().map(|at| at.saturating_sub(clock.now()));
             drop(combo);
-            let mut w = d.woken.lock().unwrap();
+            let mut w = d.woken.lock().unwrap_or_else(|e| e.into_inner());
             if !w.0 {
                 w = match wait {
                     Some(t) => d.cvar.wait_timeout(w, t).unwrap().0,
