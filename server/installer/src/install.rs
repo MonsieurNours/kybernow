@@ -678,6 +678,16 @@ fn backup_kyber_config(ctx: &Ctx) -> Result<()> {
     let to = dir.join(format!("kyber_config.toml.reinstallation-{stamp}"));
     std::fs::copy(&from, &to).with_context(|| t("install.backup", &[("path", &from.display())]))?;
     ctx.log(format!("Réglages de Kyber gardés (copie : {})", to.display()));
+    // Les cinq plus récentes restent (horodatage à 10 chiffres : l'ordre des noms est celui des dates).
+    let mut copies: Vec<_> = std::fs::read_dir(&dir)?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("kyber_config.toml.reinstallation-")))
+        .collect();
+    copies.sort();
+    for old in &copies[..copies.len().saturating_sub(5)] {
+        let _ = std::fs::remove_file(old);
+    }
     Ok(())
 }
 

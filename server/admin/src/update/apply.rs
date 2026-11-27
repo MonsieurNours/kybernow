@@ -224,8 +224,8 @@ pub fn extract(zip: &Path, dest: &Path) -> Result<usize> {
             .open(&out)
             .with_context(|| format!("entrée en double ou impossible à créer : {name:?}"))?;
         std::io::copy(&mut entry, &mut target).with_context(|| format!("extraction de {name:?}"))?;
-        // Forcé sur le disque : un gel du PC juste après laisserait sinon des zéros.
-        target.sync_all().with_context(|| format!("écriture de {name:?}"))?;
+        // Pas forcé ici : les dossiers préparés le sont d'un coup avant la
+        // bascule (`flush_or_sync`), le paquet extrait n'est que copié.
         files += 1;
     }
     Ok(files)
@@ -257,7 +257,8 @@ pub fn copy_tree(from: &Path, to: &Path, skip: &[&str]) -> Result<()> {
                 perms.set_readonly(false);
                 let _ = fs::set_permissions(&dst, perms);
             }
-            crate::durable::copy(&src, &dst).with_context(|| format!("copie de {}", src.display()))?;
+            // Forcé sur le disque avant la bascule, d'un coup (`flush_or_sync`).
+            fs::copy(&src, &dst).with_context(|| format!("copie de {}", src.display()))?;
         }
     }
     Ok(())
@@ -628,6 +629,34 @@ fn flush(layout: &Layout, log: &mut Journal) {
     }
 }
 
+/// Force sur le disque les dossiers préparés : tout le volume d'un coup ;
+/// si Windows le refuse, chaque fichier (un gel juste après la bascule ne
+/// doit pas laisser de fichiers remplis de zéros, comme le 03/11).
+fn flush_or_sync(layout: &Layout, dirs: &[PathBuf], log: &mut Journal) -> Result<()> {
+    match crate::durable::flush_volume(&layout.install) {
+        Ok(()) if cfg!(windows) => Ok(()),
+        result => {
+            if let Err(e) = result {
+                log.line(format!("    volume pas forcé sur le disque ({e}) : fichier par fichier"));
+            }
+            dirs.iter().try_for_each(|d| sync_tree(d))
+        }
+    }
+}
+
+fn sync_tree(dir: &Path) -> Result<()> {
+    for entry in fs::read_dir(dir).with_context(|| format!("lecture de {}", dir.display()))? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            sync_tree(&entry.path())?;
+        } else if kind.is_file() {
+            crate::durable::sync_file(&entry.path()).with_context(|| format!("écriture de {}", entry.path().display()))?;
+        }
+    }
+    Ok(())
+}
+
 /// Ce qu'on vérifie avant de toucher à quoi que ce soit.
 pub struct Checks<'a> {
     /// Clé publique de publication (format minisign).
@@ -802,7 +831,7 @@ fn run_switch(
         sys.stop_console()?;
         log.line("==> Préparation des nouveaux dossiers");
         let plan = prepare(log)?;
-        flush(layout, log);
+        flush_or_sync(layout, &plan.iter().map(|(_, d)| d.clone()).collect::<Vec<_>>(), log)?;
         log.line(format!("==> Bascule (les dossiers remplacés partent en .{old_suffix})"));
         aside = sys.set_aside(layout);
         for (from, to) in &aside {
