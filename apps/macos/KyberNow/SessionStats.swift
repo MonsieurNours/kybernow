@@ -222,7 +222,7 @@ struct StatsPanel: View {
             }
             if let lowered {
                 GridRow {
-                    Text(PyroWaveText.lowered(width: lowered.width, height: lowered.height, mbps: lowered.mbps))
+                    Text(PyroWaveRules.loweredText(width: lowered.width, height: lowered.height, refresh: lowered.refresh, mbps: lowered.mbps))
                         .font(Theme.sans(11.5)).foregroundStyle(Theme.warnText)
                         .fixedSize(horizontal: false, vertical: true)
                         .gridCellColumns(2)

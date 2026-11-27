@@ -77,7 +77,7 @@ struct SessionMenu: View {
                     if let l = session.stats?.lowered {
                         HStack(spacing: 10) {
                             Icon("monitor", size: 20).foregroundStyle(Theme.warn)
-                            Text(PyroWaveText.lowered(width: l.width, height: l.height, mbps: l.mbps))
+                            Text(PyroWaveRules.loweredText(width: l.width, height: l.height, refresh: l.refresh, mbps: l.mbps))
                         }
                         .font(Theme.sans(18)).foregroundStyle(Theme.warnText)
                     }
@@ -136,7 +136,7 @@ struct SessionMenu: View {
                              detail: session.isWatching ? session.title : ShareText.guestOn(session.guest?.computer ?? "")) { session.end() }
                     } else {
                         // PyroWave en Wi-Fi ou par le relais : la tuile ambre, qui passe l'image en HEVC.
-                        if let chip = session.pyrowaveChip {
+                        if let chip = session.pyrowaveTile {
                             tile(.pyrowave, icon: "warning", iconColor: Theme.warn, title: chip, detail: PyroWaveText.switchToHEVC) { session.switchToHEVC() }
                                 .accessibilityHint(Text(PyroWaveText.bannerBody))
                         }
@@ -356,7 +356,7 @@ struct SessionMenu: View {
                 + (session.recordingActive ? 1 : 0)
         }
         // La tuile ambre de PyroWave (en Wi-Fi ou par le relais) en plus, et celle de l'enregistrement.
-        return (showsLend ? 9 : 8) + (session.pyrowaveChip != nil ? 1 : 0) + (session.autoOtherNetwork ? 1 : 0)
+        return (showsLend ? 9 : 8) + (session.pyrowaveTile != nil ? 1 : 0) + (session.autoOtherNetwork ? 1 : 0)
             + (session.recordingShown ? 1 : 0)
     }
 

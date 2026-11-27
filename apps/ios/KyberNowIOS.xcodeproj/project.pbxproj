@@ -62,10 +62,12 @@
 		7755C218AEA12E38263D5253 /* DecoderCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3456E0200C841E3D3F7A55FB /* DecoderCapabilities.swift */; };
 		79B7269B197B3236415A545F /* PlayStationHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA3E039F87EAC01BD5C8C349 /* PlayStationHome.swift */; };
 		79E2046132B6B2E0A05052EB /* AutoTestBench.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61DC9C4C33AF7E83D5F35C91 /* AutoTestBench.swift */; };
+		79E8AE74DB35257A09B48EEB /* SessionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD6F473D07A558B79E174B1 /* SessionModel.swift */; };
 		7CB98801894B060E3310BA8A /* ScreenPad.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11E7F53DBCDC4AAFE88274F2 /* ScreenPad.swift */; };
 		7EF6831F76CB7B77729367E6 /* WelcomeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72450C3885643AFBBB76E5FB /* WelcomeViews.swift */; };
 		812AD19263390D73ABB5265E /* Backdrops.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D44B7B7CC32E4F400A995C /* Backdrops.swift */; };
 		83A855B7AAAC907E2BC22B6A /* SessionRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 647CEC0B268ED66CF311A51C /* SessionRules.swift */; };
+		85ABED043636FD27B49995CE /* CoreRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36706BD2BF1BADAEFAA10189 /* CoreRules.swift */; };
 		86468B92C625C587213360F0 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = F0FC01552ACFFE060EB414DC /* OFL.txt */; };
 		86AEDB1A89AC4F8E0EC9009B /* HDRCalibrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EA4B452EFF2B73B060EABC2 /* HDRCalibrationView.swift */; };
 		86BFD5BA8C1E2F5D7EB45061 /* ConsoleClientCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */; };
@@ -80,6 +82,7 @@
 		9ECBAC17D48DC6E5EFD0F599 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BAA93A815BCDC3DCEF4B2B8B /* Assets.xcassets */; };
 		A1D9A1B81279D79708C8A383 /* PlayStationHandoffModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A2DDF0D3DA8C83BA46D2835 /* PlayStationHandoffModel.swift */; };
 		A45FF4CDC0895C8FD97A9715 /* LendCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA048343AC7B500A33C2331 /* LendCore.swift */; };
+		A4777A2E8077EAC8EB57D8C2 /* MicUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45CC4FEBC769A859DA3D8EFE /* MicUI.swift */; };
 		A7EB72E7360A2589DCCAA24E /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5BC11DCB9BAF29FE7F1722 /* AppSettingsView.swift */; };
 		AA646ACFCCEDA7CA1C36A75C /* KeyboardMouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BC5E83B7193B1F27746462 /* KeyboardMouse.swift */; };
 		B06A29E06BBE505CCA9BDCE1 /* AutoTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7075E01B3DE975548C5DD81C /* AutoTestView.swift */; };
@@ -89,6 +92,7 @@
 		B8212CF41830876E669E0A4A /* AudioPlayerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CDD825886035EA70C8A338E /* AudioPlayerCore.swift */; };
 		BA6D8687CF7C4F8F78B41389 /* PlayStationSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEB71BF963EE2CBC44C8D23D /* PlayStationSync.swift */; };
 		BA981DE8BEA2B6DDFA59F919 /* SettingsStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5B21EE1EB8228AF8F50DED6 /* SettingsStats.swift */; };
+		C04FADD13A02C6A470B6C28F /* PyroWaveConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEA016AA888A873568747734 /* PyroWaveConfig.swift */; };
 		C17855BA68F77C49CA160194 /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2CC5531BE91A2E596139D8 /* CloudSync.swift */; };
 		CE526D8C81653C72A4796EF0 /* PlayStationSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AAAAD7AA3A792535998A631 /* PlayStationSessionView.swift */; };
 		CF1672C3B10A503BCCE9BB62 /* InputCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D096F84DF3830EBF98CCE6EF /* InputCore.swift */; };
@@ -165,11 +169,14 @@
 		306546BE41AD345E7A328812 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		33BFA98ADC8A49589A10B603 /* RelayCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayCore.swift; sourceTree = "<group>"; };
 		3456E0200C841E3D3F7A55FB /* DecoderCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderCapabilities.swift; sourceTree = "<group>"; };
+		36706BD2BF1BADAEFAA10189 /* CoreRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreRules.swift; sourceTree = "<group>"; };
 		383556364DF843C9D46F9B81 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		3B9DFC158B9E58AFDFB4D362 /* RecordingCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingCore.swift; sourceTree = "<group>"; };
 		410A9B3CA2E17E8B50C9D9E4 /* AddHostPanes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostPanes.swift; sourceTree = "<group>"; };
 		4207236FE2CEE2D79093943B /* WelcomeCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeCore.swift; sourceTree = "<group>"; };
+		45CC4FEBC769A859DA3D8EFE /* MicUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicUI.swift; sourceTree = "<group>"; };
 		4A2DDF0D3DA8C83BA46D2835 /* PlayStationHandoffModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationHandoffModel.swift; sourceTree = "<group>"; };
+		4BD6F473D07A558B79E174B1 /* SessionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionModel.swift; sourceTree = "<group>"; };
 		4D24E60CD6CB22677E5A6149 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		548DFE9274D455AF36E2F65B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		5AAAAD7AA3A792535998A631 /* PlayStationSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationSessionView.swift; sourceTree = "<group>"; };
@@ -224,6 +231,7 @@
 		C924F6C6F8139DA17F956040 /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
 		CA3E039F87EAC01BD5C8C349 /* PlayStationHome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationHome.swift; sourceTree = "<group>"; };
 		CD69181BE50E83AE3DF7CB04 /* PlayStationSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationSession.swift; sourceTree = "<group>"; };
+		CEA016AA888A873568747734 /* PyroWaveConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyroWaveConfig.swift; sourceTree = "<group>"; };
 		CFDADC5155C777613D3C1002 /* SessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionView.swift; sourceTree = "<group>"; };
 		CFDC3C4579F50D443D946774 /* Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Language.swift; sourceTree = "<group>"; };
 		D096F84DF3830EBF98CCE6EF /* InputCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputCore.swift; sourceTree = "<group>"; };
@@ -298,6 +306,7 @@
 			children = (
 				25D44B7B7CC32E4F400A995C /* Backdrops.swift */,
 				9F2CC5531BE91A2E596139D8 /* CloudSync.swift */,
+				4BD6F473D07A558B79E174B1 /* SessionModel.swift */,
 			);
 			name = KyberNowTV;
 			path = ../tvos/KyberNowTV;
@@ -442,6 +451,7 @@
 				2D968F90149429705D464253 /* CameraCapture.swift */,
 				9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */,
 				A311A16A82D70847AAB768D2 /* CoreBridge.swift */,
+				36706BD2BF1BADAEFAA10189 /* CoreRules.swift */,
 				3456E0200C841E3D3F7A55FB /* DecoderCapabilities.swift */,
 				1F7DE9C5954CF031E79AD56B /* DualSenseHaptics.swift */,
 				D331E985159AA4E9325D7B46 /* HDR.swift */,
@@ -456,7 +466,9 @@
 				5E2993F29818468CCDB59BBB /* LatencyReporting.swift */,
 				BBA048343AC7B500A33C2331 /* LendCore.swift */,
 				C4F5C6D95599975901557ED5 /* Localizable.xcstrings */,
+				45CC4FEBC769A859DA3D8EFE /* MicUI.swift */,
 				E507C6F92BBBC66E91277CD6 /* PlayStationCore.swift */,
+				CEA016AA888A873568747734 /* PyroWaveConfig.swift */,
 				882EFF24BC854CDF3B71DB93 /* PyroWaveDecoder.swift */,
 				BBFD14C0F55E9F4E5273F288 /* PyroWaveSupport.swift */,
 				3B9DFC158B9E58AFDFB4D362 /* RecordingCore.swift */,
@@ -622,6 +634,7 @@
 				7CB98801894B060E3310BA8A /* ScreenPad.swift in Sources */,
 				0B20F98F515386F14517B926 /* ScreenPadLogic.swift in Sources */,
 				F3AA316CF4C8F01ECA8EEEA5 /* SessionController.swift in Sources */,
+				79E8AE74DB35257A09B48EEB /* SessionModel.swift in Sources */,
 				83A855B7AAAC907E2BC22B6A /* SessionRules.swift in Sources */,
 				3C818532EDC9B3E2AD14165F /* SessionStats.swift in Sources */,
 				D0970783026227DA84F25AEC /* SessionView.swift in Sources */,
@@ -649,6 +662,7 @@
 				86BFD5BA8C1E2F5D7EB45061 /* ConsoleClientCore.swift in Sources */,
 				0186090A9EACDF478809466D /* ConsolePads.swift in Sources */,
 				1B9D29A442EE30FB0C81B6CE /* CoreBridge.swift in Sources */,
+				85ABED043636FD27B49995CE /* CoreRules.swift in Sources */,
 				7755C218AEA12E38263D5253 /* DecoderCapabilities.swift in Sources */,
 				DD0EC04F7DB918283F35ECDD /* DualSenseHaptics.swift in Sources */,
 				420B9C9DFB363B4B19E275D8 /* GamepadBridge.swift in Sources */,
@@ -666,8 +680,10 @@
 				1F6C9796230EE919A0E92F16 /* LatencyReporting.swift in Sources */,
 				A45FF4CDC0895C8FD97A9715 /* LendCore.swift in Sources */,
 				19E6B33FA39328971210BB37 /* MetalSurface.swift in Sources */,
+				A4777A2E8077EAC8EB57D8C2 /* MicUI.swift in Sources */,
 				3AF2A47B1780A6EF38E902EF /* PlayStationCore.swift in Sources */,
 				EFBB54B2A3267D21FD5F7228 /* PlayStationKeyMouse.swift in Sources */,
+				C04FADD13A02C6A470B6C28F /* PyroWaveConfig.swift in Sources */,
 				50285EC8D793EA615CE2608A /* PyroWaveDecoder.swift in Sources */,
 				6F90344EF9EDD3E75A95F74D /* PyroWaveSupport.swift in Sources */,
 				349D7CD85D9FA9F6BC4BDC2F /* RecordingCore.swift in Sources */,

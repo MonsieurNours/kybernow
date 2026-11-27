@@ -615,7 +615,7 @@ private struct Tab: View {
                 Icon("microphone", size: 12, bold: true).foregroundStyle(Theme.accentLight)
                     .padding(.horizontal, 6)
                     .frame(minHeight: 26)
-                    .accessibilityLabel(Text(verbatim: "\(MicText.label), \(MicText.tileOn)"))
+                    .accessibilityLabel(Text(verbatim: "\(MicText.label), \(session.micSubtitle)"))
             }
             if relay {
                 HStack(spacing: 5) {
@@ -878,7 +878,7 @@ struct SessionBar: View {
     /// il reste touchable et dit sa raison en avis.
     private var micItem: some View {
         let on = session.micOn
-        let refused = session.micState.refusal != nil
+        let refused = session.mic.reason != nil
         return Button { session.toggleMicrophone() } label: {
             VStack(spacing: 2) {
                 Icon(on ? "microphone" : "microphone-slash", size: 18).foregroundStyle(on ? Theme.accentLight : Theme.text2)
@@ -889,7 +889,7 @@ struct SessionBar: View {
             .opacity(refused ? 0.45 : 1)
         }
         .accessibilityLabel(Text(verbatim: "\(MicText.label), \(session.micSubtitle)"))
-        .accessibilityHint(Text(session.micState.refusal ?? ""))
+        .accessibilityHint(Text(session.mic.reason ?? ""))
         .accessibilityAddTraits(.isToggle)
     }
 

@@ -102,6 +102,9 @@ targets:
       - path: ../macos/KyberNow/PlayStationHandoffModel.swift
       - path: ../macos/KyberNow/PlayStationCloud.swift
       - path: ../tvos/KyberNowTV/CloudSync.swift
+      # La session commune à l'iPhone, à l'iPad et à l'Apple TV (état et
+      # réactions sans interface, audit IOS-21).
+      - path: ../tvos/KyberNowTV/SessionModel.swift
       - path: ../tvos/KyberNowTV/Backdrops.swift
       - path: ../macos/KyberNow/Fonts
         buildPhase: resources

@@ -172,12 +172,6 @@ public enum PyroWaveRules {
     public static func loweredText(width: Int, height: Int, refresh: Int, mbps: Int) -> String {
         Core.take(kn_pyrowave_lowered_text(UInt32(clamping: width), UInt32(clamping: height), UInt32(clamping: refresh), UInt32(clamping: mbps))) ?? ""
     }
-
-    /// Le décodeur de l'app lit l'en-tête `KNPW` version 2 (métadonnées
-    /// HDR10, KYB-29) : la Station l'envoie aux sessions qui suivent.
-    public static func readsHeaderV2() {
-        kn_pyrowave_set_header(2)
-    }
 }
 
 // MARK: - Lien d'invitation

@@ -6,7 +6,6 @@
 // « Personnalisé ». Ce qui vaut pour toute l'app (iCloud, langue, test des
 // manettes, ce que l'Apple TV sait décoder) est dans les Réglages de l'app.
 
-import CoreImage.CIFilterBuiltins
 import KyberKit
 import Network
 import SwiftUI
@@ -437,7 +436,7 @@ struct SettingsView: View {
                 let mode = TVDisplay.mode(for: st)
                 st.codec = .pyrowave
                 st.profile = nil
-                st.bitrateMbps = PyroWaveRate.mbps(width: mode.width, height: mode.height, refresh: mode.refresh, yuv444: st.yuv444)
+                st.bitrateMbps = PyroWaveRules.mbps(width: mode.width, height: mode.height, refresh: mode.refresh, yuv444: st.yuv444)
             default:
                 let wasPyroWave = st.codec == .pyrowave
                 st.codec = key == "h264" ? .h264 : .hevc
@@ -469,7 +468,7 @@ struct SettingsView: View {
                             Rectangle().fill(Theme.warn.opacity(0.35))
                         }
                         Rectangle().fill(warn ? Theme.warn : Theme.accent)
-                            .frame(width: geo.size.width * min(1, CGFloat(rate) / (pyro ? CGFloat(PyroWaveRate.max) : 400)))
+                            .frame(width: geo.size.width * min(1, CGFloat(rate) / CGFloat(ConnectionSettings.bitrateRange(s.codec).upperBound)))
                     }
                     .clipShape(Capsule())
                 }
@@ -479,11 +478,11 @@ struct SettingsView: View {
                     .font(Theme.sans(17)).foregroundStyle(warn ? Theme.warnText : Theme.muted)
             }
             HStack(spacing: 8) {
-                Button { edit { st in st.bitrateMbps = max(ConnectionSettings.minBitrate, rate - 10) } } label: { Text(verbatim: "−") }
+                Button { edit { st in st.bitrateMbps = max(ConnectionSettings.bitrateRange(st.codec).lowerBound, rate - 10) } } label: { Text(verbatim: "−") }
                     .buttonStyle(ChoiceButton(selected: false, height: 64, light: true))
                     .focused($focus, equals: .row("rate.less"))
                     .accessibilityLabel("Moins de débit")
-                Button { edit { st in st.bitrateMbps = min(ConnectionSettings.maxBitrate, rate + 10) } } label: { Text(verbatim: "+") }
+                Button { edit { st in st.bitrateMbps = min(ConnectionSettings.bitrateRange(st.codec).upperBound, rate + 10) } } label: { Text(verbatim: "+") }
                     .buttonStyle(ChoiceButton(selected: false, height: 64, light: true))
                     .focused($focus, equals: .row("rate.more"))
                     .accessibilityLabel("Plus de débit")
@@ -590,7 +589,7 @@ struct SettingsView: View {
         fact(StatsText.system, info?.os ?? "—")
         fact(StatsText.graphics, info?.gpu ?? "—")
         fact(StatsText.address, "\(host.address):\(String(host.consolePort))")
-        fact(StatsText.fingerprint, host.consoleFingerprint.map(LinkFormat.fingerprint) ?? "—")
+        fact(StatsText.fingerprint, host.consoleFingerprint.map(Fingerprint.short) ?? "—")
         if status?.problem == .certificateChanged {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
@@ -598,7 +597,7 @@ struct SettingsView: View {
                     Text(LinkText.problem(.certificateChanged)).font(Theme.sans(21)).foregroundStyle(Theme.warnText)
                 }
                 if let presented {
-                    fact(StatsText.presented, LinkFormat.fingerprint(presented))
+                    fact(StatsText.presented, Fingerprint.short(presented))
                     Text(StatsText.compare).font(Theme.sans(18)).foregroundStyle(Theme.muted)
                         .fixedSize(horizontal: false, vertical: true)
                     Button(StatsText.trust) { store.trust(fingerprint: presented, for: host) }
@@ -736,10 +735,10 @@ struct SettingsView: View {
 
     /// QR code d'Admin : on l'ouvre sur son téléphone (le navigateur demande le mot de passe d'Admin).
     private func adminCode(_ host: Host) -> some View {
-        let url = adminURL(host)
+        let url = store.adminURL(for: host)?.absoluteString ?? ""
         return VStack(spacing: 16) {
-            if let qr = Self.qr(url) {
-                Image(uiImage: qr)
+            if let qr = Share.qrImage(for: url) {
+                Image(decorative: qr, scale: 1)
                     .interpolation(.none)
                     .resizable()
                     .frame(width: 216, height: 216)
@@ -757,19 +756,6 @@ struct SettingsView: View {
         .frame(width: 300)
     }
 
-    private func adminURL(_ host: Host) -> String {
-        if let url = store.console(for: host)?.adminURL { return url.absoluteString }
-        let address = host.address.contains(":") ? "[\(host.address)]" : host.address
-        return "https://\(address):\(String(host.consolePort))/"
-    }
-
-    private static func qr(_ text: String) -> UIImage? {
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(text.utf8)
-        filter.correctionLevel = "M"
-        guard let out = filter.outputImage, let cg = CIContext().createCGImage(out, from: out.extent) else { return nil }
-        return UIImage(cgImage: cg)
-    }
 
     /// Bouton d'action de la Station : titre, aide, icône.
     private func action(_ id: String, _ title: String, _ note: String, icon: String, run: @escaping () -> Void) -> some View {

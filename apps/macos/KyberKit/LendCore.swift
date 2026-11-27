@@ -148,17 +148,6 @@ public struct LendInvite: Sendable, Equatable, Codable, Identifiable {
         json = text
     }
 
-    /// Le texte ressemble à un lien d'invitation (`kybernow://borrow…`, ou une
-    /// page `/link/` du client web avec `borrow=`), lisible ou non : un lien
-    /// illisible se dit (« Ce lien d'invitation est illisible. ») au lieu
-    /// d'être ignoré.
-    public static func looksLikeInvite(_ text: String) -> Bool {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if t.hasPrefix("kybernow://borrow") { return true }
-        guard t.hasPrefix("https://"), let query = t.split(separator: "?", maxSplits: 1).last, t.contains("/link") else { return false }
-        return query.split(separator: "&").contains { $0.hasPrefix("borrow=") }
-    }
-
     /// Un compte d'ami sur une Station du réseau, sans lien d'invitation.
     public init(host: String, port: UInt16, fingerprint: String?, login: String) {
         var j: [String: Any] = ["host": host, "port": Int(port), "login": login]

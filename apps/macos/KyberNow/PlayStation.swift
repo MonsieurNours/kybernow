@@ -1153,7 +1153,7 @@ extension PlayStationStore {
             let mine = hosts?.hosts ?? []
             for st in s.stations ?? [] {
                 let h = mine.first { $0.id.uuidString == st.id?.uppercased() }
-                    ?? mine.first { st.fingerprint != nil && $0.consoleFingerprint == st.fingerprint }
+                    ?? mine.first { Fingerprint.same($0.consoleFingerprint, st.fingerprint) }
                     ?? mine.first { st.address != nil && $0.address == st.address }
                 if let h, !(seenBy[s.hostID]?.contains(h.id) ?? false) { seenBy[s.hostID, default: []].append(h.id) }
             }

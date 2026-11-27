@@ -89,8 +89,8 @@ enum AccountText {
     static var otherRelay: String { String(localized: "Un autre relais…") }
     static var otherRelayTitle: String { String(localized: "Un autre relais") }
     static var relayField: String { String(localized: "Relais") }
-    /// L'exemple grisé du champ (pas traduit).
-    static var relayPlaceholder: String { "relais.exemple.org:9443" }
+    /// L'exemple grisé du champ, dans la langue de l'app (TRANS-31).
+    static var relayPlaceholder: String { String(localized: "relais.exemple.org:9443") }
     static var relayHelp: String { String(localized: "L'adresse du relais de votre compte, si ce n'est pas share.kybernow.app.") }
     static var continueLabel: String { String(localized: "Continuer") }
 
@@ -380,7 +380,7 @@ final class AccountStore: ObservableObject {
         var list: [Host] = []
         for c in merged.added {
             var h = hosts.hosts.first { $0.account.map { $0.relay == c.relay && $0.station == c.station } ?? false }
-                ?? Host(name: c.name, address: "", consolePort: 9443, username: "")
+                ?? Host(name: c.name, address: "", consolePort: Host.adminPort, username: "")
             if !c.name.isEmpty { h.name = c.name }
             h.account = AccountLink(key: c.account, relay: c.relay, station: c.station)
             if let fp = c.adminFingerprint { h.consoleFingerprint = fp }
@@ -424,7 +424,7 @@ final class AccountStore: ObservableObject {
         var still: Set<UUID> = []
         for h in mine {
             guard let fp = h.consoleFingerprint,
-                  let f = found.first(where: { $0.fingerprint.map { HostStore.sameFingerprint($0, fp) } ?? false }) else { continue }
+                  let f = found.first(where: { $0.fingerprint.map { Fingerprint.same($0, fp) } ?? false }) else { continue }
             still.insert(h.id)
             guard seen[h.id] == nil, !resolving.contains(f.id) else { continue }
             resolving.insert(f.id)
@@ -844,7 +844,7 @@ extension ConnectionSettings {
             }
             codec = r.codec
             yuv444 = r.yuv444
-            bitrateMbps = min(max(r.mbps, Self.minBitrate), Self.maxBitrate)
+            bitrateMbps = CoreValues.clampManual(r.mbps, codec: r.codec)
             hdr = r.hdr
         }
         #if os(macOS)

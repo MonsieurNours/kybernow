@@ -20,6 +20,10 @@
 // revient sur l'appareil sans couper la session. Stage Manager : la session
 // vit dans sa fenêtre ; perdre le premier plan relâche tout sur
 // l'ordinateur et ramène le débit, comme l'arrière-plan.
+//
+// L'état et les réactions communes à l'Apple TV (partage, prêt,
+// enregistrement, PyroWave, avis, étapes) sont dans `SessionModel`
+// (apps/tvos/KyberNowTV/SessionModel.swift, audit IOS-21).
 
 import AVFoundation
 import Combine
@@ -28,40 +32,7 @@ import KyberKit
 import SwiftUI
 import UIKit
 
-@MainActor
-final class SessionController: ObservableObject {
-    enum Phase: Equatable {
-        case preparing, connecting, starting, streaming
-        case reconnecting(Int)
-        case ending
-        case ended
-        case failed(String)
-
-        var stage: SessionStep {
-            switch self {
-            case .preparing: .preparing
-            case .connecting: .connecting
-            case .starting: .starting
-            case .streaming: .streaming
-            case .reconnecting: .reconnecting
-            case .ending: .ending
-            case .ended: .ended
-            case .failed: .failed
-            }
-        }
-    }
-
-    /// La veille est retenue tant que la session vit (`SessionRules.keepsAwake`).
-    @Published private(set) var phase: Phase = .preparing {
-        didSet { SleepGuard.hold(self, SessionRules.keepsAwake(phase.stage)) }
-    }
-    @Published private(set) var host: Host
-    /// Instant où l'image est apparue (le passage s'ouvre).
-    @Published private(set) var revealedAt: Date?
-    /// Dernier recours du cœur : l'image ne venait pas, il redémarre la
-    /// Station et attend son retour (« La Station redémarre… » sur l'écran de
-    /// connexion), jusqu'à l'état suivant.
-    @Published private(set) var stationRestarting = false
+final class SessionController: SessionModel {
     /// Barre de session ouverte.
     @Published private(set) var barOpen = false
     /// La manette pilote la barre (L1 + R1 + Start + Select).
@@ -74,30 +45,9 @@ final class SessionController: ObservableObject {
     @Published private(set) var statsHistory: [VideoStats] = []
     /// Pertes depuis le début de la session.
     @Published private(set) var sessionLosses = (frames: 0, packets: 0)
-    @Published private(set) var route = AudioRoute.current
-    @Published private(set) var modeLabel = ""
-    @Published private(set) var startedAt = Date()
-    /// Capsule d'information en haut de l'image (mode changé, image relancée…).
-    @Published private(set) var notice: String?
 
-    // MARK: Caméra de l'appareil (docs/webcam.md)
-
-    /// L'ordinateur propose la caméra (bouton « Caméra » de la barre).
-    @Published private(set) var cameraOffered = false
-    @Published private(set) var cameraState: CameraState = .off
     /// Les caméras de cet appareil (avant, arrière), relues à l'ouverture du menu.
     @Published private(set) var cameras: [CameraChoice] = []
-    /// Son icône, quand elle en a une (« Manettes indisponibles… » : la manette).
-    @Published private(set) var noticeIcon: String?
-    /// La capsule se choisit : elle ouvre le panneau du partage (la demande d'un invité, « Léa demande à rejoindre. »).
-    @Published private(set) var noticeOpensShare = false
-    /// La capsule est une demande d'emprunt : la choisir ouvre le panneau du prêt.
-    @Published private(set) var noticeOpensLend = false
-    /// L'avis porte « Ouvrir les Réglages » (caméra ou micro refusés).
-    @Published private(set) var noticeOpensSettings = false
-    @Published private(set) var fallbackNote: String?
-    /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre 2622 × 1206 ».
-    @Published private(set) var modeRestoreOffer: String?
     /// Clavier de l'écran ouvert.
     @Published private(set) var keyboardShown = false
     /// Manette à l'écran affichée (retenu pour cet ordinateur).
@@ -120,373 +70,59 @@ final class SessionController: ObservableObject {
     private var screenLuminance: HDRLuminance?
     @Published private(set) var sessionHDR = false
 
-    let streamView = StreamView(frame: CGRect(x: 0, y: 0, width: 874, height: 402))
-    private let store: HostStore
     private let onFinish: (SessionController) -> Void
-    private let prefs = Preferences.shared
-    private var engine: SessionEngine?
-    private var engineStreaming = false
-    /// Mode de l'écran de la session (demandé, puis celui obtenu de l'ordinateur) :
-    /// gardé avec la dernière session.
-    private var streamMode = (width: 0, height: 0, refresh: 0)
     private var observers: [NSObjectProtocol] = []
     private var externalWatch: AnyCancellable?
-    /// Les manettes branchées (et la manette à l'écran), pour l'avis des
-    /// manettes indisponibles ; déjà dit dans cette session.
-    private var padsWatch: AnyCancellable?
-    private var padsUnavailableShown = false
-    private static let revealDelay: TimeInterval = 0.9
-    /// Arrière-plan : débit plafonné, image figée (la session continue).
-    private static let backgroundBitrate: UInt32 = 8_000_000
+    /// La fenêtre de la session est passée en arrière-plan (débit plafonné, image figée).
+    private var inBackground = false
 
     // MARK: KyberNow Share
 
-    /// KyberNow Share, session d'invité : la Station qui a accepté le code.
-    /// Un invité n'a ni compte, ni profil, ni écran virtuel ; son ordinateur
-    /// n'est pas dans la liste de cet appareil (`host` n'est qu'un nom et une
-    /// adresse), rien n'est gardé après le partage (docs/kybernow-share.md).
-    @Published private(set) var guest: ShareFound?
-    /// Regarder un ordinateur du compte (droit `view`, docs/comptes.md) :
-    /// l'ordinateur de l'accueil ; la personne entre au départ de la session
-    /// (`AccountStore.watch`), puis la session est celle d'un invité.
-    let watchHost: Host?
-    var isWatching: Bool { watchHost != nil }
-    var isGuest: Bool { guest != nil || watchHost != nil }
-    /// Le rôle de l'invité (« Spectateur », « Joueur »), changé par l'hôte en cours de partage.
-    @Published private(set) var shareRole: ShareRole = .spectator
-    /// La « Qualité de l'image » de l'invité (celle demandée, changée dans la
-    /// barre) et l'image qu'il reçoit (`on_share_image`) ; la barre montre
-    /// « 1080p · 60 Hz » quand le cœur sait la dire (`shareImageLabel`).
-    @Published private(set) var shareQuality: ShareQuality = .auto
-    @Published private(set) var shareImage: ShareImage?
-    /// La qualité reçue dans la barre, ou la qualité choisie tant que la taille n'est pas sue.
-    var shareImageLabel: String { GuestQuality.barLabel(image: shareImage, quality: shareQuality) }
-    /// La raison de la fin par le partage (« {hôte} a arrêté le partage. »).
-    @Published private(set) var shareEndText: String?
-    /// Le partage de cette session d'hôte (« Partager » dans la barre).
-    let share: ShareHostModel
     /// Le panneau de l'hôte (code, QR code, invités) est ouvert.
     @Published var shareSheet = false
 
-    /// Par où passe la session (docs/relais.md) : direct sur le réseau, ou par le
-    /// relais hors de chez soi (puce « Par le relais » dans la barre, ligne
-    /// « Chemin » des statistiques). Donné par le cœur, au départ puis quand il change.
-    @Published private(set) var path = RouteInfo.direct
-
     // MARK: Prêt de l'ordinateur
 
-    /// Session d'emprunt (docs/pret.md) : d'où vient l'emprunt (la Station, le
-    /// code ou le compte, le prénom), gardé pour « Revenir ». Comme un invité,
-    /// un ami ne change rien sur l'ordinateur et ne garde rien sur cet appareil ;
-    /// il a le clavier, la souris et les manettes, sans presse-papiers.
-    let borrowSource: BorrowSource?
-    var isBorrower: Bool { borrowSource != nil }
-    /// Un invité ou un ami qui emprunte : ni profil, ni réglages, ni dernière image.
-    var isVisitor: Bool { isGuest || isBorrower }
     /// Face à une Station Mac : menu Touches et rangée du clavier du Mac
     /// (docs/link-ui.md). Un invité ou un ami ne connaît pas le système de
     /// l'ordinateur : touches d'un PC.
     var macKeys: Bool { !isVisitor && host.isMac }
-    /// L'emprunt avant la session : « Préparation de l'ordinateur », « En attente de {hôte}… ».
-    let borrowFlow: BorrowFlow?
-    /// Les vues lisent `borrowFlow.state` à travers la session : chaque
-    /// changement de l'emprunt (« En attente de {hôte}… ») les redessine.
-    private var borrowWatch: AnyCancellable?
-    /// Le prêt obtenu : la fin prévue (« Encore 1 h 20 ») et {hôte}.
-    @Published private(set) var loan: LendLoan?
-    /// Le préavis de 2 minutes en cours (le temps restant le suit).
-    @Published private(set) var lendNotice: LendNotice?
-    /// La fin par le prêt (« {hôte} a repris l'ordinateur. ») ou un refus de
-    /// l'emprunt : elle reste à l'écran, avec « Fermer ».
-    @Published private(set) var lendEndText: String?
-    /// « Rendre l'ordinateur à {hôte} ? » est posé.
-    @Published var giveBackAsked = false
-    /// L'ami a demandé « Rendre l'ordinateur » : la fin est voulue.
-    private var givingBack = false
-    /// {hôte} des textes du prêt.
-    var lendHost: String { loan?.host ?? borrowFlow?.host.nonEmpty ?? borrowSource?.hostHint.nonEmpty ?? host.name }
-    /// La session d'emprunt s'est coupée sans fin du prêt (réseau perdu) : l'ami
-    /// peut revenir pendant 15 minutes (« Revenir »).
-    var canComeBack: Bool { isBorrower && loan != nil && lendEndText == nil && !givingBack }
-    /// « Revenir » : l'app ouvre le même emprunt dans une nouvelle session.
-    var onComeBack: ((BorrowSource) -> Void)?
-    /// Le prêt de cet ordinateur, depuis la session de l'hôte (« Prêter l'ordinateur… »).
-    let lend: LendHostModel
     /// Le panneau « Prêter l'ordinateur… » est ouvert.
     @Published var lendSheet = false
 
-    // MARK: Enregistrement de la session
-
-    /// L'enregistrement (docs/link-ui.md, « Enregistrement de la session ») :
-    /// le dernier état dit par le cœur, hôte comme invité ; nil tant qu'il n'a
-    /// rien dit (Station qui n'enregistre pas : ni bouton ni pastille) et pour
-    /// un ami qui emprunte. Le temps se lit chaque seconde (`clock()`).
-    @Published private(set) var recording: RecordingState?
-    /// Une demande de lancement ou d'arrêt est partie (pas de double toucher).
-    private var recordingBusy = false
-    /// L'enregistrement se montre : la Station enregistre et l'a dit.
-    var recordingShown: Bool { recording?.available == true && !isBorrower }
-    /// L'hôte enregistre en ce moment (pastille rouge en haut de l'image).
-    var recordingActive: Bool { recordingShown && recording?.active == true }
-
-    /// Le titre de la session : le nom de l'ordinateur, « Invité sur {nom} »,
-    /// ou « Ordinateur de {hôte} ».
-    var title: String {
-        if isBorrower { return LendText.computerOf(lendHost) }
-        if let watchHost { return Share.watchTitle(watchHost.name) }
-        return guest.map { ShareText.guestOn($0.computer) } ?? host.name
-    }
-
-    /// « Quitter le partage », ou « Arrêter de regarder » pour qui regarde.
-    var leaveLabel: String { isWatching ? Share.watchWord(.stop) : ShareText.leave }
-
-    /// Regarder : « Écran » dans la barre (plusieurs écrans qu'on peut changer).
-    var watchScreens: [ShareWatchScreen] {
-        guard let watch = guest?.watch, watch.menu else { return [] }
-        return watch.screens
-    }
-
-    /// Regarder : l'écran regardé, à cocher dans « Écran ».
-    var watchDisplay: UInt32 {
-        let shown = engine?.watchDisplay ?? 0
-        return shown != 0 ? shown : guest?.watch?.display ?? 0
-    }
-
-    /// Regarder : un autre écran ; la session se reconnecte dessus.
-    func watchScreen(_ id: UInt32) {
-        guard isWatching, phase == .streaming || phase == .starting, id != watchDisplay else { return }
-        engine?.watchScreen(id)
-        objectWillChange.send()
-    }
-
-    /// « Partager » avec cet ordinateur : disponible, ou inactif avec la raison.
-    var shareAvailability: ShareAvailability { share.availability }
+    // MARK: - Création
 
     init(host: Host, store: HostStore, onFinish: @escaping (SessionController) -> Void) {
-        self.host = host
-        self.store = store
         self.onFinish = onFinish
-        guest = nil
-        watchHost = nil
-        borrowSource = nil
-        borrowFlow = nil
-        share = ShareHostModel(console: nil) { [store, id = host.id] in ShareHostModel.availability(of: id, in: store) }
-        lend = LendHostModel(console: nil) { [store, id = host.id] in store.lendAvailability(of: id) }
+        super.init(.computer, host: host, store: store, streamView: Self.makeView())
     }
 
     /// Une session d'invité : une Station qui a accepté un code (`Share.join`).
+    /// Pas d'écran virtuel, la souris du bureau, rien de partagé.
     init(guest found: ShareFound, store: HostStore, onFinish: @escaping (SessionController) -> Void) {
-        var host = Host(name: found.computer, address: found.target.host, consolePort: found.target.port, username: "")
-        // Pas d'écran virtuel, la souris du bureau, rien de partagé : l'image
-        // est celle de l'hôte ; seul le repli du transport vient d'ici.
-        host.settings.apply(.jeu)
-        host.settings.display = .physical
-        host.settings.mouse = .desktop
-        host.settings.clipboard = false
-        host.settings.keepLastImage = false
-        self.host = host
-        self.store = store
         self.onFinish = onFinish
-        guest = found
-        watchHost = nil
-        shareRole = found.role
-        shareQuality = found.quality
+        super.init(.guest(found), store: store, streamView: Self.makeView())
         virtualDisplay = false
-        borrowSource = nil
-        borrowFlow = nil
-        share = ShareHostModel(console: nil) { .available }
-        lend = LendHostModel(console: nil) { .available }
     }
 
     /// « Regarder » un ordinateur du compte : la session d'un invité spectateur,
     /// qui entre au départ (`start`), étapes titrées « Regarder {nom} ».
     init(watch computer: Host, store: HostStore, onFinish: @escaping (SessionController) -> Void) {
-        var host = Host(name: computer.name, address: computer.address, consolePort: computer.consolePort, username: "")
-        // Comme un invité : l'image de l'ordinateur telle quelle, rien de partagé.
-        host.settings.apply(.jeu)
-        host.settings.display = .physical
-        host.settings.mouse = .desktop
-        host.settings.clipboard = false
-        host.settings.keepLastImage = false
-        self.host = host
-        self.store = store
         self.onFinish = onFinish
-        guest = nil
-        watchHost = computer
-        shareQuality = GuestQuality.proposed
+        super.init(.watch(computer), store: store, streamView: Self.makeView())
         virtualDisplay = false
-        borrowSource = nil
-        borrowFlow = nil
-        share = ShareHostModel(console: nil) { .available }
-        lend = LendHostModel(console: nil) { .available }
     }
 
     /// Une session d'emprunt : l'ordinateur d'un ami, par un code de prêt ou un
-    /// compte d'ami. L'emprunt se fait au départ de la session (`start`).
+    /// compte d'ami. L'emprunt se fait au départ de la session (`start`) ;
+    /// l'écran virtuel que la Station fait à la taille de cet appareil.
     init(borrow source: BorrowSource, store: HostStore, onFinish: @escaping (SessionController) -> Void) {
-        let name = LendText.computerOf(source.hostHint.isEmpty ? source.target.host : source.hostHint)
-        var host = Host(name: name, address: source.target.host, consolePort: source.target.port, username: "")
-        // L'écran virtuel que la Station fait à la taille de cet appareil, profil
-        // Jeu, sans presse-papiers ; rien n'est gardé ensuite.
-        host.settings.apply(.jeu)
-        host.settings.display = .match
-        host.settings.clipboard = false
-        host.settings.keepLastImage = false
-        self.host = host
-        self.store = store
         self.onFinish = onFinish
-        guest = nil
-        watchHost = nil
-        borrowSource = source
-        borrowFlow = BorrowFlow(source: source)
-        share = ShareHostModel(console: nil) { .available }
-        lend = LendHostModel(console: nil) { .available }
+        super.init(.borrow(source), store: store, streamView: Self.makeView())
     }
 
-    /// Les réglages de l'image, pour le cœur. AV1 seulement si l'appareil le
-    /// décode. `wired` : relié par câble (adaptateur Ethernet USB-C), pour
-    /// « Auto » et PyroWave (docs/pyrowave-client-apple.md).
-    private var engineSettings: SessionEngine.Settings {
-        let s = host.settings
-        var codec = codecOverride ?? s.codec
-        if codec == .av1, !DecoderCapabilities.current.av1 { codec = DecoderCapabilities.current.hevc ? .hevc : .h264 }
-        return SessionEngine.Settings(
-            profile: codecOverride == nil ? s.profile?.rawValue : nil,
-            codec: codec,
-            yuv444: s.yuv444 && ConnectionSettings.decodes444(codec),
-            mbps: codecOverride == nil ? s.bitrateMbps : min(s.bitrateMbps, PyroWaveSession.hevcMbps),
-            reliable: s.transport == .reliable,
-            hdr: s.hdr,
-            wired: NetworkLink.shared.wired,
-            adaptive: s.adaptive,
-            encoderMax: s.encoderMax
-        )
-    }
-
-    // MARK: - PyroWave
-
-    /// « Passer en HEVC » : le format de cette session seulement ; le choix
-    /// de l'ordinateur (PyroWave) reste dans ses réglages.
-    private var codecOverride: VideoCodec?
-    /// Le format que la Station envoie vraiment (dernier paquet de codec).
-    @Published private(set) var receivedCodec: VideoCodec?
-    /// Le bandeau du début de session (« PyroWave en Wi-Fi ») ou celui du
-    /// réseau qui sature (« Le réseau sature ») est affiché.
-    @Published private(set) var pyrowaveBanner = false
-    /// Le bandeau affiché est celui du réseau qui sature.
-    @Published private(set) var pyrowaveStrained = false
-    private var pyrowaveBannerDone = false
-    private var pyrowaveBannerClose: DispatchWorkItem?
-    /// Profil Auto sur un autre réseau que celui du test : le bandeau discret
-    /// du début (8 s ou la croix ; docs/link-ui.md).
-    @Published private(set) var autoNetworkBanner = false
-    private var autoNetworkBannerDone = false
-    private var autoNetworkBannerClose: DispatchWorkItem?
-
-    /// Comment l'appareil joint l'ordinateur : câble, Wi-Fi (ou réseau mobile), relais.
-    var pyrowaveLink: PyroWaveLink {
-        #if DEBUG
-        if let demoLink { return demoLink }
-        #endif
-        return PyroWaveLink(wired: NetworkLink.shared.wired, relay: path.viaRelay)
-    }
-    #if DEBUG
-    private var demoLink: PyroWaveLink?
-    #endif
-
-    /// La puce ambre de la barre : l'image est en PyroWave sans câble ou par le relais.
-    var pyrowaveChip: String? {
-        receivedCodec == .pyrowave && pyrowaveLink != .cable ? PyroWaveText.chip(pyrowaveLink) : nil
-    }
-
-    /// Le format reçu, et le bandeau du début (PyroWave choisi à la main, en
-    /// Wi-Fi ou par le relais, une fois par session).
-    private func followCodec() {
-        guard let engine else { return }
-        let codec = engine.receivedCodec
-        if codec != receivedCodec { receivedCodec = codec }
-        // Auto, sur un autre réseau (ou par le relais) que celui du test : une fois, au début.
-        if !autoNetworkBannerDone {
-            autoNetworkBannerDone = true
-            if !isVisitor, store.autoOtherNetwork(host, viaRelay: path.viaRelay) { showAutoNetworkBanner() }
-        }
-        guard !pyrowaveBannerDone, codec == .pyrowave, host.settings.codec == .pyrowave, pyrowaveLink != .cable else { return }
-        showPyroWaveBanner()
-    }
-
-    /// Titre du bandeau : « PyroWave en Wi-Fi » / « … hors de chez vous »,
-    /// ou « Le réseau sature ».
-    var pyrowaveBannerTitle: String {
-        pyrowaveStrained ? PyroWaveText.strained : PyroWaveText.chip(pyrowaveLink)
-    }
-
-    private func showPyroWaveBanner(strained: Bool = false) {
-        pyrowaveBannerDone = true
-        pyrowaveStrained = strained
-        withAnimation(Theme.easeOut) { pyrowaveBanner = true }
-        // Un bandeau qui en remplace un autre garde ses 8 s.
-        pyrowaveBannerClose?.cancel()
-        let close = DispatchWorkItem { [weak self] in self?.closePyroWaveBanner() }
-        pyrowaveBannerClose = close
-        DispatchQueue.main.asyncAfter(deadline: .now() + PyroWaveSession.bannerSeconds, execute: close)
-    }
-
-    /// Le cœur dit que le réseau sature en PyroWave depuis 5 s (une fois par
-    /// session, hôte seulement) : « Le réseau sature », « Passer en HEVC ».
-    private func pyrowaveStrainedNotice() {
-        guard !isVisitor, codecOverride == nil else { return }
-        KyberLog.app.notice("PyroWave : le réseau sature, « Passer en HEVC » proposé")
-        showPyroWaveBanner(strained: true)
-    }
-
-    private func showAutoNetworkBanner() {
-        KyberLog.app.notice("profil Auto : autre réseau que celui du test")
-        withAnimation(Theme.easeOut) { autoNetworkBanner = true }
-        autoNetworkBannerClose?.cancel()
-        let close = DispatchWorkItem { [weak self] in self?.closeAutoNetworkBanner() }
-        autoNetworkBannerClose = close
-        DispatchQueue.main.asyncAfter(deadline: .now() + PyroWaveSession.bannerSeconds, execute: close)
-    }
-
-    /// La croix du bandeau « Autre réseau que celui du test ».
-    func closeAutoNetworkBanner() {
-        guard autoNetworkBanner else { return }
-        withAnimation(Theme.easeOut) { autoNetworkBanner = false }
-    }
-
-    /// « Refaire le test » (bandeau), ou Auto choisi sans test : le panneau
-    /// du test s'ouvre à la fin de la session (le test mesure le réseau libre).
-    func runAutoTest() {
-        closeAutoNetworkBanner()
-        AppModel.shared?.autoTest.openAfterSession(host)
-        show(notice: AutoText.afterSession, for: PyroWaveSession.bannerSeconds, icon: "sparkle")
-    }
-
-    /// La croix du bandeau.
-    func closePyroWaveBanner() {
-        guard pyrowaveBanner else { return }
-        withAnimation(Theme.easeOut) { pyrowaveBanner = false }
-    }
-
-    /// La définition ramenée par le cœur pour tenir dans le débit (texte du
-    /// cœur, langue de l'app) : dans le bandeau du début s'il est là, sinon
-    /// en capsule ; nil quand elle revient à celle de l'écran.
-    @Published private(set) var loweredText: String?
-
-    private func resolutionLowered(_ mode: LoweredMode?, _ text: String?) {
-        let line = text ?? mode.map { PyroWaveText.lowered(width: $0.width, height: $0.height, mbps: $0.mbps) }
-        if let mode { KyberLog.app.notice("PyroWave : définition ramenée à \(mode.width)×\(mode.height) (\(mode.mbps) Mbit/s)") }
-        withAnimation(Theme.easeOut) { loweredText = line }
-        if let line, !pyrowaveBanner { show(notice: line, for: PyroWaveSession.bannerSeconds, icon: "monitor") }
-    }
-
-    /// « Passer en HEVC » : l'image repart en HEVC pour cette session.
-    func switchToHEVC() {
-        guard !isVisitor, codecOverride == nil else { return }
-        codecOverride = DecoderCapabilities.current.hevc ? .hevc : .h264
-        closePyroWaveBanner()
-        KyberLog.app.notice("PyroWave : passage en HEVC pour cette session")
-        engine?.setSettings(engineSettings)
+    private static func makeView() -> StreamView {
+        StreamView(frame: CGRect(x: 0, y: 0, width: 874, height: 402))
     }
 
     // MARK: - HDR
@@ -542,9 +178,6 @@ final class SessionController: ObservableObject {
 
     var currentCamera: String? { engine?.cameraID ?? Self.cameraChoice ?? CameraCapture.defaultCamera() }
 
-    /// La ligne « Caméra » des statistiques (nil : éteinte).
-    var cameraStatsLine: String? { engine?.cameraStatsLine }
-
     func setHDR(_ on: Bool) {
         guard !isGuest, hdrState.available, on != host.settings.hdr else { return }
         host.settings.hdr = on
@@ -554,29 +187,31 @@ final class SessionController: ObservableObject {
 
     // MARK: - Micro (docs/micro.md)
 
-    /// L'état du micro dit par le cœur (élément « Micro » de la barre, icône de l'onglet).
-    @Published private(set) var micState: MicState = .off
-    /// Allumé par l'utilisateur, en attente de l'ordinateur : l'avis vient quand il le prend.
-    private var micJustOn = false
+    /// Le micro tel que le cœur le montre (`MicUI` : « Micro » de la barre,
+    /// tuile « Envoyé », « Envoi… », « Coupé », icône près de l'onglet).
+    private lazy var micUI = MicUI(on: host.settings.microphone)
+    @Published private(set) var mic = MicView()
 
     /// « Micro » allumé : le choix de l'ordinateur, sauf refus.
-    var micOn: Bool { host.settings.microphone && micState.refusal == nil }
-    /// Envoyé (ou en route) : l'icône de micro près de l'onglet de la session.
-    var micSending: Bool { micOn && micState.capturing }
+    var micOn: Bool { mic.lit }
+    /// Envoyé à l'ordinateur : l'icône de micro près de l'onglet de la session.
+    var micSending: Bool { mic.sent }
     /// Un invité que l'hôte ne laisse pas parler n'a pas « Micro ».
-    var micShown: Bool { !(isGuest && micState.notAllowed) }
+    var micShown: Bool { mic.shown }
     /// Le sous-titre de la tuile : « Envoyé », « Envoi… » ou « Coupé ».
-    var micSubtitle: String {
-        guard micOn else { return MicText.tileOff }
-        return micState == .on ? MicText.tileOn : MicText.tileWaiting
-    }
+    var micSubtitle: String { mic.tile }
+
+    private func refreshMic() { mic = micUI.view(shortcut: "", guest: isGuest) }
 
     /// « Micro » touché : allumé ou coupé, gardé pour l'ordinateur ;
     /// l'autorisation du système est demandée la première fois qu'on
     /// l'allume. Refusé par l'ordinateur : sa raison, en avis.
     func toggleMicrophone() {
-        if let reason = micState.refusal { return show(notice: reason, for: 5) }
-        setMicrophone(!host.settings.microphone)
+        switch micUI.tap() {
+        case .refused: if let reason = mic.reason { show(notice: reason, for: 5) }
+        case .turnOn: setMicrophone(true)
+        case .turnOff: setMicrophone(false)
+        }
     }
 
     func setMicrophone(_ on: Bool) {
@@ -584,7 +219,11 @@ final class SessionController: ObservableObject {
         guard on else { return applyMicrophone(false) }
         MicrophoneAccess.request { [weak self] granted in
             guard let self else { return }
-            guard granted else { return self.show(notice: MicText.permission, for: 6, opensSettings: true) }
+            guard granted else {
+                self.micUI.denied()
+                self.refreshMic()
+                return self.show(notice: MicText.permission, for: 6, opensSettings: true)
+            }
             self.applyMicrophone(true)
         }
     }
@@ -592,17 +231,17 @@ final class SessionController: ObservableObject {
     private func applyMicrophone(_ on: Bool) {
         host.settings.microphone = on
         if !isVisitor { store.update(host) }
-        micJustOn = on
+        micUI.set(on)
+        refreshMic()
         engine?.setMicrophone(on)
     }
 
+    /// Le cœur dit l'état du micro (la capture suit déjà dans `SessionEngine`) ;
+    /// l'avis « Micro envoyé à {nom}. » vient quand il le prend.
     private func microphoneChanged(_ state: MicState) {
-        micState = state
-        if state.refusal != nil { micJustOn = false }
-        if micJustOn, state == .on {
-            micJustOn = false
-            show(notice: MicText.sent(host.name), for: 3)
-        }
+        let notice = micUI.changed(state, computer: host.name)
+        refreshMic()
+        if let notice { show(notice: notice, for: 3) }
     }
 
     /// Réglages de l'app changés (micro choisi, écho et bruit) : la capture reprend avec eux.
@@ -627,16 +266,10 @@ final class SessionController: ObservableObject {
     // MARK: - Déroulé
 
     func start() {
-        // Un invité n'a pas de compte : le code a suffi (un ami : le prêt).
-        let password = isVisitor ? "" : store.password(for: host)
-        guard let password else {
-            fail(String(localized: "mot de passe introuvable dans le Trousseau"))
-            return
-        }
         let settings = host.settings
         // « Comme cet écran » : l'écran externe s'il est branché, sinon celui de l'appareil.
         let mode = ExternalDisplay.shared.mode(for: settings) ?? DeviceDisplay.mode(for: settings, screen: deviceScreen)
-        modeLabel = "\(mode.width) × \(mode.height) · \(mode.refresh) Hz"
+        modeLabel = SessionModel.modeLabel(mode.width, mode.height, mode.refresh)
         streamMode = mode
         configureView()
         observeApp()
@@ -649,162 +282,38 @@ final class SessionController: ObservableObject {
         padsWatch = GamepadBridge.shared.$pads.receive(on: RunLoop.main).sink { [weak self] pads in
             if !pads.isEmpty { self?.padsUnavailableNotice() }
         }
-
-        // Regarder : la personne entre d'abord dans le partage de l'ordinateur
-        // (« Préparation de l'écran »), puis la session est celle d'un invité.
-        if let watchHost, guest == nil {
-            phase = .preparing
-            let quality = shareQuality
-            Task { [weak self] in
-                guard let accounts = self?.store.accounts else { return }
-                do {
-                    let found = try await accounts.watch(watchHost, quality: quality, screen: DeviceDisplay.shareScreen())
-                    guard let self, self.phase == .preparing else {
-                        Share.leave(found)
-                        return
-                    }
-                    self.guest = found
-                    self.shareRole = found.role
-                    self.startEngine(mode: mode, password: password)
-                } catch {
-                    guard let self, self.phase == .preparing else { return }
-                    let text = ShareJoinModel.text(error)
-                    self.shareEndText = text
-                    self.fail(text)
-                }
-            }
-            return
+        let hdr = HDRDisplay.isHDR(imageScreen) && host.settings.hdr
+        begin(shareScreen: DeviceDisplay.shareScreen(),
+              lendScreen: LendScreen(width: mode.width, height: mode.height, refresh: mode.refresh, hdr: hdr,
+                                     luminance: HDRCalibrationStore.session(.current(imageScreen), hdr: hdr))) { [weak self] password in
+            self?.startEngine(mode: mode, password: password)
         }
-
-        // Prêt de l'ordinateur : l'emprunt d'abord (« Préparation de
-        // l'ordinateur », ou « En attente de {hôte}… »), avec l'écran de cet
-        // appareil ; la session se connecte une fois le prêt obtenu.
-        if let flow = borrowFlow, loan == nil {
-            phase = .preparing
-            borrowWatch = flow.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
-            flow.onReady = { [weak self] loan in
-                guard let self, self.phase == .preparing else {
-                    Lend.leave(loan)
-                    return
-                }
-                self.loan = loan
-                self.host.name = LendText.computerOf(loan.host)
-                self.startEngine(mode: mode, password: password)
-            }
-            flow.onFailed = { [weak self] text in
-                guard let self else { return }
-                self.lendEndText = text
-                self.fail(text)
-            }
-            let hdr = HDRDisplay.isHDR(imageScreen) && host.settings.hdr
-            flow.start(screen: LendScreen(width: mode.width, height: mode.height, refresh: mode.refresh, hdr: hdr,
-                                          luminance: HDRCalibrationStore.session(.current(imageScreen), hdr: hdr)))
-            return
-        }
-        startEngine(mode: mode, password: password)
     }
 
     /// La session du cœur : celle de l'ordinateur, d'un invité ou d'un ami qui emprunte.
     private func startEngine(mode: (width: Int, height: Int, refresh: Int), password: String) {
         let settings = host.settings
         let engine = SessionEngine(view: streamView)
-        engine.onPhase = { [weak self] in self?.phaseChanged($0) }
-        engine.onNotice = { [weak self] in self?.notice($0) }
-        engine.onCameraOffer = { [weak self] offered in
-            guard let self else { return }
-            KyberLog.app.notice("caméra : \(offered ? "proposée" : "plus proposée", privacy: .public) par l'ordinateur")
-            cameraOffered = offered
-            if offered {
-                cameras = CameraCapture.cameras()
-                if host.cameraOffered != true, !isBorrower, !isGuest {
-                    host.cameraOffered = true
-                    store.update(host)
-                }
-            }
-        }
-        engine.onCameraState = { [weak self] state in
-            KyberLog.app.notice("caméra : \(String(describing: state), privacy: .public)")
-            self?.cameraState = state
-        }
-        engine.onCameraNotice = { [weak self] text in
-            KyberLog.app.notice("caméra : avis « \(text, privacy: .public) »")
-            // Accès refusé : l'avis mène aux Réglages (docs/link-ui.md, « Caméra de l'appareil »).
-            let denied = [AVAuthorizationStatus.denied, .restricted].contains(AVCaptureDevice.authorizationStatus(for: .video))
-            self?.show(notice: text, for: denied ? 6 : 4, opensSettings: denied)
-        }
+        wire(engine)
         engine.onDisplays = { [weak self] in self?.screens = $0 }
         engine.onShownDisplay = { [weak self] in self?.shownDisplay = $0.id }
         engine.onMode = { [weak self] mode, virtualDisplay in
             guard let self else { return }
-            self.modeLabel = "\(mode.width) × \(mode.height) · \(mode.refresh) Hz"
+            self.modeLabel = SessionModel.modeLabel(mode.width, mode.height, mode.refresh)
             self.streamMode = (mode.width, mode.height, mode.refresh)
             self.virtualDisplay = virtualDisplay
         }
         engine.onVideoStats = { [weak self] in self?.received($0) }
-        engine.onLowered = { [weak self] mode, text in self?.resolutionLowered(mode, text) }
-        engine.onPyroWaveStrained = { [weak self] in self?.pyrowaveStrainedNotice() }
-        engine.onEncoderCeiling = { [weak self] mbps in
-            guard let self, !self.isVisitor else { return }
-            self.host.settings.encoderMax = mbps
-            self.store.update(self.host)
-        }
         engine.onAudioStats = { [weak self] in self?.audioStats = $0 }
         engine.onGamepadCombo = { [weak self] in self?.gamepadCombo() }
-        engine.onGameFullscreen = { game in
-            KyberLog.app.notice("ordinateur : \(game ? "jeu en plein écran" : "pas de jeu en plein écran", privacy: .public)")
-        }
-        // KyberNow Share : la liste des invités (hôte), le rôle et la fin (invité).
-        engine.onGuests = { [weak self] in self?.share.heartbeat($0) }
-        share.onRequest = { [weak self] in self?.requestArrived($0) }
-        engine.onShareRole = { [weak self] role, previous in self?.shareRoleChanged(role, previous: previous) }
-        engine.onShareEnd = { [weak self] _, text in self?.shareEndText = text }
-        engine.onShareImage = { [weak self] image, _, notice in self?.shareImageChanged(image, notice: notice) }
-        // Prêt de l'ordinateur : la vue du prêt (hôte), le préavis et la fin (ami).
-        engine.onLend = { [weak self] view in
-            guard let self else { return }
-            self.lend.heartbeat(view)
-            self.store.setLend(view, for: self.host.id)
-        }
-        lend.onRequest = { [weak self] in self?.lendRequestArrived($0) }
-        engine.onLendNotice = { [weak self] notice, text in self?.lendNoticed(notice, text: text) }
-        engine.onLendEnd = { [weak self] end, text in self?.lendEnded(end, text: text) }
-        // Enregistrement : l'état (hôte et invité) et l'avis bref du cœur.
-        engine.onRecording = { [weak self] state, notice in self?.recordingChanged(state, notice: notice) }
-        engine.onRoute = { [weak self] in self?.routeChanged($0) }
         engine.onHDR = { [weak self] screens in self?.sessionHDR = screens.contains(true) }
         engine.onMicrophone = { [weak self] in self?.microphoneChanged($0) }
-        self.engine = engine
-        if !isVisitor {
-            share.setConsole(store.console(for: host))
-            lend.setConsole(store.console(for: host))
-        }
 
         // Son : celui de la sortie (AirPods en audio spatial, ampli HDMI), ou resté sur l'ordinateur.
         let channels = settings.audio == .off ? 0 : (settings.audio == .auto ? AudioOutput.channels() : settings.audio.channels)
-        var params: SessionEngine.Params
-        if let loan {
-            // Un ami : la Station du prêt, sur l'écran virtuel qu'elle a fait pour cet appareil.
-            params = SessionEngine.Params(borrower: loan, audioChannels: channels, settings: engineSettings)
-        } else if let guest {
-            // Un invité : la Station qui a accepté le code, sans compte ni écran virtuel.
-            params = SessionEngine.Params(guest: guest, audioChannels: channels, settings: engineSettings)
-        } else {
-            params = SessionEngine.Params(
-                host: host.address, consolePort: host.consolePort, username: host.username, password: password,
-                consoleFingerprint: host.consoleFingerprint,
-                mode: SessionEngine.Mode(width: mode.width, height: mode.height, refresh: mode.refresh),
-                audioChannels: channels, virtualDisplay: settings.display != .physical, settings: engineSettings
-            )
-            params.clipboard = settings.clipboard
-            // Hors de chez soi : le réseau d'abord, puis le relais si l'accès est actif.
-            params.relay = host.sessionRelay
-            // Un ordinateur d'un compte KyberNow : le compte et sa Station, sans compte Kyber.
-            params.account = store.sessionAccount(for: host)
-        }
-        // Par le relais, une fin faute de joindre l'ordinateur le dit avec son nom (l'ordinateur du partage pour un invité).
-        params.computerName = host.name
-        params.autoReconnect = settings.autoReconnect
-        params.gamepadAsXbox360 = settings.gamepad == .xbox360
+        var params = self.params(mode: mode, password: password, channels: channels)
+        // Un visiteur n'a pas de presse-papiers (`Host.visitor`).
+        params.clipboard = settings.clipboard
         params.vsync = settings.vsync
         screenHDR = HDRDisplay.isHDR(imageScreen)
         params.screenHDR = screenHDR
@@ -814,7 +323,11 @@ final class SessionController: ObservableObject {
         params.hdrOffer = isVisitor ? nil : store.status[host.id]?.info?.hdr
         // Le micro retenu pour cet ordinateur, si le système le permet encore.
         params.microphone = settings.microphone && MicrophoneAccess.status == .granted
-        if settings.microphone, MicrophoneAccess.status == .denied { show(notice: MicText.permission, for: 6, opensSettings: true) }
+        if settings.microphone, MicrophoneAccess.status == .denied {
+            micUI.denied()
+            show(notice: MicText.permission, for: 6, opensSettings: true)
+        }
+        refreshMic()
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux, \(settings.consoleProfile, privacy: .public)")
         // Joignable par le relais seulement (ou relais forcé pour essayer) : la radio
         // cellulaire s'allume d'abord, par une requête de l'app vers le relais.
@@ -841,26 +354,7 @@ final class SessionController: ObservableObject {
         }
     }
 
-    // MARK: - Hors de chez soi
-
-    /// Le chemin de la session a changé (au départ, puis toutes les 5 s au plus
-    /// s'il change) : la puce « Par le relais » suit. Par le relais, le partage de
-    /// l'hôte passe aussi par lui (Admin n'est plus joignable sur le réseau).
-    private func routeChanged(_ info: RouteInfo) {
-        switch phase {
-        case .ending, .ended, .failed: return
-        default: break
-        }
-        guard info != path else { return }
-        let wasRelay = path.viaRelay
-        path = info
-        if info.viaRelay != wasRelay, !isVisitor {
-            share.setConsole(store.console(for: host, route: info.viaRelay ? .relay : .direct))
-            lend.setConsole(store.console(for: host, route: info.viaRelay ? .relay : .direct))
-            // Par le relais, l'app ne redémarre ni ne met à jour la Station (réglages).
-            store.setSessionViaRelay(host, info.viaRelay)
-        }
-    }
+    // MARK: - Écrans
 
     /// L'écran de l'appareil (celui de la fenêtre de l'app).
     private var deviceScreen: UIScreen {
@@ -930,20 +424,23 @@ final class SessionController: ObservableObject {
             center.addObserver(forName: UIScene.willDeactivateNotification, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
                     guard let self, self.isSessionScene(note.object), SessionRules.reactsToBackground(self.phase.stage) else { return }
-                    KyberLog.app.notice("fenêtre de la session inactive : image figée")
                     self.streamView.releaseAll()
-                    self.engine?.setBitrateCap(Self.backgroundBitrate)
-                    // Sur l'écran externe, l'image reste vivante : on la regarde encore.
-                    if !self.external { self.engine?.setOccluded(true) }
+                    // Sur l'écran externe, l'image reste vivante : on la regarde
+                    // encore, ce n'est pas l'arrière-plan (débit et image gardés).
+                    if !self.external {
+                        KyberLog.app.notice("fenêtre de la session inactive : image figée, débit réduit")
+                        self.inBackground = true
+                        self.engine?.setBackground(true)
+                    }
                     self.show(notice: String(localized: "KyberNow Link continue en arrière-plan"), for: 4)
                 }
             },
             center.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
-                    guard let self, self.isSessionScene(note.object) else { return }
-                    KyberLog.app.notice("fenêtre de la session active : image reprise")
-                    self.engine?.setOccluded(false)
-                    self.engine?.setBitrateCap(nil)
+                    guard let self, self.isSessionScene(note.object), self.inBackground else { return }
+                    KyberLog.app.notice("fenêtre de la session active : image et débit repris")
+                    self.inBackground = false
+                    self.engine?.setBackground(false)
                 }
             },
             center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -959,7 +456,7 @@ final class SessionController: ObservableObject {
                 MainActor.assumeIsolated {
                     guard let self, let c = note.object as? GCController, c.extendedGamepad != nil else { return }
                     // Face à un ordinateur qui n'en crée pas, l'avis des manettes indisponibles d'abord.
-                    if !self.isVisitor, !self.host.gamepadsAvailable, !self.padsUnavailableShown { return }
+                    if !self.isVisitor, !self.host.gamepadsAvailable, !self.padsUnavailableTold { return }
                     self.show(notice: String(localized: "\(c.vendorName ?? String(localized: "Manette")) branchée"), for: 3)
                 }
             },
@@ -998,299 +495,23 @@ final class SessionController: ObservableObject {
         followCodec()
     }
 
-    /// Les états du cœur : l'image n'apparaît qu'après `revealDelay`.
-    private func phaseChanged(_ p: SessionEngine.Phase) {
-        if case .failed = phase { return }
-        engineStreaming = p == .streaming
-        if p != .connecting, stationRestarting { stationRestarting = false }
-        switch p {
-        case .preparing:
-            phase = .preparing
-        case .connecting:
-            phase = .connecting
-        case .starting:
-            if revealedAt == nil { phase = .starting }
-        case .streaming:
-            guard revealedAt == nil else {
-                phase = .streaming
-                return
-            }
-            phase = .starting
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealDelay) { [weak self] in
-                guard let self, self.revealedAt == nil, self.engineStreaming, self.engine != nil else { return }
-                self.reveal()
-            }
-        case let .reconnecting(attempt, _):
-            phase = .reconnecting(attempt)
-        case .ending:
-            // Un invité dont l'hôte a arrêté ou retiré le partage : la raison
-            // reste à l'écran (jamais « Reprendre la main »).
-            if isGuest, revealedAt != nil, let reason = shareEndText, phase != .ending, phase != .ended {
-                fail(reason)
-                return
-            }
-            // Un ami : la fin du prêt (« {hôte} a repris l'ordinateur. ») reste à
-            // l'écran, avec « Fermer » ; rendu, la session se ferme.
-            if isBorrower, let reason = lendEndText, phase != .ending, phase != .ended {
-                fail(reason)
-                return
-            }
-            if phase != .ending, phase != .ended { end() }
-        case let .ended(error, _):
-            if let error, phase != .ending, phase != .ended {
-                fail(error)
-                return
-            }
-            if phase != .ending, phase != .ended { end() }
-        }
-    }
-
-    /// La première image : le passage s'ouvre sur elle, et rien d'autre.
-    private func reveal() {
-        withAnimation(.timingCurve(0.2, 0.9, 0.1, 1, duration: 1.2)) {
-            revealedAt = Date()
-            phase = .streaming
-        }
-        startedAt = Date()
-        host.lastSession = Date()
-        store.update(host)
-        padsUnavailableNotice()
-    }
-
-    /// « Manettes indisponibles sur cet ordinateur. » (docs/link-ui.md) : une
-    /// fois par session, à l'arrivée de l'image si une manette est branchée
-    /// (la manette à l'écran comprise), sinon quand la première se branche.
-    /// Pas pour un invité ni un ami, qui ne savent pas ce que l'ordinateur crée.
-    private func padsUnavailableNotice() {
-        guard !isVisitor, !host.gamepadsAvailable, !padsUnavailableShown, phase == .streaming,
-              !GamepadBridge.shared.pads.isEmpty else { return }
-        padsUnavailableShown = true
-        show(notice: LinkText.controllersUnavailableNotice, icon: "game-controller")
-    }
-
-    /// L'hôte a changé les droits de l'invité (« Vous pouvez jouer à la
-    /// manette. ») ; au départ (`previous` nil), le rôle seulement. Le clavier
-    /// et la souris retirés : le clavier de l'écran se replie ; les manettes
-    /// retirées : la manette à l'écran se retire.
-    private func shareRoleChanged(_ role: ShareRole, previous: ShareRole?) {
-        // Une session finie, ou qui se ferme, n'écrit plus rien (réglages, avis).
-        switch phase {
-        case .ending, .ended, .failed: return
-        default: break
-        }
-        shareRole = role
-        // Sans le clavier et la souris, la souris de l'iPad n'est plus capturée (souris des jeux).
+    /// Les droits de l'invité ont changé (`SessionModel`) : le clavier et la
+    /// souris retirés, la souris de l'iPad n'est plus capturée et le clavier
+    /// de l'écran se replie ; les manettes retirées, la manette à l'écran se
+    /// retire (elle n'envoie plus rien).
+    override func rightsChanged(_ role: ShareRole) {
         streamView.mouseMode = role.keyboardAndMouse ? host.settings.mouse.streamMode : .desktop
         if !role.keyboardAndMouse, keyboardShown { toggleKeyboard() }
-        // Sans les manettes, la manette à l'écran se retire (elle n'envoie plus rien).
         if !role.pads, screenPad { toggleScreenPad() }
-        if let text = ShareText.roleNotice(role, previous: previous) { show(notice: text, for: 4) }
     }
 
-    /// « Qualité de l'image » dans la barre : le cœur relance l'image de
-    /// l'invité seulement (jamais celle de l'hôte) ; la qualité est retenue
-    /// pour la fois suivante. La qualité reçue est inconnue jusqu'à
-    /// `on_share_image` : la barre dit d'ici là la qualité choisie.
-    func setShareQuality(_ quality: ShareQuality) {
-        guard isGuest, quality != shareQuality else { return }
-        switch phase {
-        case .ending, .ended, .failed: return
-        default: break
-        }
-        shareQuality = quality
-        shareImage = nil
-        GuestQuality.remember(quality)
-        engine?.setShareQuality(quality)
-    }
+    override var sharePanelOpen: Bool { shareSheet }
+    override var lendPanelOpen: Bool { lendSheet }
+    override func restoreOfferHint(_ offer: String) -> String { String(localized: " · « \(offer) » dans la barre") }
+    override func openAutoTestAfterSession() { AppModel.shared?.autoTest.openAfterSession(host) }
 
-    /// Le format de l'image reçue : celui de son image (un invité), à défaut
-    /// celui de l'hôte, sinon celui des réglages.
-    var imageCodec: VideoCodec { receivedCodec ?? shareImage?.codec ?? guest?.codec ?? host.settings.codec }
-
-    /// L'image que reçoit l'invité a changé (au départ, ou après un changement
-    /// de qualité, un retard, une limite de l'ordinateur) ; l'avis du cœur
-    /// (« Image allégée pour suivre. ») s'affiche en capsule comme les autres.
-    private func shareImageChanged(_ image: ShareImage, notice: String?) {
-        guard isGuest else { return }
-        switch phase {
-        case .ending, .ended, .failed: return
-        default: break
-        }
-        shareImage = image
-        if let notice, !notice.isEmpty { show(notice: notice, for: 4) }
-    }
-
-    /// Les avis du cœur, en capsules.
-    private func notice(_ n: SessionEngine.Notice) {
-        switch n {
-        case .relaunched:
-            show(notice: String(localized: "L'image a été relancée"), for: 4)
-        case let .modeChanged(width, height, back):
-            streamMode = (width, height, streamMode.refresh)
-            modeLabel = "\(width) × \(height) · \(streamMode.refresh) Hz"
-            var text = back ? String(localized: "L'ordinateur est revenu en \(width) × \(height)") : String(localized: "L'ordinateur est passé en \(width) × \(height)")
-            if let offer = modeRestoreOffer { text += String(localized: " · « \(offer) » dans la barre") }
-            show(notice: text)
-        case let .fallback(level, mbps):
-            fallbackNote = level == 1 ? String(localized: "L'image ne passait pas : débit ramené à \(mbps) Mbit/s pour cette session.") : String(localized: "L'image ne passait pas : 4:2:0 pour cette session.")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in self?.fallbackNote = nil }
-        case let .adapting(width, height):
-            show(notice: String(localized: "Adaptation de l'image à \(width) × \(height)…"), for: 3)
-        case let .adapted(width, height):
-            show(notice: String(localized: "Image adaptée à \(width) × \(height)"), for: 4)
-        case let .adaptFailed(message):
-            show(notice: String(localized: "L'écran de l'ordinateur n'a pas pu être adapté : \(message)"), for: 6)
-        case let .restoreOffer(mode):
-            modeRestoreOffer = mode.map { String(localized: "Remettre \($0.width) × \($0.height)") }
-        case .stationRestarting:
-            stationRestarting = true
-        case let .hdrRefused(text):
-            // Windows a refusé le HDR : une fois par session (le cœur s'en charge).
-            show(notice: text.isEmpty ? HDRText.refused : text, for: 6)
-        }
-    }
-
-    /// Capsule en haut de l'image pendant quelques secondes (`opensShare` : la choisir
-    /// ouvre le panneau du partage).
-    func show(notice text: String, for seconds: TimeInterval = 5, icon: String? = nil, opensShare: Bool = false, opensLend: Bool = false, opensSettings: Bool = false) {
-        withAnimation(.easeOut(duration: 0.3)) {
-            notice = text
-            noticeIcon = icon
-            noticeOpensShare = opensShare
-            noticeOpensLend = opensLend
-            noticeOpensSettings = opensSettings
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
-            guard self?.notice == text else { return }
-            withAnimation(.easeIn(duration: 0.3)) {
-                self?.notice = nil
-                self?.noticeIcon = nil
-                self?.noticeOpensShare = false
-                self?.noticeOpensLend = false
-                self?.noticeOpensSettings = false
-            }
-        }
-    }
-
-    // MARK: - Prêt de l'ordinateur
-
-    /// Une demande d'emprunt pendant la session : « {prénom} veut emprunter
-    /// l'ordinateur. » (8 s ; la choisir ouvre le panneau) ; un créneau qui
-    /// commence : « Créneau de {prénom} : l'ordinateur lui est prêté dans 2 min. »
-    private func lendRequestArrived(_ request: LendRequest) {
-        switch phase {
-        case .ending, .ended, .failed: return
-        default: break
-        }
-        if request.slot {
-            show(notice: LendText.slotStarts(request.name), for: 8)
-        } else if !lendSheet {
-            show(notice: LendText.wantsToBorrow(request.name), for: 8, opensLend: true)
-        }
-    }
-
-    /// Le préavis de 2 minutes, chez l'ami : la capsule reste 10 s, le temps
-    /// restant de la barre suit la fin du préavis.
-    private func lendNoticed(_ notice: LendNotice, text: String) {
-        guard isBorrower else { return }
-        switch phase {
-        case .ending, .ended, .failed: return
-        default: break
-        }
-        lendNotice = notice
-        if !text.isEmpty { show(notice: text, for: 10) }
-    }
-
-    /// La fin par le prêt, dite juste avant `.ending` : rendu, la fin est
-    /// voulue ; sinon son texte reste à l'écran.
-    private func lendEnded(_ end: LendEnd, text: String) {
-        guard isBorrower else { return }
-        if end == .left {
-            // Rendu ici : fin voulue. Rendu depuis le lanceur, sur l'ordinateur :
-            // « Vous avez rendu l'ordinateur. » reste à l'écran, comme les autres fins.
-            if !givingBack { lendEndText = text.isEmpty ? nil : text }
-            givingBack = true
-        } else {
-            lendEndText = text.isEmpty ? nil : text
-        }
-    }
-
-    /// « Rendre l'ordinateur » : la confirmation (« Rendre l'ordinateur à {hôte} ? ») d'abord.
-    func askGiveBack() {
-        guard isBorrower, phase == .streaming || phase == .starting else { return }
-        giveBackAsked = true
-    }
-
-    /// Confirmé : le prêt finit, puis la session.
-    func giveBack() {
-        guard isBorrower else { return }
-        givingBack = true
-        #if DEBUG
-        if engine == nil {
-            end()
-            return
-        }
-        #endif
-        engine?.giveBack()
-    }
-
-    /// « Revenir » (carte de fin) : le même emprunt, dans une nouvelle session.
-    func comeBack() {
-        guard let borrowSource else { return }
-        finish()
-        onComeBack?(borrowSource)
-    }
-
-    // MARK: - Enregistrement de la session
-
-    /// L'état a changé (jamais pour le temps qui passe) : gardé, et l'avis
-    /// bref du cœur (« Enregistrement lancé sur l'ordinateur. », « {nom}
-    /// enregistre la session. ») en capsule, comme ceux du partage.
-    private func recordingChanged(_ state: RecordingState, notice text: String?) {
-        guard !isBorrower else { return }
-        switch phase {
-        case .ending, .ended, .failed: return
-        default: break
-        }
-        recording = state
-        if let text, !text.isEmpty { show(notice: text, for: 5) }
-    }
-
-    /// « Enregistrer » / « Arrêter l'enregistrement » (hôte) : la demande part
-    /// à Admin, hors du fil de l'interface ; un refus se dit en avis bref
-    /// (`RecordingFailure.message`). Coupé dans Admin : la raison, en avis.
-    func toggleRecording() {
-        guard !isVisitor, let state = recording, state.available, !recordingBusy else { return }
-        if !state.allowed, !state.active {
-            show(notice: state.texts.disabled, for: 5)
-            return
-        }
-        guard let console = store.console(for: host, route: path.viaRelay ? .relay : .auto) else { return }
-        recordingBusy = true
-        let record = !state.active
-        Task { [weak self] in
-            do {
-                let next = try await console.recording(deviceId: ConsoleClient.thisDeviceID, record: record)
-                // L'état rendu tout de suite ; l'avis vient avec le signe de vie suivant.
-                if let next, next.available { self?.recording = next }
-            } catch let failure as RecordingFailure {
-                if !failure.message.isEmpty { self?.show(notice: failure.message, for: 6) }
-            } catch {
-                self?.show(notice: error.localizedDescription, for: 6)
-            }
-            self?.recordingBusy = false
-        }
-    }
-
-    /// Une demande vient d'arriver pendant la session : l'avis bref « {prénom} demande
-    /// à rejoindre. » (6 s), qui ouvre le panneau du partage quand on le choisit.
-    private func requestArrived(_ request: ShareGuest) {
-        switch phase {
-        case .ending, .ended, .failed: return
-        default: break
-        }
-        guard !shareSheet else { return }
-        show(notice: ShareText.requestNotice(request.name), for: 6, opensShare: true)
+    override func cameraOfferChanged(_ offered: Bool) {
+        if offered { cameras = CameraCapture.cameras() }
     }
 
     // MARK: - Barre
@@ -1309,8 +530,6 @@ final class SessionController: ObservableObject {
         streamView.touchesSuspended = open && !external
     }
 
-    func toggleBar() { setBar(!barOpen) }
-
     /// L1 + R1 + Start + Select : la barre s'ouvre et la manette la pilote, ou
     /// se ferme et la manette revient à l'ordinateur.
     private func gamepadCombo() {
@@ -1322,23 +541,6 @@ final class SessionController: ObservableObject {
             GamepadBridge.shared.setCaptured(true)
             setBar(true)
         }
-    }
-
-    /// Profil changé dans la barre : le cœur change le débit en direct, ou
-    /// relance l'image pour le 4:4:4, le format ou le transport.
-    func select(_ profile: Profile) {
-        // Un invité ou un ami ne change rien chez l'hôte : ni profil, ni réglages.
-        guard !isVisitor, profile != host.settings.profile else { return }
-        // Auto sans test gardé : le panneau du test, à la fin de la session.
-        if profile == .auto, host.settings.auto == nil {
-            runAutoTest()
-            return
-        }
-        host.settings.apply(profile)
-        store.update(host)
-        // Un profil choisi en session reprend la main sur « Passer en HEVC ».
-        codecOverride = nil
-        engine?.setSettings(engineSettings)
     }
 
     /// Souris : Auto (jeu en plein écran), Bureau, Jeu.
@@ -1387,12 +589,6 @@ final class SessionController: ObservableObject {
         engine?.pickDisplay(id)
     }
 
-    /// « Remettre » : Admin remet le mode demandé au début de la session.
-    func restoreMode() {
-        modeRestoreOffer = nil
-        engine?.restoreMode()
-    }
-
     // MARK: - Clavier et touches
 
     func toggleKeyboard() {
@@ -1415,8 +611,6 @@ final class SessionController: ObservableObject {
     func tap(_ usage: UInt16) { streamView.tap(usage: usage) }
     func toggleSticky(_ usage: UInt16) { streamView.toggleSticky(usage) }
     func chord(_ modifiers: [UInt16], _ usage: UInt16) { streamView.chord(modifiers, usage) }
-
-    var sessionMinutes: Int { Int(Date().timeIntervalSince(startedAt) / 60) }
 
     #if DEBUG
     enum Demo { case connecting, restarting, image, bar }
@@ -1481,7 +675,7 @@ final class SessionController: ObservableObject {
                 self.received(s)
             }
             if pyrowave != nil, UserDefaults.standard.bool(forKey: "demoLowered") {
-                self.loweredText = PyroWaveText.lowered(width: 1920, height: 880, mbps: 300)
+                self.loweredText = PyroWaveRules.loweredText(width: 1920, height: 880, refresh: 60, mbps: 300)
             }
             // `-demoStrained YES` : le bandeau du réseau qui sature à la place de celui du début.
             if pyrowave != nil { self.showPyroWaveBanner(strained: UserDefaults.standard.bool(forKey: "demoStrained")) }
@@ -1565,23 +759,6 @@ final class SessionController: ObservableObject {
         demo(.bar)
     }
 
-    /// Démonstration : l'avis du cœur sur l'image (`-demoRoleThen lag|limit`).
-    func demoImageNotice(limit: Bool) {
-        guard isGuest else { return }
-        if limit {
-            shareImageChanged(ShareImage.demo("host", 1920, 1080, 60, follows: false), notice: "L'ordinateur ne peut pas faire une image de plus : vous recevez 1080p · 60 Hz.")
-        } else {
-            shareImageChanged(ShareImage.demo("1080p60", 1920, 1080, 30, follows: false), notice: "Image allégée pour suivre.")
-        }
-    }
-
-    /// Démonstration : l'hôte change le rôle de l'invité.
-    func demoRoleChanged(_ role: ShareRole) {
-        guard isGuest else { return }
-        let previous = shareRole
-        shareRoleChanged(role, previous: previous)
-    }
-
     /// Démonstration : la session d'emprunt (sans Station) : `waiting`
     /// (« En attente de {hôte}… »), sinon en image, le prêt jusqu'à `until` ;
     /// `-demoBorrowThen notice|taken_back|time_up|slot_end|lost` : ce qui arrive 5 s plus tard.
@@ -1600,61 +777,20 @@ final class SessionController: ObservableObject {
         }
     }
 
-    /// Démonstration : le préavis, ou la fin du prêt (`lost` : réseau perdu, « Revenir »).
-    func demoLend(_ moment: String) {
-        guard isBorrower, phase == .streaming else { return }
-        let host = lendHost
-        switch moment {
-        case "notice":
-            lendNoticed(LendNotice(reason: .takenBack, at: Date().addingTimeInterval(120)),
-                        text: LendNotice(reason: .takenBack, at: Date()).text(name: host))
-        case "lost":
-            fail(String(localized: "l'ordinateur prêté ne répond plus"))
-        default:
-            let text = moment == "time_up" ? String(localized: "Le prêt est terminé.")
-                : moment == "slot_end" ? String(localized: "Votre créneau est terminé.") : String(localized: "\(host) a repris l'ordinateur.")
-            lendEndText = text
-            fail(text)
-        }
-    }
-
-    /// Démonstration : une demande d'emprunt arrive dans la session de l'hôte.
-    func demoLendRequest(name: String, slot: Bool = false) {
-        lend.demo = true
-        var view = lend.view ?? LendView()
-        view.requests.append(LendRequest(id: UUID().uuidString, name: name, app: "ios", viaRelay: true, since: Date(), slot: slot))
-        lend.demoSet(view)
-    }
-
-    /// Démonstration : l'hôte arrête le partage ou retire l'invité.
-    func demoShareEnded(removed: Bool) {
-        guard isGuest, phase == .streaming else { return }
-        let host = guest?.host ?? "Léa"
-        shareEndText = removed ? String(localized: "\(host) vous a retiré du partage.") : String(localized: "\(host) a arrêté le partage.")
-        fail(shareEndText ?? "")
-    }
     #endif
 
     // MARK: - Fin
 
     /// Fin de session : le cœur rend la main à Admin (écrans et son de
     /// l'ordinateur rétablis, latence donnée à ses appareils).
-    func end() {
+    override func end() {
         guard phase != .ending && phase != .ended else { return }
         // « Annuler » pendant la préparation ou l'attente de l'hôte : la demande est retirée.
         if loan == nil { borrowFlow?.cancel() }
         GamepadBridge.shared.onMenuRequest = nil
         streamView.hideKeyboard()
-        // Un invité ne laisse rien sur cet appareil : ni dernière image, ni statistiques.
-        if let last = engine?.snapshot(maxWidth: 1600), !isVisitor { store.imagery.saveLast(last, for: host) }
-        // Statistiques : la dernière session d'au moins 3 s, ce qu'elle a mesuré et transmis.
-        if let revealedAt, !isVisitor {
-            let codec = engineSettings.codec
-            let mbps = host.settings.bitrate(width: streamMode.width, height: streamMode.height, refresh: streamMode.refresh)
-            host.recordSession(start: revealedAt, latency: engine?.sessionLatency, width: streamMode.width, height: streamMode.height,
-                               refresh: streamMode.refresh, codec: codec, mbps: mbps, route: path.transport, hdr: sessionHDR)
-        }
-        store.update(host)
+        // Dernière image et statistiques (rien pour un visiteur).
+        recordEnd(snapshotWidth: 1600, hdr: sessionHDR)
         withAnimation(.easeInOut(duration: 0.4)) {
             phase = .ending
             barOpen = false
@@ -1672,7 +808,7 @@ final class SessionController: ObservableObject {
         ExternalDisplay.shared.showingImage(false)
     }
 
-    func finish() {
+    override func finish() {
         guard phase != .ended else { return }
         phase = .ended
         if !isVisitor { store.setSessionViaRelay(host, false) }
@@ -1681,7 +817,7 @@ final class SessionController: ObservableObject {
         onFinish(self)
     }
 
-    private func fail(_ message: String) {
+    override func fail(_ message: String) {
         KyberLog.app.error("session : \(message, privacy: .public)")
         GamepadBridge.shared.onMenuRequest = nil
         tearDown()

@@ -952,10 +952,11 @@ private struct SessionBar: View {
     /// Un invité que l'hôte ne laisse pas parler ne l'a pas.
     @ViewBuilder private func micChip(compact: Bool) -> some View {
         if session.micShown {
-            let on = session.micOn
-            let refusal = session.micState.refusal
+            let mic = session.mic
+            let on = mic.lit
+            let refusal = mic.reason
             Button { session.toggleMicrophone() } label: {
-                chip(icon: on ? "microphone" : "microphone-slash", text: on ? MicText.label : MicText.labelOff,
+                chip(icon: on ? "microphone" : "microphone-slash", text: mic.label,
                      tint: on ? Theme.accent : Theme.text2, compact: compact)
                     .background(on ? Theme.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.accentLine.opacity(on ? 1 : 0)))
@@ -963,8 +964,8 @@ private struct SessionBar: View {
             .buttonStyle(.plain)
             .disabled(refusal != nil)
             .opacity(refusal != nil ? 0.45 : 1)
-            .help(refusal ?? (on ? MicText.tooltipOn("⌃⌥⌘V") : MicText.tooltipOff("⌃⌥⌘V")))
-            .accessibilityLabel(on ? MicText.label : MicText.labelOff)
+            .help(mic.tooltip)
+            .accessibilityLabel(mic.label)
             .accessibilityAddTraits(on ? .isSelected : [])
         }
     }

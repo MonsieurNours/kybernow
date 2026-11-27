@@ -481,7 +481,7 @@ extension AppModel {
             return
         }
         #endif
-        if let url = HomeAdmin.url(for: host, store: store) { NSWorkspace.shared.open(url) }
+        if let url = store.adminURL(for: host) { NSWorkspace.shared.open(url) }
     }
 
     /// « Réglages de l'app… » : la scène Settings de SwiftUI, par la commande

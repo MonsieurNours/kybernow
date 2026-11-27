@@ -224,7 +224,7 @@ private struct InReachRow: View {
         discovery.found.compactMap { f in
             guard let c = resolved[f.id] else { return nil }
             let known = app.store.hosts.contains { h in
-                HostStore.sameFingerprint(h.consoleFingerprint, f.fingerprint) || (h.address == c.address && h.consolePort == c.port)
+                Fingerprint.same(h.consoleFingerprint, f.fingerprint) || (h.address == c.address && h.consolePort == c.port)
             }
             return known ? nil : (f, c)
         }

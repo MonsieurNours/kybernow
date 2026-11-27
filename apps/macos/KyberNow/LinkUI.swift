@@ -76,16 +76,6 @@ enum LinkFormat {
         case .pyrowave: return "PyroWave"
         }
     }
-
-    /// Les quatre premiers groupes d'une empreinte : « 7F3A 9C21 B04E 5D88 ».
-    static func fingerprint(_ fp: String) -> String {
-        let hex = fp.replacingOccurrences(of: "sha256:", with: "").replacingOccurrences(of: ":", with: "").uppercased()
-        let groups = stride(from: 0, to: min(hex.count, 16), by: 4).map { i -> String in
-            let start = hex.index(hex.startIndex, offsetBy: i)
-            return String(hex[start ..< (hex.index(start, offsetBy: 4, limitedBy: hex.endIndex) ?? hex.endIndex)])
-        }
-        return groups.joined(separator: " ")
-    }
 }
 
 // MARK: - Accueil
@@ -611,16 +601,8 @@ enum SettingsText {
 /// docs/micro.md) : puce de la barre, tuile du menu, réglages, avis.
 enum MicText {
     static var label: String { String(localized: "Micro") }
-    static var labelOff: String { String(localized: "Micro coupé") }
-    /// Infobulles de la puce, avec son raccourci (⌃⌥⌘V sur Mac).
-    static func tooltipOn(_ shortcut: String) -> String { String(localized: "Micro : envoyé à l'ordinateur (\(shortcut))") }
-    static func tooltipOff(_ shortcut: String) -> String { String(localized: "Micro coupé (\(shortcut))") }
-    /// Sous-titre de la tuile « Micro ».
-    static var tileOn: String { String(localized: "Envoyé") }
-    static var tileOff: String { String(localized: "Coupé") }
-    static var tileWaiting: String { String(localized: "Envoi…") }
-    /// Avis bref à l'allumage, quand l'ordinateur le prend.
-    static func sent(_ name: String) -> String { String(localized: "Micro envoyé à \(name).") }
+    // Puce, infobulles, sous-titre de la tuile et avis à l'allumage : le
+    // cœur (`MicUI`, catalogue du cœur).
     /// L'autorisation du système refusée : « Micro » reste coupé.
     static var permission: String {
         #if os(macOS)
@@ -1341,8 +1323,8 @@ extension HostStore {
     func stationNoticeAtLaunch() {
         let current = StationOffer.appVersion
         // Rien de gardé mais des ordinateurs déjà là : l'app vient d'une version
-        // d'avant cet avis (`StationOffer.beforeNotice`), pas d'un premier lancement.
-        let last = defaults.string(forKey: Self.lastLaunchedKey) ?? (hosts.isEmpty ? nil : StationOffer.beforeNotice)
+        // d'avant cet avis (`CoreValues.stationNoticeBefore`), pas d'un premier lancement.
+        let last = defaults.string(forKey: Self.lastLaunchedKey) ?? (hosts.isEmpty ? nil : CoreValues.current.stationNoticeBefore)
         defaults.set(current, forKey: Self.lastLaunchedKey)
         #if DEBUG
         // Démonstration : `-demoStationNotice YES`, l'avis d'après l'état posé (`-demoStation update`).
@@ -1359,7 +1341,7 @@ extension HostStore {
     }
 
     private func prepareStationNotice() async {
-        let deadline = Date().addingTimeInterval(StationOffer.noticeWait)
+        let deadline = Date().addingTimeInterval(CoreValues.current.stationNoticeWait)
         // Le premier tour du sondage dit qui est en ligne sur le réseau.
         while !demo, lastPoll == .distantPast, Date() < deadline { try? await Task.sleep(for: .milliseconds(250)) }
         let targets = hosts.filter { h in
@@ -1559,10 +1541,6 @@ enum PyroWaveText {
     static var strained: String { String(localized: "Le réseau sature") }
     static var bannerBody: String { String(localized: "L'image peut saccader.") }
     static var switchToHEVC: String { String(localized: "Passer en HEVC") }
-    /// Bandeau et Statistiques, quand le cœur dit avoir baissé la définition.
-    static func lowered(width: Int, height: Int, mbps: Int) -> String {
-        String(localized: "Définition ramenée à \(LinkFormat.dims(width, height)) pour tenir dans \(mbps) Mbit/s.")
-    }
     /// Statistiques, ligne en plus.
     static var lostFrames: String { String(localized: "Images perdues") }
     /// Sa valeur : « 0,8 % » (deux décimales sous 0,1 %).

@@ -259,7 +259,7 @@ private struct SettingsContent: View {
     private func followPyroWaveRate() {
         guard s.codec == .pyrowave, s.profile == nil, s.pyrowaveRateFollows else { return }
         let m = sessionMode
-        let rate = PyroWaveRate.mbps(width: m.width, height: m.height, refresh: m.refresh, yuv444: s.yuv444)
+        let rate = PyroWaveRules.mbps(width: m.width, height: m.height, refresh: m.refresh, yuv444: s.yuv444)
         guard rate != s.bitrateMbps else { return }
         update { $0.bitrateMbps = rate }
     }
@@ -474,7 +474,7 @@ private struct SettingsContent: View {
         SettingsCard(icon: "lightning", title: String(localized: "Débit")) {
             BitrateControl(value: Binding(get: { s.bitrateMbps }, set: { v in
                 update(custom: true) { $0.bitrateMbps = v; $0.pyrowaveRateFollows = false }
-            }))
+            }), codec: s.codec)
             if s.profile != nil {
                 let m = sessionMode
                 let effective = s.bitrate(width: m.width, height: m.height, refresh: m.refresh)
@@ -630,7 +630,7 @@ private struct SettingsContent: View {
             let wasPyroWave = st.codec == .pyrowave
             st.codec = c
             if c == .pyrowave {
-                st.bitrateMbps = PyroWaveRate.mbps(width: m.width, height: m.height, refresh: m.refresh, yuv444: st.yuv444)
+                st.bitrateMbps = PyroWaveRules.mbps(width: m.width, height: m.height, refresh: m.refresh, yuv444: st.yuv444)
                 st.pyrowaveRateFollows = true
             } else if wasPyroWave {
                 // En quittant PyroWave, un débit d'HEVC.
@@ -823,7 +823,7 @@ private struct SettingsContent: View {
             SettingsCard(icon: "globe-hemisphere-west", title: "Admin") {
                 Text(StationText.adminHelp).font(Theme.sans(12.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                 Button {
-                    if let url = HomeAdmin.url(for: host, store: app.store) { NSWorkspace.shared.open(url) }
+                    if let url = app.store.adminURL(for: host) { NSWorkspace.shared.open(url) }
                 } label: {
                     HStack(spacing: 8) { Icon("arrow-right", size: 15, bold: true); Text(StationText.openAdmin) }
                 }
@@ -832,17 +832,6 @@ private struct SettingsContent: View {
             }
             AccountCard(host: host, status: status) { confirmRemove = true }
         }
-    }
-}
-
-/// Adresse d'Admin d'un ordinateur : celle du cœur ; à défaut (démonstration,
-/// mot de passe absent), `https://adresse:port/`.
-enum HomeAdmin {
-    @MainActor
-    static func url(for host: Host, store: HostStore) -> URL? {
-        if let url = store.console(for: host)?.adminURL { return url }
-        let address = host.address.contains(":") ? "[\(host.address)]" : host.address
-        return URL(string: "https://\(address):\(host.consolePort)/")
     }
 }
 
@@ -902,14 +891,14 @@ private struct ThisComputerCard: View {
                 fact(StatsText.system, status?.info?.os ?? "—", mono: false)
                 fact(StatsText.graphics, status?.info?.gpu ?? "—", mono: false)
                 fact(StatsText.address, "\(host.address):\(host.consolePort)")
-                fact(StatsText.fingerprint, host.consoleFingerprint.map(LinkFormat.fingerprint) ?? "—")
+                fact(StatsText.fingerprint, host.consoleFingerprint.map(Fingerprint.short) ?? "—")
             }
             if status?.problem == .certificateChanged {
                 if presented == nil {
                     Notice(kind: .warn, text: LinkText.problem(.certificateChanged))
                 }
                 if let presented {
-                    fact(StatsText.presented, LinkFormat.fingerprint(presented))
+                    fact(StatsText.presented, Fingerprint.short(presented))
                     Text(StatsText.compare).font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                     Button(StatsText.trust) { app.store.trust(fingerprint: presented, for: host) }
                         .buttonStyle(SignalButton(height: 34))
@@ -1084,22 +1073,32 @@ private struct AccountCard: View {
 
 // MARK: - Débit
 
-/// Débit de 5 à 4 294 Mbit/s, curseur logarithmique, saisie libre et
-/// avertissements au-delà de 500 et 900 Mbit/s.
+/// Débit réglé à la main, dans les bornes du cœur (link-ui, « Débit ») : de
+/// 5 à 500 Mbit/s par pas de 5, jusqu'à 2 500 en PyroWave ; curseur
+/// logarithmique, saisie libre, avertissements au-delà de 500 et 900 Mbit/s
+/// (PyroWave seulement).
 private struct BitrateControl: View {
     @Binding var value: Int
+    let codec: VideoCodec
 
-    private let lo = Double(ConnectionSettings.minBitrate)
-    private let hi = Double(ConnectionSettings.maxBitrate)
+    private var range: ClosedRange<Int> { ConnectionSettings.bitrateRange(codec) }
+    private var lo: Double { Double(range.lowerBound) }
+    private var hi: Double { Double(range.upperBound) }
 
     private var position: Binding<Double> {
         Binding(
-            get: { log(Double(value) / lo) / log(hi / lo) },
+            get: { log(Double(min(max(value, range.lowerBound), range.upperBound)) / lo) / log(hi / lo) },
             set: { p in
                 let v = lo * pow(hi / lo, p)
-                value = v < 100 ? Int(v.rounded()) : v < 1000 ? Int((v / 5).rounded()) * 5 : Int((v / 50).rounded()) * 50
+                let step = Double(v < 1000 ? ConnectionSettings.bitrateStep : 50)
+                value = min(max(Int((v / step).rounded() * step), range.lowerBound), range.upperBound)
             }
         )
+    }
+
+    /// Les repères sous le curseur : les bornes et trois valeurs entre elles.
+    private var ticks: [Int] {
+        codec == .pyrowave ? [range.lowerBound, 50, 300, 1000, range.upperBound] : [range.lowerBound, 25, 100, 250, range.upperBound]
     }
 
     private var level: Int { value > 900 ? 2 : value > 500 ? 1 : 0 }
@@ -1109,7 +1108,7 @@ private struct BitrateControl: View {
             HStack {
                 Text("Débit").font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text)
                 Spacer()
-                NumberField(value: value, range: ConnectionSettings.minBitrate...ConnectionSettings.maxBitrate) { value = $0 }
+                NumberField(value: value, range: range) { value = $0 }
                     .frame(width: 76)
                 Text(verbatim: "Mbit/s").font(Theme.sans(12)).foregroundStyle(Theme.muted)
             }
@@ -1118,9 +1117,9 @@ private struct BitrateControl: View {
                 .accessibilityLabel("Débit")
                 .accessibilityValue("\(value) mégabits par seconde")
             HStack {
-                ForEach(["5", "50", "300", "1 000", "4 294"], id: \.self) { t in
-                    Text(t).font(Theme.mono(11)).foregroundStyle(Theme.faint)
-                    if t != "4 294" { Spacer() }
+                ForEach(ticks, id: \.self) { t in
+                    Text(verbatim: t >= 1000 ? "\(t / 1000) \(String(format: "%03d", t % 1000))" : "\(t)").font(Theme.mono(11)).foregroundStyle(Theme.faint)
+                    if t != ticks.last { Spacer() }
                 }
             }
             switch level {

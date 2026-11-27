@@ -78,23 +78,6 @@ public struct PyroWaveChoice: Sendable, Equatable {
     public func auto(profile: Bool) -> Bool { profile && usable && link == .cable }
 }
 
-/// Débit de PyroWave, comme le cœur (`PYROWAVE_MBPS`, `PYROWAVE_MBPS_444`,
-/// calés sur la 4K à 60 Hz) : pour un PyroWave choisi à la main, celui
-/// qu'« Auto » prendrait par câble pour la définition de la session.
-public enum PyroWaveRate {
-    public static let base = 800
-    public static let base444 = 1200
-    /// Haut du curseur de débit en PyroWave.
-    public static let max = 1500
-
-    public static func mbps(width: Int, height: Int, refresh: Int, yuv444: Bool) -> Int {
-        let b = Double(yuv444 ? base444 : base)
-        guard width > 0, height > 0, refresh > 0 else { return Int(b) }
-        let scale = pow(Double(width * height * refresh) / (3840.0 * 2160 * 60), 0.75)
-        return Int((b * Swift.min(Swift.max(scale, 0.4), 3)).rounded())
-    }
-}
-
 /// Le lien réseau de cet appareil (`NWPathMonitor`) : par câble quand le
 /// chemin par défaut passe par une interface Ethernet (Apple TV en
 /// Ethernet ; iPhone ou iPad avec un adaptateur USB-C). Donné au cœur dans

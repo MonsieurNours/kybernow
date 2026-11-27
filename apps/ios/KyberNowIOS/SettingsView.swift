@@ -629,7 +629,7 @@ private struct SettingsPane: View {
             st.codec = c
             if c == .pyrowave {
                 let m = DeviceDisplay.mode(for: st)
-                st.bitrateMbps = PyroWaveRate.mbps(width: m.width, height: m.height, refresh: m.refresh, yuv444: st.yuv444)
+                st.bitrateMbps = PyroWaveRules.mbps(width: m.width, height: m.height, refresh: m.refresh, yuv444: st.yuv444)
             } else if wasPyroWave {
                 // En quittant PyroWave, un débit d'HEVC.
                 st.bitrateMbps = min(st.bitrateMbps, PyroWaveSession.hevcMbps)
@@ -718,8 +718,9 @@ private struct SettingsPane: View {
     /// le profil « Personnalisé ».
     private func nudge(_ direction: Int) {
         let rate = effectiveBitrate
-        let next = direction > 0 ? rate + step(rate) : rate - step(max(ConnectionSettings.minBitrate, rate - 1))
-        let clamped = min(max(next, ConnectionSettings.minBitrate), ConnectionSettings.maxBitrate)
+        let range = ConnectionSettings.bitrateRange(s.codec)
+        let next = direction > 0 ? rate + step(rate) : rate - step(max(range.lowerBound, rate - 1))
+        let clamped = min(max(next, range.lowerBound), range.upperBound)
         update(custom: true) { $0.bitrateMbps = clamped }
     }
 
@@ -745,11 +746,11 @@ private struct SettingsPane: View {
         let buttons = HStack(spacing: 6) {
             Button { nudge(-1) } label: { Text(verbatim: "−").font(Theme.sans(wide ? 22 : 20)) }
                 .buttonStyle(SettingsStepStyle(size: wide ? 48 : 44))
-                .disabled(rate <= ConnectionSettings.minBitrate)
+                .disabled(rate <= ConnectionSettings.bitrateRange(s.codec).lowerBound)
                 .accessibilityLabel(Text("Moins de débit"))
             Button { nudge(1) } label: { Text(verbatim: "+").font(Theme.sans(wide ? 22 : 20)) }
                 .buttonStyle(SettingsStepStyle(size: wide ? 48 : 44))
-                .disabled(rate >= ConnectionSettings.maxBitrate)
+                .disabled(rate >= ConnectionSettings.bitrateRange(s.codec).upperBound)
                 .accessibilityLabel(Text("Plus de débit"))
         }
         let real = s.profile != nil
@@ -1003,9 +1004,9 @@ private struct SettingsPane: View {
         rows.value(StatsText.system, "", info?.os ?? "—")
         rows.value(StatsText.graphics, "", info?.gpu ?? "—")
         rows.value(StatsText.address, "", "\(host.address):\(String(host.consolePort))")
-        rows.value(StatsText.fingerprint, "", host.consoleFingerprint.map(LinkFormat.fingerprint) ?? "—")
+        rows.value(StatsText.fingerprint, "", host.consoleFingerprint.map(Fingerprint.short) ?? "—")
         if store.status[host.id]?.problem == .certificateChanged {
-            rows.value(StatsText.presented, StatsText.compare, presented.map(LinkFormat.fingerprint) ?? "—", noteColor: Theme.warnText)
+            rows.value(StatsText.presented, StatsText.compare, presented.map(Fingerprint.short) ?? "—", noteColor: Theme.warnText)
             if let presented {
                 rows.value(StatsText.trust, "", "", color: Theme.accentLight) {
                     store.trust(fingerprint: presented, for: host)
@@ -1024,9 +1025,7 @@ private struct SettingsPane: View {
         rows.value(info?.stationVersion.map(StationText.version) ?? "KyberNow Station", versionNote.text, "", noteColor: versionNote.warn ? Theme.warnText : Theme.muted)
         if let task { taskRow(task) }
         rows.value(StationText.openAdmin, StationText.adminHelp, "") {
-            if let url = ConsoleClient(host: host.address, port: host.consolePort, username: host.username, password: "", fingerprint: nil).adminURL {
-                openURL(url)
-            }
+            if let url = store.adminURL(for: host) { openURL(url) }
         }
         if store.viaRelay(host) {
             // Par le relais, pas d'action lourde : Admin refuse le redémarrage et la mise à jour

@@ -137,7 +137,7 @@ struct SessionStatsView: View {
         if let l = stats?.lowered {
             HStack(alignment: .top, spacing: 8) {
                 Icon("monitor", size: 15).foregroundStyle(Theme.warn)
-                Text(PyroWaveText.lowered(width: l.width, height: l.height, mbps: l.mbps))
+                Text(PyroWaveRules.loweredText(width: l.width, height: l.height, refresh: l.refresh, mbps: l.mbps))
                     .font(Theme.sans(12.5)).foregroundStyle(Theme.warnText)
                     .fixedSize(horizontal: false, vertical: true)
             }
