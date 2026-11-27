@@ -1545,8 +1545,9 @@ pub const LOCAL_FIRST: Duration = Duration::from_millis(1500);
 /// en bout par le tunnel, Admin épinglé sur l'empreinte que le relais
 /// atteste (signature vérifiée) : l'invité entre, ou, d'ordinaire, attend
 /// l'accord de l'hôte ([`Joining::Pending`]). Le format de l'image est
-/// vérifié avec `caps` (comme [`join_checked`]). Bloquant (8 s au plus,
-/// sans compter l'attente de l'hôte).
+/// vérifié avec `caps` (comme [`join_checked`]). Bloquant : jusqu'à ≈ 17 s
+/// (la recherche, 8 s ; puis le tunnel, 3 s et sa connexion, et `share_join`,
+/// 6 s), sans compter l'attente de l'hôte.
 pub fn join_anywhere(targets: &[ShareTarget], relays: &[RelayAddr], req: &JoinRequest, caps: Option<Capabilities>) -> Result<Joining, ShareError> {
     let (t, r) = (targets.to_vec(), req.clone());
     let lookups: Vec<Box<dyn FnOnce() -> Result<Option<(RelayAddr, crate::relay::CodeLookup)>, RelayError> + Send>> = unique_relays(relays)

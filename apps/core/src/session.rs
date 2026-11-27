@@ -1550,9 +1550,6 @@ impl Session {
         self.send(Msg::KeyframeNeeded);
     }
 
-    /// Le décodeur a perdu une image de référence : le cœur demande une image
-    /// clé toutes les 300 ms jusqu'à [`Self::keyframe_recovered`], et relance
-    /// le flux au bout de 1,5 s (ordinateur sans le correctif d'image clé).
     /// KyberNow Share, session d'invité : la « Qualité de l'image » changée
     /// (`POST /api/share/quality`, sur un fil d'appel ; avec « Auto », le
     /// `auto` mesuré à `join`, gardé dans `joined.auto`) ; Kyber relance
@@ -1592,6 +1589,9 @@ impl Session {
         self.send(Msg::GiveBack);
     }
 
+    /// Le décodeur a perdu une image de référence : le cœur demande une image
+    /// clé toutes les 300 ms jusqu'à [`Self::keyframe_recovered`], et relance
+    /// le flux au bout de 1,5 s (ordinateur sans le correctif d'image clé).
     pub fn keyframe_lost(&self) {
         self.send(Msg::KeyframeLost);
     }
@@ -1748,7 +1748,8 @@ struct Worker {
     /// Démarrage de l'image prévu (relance).
     start_at: Option<Instant>,
     retries: u32,
-    /// Relances faute d'image (jamais remis à zéro dans la session).
+    /// Relances faute d'image d'affilée (une image montrée remet le compte à
+    /// zéro, `watch_image`).
     no_image: u32,
     /// Dernier écran redemandé parce que la console le disait parti.
     last_restore: Option<Instant>,
@@ -3320,12 +3321,10 @@ impl Worker {
         Ok(())
     }
 
-    /// Où kyclient joint Kyber : l'adresse de l'ordinateur et le port donné
-    /// par Admin, ou, par le relais, le point d'écoute du tunnel sur la
-    /// boucle locale (TCP et UDP, même numéro).
-    /// Adresse et port de Kyber : par le relais s'il y en a un ; sinon
-    /// l'adresse préférée de la Station (`kyber_host` de `prepare`), ou celle
-    /// d'Admin.
+    /// Où kyclient joint Kyber : par le relais, le point d'écoute du tunnel
+    /// sur la boucle locale (TCP et UDP, même numéro) ; sinon l'adresse
+    /// préférée de la Station (`kyber_host` de `prepare`), ou celle d'Admin,
+    /// avec le port donné par Admin.
     fn kyber_endpoint(&self, console: &Console, preferred: Option<&str>, port: u16) -> Result<(String, u16), Failure> {
         match &self.relay_tunnel {
             None => match preferred {
@@ -4384,10 +4383,8 @@ impl Worker {
         if r.end {
             info!("la console met fin à la session");
             self.end_requested = true;
-            return None.or_else(|| {
-                let _ = self.tx.send(Msg::Stop);
-                None
-            });
+            let _ = self.tx.send(Msg::Stop);
+            return None;
         }
         if r.active == Some(false) {
             // Redemandé, au plus une fois toutes les 30 s.

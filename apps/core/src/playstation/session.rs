@@ -15,8 +15,8 @@
 //!    nuls) puis le contenu chiffré. La console envoie l'identifiant de session
 //!    (`0x33`) puis des battements de cœur (`0xfe`) auxquels on répond (`0x1fe`).
 //!
-//! L'identifiant de session sert ensuite au transport de l'image (Takion),
-//! qui n'est pas encore écrit.
+//! L'identifiant de session sert ensuite au transport de l'image (Takion,
+//! [`super::takion`] et [`super::stream`]).
 
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpStream};

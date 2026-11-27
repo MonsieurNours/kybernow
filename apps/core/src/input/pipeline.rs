@@ -77,6 +77,11 @@ pub struct GamepadRumble {
 
 /// Rappels vers l'interface de l'app. Les fils sont dits à chaque méthode :
 /// la plateforme repasse sur son fil principal si elle en a besoin.
+///
+/// Règle (interblocage de 26b937ac) : aucun rappel du cœur (`InputPlatform`,
+/// `OnChanged`, `AppFeedback`) ne doit envoyer d'entrée de façon synchrone ;
+/// il peut être appelé sous le verrou de la file d'envoi et du routeur de
+/// kynput. Repasser par un autre fil ou une file de l'app.
 pub trait InputPlatform: Send + Sync {
     /// Vibration des manettes produites par l'app (kynput ne les joue pas
     /// lui-même). Sur le fil réseau de kynput.
@@ -90,8 +95,10 @@ pub trait InputPlatform: Send + Sync {
     /// `network_connected`.
     fn connected(&self) {}
     /// Touche de navigation d'une manette SDL prise par l'app (barre ouverte,
-    /// voir [`InputPipeline::install_gamepad_gate`]). Sur le fil de kynput,
-    /// sous le verrou de son routeur : ne rien y envoyer.
+    /// voir [`InputPipeline::install_gamepad_gate`]). Sur le fil qui envoie
+    /// la manette (kynput, ou `kybernow-manettes` quand le cœur lit les
+    /// manettes), sous le verrou de la file d'envoi et du routeur : ne rien y
+    /// envoyer.
     fn navigate(&self, _key: PadKey) {}
 }
 
