@@ -311,6 +311,14 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleAdmi
     give(&mut env, &url)
 }
 
+/// Adresse d'Admin sans connexion (`console::admin_url` du cœur) : une IPv6
+/// prend ses crochets (`https://[fe80::1]:47990/`), une seule fois (TRANS-36).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_adminUrl(mut env: Env, _: JClass, host: JString, port: jint) -> jstring {
+    let host = string(&mut env, &host);
+    give(&mut env, &kybernow_core::console::admin_url(&host, port.clamp(0, u16::MAX as jint) as u16))
+}
+
 // MARK: - Réveil par le réseau
 
 /// Réveille un ordinateur (Wake-on-LAN) : `targets_json`, les cartes gardées
@@ -335,8 +343,23 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_wake(mut en
 
 // MARK: - Session
 
-pub(crate) fn handle<'a>(h: jlong) -> Option<&'a Handle> {
-    (h != 0).then(|| unsafe { &*(h as *const Handle) })
+/// Les sessions ouvertes, par numéro (AND-10). Kotlin garde un numéro, plus
+/// un pointeur : un appel qui arrive après `sessionFree` (fil de la caméra ou
+/// du micro, rappel du réseau, capture de la dernière image) ne trouve plus
+/// rien, au lieu de lire une mémoire libérée. Un appel en cours garde la
+/// session vivante jusqu'à son retour.
+fn sessions() -> &'static std::sync::Mutex<std::collections::HashMap<jlong, std::sync::Arc<Handle>>> {
+    static S: OnceLock<std::sync::Mutex<std::collections::HashMap<jlong, std::sync::Arc<Handle>>>> = OnceLock::new();
+    S.get_or_init(Default::default)
+}
+
+static NEXT_SESSION: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+
+pub(crate) fn handle(h: jlong) -> Option<std::sync::Arc<Handle>> {
+    if h == 0 {
+        return None;
+    }
+    sessions().lock().unwrap_or_else(|e| e.into_inner()).get(&h).cloned()
 }
 
 /// Démarre une session (JSON des paramètres : voir `session::start`) ; 0 si
@@ -356,7 +379,11 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionStar
     let w = window(&mut env, &surface);
     let Ok(listener) = Listener::new(&mut env, &listener) else { return 0 };
     match session::start(&params, listener, w, refresh.max(0) as u32) {
-        Ok(h) => Box::into_raw(Box::new(h)) as jlong,
+        Ok(h) => {
+            let id = NEXT_SESSION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            sessions().lock().unwrap_or_else(|e| e.into_inner()).insert(id, std::sync::Arc::new(h));
+            id
+        }
         Err(e) => {
             log::error!("session : paramètres illisibles ({e})");
             0
@@ -383,13 +410,14 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionGive
 /// fil principal de préférence).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionFree(_: Env, _: JClass, h: jlong) {
-    if h == 0 {
-        return;
-    }
-    let h = unsafe { Box::from_raw(h as *mut Handle) };
+    let Some(h) = sessions().lock().unwrap_or_else(|e| e.into_inner()).remove(&h) else { return };
     h.session.stop();
     h.session.wait();
     h.shared.set_window(None);
+    // La chaîne d'entrées tient `Shared` (rappels, presse-papiers) et `Shared`
+    // la tient : sans ceci, une fin par panique du fil de session laissait
+    // fuir `Shared` et l'activité de Kotlin (AND-16).
+    h.shared.input.lock().unwrap_or_else(|e| e.into_inner()).take();
 }
 
 #[unsafe(no_mangle)]

@@ -1599,6 +1599,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN || code == KeyEvent.KEYCODE_VOLUME_MUTE || code == KeyEvent.KEYCODE_POWER) {
             return super.dispatchKeyEvent(event)
         }
+        // Bouton Retour (ou Suivant) de la souris : Android en fait aussi la touche Retour, qui ouvrait la barre en plus du
+        // bouton envoyé à l'ordinateur (AND-24). Sur l'image, seul le bouton part ; barre ou menu ouverts, il les ferme.
+        if ((code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_FORWARD) && event.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.covering) {
+            return true
+        }
         // Manettes (Retour et Menu d'une manette, comme sa touche Select ou Start, partent au jeu).
         val fromPad = event.device?.let(Gamepads::isGamepad) == true
         if (Gamepads.isGamepadEvent(event) || (fromPad && (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU))) {
@@ -1672,7 +1677,10 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
      */
     private fun padsRouted() = padsAllowed() || pads.asMouse
 
-    /** Ce qui prend les touches. La barre pilotée à la manette passe par `pads.captured`. */
+    /**
+     * Ce qui prend les touches (clavier, manette). La barre pilotée à la manette passe par `pads.captured`. La souris, elle,
+     * s'arrête dès que quelque chose recouvre l'image (`SessionUi.covering`).
+     */
     private fun SessionUi.anythingModal() = menuOpen || keysOpen || typing || shareOpen || qualityOpen || lendOpen || giveBackConfirm
 
     private fun isKeyboard(e: KeyEvent): Boolean {
@@ -1688,13 +1696,19 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         // Survol du stylet (tout près de l'écran, sans le toucher) : sur l'image seulement, pas sous la barre ou un menu.
         // Barre ou menu ouverts : le stylet qui survolait l'image s'en va (les menus prennent le survol).
         if (event.isFromSource(InputDevice.SOURCE_CLASS_POINTER) && StylusInput.isPen(event)) {
-            if (!ui.covering && !ui.anythingModal() && ui.keyboardMouseAllowed()) {
+            if (!ui.covering && ui.keyboardMouseAllowed()) {
                 if (stylus.onHover(event)) return true
             } else {
                 stylus.away()
             }
         }
-        if (event.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.anythingModal() && ui.keyboardMouseAllowed()) {
+        // Un bouton relâché pendant que la barre s'ouvre : le relâché part quand même, rien ne reste enfoncé sur l'ordinateur.
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE) && ui.covering && event.actionMasked == MotionEvent.ACTION_BUTTON_RELEASE && ui.keyboardMouseAllowed()) {
+            Native.inputMouseButton(handle, button(event.actionButton), false)
+        }
+        // Barre, statistiques ou feuille ouvertes (`covering`, AND-14) : clics et molette vont à l'interface, pas aussi à
+        // l'ordinateur.
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.covering && ui.keyboardMouseAllowed()) {
             if (!mouseSeen) {
                 mouseSeen = true
                 surfaceView.pointerIcon = PointerIcon.getSystemIcon(this, PointerIcon.TYPE_NULL)

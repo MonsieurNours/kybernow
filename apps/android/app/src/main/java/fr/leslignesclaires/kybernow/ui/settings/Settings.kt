@@ -301,9 +301,8 @@ fun HostSettingsScreen(model: AppModel, hostId: String, onBack: () -> Unit, onRe
     val hdrScreen = rememberHdrScreen()
     val hdr = remember(host, st.info, hdrScreen) { Hdr.state(host, st.info, app.decoders, hdrScreen) }
     val vibrator = remember { fr.leslignesclaires.kybernow.session.Haptics.available(context) }
-    val adminUrl = remember(host.address, host.port) {
-        ConsoleClient(host.address, host.port).use { it.adminUrl } ?: "https://${host.address}:${host.port}/"
-    }
+    // Écrite par le cœur : une IPv6 prend ses crochets (TRANS-36), sans ouvrir de connexion pour si peu.
+    val adminUrl = remember(host.address, host.port) { Native.adminUrl(host.address, host.port) }
     // Certificat changé : l'empreinte présentée maintenant, à comparer à celle d'Admin.
     var check by remember { mutableStateOf<FingerprintCheck?>(null) }
     LaunchedEffect(st.certificateChanged, host.fingerprint) {

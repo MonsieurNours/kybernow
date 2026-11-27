@@ -79,6 +79,8 @@ object Native {
     @JvmStatic external fun consoleStationRestart(handle: Long, deviceId: String?, force: Boolean): String?
     @JvmStatic external fun consoleStationUpdate(handle: Long, deviceId: String?, force: Boolean): String?
     @JvmStatic external fun consoleAdminUrl(handle: Long): String?
+    /** Adresse d'Admin sans connexion, écrite par le cœur (crochets d'une IPv6 compris). */
+    @JvmStatic external fun adminUrl(host: String, port: Int): String
 
     // Mise à jour des Stations proposée par l'app (docs/link-ui.md, « Mise à jour des Stations » ; cœur : `station_offer`).
     /** `POST /api/stream/station/check` : `value`, l'objet `station` d'`info`, nul avant la Station 0.11.3. Bloquant (20 s au plus). */
