@@ -146,7 +146,7 @@ pub struct History {
 impl History {
     pub fn load(data_dir: &Path) -> History {
         let path = data_dir.join(HISTORY_FILE);
-        let list = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let list = crate::store::load_json(&path);
         History { path, list: Mutex::new(list) }
     }
 
@@ -349,7 +349,7 @@ pub const FRIENDS_FILE: &str = "lend-friends.json";
 impl Friends {
     pub fn load(data_dir: &Path) -> Friends {
         let path = data_dir.join(FRIENDS_FILE);
-        let list = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice::<Vec<Friend>>(&b).ok()).unwrap_or_default();
+        let list: Vec<Friend> = crate::store::load_json(&path);
         Friends { path, list: Mutex::new(list) }
     }
 

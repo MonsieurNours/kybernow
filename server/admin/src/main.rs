@@ -5,6 +5,7 @@ mod accounts;
 mod activity;
 mod api;
 mod assets;
+mod store;
 mod audio;
 mod auth;
 mod consoles;

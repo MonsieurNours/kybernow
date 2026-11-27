@@ -165,7 +165,7 @@ pub struct Invites {
 impl Invites {
     pub fn load(data_dir: &Path) -> Invites {
         let path = data_dir.join(FILE);
-        let list = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice::<Vec<Invite>>(&b).ok()).unwrap_or_default();
+        let list: Vec<Invite> = crate::store::load_json(&path);
         Invites { path, list: Mutex::new(list), strikes: Mutex::new(Strikes::default()) }
     }
 

@@ -196,7 +196,7 @@ pub struct Accounts {
 impl Accounts {
     pub fn load(data_dir: &Path) -> Accounts {
         let path = data_dir.join(FILE);
-        let stored = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice::<Stored>(&b).ok()).unwrap_or_default();
+        let stored: Stored = crate::store::load_json(&path);
         Accounts {
             path,
             stored: Mutex::new(stored),

@@ -56,30 +56,14 @@ pub struct Settings {
 impl Settings {
     /// Lit les réglages. Un fichier illisible (coupure pendant une écriture,
     /// édition à la main) est mis de côté à côté de l'original et la console
-    /// repart des valeurs par défaut, plutôt que de ne plus démarrer du tout.
+    /// reprend la dernière copie lisible (`kyber-admin.toml.bak` : mot de
+    /// passe d'Admin, relais, compte), sinon les valeurs par défaut, plutôt
+    /// que de ne plus démarrer du tout (voir `store`).
     pub fn load(data_dir: &Path) -> Result<Self> {
         crate::migrate::before_load(data_dir);
         let path = data_dir.join(FILE_NAME);
-        match fs::read_to_string(&path) {
-            Ok(text) => match toml::from_str(&text) {
-                Ok(settings) => Ok(settings),
-                Err(e) => {
-                    let aside = data_dir.join(format!(
-                        "{FILE_NAME}.invalide-{}",
-                        crate::display::now_secs()
-                    ));
-                    tracing::error!(
-                        "{} illisible ({e}) : mis de côté dans {}, réglages par défaut",
-                        path.display(),
-                        aside.display()
-                    );
-                    let _ = fs::rename(&path, &aside);
-                    Ok(Self::fresh())
-                }
-            },
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::fresh()),
-            Err(e) => Err(e).with_context(|| format!("lecture de {}", path.display())),
-        }
+        let parse = |b: &[u8]| std::str::from_utf8(b).map_err(|e| e.to_string()).and_then(|t| toml::from_str::<Self>(t).map_err(|e| e.to_string()));
+        Ok(crate::store::load_with(&path, parse).0.unwrap_or_else(Self::fresh))
     }
 
     /// Réglages neufs, au format de cette console.
@@ -116,4 +100,26 @@ pub fn default_kyber_dir() -> Option<PathBuf> {
             .join("KyberNow")
             .join("kyber")
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `kyber-admin.toml` abîmé : le mot de passe d'Admin et le relais
+    /// reviennent de la dernière copie lisible, pas le code d'initialisation.
+    #[test]
+    fn damaged_settings_come_back_from_the_last_good_copy() {
+        let dir = std::env::temp_dir().join(format!("kybernow-settings-bak-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let mut s = Settings::load(&dir).unwrap();
+        s.admin_password_hash = Some("$argon2id$empreinte".into());
+        s.save(&dir).unwrap();
+        // Relu une fois : la copie est faite.
+        assert_eq!(Settings::load(&dir).unwrap().admin_password_hash.as_deref(), Some("$argon2id$empreinte"));
+        fs::write(dir.join(FILE_NAME), [0u8; 64]).unwrap();
+        assert_eq!(Settings::load(&dir).unwrap().admin_password_hash.as_deref(), Some("$argon2id$empreinte"));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

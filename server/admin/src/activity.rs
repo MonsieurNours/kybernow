@@ -15,6 +15,7 @@
 //! l'apprend au signal de vie suivant et se déconnecte proprement.
 
 use std::collections::VecDeque;
+#[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -182,14 +183,8 @@ pub struct Activity {
 
 impl Activity {
     pub fn new(data_dir: &Path) -> Self {
-        let stored = fs::read(data_dir.join(DEVICES_FILE))
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
-        let events = fs::read(data_dir.join(EVENTS_FILE))
-            .ok()
-            .and_then(|b| serde_json::from_slice::<VecDeque<Event>>(&b).ok())
-            .unwrap_or_default();
+        let stored = crate::store::load_json(&data_dir.join(DEVICES_FILE));
+        let events: VecDeque<Event> = crate::store::load_json(&data_dir.join(EVENTS_FILE));
         Self { dir: data_dir.to_path_buf(), state: Mutex::new(State { stored, events, live: None }) }
     }
 
