@@ -28,11 +28,10 @@ pub fn run_uninstall(keep_data: bool) -> Result<()> {
         wait_stopped(service);
         let _ = run("sc", &["delete", service]);
     }
-    for exe in ["kyclient.exe", "kycontroller.exe", "kyavserver.exe", "kynputserver.exe", "kyservice.exe", "kyber-admin.exe", "kybernow-tray.exe"] {
+    for exe in crate::common::KYBER_PROCESSES.iter().chain(&["kyber-admin.exe", "kybernow-tray.exe"]) {
         let _ = run("taskkill", &["/F", "/IM", exe]);
     }
     // Caméra de l'appareil (docs/webcam.md) : retirée de Windows avant ses fichiers.
-    let _ = run("taskkill", &["/F", "/IM", "kybernow-camera.exe"]);
     let camera = dir.join(r"kyber\kybernow-camera.exe");
     if camera.is_file() {
         let _ = run(&camera.display().to_string(), &["--uninstall"]);
@@ -88,8 +87,13 @@ pub fn schedule_removal() {
         use std::os::windows::process::CommandExt;
         // Ligne passée telle quelle : les arguments de Rust échapperaient les
         // guillemets en \", que cmd ne comprend pas (le dossier restait).
-        let script = format!("/C ping 127.0.0.1 -n 4 > nul & rmdir /s /q \"{}\"", sys::install_dir().display());
-        let _ = std::process::Command::new("cmd")
+        // `ping` par son chemin complet : cmd chercherait d'abord dans le
+        // dossier courant (le dossier temporaire). Sans guillemets (cmd /C
+        // retirerait le premier et le dernier de la ligne) : `%SystemRoot%`
+        // n'a pas d'espace.
+        let ping = sys::resolve("ping");
+        let script = format!("/C {} 127.0.0.1 -n 4 > nul & rmdir /s /q \"{}\"", ping.display(), sys::install_dir().display());
+        let _ = std::process::Command::new(sys::resolve("cmd"))
             .raw_arg(script)
             // Pas depuis le dossier à effacer.
             .current_dir(std::env::temp_dir())

@@ -87,6 +87,7 @@
     "payloadIncomplete": "installateur incomplet",
     "payloadMissing": "contenu de l'installateur introuvable (fichier abîmé ?)",
     "settingsMissing": "réglages introuvables ({path}) : choisissez « Repartir de zéro »",
+    "updateRunning": "une mise à jour de KyberNow Station est en cours sur cet ordinateur : attendez qu'elle se termine, puis relancez l'installation",
     "vigembusMissing": "installateur du pilote des manettes (ViGEmBus) absent du contenu",
     "initialConfiguration": "configuration initiale",
     "backup": "sauvegarde de {path}",

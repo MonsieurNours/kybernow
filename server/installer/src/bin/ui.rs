@@ -42,16 +42,7 @@ enum UserEvent {
 
 /// Ouvre une adresse web dans le navigateur par défaut.
 pub(crate) fn open_in_browser(url: &str) {
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return;
-    }
-    let _ = if cfg!(windows) {
-        std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn()
-    } else if cfg!(target_os = "macos") {
-        std::process::Command::new("/usr/bin/open").arg(url).spawn()
-    } else {
-        std::process::Command::new("xdg-open").arg(url).spawn()
-    };
+    kybernow::sys::open_url(url);
 }
 
 /// La page du relais dans la fenêtre de l'installateur : une vue enfant posée

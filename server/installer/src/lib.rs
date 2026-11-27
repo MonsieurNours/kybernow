@@ -4,6 +4,9 @@
 pub mod account;
 pub mod acl;
 pub mod checks;
+/// Listes partagées avec l'applicateur des mises à jour d'Admin.
+#[path = "../../admin/src/update/windows_common.rs"]
+pub mod common;
 pub mod events;
 pub mod http;
 pub mod i18n;

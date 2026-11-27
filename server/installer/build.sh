@@ -1,5 +1,6 @@
 #!/bin/bash
-# Construit KyberNow-Station-Setup.exe depuis macOS ou Linux.
+# Construit KyberNow-Station-Setup.exe depuis macOS (stat -f et
+# tar --no-mac-metadata : pas depuis Linux).
 #
 # Prérequis : node, zstd, mingw-w64, rustup target x86_64-pc-windows-gnu,
 # et les contenus extraits dans third_party/payload/ :
@@ -19,6 +20,16 @@ DIST="$HERE/dist"
 TARGET=x86_64-pc-windows-gnu
 export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
 export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
+
+# WebView2Loader.dll (x64) de la version de webview2-com-sys du Cargo.lock
+# donné : jamais par tri alphabétique (0.9 passerait avant 0.39).
+webview2_loader() {
+    local version loader
+    version=$(awk '$0=="name = \"webview2-com-sys\""{getline; gsub(/"/,"",$3); print $3}' "$1")
+    loader=$(ls -d "$HOME"/.cargo/registry/src/index.crates.io-*/webview2-com-sys-"$version"/x64/WebView2Loader.dll 2>/dev/null | head -1)
+    [ -n "$version" ] && [ -f "$loader" ] || { echo "WebView2Loader.dll (x64, webview2-com-sys ${version:-?} de $1) introuvable : cargo fetch" >&2; exit 1; }
+    echo "$loader"
+}
 
 echo "==> KyberNow Admin (kyber-admin.exe)"
 "$ROOT/server/build-windows.sh" > /dev/null
@@ -40,7 +51,7 @@ fi
 cp "$ROOT/server/dist/kyber-admin.exe" "$STAGE/admin/"
 cp "$ROOT/server/tray/target/$TARGET/release/kybernow-tray.exe" "$STAGE/tray/"
 # Le panneau de l'icône est une vue WebView2 : son chargeur l'accompagne.
-cp "$(ls -d "$HOME"/.cargo/registry/src/index.crates.io-*/webview2-com-sys-*/x64/WebView2Loader.dll | tail -1)" "$STAGE/tray/"
+cp "$(webview2_loader "$ROOT/server/tray/Cargo.lock")" "$STAGE/tray/"
 for f in SudoVDA.dll SudoVDA.inf sudovda.cat sudovda.cer nefconc.exe; do
     cp "$PAYLOAD_SRC/apollo-0.4.6/drivers/sudovda/$f" "$STAGE/drivers/sudovda/"
 done
@@ -77,7 +88,7 @@ touch src/bin/ui.rs
 cargo build --release --target $TARGET --features ui --bin kybernow-ui
 
 echo "==> Lanceur (KyberNow-Station-Setup.exe)"
-LOADER=$(ls -d "$HOME"/.cargo/registry/src/index.crates.io-*/webview2-com-sys-*/x64/WebView2Loader.dll | tail -1)
+LOADER=$(webview2_loader "$HERE/Cargo.lock")
 export KYBERNOW_UI_EXE="$HERE/target/$TARGET/release/kybernow-ui.exe"
 export KYBERNOW_WEBVIEW2_LOADER="$LOADER"
 touch src/bin/setup.rs
