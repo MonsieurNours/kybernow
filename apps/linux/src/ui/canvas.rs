@@ -247,21 +247,6 @@ impl Canvas {
         }
     }
 
-    /// Un dégradé vertical (ombres sous le texte de l'accueil).
-    pub fn vgradient(&mut self, x: f32, y: f32, w: f32, h: f32, top: Rgba, bottom: Rgba) {
-        let stops = vec![
-            tiny_skia::GradientStop::new(0.0, tiny_skia::Color::from_rgba8(top.0, top.1, top.2, top.3)),
-            tiny_skia::GradientStop::new(1.0, tiny_skia::Color::from_rgba8(bottom.0, bottom.1, bottom.2, bottom.3)),
-        ];
-        let Some(shader) = tiny_skia::LinearGradient::new(tiny_skia::Point::from_xy(0.0, y), tiny_skia::Point::from_xy(0.0, y + h), stops, tiny_skia::SpreadMode::Pad, Transform::identity()) else {
-            return;
-        };
-        let paint = Paint { shader, anti_alias: false, ..Default::default() };
-        if let Some(r) = Rect::from_xywh(x, y, w.max(0.0), h.max(0.0)) {
-            let t = self.t();
-            self.pix.fill_rect(r, &paint, t, None);
-        }
-    }
 
     /// Un dégradé à plusieurs arrêts (position 0 à 1), vertical ou horizontal.
     pub fn gradient(&mut self, x: f32, y: f32, w: f32, h: f32, horizontal: bool, stops: &[(f32, Rgba)]) {
@@ -546,24 +531,6 @@ impl Canvas {
         }
         let paint = PixmapPaint { opacity, quality: FilterQuality::Nearest, ..Default::default() };
         self.pix.draw_pixmap(x.round() as i32, y.round() as i32, tile.as_ref(), &paint, Transform::identity(), None);
-    }
-
-    #[allow(dead_code)]
-    /// Une image (logo) en `x, y`, à la hauteur `height` (en points).
-    pub fn image_height(&mut self, img: &Pixmap, x: f32, y: f32, height: f32, opacity: f32) {
-        let scale = height * self.k / img.height().max(1) as f32;
-        let t = Transform::from_row(scale, 0.0, 0.0, scale, x * self.k, y * self.k);
-        let paint = PixmapPaint { opacity, quality: FilterQuality::Bicubic, ..Default::default() };
-        self.pix.draw_pixmap(0, 0, img.as_ref(), &paint, t, None);
-    }
-
-    #[allow(dead_code)]
-    /// Une image à sa taille (logo), en `x, y`, mise à l'échelle `scale`.
-    pub fn image(&mut self, img: &Pixmap, x: f32, y: f32, scale: f32) {
-        let scale = scale * self.k;
-        let t = Transform::from_row(scale, 0.0, 0.0, scale, x * self.k, y * self.k);
-        let paint = PixmapPaint { quality: FilterQuality::Bilinear, ..Default::default() };
-        self.pix.draw_pixmap(0, 0, img.as_ref(), &paint, t, None);
     }
 }
 

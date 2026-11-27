@@ -4,26 +4,19 @@
 
 use tiny_skia::{Path, PathBuilder};
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Icon {
-    Play,
     Monitor,
     Speaker,
     /// La caméra de l'appareil (allumée, barrée).
     Camera,
     CameraOff,
-    Pointer,
     Gamepad,
     Keyboard,
     Keys,
     Chart,
-    Image,
-    Logout,
     Plus,
-    Info,
     Back,
-    Dots,
     Wifi,
     Ethernet,
     Check,
@@ -38,8 +31,6 @@ pub enum Icon {
     Mouse,
     Fullscreen,
     Battery,
-    Sound,
-    Cpu,
     /// Partager : trois points reliés (KyberNow Share).
     Share,
     /// Prêter l'ordinateur : une clé (KyberNow Share, prêt).
@@ -58,8 +49,6 @@ pub enum Icon {
     Devices,
     People,
     Sliders,
-    /// « Continuer » : une flèche vers la droite.
-    Arrow,
     /// « Micro » : un micro ; barré, coupé.
     Mic,
     MicOff,
@@ -69,12 +58,10 @@ impl Icon {
     fn spec(self) -> (&'static [&'static str], &'static [(f32, f32, f32)], &'static [(f32, f32, f32)]) {
         // (chemins au trait, cercles au trait (cx, cy, r), points pleins)
         match self {
-            Icon::Play => (&["M7 4 L19 12 L7 20 Z"], &[], &[]),
             Icon::Monitor => (&["M5 5 H19 Q21 5 21 7 V15 Q21 17 19 17 H5 Q3 17 3 15 V7 Q3 5 5 5 Z", "M8 21 H16", "M12 17 V21"], &[], &[]),
             Icon::Speaker => (&["M4 9 H8 L13 5 V19 L8 15 H4 Z", "M16 9 Q18 12 16 15", "M18.5 6.5 Q23 12 18.5 17.5"], &[], &[]),
             Icon::Camera => (&["M3 7 H15 L16 8 V16 L15 17 H3 L2 16 V8 Z", "M16 10.5 L21 7.5 V16.5 L16 13.5"], &[], &[]),
             Icon::CameraOff => (&["M3 7 H15 L16 8 V16 L15 17 H3 L2 16 V8 Z", "M16 10.5 L21 7.5 V16.5 L16 13.5", "M3 3 L21 21"], &[], &[]),
-            Icon::Pointer => (&["M5 3 L17 12 L11 13 L14 20 L11.5 21 L8.5 14 L5 18 Z"], &[], &[]),
             Icon::Gamepad => (
                 &["M6 9 H18 Q21 9 21 12 L20 17 Q19.5 19.3 16.5 17.8 L14.5 15 H9.5 L7.5 17.8 Q4.5 19.3 4 17 L3 12 Q3 9 6 9 Z", "M8 11 V14", "M6.5 12.5 H9.5"],
                 &[],
@@ -83,12 +70,8 @@ impl Icon {
             Icon::Keyboard => (&["M4 6 H20 Q22 6 22 8 V16 Q22 18 20 18 H4 Q2 18 2 16 V8 Q2 6 4 6 Z", "M7 14 H17"], &[], &[(6.0, 10.0, 0.8), (10.0, 10.0, 0.8), (14.0, 10.0, 0.8), (18.0, 10.0, 0.8)]),
             Icon::Keys => (&["M5 4 H19 Q21 4 21 6 V18 Q21 20 19 20 H5 Q3 20 3 18 V6 Q3 4 5 4 Z", "M7 9 H9", "M11 9 H13", "M15 9 H17", "M7 13 H17"], &[], &[]),
             Icon::Chart => (&["M3 20 H21", "M6 16 V11", "M11 16 V7", "M16 16 V8", "M20 16 V13"], &[], &[]),
-            Icon::Image => (&["M12 3 V6", "M12 18 V21", "M3 12 H6", "M18 12 H21"], &[(12.0, 12.0, 4.0)], &[]),
-            Icon::Logout => (&["M10 4 H5 Q4 4 4 5 V19 Q4 20 5 20 H10", "M15 8 L19 12 L15 16", "M19 12 H9"], &[], &[]),
             Icon::Plus => (&["M12 5 V19", "M5 12 H19"], &[], &[]),
-            Icon::Info => (&["M11 12 H12 V17 H13"], &[(12.0, 12.0, 9.0)], &[(12.0, 8.0, 1.0)]),
             Icon::Back => (&["M9 14 L4 9 L9 4", "M4 9 H15 Q20 9 20 14 Q20 19 15 19 H12"], &[], &[]),
-            Icon::Dots => (&[], &[], &[(5.0, 12.0, 1.6), (12.0, 12.0, 1.6), (19.0, 12.0, 1.6)]),
             Icon::Wifi => (&["M2 9 Q12 0 22 9", "M5.5 12.5 Q12 6.5 18.5 12.5", "M9 16 Q12 13.5 15 16"], &[], &[(12.0, 19.5, 1.3)]),
             Icon::Ethernet => (&["M5 4 H19 Q20 4 20 5 V15 Q20 16 19 16 H5 Q4 16 4 15 V5 Q4 4 5 4 Z", "M8 16 V20 H16 V16", "M8 8 V11", "M11 8 V11", "M13 8 V11", "M16 8 V11"], &[], &[]),
             Icon::Check => (&["M5 12.5 L10 17 L19 7"], &[], &[]),
@@ -103,7 +86,6 @@ impl Icon {
             Icon::Mouse => (&["M12 3 Q17 3 17 8 V16 Q17 21 12 21 Q7 21 7 16 V8 Q7 3 12 3 Z", "M12 3 V9"], &[], &[]),
             Icon::Fullscreen => (&["M4 9 V4 H9", "M20 9 V4 H15", "M4 15 V20 H9", "M20 15 V20 H15"], &[], &[]),
             Icon::Battery => (&["M3 8 H18 Q19 8 19 9 V15 Q19 16 18 16 H3 Q2 16 2 15 V9 Q2 8 3 8 Z", "M21 10.5 V13.5"], &[], &[]),
-            Icon::Sound => (&["M4 9 H8 L13 5 V19 L8 15 H4 Z", "M16 9 Q18 12 16 15", "M18.5 6.5 Q23 12 18.5 17.5"], &[], &[]),
             Icon::Share => (&["M8.4 10.8 L15.6 6.4", "M8.4 13.2 L15.6 17.6"], &[(6.0, 12.0, 2.6), (18.0, 5.2, 2.6), (18.0, 18.8, 2.6)], &[]),
             Icon::Sparkles => (&["M10 3.5 Q10.8 9.2 16.5 10 Q10.8 10.8 10 16.5 Q9.2 10.8 3.5 10 Q9.2 9.2 10 3.5 Z", "M18 14 V20", "M15 17 H21"], &[], &[(18.5, 5.0, 1.1)]),
             Icon::Record => (&[], &[], &[(12.0, 12.0, 6.0)]),
@@ -114,10 +96,8 @@ impl Icon {
             Icon::Devices => (&["M4 4 H14 Q16 4 16 6 V12 Q16 14 14 14 H4 Q2 14 2 12 V6 Q2 4 4 4 Z", "M6 18 H12", "M9 14 V18", "M18.5 8 H20.5 Q22 8 22 9.5 V18.5 Q22 20 20.5 20 H18.5 Q17 20 17 18.5 V9.5 Q17 8 18.5 8 Z"], &[], &[]),
             Icon::People => (&["M2.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 15.5 20", "M17 14.5 Q20.5 15 21.5 19"], &[(9.0, 8.0, 3.5), (17.5, 9.0, 2.5)], &[]),
             Icon::Sliders => (&["M4 7 H14", "M18 7 H20", "M4 17 H10", "M14 17 H20"], &[(16.0, 7.0, 2.0), (12.0, 17.0, 2.0)], &[]),
-            Icon::Arrow => (&["M5 12 H19", "M13 6 L19 12 L13 18"], &[], &[]),
             Icon::Mic => (&["M12 3 Q15 3 15 6 V11 Q15 14 12 14 Q9 14 9 11 V6 Q9 3 12 3 Z", "M5.5 11 Q5.5 17.5 12 17.5 Q18.5 17.5 18.5 11", "M12 17.5 V21", "M8.5 21 H15.5"], &[], &[]),
             Icon::MicOff => (&["M12 3 Q15 3 15 6 V11 Q15 14 12 14 Q9 14 9 11 V6 Q9 3 12 3 Z", "M5.5 11 Q5.5 17.5 12 17.5 Q18.5 17.5 18.5 11", "M12 17.5 V21", "M8.5 21 H15.5", "M4 4 L20 20"], &[], &[]),
-            Icon::Cpu => (&["M5 5 H19 Q21 5 21 7 V17 Q21 19 19 19 H5 Q3 19 3 17 V7 Q3 5 5 5 Z", "M8 9 L11 12 L8 15", "M13 15 H16"], &[], &[]),
         }
     }
 

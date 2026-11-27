@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Couleurs de la charte KyberNow v2 (brand/v2/tokens/kybernow.css), celles
 //! des maquettes Linux et de l'app Windows (apps/windows/ui/src/app.css) :
 //! encre, givre, signal Spectre en néon.

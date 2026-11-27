@@ -969,6 +969,11 @@ pub fn run(args: &[String]) {
 
     // L'app.
     let mut app = App::new(store, layout);
+    // Un fichier des réglages illisible a été mis de côté (jamais réécrit vide) : on le dit.
+    if let Some(p) = app.store.set_aside.clone() {
+        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        app.toast(format!("{} {name}", tr("Réglages illisibles, mis de côté : vos ordinateurs sont à rajouter. Copie gardée :", "Unreadable settings, set aside: your computers need adding again. Copy kept:")));
+    }
     if os {
         app.os = Some(os::info());
         app.screen = Screen::Launch;

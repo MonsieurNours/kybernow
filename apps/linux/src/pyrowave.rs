@@ -148,11 +148,6 @@ pub fn lost_value(lost: u32, shown: u32) -> String {
     format!("{} %", decimal(pct, 1))
 }
 
-/// Statistiques : le libellé de la ligne « Définition ramenée ».
-pub fn lowered_label() -> &'static str {
-    tr("Définition ramenée", "Resolution lowered")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

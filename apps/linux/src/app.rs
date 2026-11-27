@@ -7851,9 +7851,27 @@ fn cycle(i: usize, n: usize, dir: i32) -> usize {
 
 /// `192.168.1.20:24811` → adresse et port.
 pub fn parse_address(s: &str) -> Option<(String, u16)> {
-    let (a, p) = s.rsplit_once(':')?;
+    let s = s.trim();
+    // IPv6 : entre crochets, le port après (« [fe80::1]:24811 »). Sans crochets, une adresse IPv6 n'a pas de port
+    // lisible : « fe80::1 » n'est pas l'hôte « fe80: » sur le port 1 (audit TRANS-35).
+    let (a, p) = match s.strip_prefix('[') {
+        Some(rest) => {
+            let (a, tail) = rest.split_once(']')?;
+            if !a.contains(':') {
+                return None;
+            }
+            (a, tail.strip_prefix(':')?)
+        }
+        None => {
+            let (a, p) = s.rsplit_once(':')?;
+            if a.contains(':') || a.contains(['[', ']']) {
+                return None;
+            }
+            (a, p)
+        }
+    };
     let port: u16 = p.parse().ok()?;
-    let a = a.trim().trim_start_matches('[').trim_end_matches(']');
+    let a = a.trim();
     if a.is_empty() || port == 0 {
         return None;
     }
@@ -7869,6 +7887,15 @@ mod tests {
         assert_eq!(parse_address("192.168.1.20:24811"), Some(("192.168.1.20".into(), 24811)));
         assert_eq!(parse_address("192.168.1.20"), None);
         assert_eq!(parse_address(":24811"), None);
+        // IPv6 (TRANS-35) : entre crochets avec le port ; nue, refusée plutôt que lue « fe80: » port 1.
+        assert_eq!(parse_address("[fe80::1]:24811"), Some(("fe80::1".into(), 24811)));
+        assert_eq!(parse_address(" [2001:db8::5]:443 "), Some(("2001:db8::5".into(), 443)));
+        assert_eq!(parse_address("fe80::1"), None);
+        assert_eq!(parse_address("fe80::1:24811"), None);
+        assert_eq!(parse_address("[fe80::1]"), None);
+        assert_eq!(parse_address("[]:24811"), None);
+        assert_eq!(parse_address("[192.168.1.20]:24811"), None);
+        assert_eq!(parse_address("pc.local:24811"), Some(("pc.local".into(), 24811)));
     }
 
     #[test]
