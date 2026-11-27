@@ -266,17 +266,14 @@ impl Feeder {
         let (w, h) = self.shared.video_size();
         let hdr = self.hdr(head, key);
         if let Err(e) = ndl::ensure(self.owner, self.kind, w, h, hdr) {
-            if e == ndl::BUSY {
-                // Les mires du réglage du HDR tiennent le décodeur : l'image attend leur fin.
-                self.reopen = true;
-                return false;
-            }
-            if !self.failed {
+            // Les mires du réglage du HDR tiennent le décodeur, ou NDL refuse ce chargement : l'image attend, et le
+            // décodeur se rouvre à l'image clé suivante (un refus est dit une fois).
+            if e != ndl::BUSY && !self.failed {
                 log::error!("image : {e}");
                 self.failed = true;
                 self.shared.decoder_failed(&e);
             }
-            self.flow.unavailable();
+            self.reopen = true;
             return false;
         }
         self.generation = Some(ndl::generation());
