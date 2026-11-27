@@ -408,14 +408,16 @@ try {
     $trayDescription = if ($french) { 'KyberNow Station dans la zone de notification' } else { 'KyberNow Station in the notification area' }
     $shortcut.Description = $trayDescription
     $shortcut.Save()
+    # Lancement a l'ouverture de session, pour tous les comptes (HKLM, comme
+    # l'installateur) ; l'ancienne valeur du compte qui lance le script part.
+    $run = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run'
+    if ((Get-Service kyber).StartType -eq 'Automatic') {
+        Set-ItemProperty $run -Name KyberNow -Value "`"$tray`""
+    } else {
+        Remove-ItemProperty $run -Name KyberNow -ErrorAction SilentlyContinue
+    }
     if (-not $asSystem) {
-        # Lancement a l'ouverture de session (HKCU de l'utilisateur, pas celui du systeme).
-        $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-        if ((Get-Service kyber).StartType -eq 'Automatic') {
-            Set-ItemProperty $run -Name KyberNow -Value "`"$tray`""
-        } else {
-            Remove-ItemProperty $run -Name KyberNow -ErrorAction SilentlyContinue
-        }
+        Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name KyberNow -ErrorAction SilentlyContinue
     }
 
     Write-Host '==> Pare-feu : annonce Bonjour de KyberNow Admin (UDP 5353)'

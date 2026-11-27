@@ -38,6 +38,7 @@ pub fn run_uninstall(keep_data: bool) -> Result<()> {
     }
     // Icône : lancement à l'ouverture de session (celle de l'utilisateur qui désinstalle).
     let _ = run("reg", &["delete", RUN_KEY, "/v", "KyberNow", "/f"]);
+    let _ = run("reg", &["delete", crate::install::LEGACY_RUN_KEY, "/v", "KyberNow", "/f"]);
     remove_firewall_rules();
 
     if record.as_ref().is_none_or(|r| r.virtual_display) {

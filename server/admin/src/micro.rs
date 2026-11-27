@@ -71,6 +71,15 @@ pub fn ensure_on_new_version(kyber_dir: &Path, data_dir: &Path) {
     if !cfg!(windows) {
         return;
     }
+    // Une aide tuée (fin de session brutale) a laissé CABLE en micro par
+    // défaut : `--check` rend celui d'avant (registre `micro-defaut.txt`).
+    if data_dir.join("micro-defaut.txt").exists()
+        && let Some(h) = helper(kyber_dir)
+    {
+        let mut cmd = Command::new(h);
+        cmd.arg("--check");
+        let _ = run(cmd, CHECK_TIMEOUT);
+    }
     let mark = data_dir.join(VBCABLE_MARK);
     // Marques d'avant la 0.11.8, une par version : VB-CABLE a déjà été proposé.
     let mut old_marks = false;

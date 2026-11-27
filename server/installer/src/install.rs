@@ -19,8 +19,13 @@ pub const DISPLAY_CLASS_GUID: &str = "4D36E968-E325-11CE-BFC1-08002BE10318";
 pub const UNINSTALL_KEY: &str = r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\KyberNow";
 /// Icône de la zone de notification, relative au dossier d'installation.
 pub const TRAY_EXE: &str = r"tray\kybernow-tray.exe";
-/// Lancement de l'icône à l'ouverture de session (valeur `KyberNow`).
-pub const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+/// Lancement de l'icône à l'ouverture de session (valeur `KyberNow`), pour
+/// tous les comptes : l'installateur tourne élevé, parfois avec le compte
+/// d'un autre administrateur (« par-dessus l'épaule »), dont HKCU n'est pas
+/// celui de l'utilisateur.
+pub const RUN_KEY: &str = r"HKLM\Software\Microsoft\Windows\CurrentVersion\Run";
+/// L'ancienne valeur, dans le compte qui installait (versions d'avant la 0.11.8).
+pub const LEGACY_RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 /// Droits des services `kyber` et `kyber-admin` (voir `common`) : ceux de
 /// Windows par défaut, plus démarrer et arrêter pour les utilisateurs
 /// interactifs, afin que l'icône pilote le serveur sans élévation.
@@ -846,6 +851,7 @@ fn setup_tray(ctx: &Ctx, start_with_windows: bool) {
         exe.replace('\'', "''"),
         t("install.trayShortcut", &[]).replace('\'', "''")
     ));
+    let _ = run("reg", &["delete", LEGACY_RUN_KEY, "/v", "KyberNow", "/f"]);
     let _ = if start_with_windows {
         run("reg", &["add", RUN_KEY, "/v", "KyberNow", "/t", "REG_SZ", "/d", &format!("\"{exe}\""), "/f"])
     } else {
