@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import fr.leslignesclaires.kybernow.BuildConfig
 import fr.leslignesclaires.kybernow.KyberNowApp
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.core.StationInfo
 import fr.leslignesclaires.kybernow.core.StationOffer
 import fr.leslignesclaires.kybernow.core.BorrowAsk
@@ -201,7 +202,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     /** Ordinateurs annoncés sur le réseau et pas encore ajoutés. */
     val announced: StateFlow<List<Announced>> = combine(kn.discovery.found, store.hosts) { found, hosts ->
-        found.filter { a -> hosts.none { (it.address == a.address && it.port == a.port) || (a.fingerprint != null && it.fingerprint == a.fingerprint) } }
+        found.filter { a -> hosts.none { (it.address == a.address && it.port == a.port) || Core.sameFingerprint(it.fingerprint, a.fingerprint) } }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _refusals = MutableStateFlow<Map<String, RelayRefusal>>(emptyMap())
@@ -253,8 +254,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     init {
         val last = store.lastLaunched
         // Sans version gardée mais avec des ordinateurs, l'app vient d'une version
-        // d'avant l'avis (`station_offer::BEFORE_NOTICE`) : c'est une mise à jour.
-        val from = last ?: StationOffer.BEFORE_NOTICE.takeIf { store.hosts.value.isNotEmpty() }
+        // d'avant l'avis (`station_notice_before` des valeurs communes du cœur) : c'est une mise à jour.
+        val from = last ?: Core.values().stationNoticeBefore?.takeIf { store.hosts.value.isNotEmpty() }
         noticePending = StationOffer.appUpdated(from, appVersion)
         if (last != appVersion) store.lastLaunched = appVersion
     }
@@ -999,7 +1000,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     private fun prepareNotice() {
         if (!noticePending || noticeJob?.isActive == true) return
         noticeJob = viewModelScope.launch {
-            withTimeoutOrNull(StationOffer.NOTICE_WAIT_MS) {
+            withTimeoutOrNull(Core.values().stationNoticeWaitMs) {
                 hosts.value.filter { mayUpdate(it) }.map { h ->
                     async {
                         val st = check(h)

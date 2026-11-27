@@ -483,9 +483,8 @@ fun ReceiveSection(ps: PlayStations, autoStart: Boolean) {
     // L'attente précédente (« Nouveau code ») : la suivante n'écoute qu'une fois celle-ci finie.
     val previous = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
     DisposableEffect(round) {
-        val wifi = context.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
         // Les recherches arrivent en diffusion (port 9340) : le Wi-Fi ne les laisse passer qu'avec ce verrou.
-        val lock = wifi?.createMulticastLock("kybernow-handoff")?.apply { setReferenceCounted(false); acquire() }
+        val lock = fr.leslignesclaires.kybernow.model.Multicast.acquire(context)
         val platform = if (app.form == FormFactor.TV) "androidtv" else "android"
         code = null
         expired = false
@@ -512,7 +511,7 @@ fun ReceiveSection(ps: PlayStations, autoStart: Boolean) {
         previous[0] = job
         onDispose {
             job.cancel()
-            job.invokeOnCompletion { runCatching { lock?.release() } }
+            job.invokeOnCompletion { lock.release() }
         }
     }
     Column(Modifier.panel().fillMaxWidth().padding(s.dp(18f)), verticalArrangement = Arrangement.spacedBy(s.dp(10f))) {

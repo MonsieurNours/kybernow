@@ -24,14 +24,3 @@ class JsonListsTest {
         assertEquals(emptyList<String>(), parseEach(null) { it.getString("id") })
     }
 }
-
-/** Une seule règle pour les IPv4 (réveil, ajout d'une console). */
-class Ipv4Test {
-    @Test
-    fun ipv4() {
-        org.junit.Assert.assertTrue(fr.leslignesclaires.kybernow.model.isIpv4("192.168.1.20"))
-        listOf("300.1.1.1", "1.2.3", "a.b.c.d", "fe80::1", "salon.local", "1.2.3.4.5", "", "+1.2.3.4").forEach {
-            org.junit.Assert.assertFalse(it, fr.leslignesclaires.kybernow.model.isIpv4(it))
-        }
-    }
-}

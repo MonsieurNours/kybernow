@@ -29,6 +29,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class InviteTest {
+    @org.junit.Before fun fakeCore() = FakeCore.install()
+
+    @org.junit.After fun realCore() = FakeCore.reset()
+
     private fun target() = JSONObject().put("host", "192.168.1.20").put("port", 47990).put("fingerprint", "sha256:aa")
 
     private fun route() = JSONObject().put("server", "share.kybernow.app").put("station", "abcdefghijklmnopqrstuvwxyz").put("admin_fp", "sha256:aa")

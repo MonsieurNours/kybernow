@@ -185,7 +185,7 @@ static int decode(const char *in, const char *src, bool hdr)
 	AImageReader_getWindow(reader, &window);
 	char err[256] = {};
 	kn_pw_session *s = kn_pw_open(window, err, sizeof(err));
-	if (!s || !kn_pw_configure(s, w, h, int(c444), hdr ? 1 : 0, 0, 0, 0, 0))
+	if (!s || !kn_pw_configure(s, w, h, int(c444), hdr ? 1 : 0, 0, 0, 0, 0, nullptr))
 	{
 		fprintf(stderr, "session impossible : %s\n", err);
 		return 1;

@@ -108,7 +108,9 @@ mod android {
 
     use crate::exports::{give, jbool, optional, string, Env};
     use crate::jvm::Listener;
-    use crate::pyrowave::{PwConfig, PwSession, Shown};
+    use kybernow_core::pyrowave::Config;
+
+    use crate::pyrowave::{ContentHdr, PwFormat, PwSession, Shown};
 
     const BUFFER_FLAG_KEY_FRAME: u32 = 1;
     /// Durée de l'essai d'un extrait, une fois la première image sortie.
@@ -137,67 +139,73 @@ mod android {
         name: JString,
         listener: JObject,
     ) -> jlong {
-        if console == 0 {
-            return 0;
-        }
-        let console = Arc::new(*unsafe { Box::from_raw(console as *mut Console) });
-        let (device, name) = (string(&mut env, &device), string(&mut env, &name));
-        let Some(device) = super::device_from_json(&device) else { return 0 };
-        let Ok(listener) = Listener::new(&mut env, &listener) else { return 0 };
-        let cancel = Arc::new(AtomicBool::new(false));
-        let gone = Arc::new(AtomicBool::new(false));
-        let (c, g) = (cancel.clone(), gone.clone());
-        let spawned = std::thread::Builder::new().name("kybernow-autotest".into()).spawn(move || {
-            let lang = i18n::current();
-            let say = |method: &str, json: String| {
-                if g.load(Ordering::Acquire) {
-                    return;
-                }
-                listener.with(|env, obj| {
-                    let s = env.new_string(&json)?;
-                    env.call_method(obj, method, "(Ljava/lang/String;)V", &[JValue::Object(&s)]).map(|_| ())
-                });
-            };
-            let mut progress = |p: &Progress| say("onProgress", serde_json::to_string(p).unwrap_or_default());
-            // Les quatre étapes tout de suite, la liaison en cours : le cœur ne parle qu'après l'annonce de l'ordinateur.
-            progress(&Progress {
-                steps: Step::ALL
-                    .iter()
-                    .map(|&step| StepProgress { step, title: step.title(lang), state: if step == Step::Link { StepState::Running } else { StepState::Waiting } })
-                    .collect(),
-            });
-            let mut decoder = AppDecoder { cancel: c.clone() };
-            let r = autotest::run(console, &device, &mut decoder, &mut progress, &c, lang);
-            match &r {
-                Ok(res) => log::info!("profil Auto : {} {}×{} à {} Hz, {} Mbit/s", res.codec.label(), res.width, res.height, res.refresh, res.mode_mbps),
-                Err(e) => log::warn!("profil Auto : test arrêté ({e:?})"),
+        kybernow_core::ffi_guard!({
+            if console == 0 {
+                return 0;
             }
-            say("onDone", super::done_json(&r, lang, &name));
-        });
-        if spawned.is_err() {
-            return 0;
-        }
-        Box::into_raw(Box::new(Job { cancel, gone })) as jlong
+            let console = Arc::new(*unsafe { Box::from_raw(console as *mut Console) });
+            let (device, name) = (string(&mut env, &device), string(&mut env, &name));
+            let Some(device) = super::device_from_json(&device) else { return 0 };
+            let Ok(listener) = Listener::new(&mut env, &listener) else { return 0 };
+            let cancel = Arc::new(AtomicBool::new(false));
+            let gone = Arc::new(AtomicBool::new(false));
+            let (c, g) = (cancel.clone(), gone.clone());
+            let spawned = std::thread::Builder::new().name("kybernow-autotest".into()).spawn(move || {
+                let lang = i18n::current();
+                let say = |method: &str, json: String| {
+                    if g.load(Ordering::Acquire) {
+                        return;
+                    }
+                    listener.with(|env, obj| {
+                        let s = env.new_string(&json)?;
+                        env.call_method(obj, method, "(Ljava/lang/String;)V", &[JValue::Object(&s)]).map(|_| ())
+                    });
+                };
+                let mut progress = |p: &Progress| say("onProgress", serde_json::to_string(p).unwrap_or_default());
+                // Les quatre étapes tout de suite, la liaison en cours : le cœur ne parle qu'après l'annonce de l'ordinateur.
+                progress(&Progress {
+                    steps: Step::ALL
+                        .iter()
+                        .map(|&step| StepProgress { step, title: step.title(lang), state: if step == Step::Link { StepState::Running } else { StepState::Waiting } })
+                        .collect(),
+                });
+                let mut decoder = AppDecoder { cancel: c.clone() };
+                let r = autotest::run(console, &device, &mut decoder, &mut progress, &c, lang);
+                match &r {
+                    Ok(res) => log::info!("profil Auto : {} {}×{} à {} Hz, {} Mbit/s", res.codec.label(), res.width, res.height, res.refresh, res.mode_mbps),
+                    Err(e) => log::warn!("profil Auto : test arrêté ({e:?})"),
+                }
+                say("onDone", super::done_json(&r, lang, &name));
+            });
+            if spawned.is_err() {
+                return 0;
+            }
+            Box::into_raw(Box::new(Job { cancel, gone })) as jlong
+        })
     }
 
     /// Rend la poignée : le test s'arrête et ne dit plus rien.
     #[unsafe(no_mangle)]
     pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_autotestFree(_: Env, _: JClass, h: jlong) {
-        if h != 0 {
-            let j = unsafe { Box::from_raw(h as *mut Job) };
-            j.gone.store(true, Ordering::Release);
-            j.cancel.store(true, Ordering::Release);
-        }
+        kybernow_core::ffi_guard!({
+            if h != 0 {
+                let j = unsafe { Box::from_raw(h as *mut Job) };
+                j.gone.store(true, Ordering::Release);
+                j.cancel.store(true, Ordering::Release);
+            }
+        })
     }
 
     /// Le résumé d'un résultat gardé, dans la langue de l'app ; nul s'il est illisible.
     #[unsafe(no_mangle)]
     pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_autotestChoices(mut env: Env, _: JClass, result: JString) -> jstring {
-        let r = string(&mut env, &result);
-        match super::choices_json(&r, i18n::current()) {
-            Some(s) => give(&mut env, &s),
-            None => std::ptr::null_mut(),
-        }
+        kybernow_core::ffi_guard!(null => {
+            let r = string(&mut env, &result);
+            match super::choices_json(&r, i18n::current()) {
+                Some(s) => give(&mut env, &s),
+                None => std::ptr::null_mut(),
+            }
+        })
     }
 
     /// Les réglages de session d'Auto pour ce résultat ; nul s'il est illisible.
@@ -209,19 +217,23 @@ mod android {
         hdr: jboolean,
         wired: jboolean,
     ) -> jstring {
-        let r = string(&mut env, &result);
-        match super::settings_json(&r, hdr != JNI_FALSE, wired != JNI_FALSE) {
-            Some(s) => give(&mut env, &s),
-            None => std::ptr::null_mut(),
-        }
+        kybernow_core::ffi_guard!(null => {
+            let r = string(&mut env, &result);
+            match super::settings_json(&r, hdr != JNI_FALSE, wired != JNI_FALSE) {
+                Some(s) => give(&mut env, &s),
+                None => std::ptr::null_mut(),
+            }
+        })
     }
 
     /// « Appliquer » : le plafond de l'encodeur à garder (Mbit/s par écran, 0 : aucun), d'après celui gardé (`previous`, 0 : aucun).
     #[unsafe(no_mangle)]
     pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_autotestEncoderMax(mut env: Env, _: JClass, result: JString, previous: jint) -> jint {
-        let r = string(&mut env, &result);
-        let previous = u32::try_from(previous).ok().filter(|&p| p > 0);
-        super::next_encoder_max(&r, previous).map_or(0, |n| n.min(i32::MAX as u32) as jint)
+        kybernow_core::ffi_guard!(previous => {
+            let r = string(&mut env, &result);
+            let previous = u32::try_from(previous).ok().filter(|&p| p > 0);
+            super::next_encoder_max(&r, previous).map_or(0, |n| n.min(i32::MAX as u32) as jint)
+        })
     }
 
     /// Le test a-t-il été fait sur ce réseau (`network` : celui du moment, `relay` par le relais) ?
@@ -232,8 +244,10 @@ mod android {
         result: JString,
         network: JString,
     ) -> jboolean {
-        let (r, n) = (string(&mut env, &result), optional(&mut env, &network));
-        jbool(super::same_network(&r, n.as_deref()))
+        kybernow_core::ffi_guard!({
+            let (r, n) = (string(&mut env, &result), optional(&mut env, &network));
+            jbool(super::same_network(&r, n.as_deref()))
+        })
     }
 
     /// Le décodeur de l'app pour le test : MediaCodec ou PyroWave, sur une
@@ -363,8 +377,8 @@ mod android {
         let reader = offscreen(s, 2)?;
         let window = reader.window().ok()?;
         let mut pw = PwSession::open(window).map_err(|e| log::warn!("profil Auto : PyroWave impossible ({e})")).ok()?;
-        let config = PwConfig { chroma444: s.yuv444, hdr: false, full_range: true, width: s.width & !1, height: s.height & !1 };
-        if !pw.configure(config, None) {
+        let config = Config { chroma444: s.yuv444, hdr: false, full_range: true, width: s.width & !1, height: s.height & !1 };
+        if !pw.configure(PwFormat { config, content: ContentHdr::default() }, None) {
             return None;
         }
         let started = Instant::now();

@@ -40,6 +40,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.core.Lend
 import fr.leslignesclaires.kybernow.core.LendAvailability
 import fr.leslignesclaires.kybernow.core.LendSlot
@@ -71,17 +72,6 @@ import kotlinx.coroutines.delay
 @Composable
 private fun french(): Boolean = LocalConfiguration.current.locales[0].language == "fr"
 
-/** « Disponible », « Occupé », « Prêté à quelqu'un d'autre », « Verrouillé », « Prêt coupé ». */
-@Composable
-fun availabilityLabel(a: LendAvailability) = stringResource(
-    when (a) {
-        LendAvailability.FREE -> R.string.lend_state_free
-        LendAvailability.BUSY -> R.string.lend_state_busy
-        LendAvailability.LENT -> R.string.lend_state_lent
-        LendAvailability.LOCKED -> R.string.lend_state_locked
-        LendAvailability.OFF -> R.string.lend_state_off
-    },
-)
 
 /**
  * L'état d'une carte d'ami : celui de la Station, « Hors ligne » si elle ne répond pas, « Recherche… » tant qu'on ne sait
@@ -89,7 +79,7 @@ fun availabilityLabel(a: LendAvailability) = stringResource(
  */
 @Composable
 fun friendStatusLabel(st: FriendStatus?, known: Boolean): String? = when {
-    st?.status != null -> availabilityLabel(if (st.status.state == LendAvailability.LENT && st.status.mine) LendAvailability.FREE else st.status.state)
+    st?.status != null -> Core.lendAvailabilityLabel((if (st.status.state == LendAvailability.LENT && st.status.mine) LendAvailability.FREE else st.status.state).id)
     st?.offline == true -> stringResource(R.string.home_offline)
     st?.refused != null -> null
     known -> stringResource(R.string.home_searching)

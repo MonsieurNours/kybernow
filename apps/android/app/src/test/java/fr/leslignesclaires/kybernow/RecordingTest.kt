@@ -41,6 +41,10 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35], application = Application::class, qualifiers = "fr-w914dp-h411dp-land-xxhdpi")
 class RecordingTest {
+    @org.junit.Before fun fakeCore() = FakeCore.install()
+
+    @org.junit.After fun realCore() = FakeCore.reset()
+
     @get:Rule val rule = createComposeRule()
 
     private val context get() = ApplicationProvider.getApplicationContext<Application>()
@@ -100,14 +104,6 @@ class RecordingTest {
     private fun show(form: FormFactor, ui: SessionUi) = rule.setContent { KnTheme(form, motion = false) { SessionOverlay(ui) } }
 
     // MARK: - L'état
-
-    @Test
-    fun theClock_isTheCoresFormat() {
-        assertEquals("00:00", RecordingState.clock(0))
-        assertEquals("02:14", RecordingState.clock(134))
-        assertEquals("59:59", RecordingState.clock(3599))
-        assertEquals("1:02:14", RecordingState.clock(3734))
-    }
 
     @Test
     fun theTime_isCountedByTheDevice_fromTheStationsElapsed() {

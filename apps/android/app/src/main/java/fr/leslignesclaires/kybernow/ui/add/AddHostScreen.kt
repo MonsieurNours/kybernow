@@ -42,6 +42,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.core.content.ContextCompat
 import fr.leslignesclaires.kybernow.KyberNowApp
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.ui.playstation.PlayStationPane
 import fr.leslignesclaires.kybernow.ui.playstation.PsStep
 import fr.leslignesclaires.kybernow.ui.playstation.psStepBack
@@ -88,9 +89,6 @@ object PairingLink {
         return Target(host, port, uri.getQueryParameter("name") ?: host, uri.getQueryParameter("fp"))
     }
 }
-
-/** Les quatre premiers groupes d'une empreinte, à comparer à ceux d'Admin. */
-fun shortFingerprint(fp: String): String = fp.removePrefix("sha256:").split(':').take(4).joinToString(":").uppercase()
 
 private enum class Tab { NETWORK, CODE, ADDRESS, QR, FRIEND, PLAYSTATION }
 
@@ -271,10 +269,14 @@ private fun AddressPane(onSeen: (Target, String) -> Unit, onConsole: (fr.leslign
         busy = true
         error = null
         scope.launch {
+            // L'adresse lue par le cœur (`parse_address`) : « hôte », « hôte:port », « [IPv6]:port » ou une IPv6 nue ; le
+            // port tapé à part l'emporte, sinon celui d'Admin par défaut.
+            val typed = Core.parseAddress(address, null) ?: Core.parseAddress(address, Core.values().adminPort.takeIf { it > 0 })
+            val host = typed?.host ?: address
             // Une console d'abord (1,5 s ; une Station et une console ne répondent pas à la même adresse), puis la Station.
             // Un nom (« salon.local », « ps5 ») est d'abord résolu en IPv4 : les consoles ne répondent qu'en IPv4 (AND-34 :
             // un nom ou une IPv6 donnait « Console injoignable. » sans rien chercher).
-            val ipv4 = consoleIpv4(address)
+            val ipv4 = consoleIpv4(host)
             val console = if (ipv4 != null) ps.searchAt(ipv4) else null
             if (console != null) {
                 ps.rememberAddress(ipv4!!)
@@ -282,7 +284,7 @@ private fun AddressPane(onSeen: (Target, String) -> Unit, onConsole: (fr.leslign
                 onConsole(console)
                 return@launch
             }
-            val p = port.toIntOrNull()
+            val p = port.toIntOrNull() ?: typed?.port
             if (p == null) {
                 busy = false
                 // Sans port, seule une console pouvait répondre : une IPv4 cherchée sans réponse dit la console ; un nom ou
@@ -290,8 +292,8 @@ private fun AddressPane(onSeen: (Target, String) -> Unit, onConsole: (fr.leslign
                 error = if (ipv4 != null) consoleUnreachable else unreachable
                 return@launch
             }
-            val t = Target(address, p, address, null)
-            val seen = ConsoleClient(address, p).use { c ->
+            val t = Target(host, p, host, null)
+            val seen = ConsoleClient(host, p).use { c ->
                 c.probe()
                 c.fingerprintSeen
             }
@@ -307,7 +309,7 @@ private fun VerifyPane(target: Target, seen: String, onAccept: () -> Unit, onCan
     Body(stringResource(R.string.add_verify_help), color = Kn.frost2, size = 15f)
     Column(Modifier.panel().fillMaxWidth().padding(s.dp(20f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
         Eyebrow("${target.address}:${target.port}")
-        Mono(shortFingerprint(seen), size = 22f, color = Kn.frost, weight = 500)
+        Mono(Core.shortFingerprint(seen), size = 22f, color = Kn.frost, weight = 500)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(s.dp(12f))) {
         PrimaryButton(stringResource(R.string.add_verify_same), onAccept)
@@ -329,7 +331,7 @@ private fun AccountPane(target: Target, onDone: (Host) -> Unit, onCode: () -> Un
     val unreachable = stringResource(R.string.add_unreachable)
     Column(Modifier.panel().fillMaxWidth().padding(s.dp(18f))) {
         Body(target.name, size = 18f, weight = 600)
-        Mono("${target.address}:${target.port}" + (target.fingerprint?.let { " · " + shortFingerprint(it) } ?: ""), size = 11f)
+        Mono("${target.address}:${target.port}" + (target.fingerprint?.let { " · " + Core.shortFingerprint(it) } ?: ""), size = 11f)
     }
     Body(stringResource(R.string.add_account_help), color = Kn.frost2, size = 15f)
     Field(stringResource(R.string.add_user), user, { user = it })
@@ -457,7 +459,7 @@ private fun FriendPane(friend: Step.Friend, onAccepted: (String, String, Boolean
     val unreachable = stringResource(R.string.add_unreachable)
     Column(Modifier.panel().fillMaxWidth().padding(s.dp(18f))) {
         Body(friend.name, size = 18f, weight = 600)
-        Mono("${friend.target.host}:${friend.target.port}" + (friend.target.fingerprint?.let { " · " + shortFingerprint(it) } ?: ""), size = 11f)
+        Mono("${friend.target.host}:${friend.target.port}" + (friend.target.fingerprint?.let { " · " + Core.shortFingerprint(it) } ?: ""), size = 11f)
     }
     // Le lien d'invitation donne le prénom de l'hôte : « Matthieu vous prête son ordinateur. » dès l'ouverture ; sans (lien
     // d'avant, ou l'ordinateur choisi sur le réseau) : « Avec un compte d'ami ».
@@ -528,9 +530,11 @@ private fun QrPane(onShareLink: (ShareLink) -> Unit, onInvite: (LendInvite) -> U
     }
 }
 
-/** L'IPv4 où chercher une console : l'adresse elle-même, ou le nom résolu (hors du fil principal) ; nulle sinon. */
+/**
+ * L'IPv4 où chercher une console : l'adresse elle-même, ou le nom résolu (hors du fil principal) ; nulle pour une IPv6
+ * ou un nom sans IPv4. Une IPv4 écrite se lit sans requête au DNS.
+ */
 internal suspend fun consoleIpv4(address: String): String? {
-    if (fr.leslignesclaires.kybernow.model.isIpv4(address)) return address
     if (address.contains(':') || address.isBlank()) return null
     return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         runCatching { java.net.InetAddress.getAllByName(address).firstOrNull { it is java.net.Inet4Address }?.hostAddress }.getOrNull()

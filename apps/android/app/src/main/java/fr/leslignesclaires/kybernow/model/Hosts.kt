@@ -284,12 +284,12 @@ data class Host(
 
     /**
      * Où envoyer le paquet de réveil : les cartes apprises d'Admin, et l'adresse MAC saisie à la
-     * main si elle n'y est pas (vers la dernière adresse IPv4 connue d'Admin).
+     * main si elle n'y est pas (vers l'adresse de l'ordinateur, que le cœur ne garde que si c'est une IPv4).
      */
     val wakeTargets: List<WakeTarget>
         get() {
             val manual = mac?.takeIf { m -> wake.none { it.mac.equals(m, ignoreCase = true) } }
-                ?.let { WakeTarget(it, ipv4 = address.takeIf(::isIpv4)) }
+                ?.let { WakeTarget(it, ipv4 = address) }
             return wake + listOfNotNull(manual)
         }
 

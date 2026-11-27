@@ -17,7 +17,8 @@ crate-type = ["cdylib", "rlib"]
 # la sonde répond « indisponible ».
 pyrowave = []
 # Kyber sait demander PyroWave (correctif kyclient 0025 posé) : la
-# fonctionnalité `pyrowave` du cœur (build-native.sh --kyber-pyrowave).
+# fonctionnalité `pyrowave` du cœur, allumée par build-native.sh par défaut
+# (--sans-pyrowave pour s'en passer).
 kyber-pyrowave = ["kybernow-core/pyrowave"]
 
 [dependencies]

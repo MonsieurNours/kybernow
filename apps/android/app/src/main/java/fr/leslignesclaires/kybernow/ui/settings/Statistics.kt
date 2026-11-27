@@ -25,9 +25,9 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.core.RouteTransport
 import fr.leslignesclaires.kybernow.model.LastSession
-import fr.leslignesclaires.kybernow.session.routeLabel
 import fr.leslignesclaires.kybernow.ui.Body
 import fr.leslignesclaires.kybernow.ui.Eyebrow
 import fr.leslignesclaires.kybernow.ui.Kn
@@ -79,7 +79,7 @@ fun LastSessionCard(last: LastSession, now: Long) {
             Body(sent, size = 14f, color = Kn.frost2)
         }
         // La ligne « Chemin » : « Direct », « Par le relais », « Par le relais (TCP) » (rien pour une session d'avant le relais).
-        last.route?.let { Body(stringResource(R.string.stats_path, routeLabel(RouteTransport.parse(it))), size = 14f, color = Kn.frost2) }
+        last.route?.let { Body(stringResource(R.string.stats_path, Core.routeLabel(RouteTransport.parse(it))), size = 14f, color = Kn.frost2) }
         Body(stringResource(R.string.last_help), size = 13f, color = Kn.muted)
     }
 }

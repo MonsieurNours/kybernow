@@ -69,8 +69,8 @@ enum class Shortcut(val keys: IntArray) {
     MAC_FORCE_QUIT(intArrayOf(Sc.ALT, Sc.WIN, Sc.ESC));
 
     companion object {
-        /** Le menu Touches d'un PC, dans son ordre. */
-        val PC = listOf(CTRL_ALT_DEL, ALT_TAB, WIN, WIN_D, PRINT, ALT_F4, WIN_L, TASK_MANAGER, F11, ESC)
+        /** Le menu Touches d'un PC, dans l'ordre de docs/link-ui.md (barre de session, « Touches »). */
+        val PC = listOf(CTRL_ALT_DEL, WIN, ALT_TAB, PRINT, WIN_D, WIN_L, ALT_F4, ESC, TASK_MANAGER, F11)
         /** Face à une Station Mac, à la place : ⌘ ⇥, ⌘ Espace, ⌃ ⌘ Q, ⇧ ⌘ 5, ⌥ ⌘ Échap. */
         val MAC = listOf(MAC_SWITCH_APP, MAC_SPOTLIGHT, MAC_LOCK, MAC_SCREENSHOT, MAC_FORCE_QUIT)
 

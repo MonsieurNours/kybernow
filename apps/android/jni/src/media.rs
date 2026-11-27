@@ -88,6 +88,10 @@ pub trait MediaHost: Send + Sync + 'static {
     fn keyframe_lost(&self);
     /// Le décodeur a retrouvé une image clé.
     fn keyframe_recovered(&self);
+    /// Le décodeur PyroWave ne s'ouvre pas sur cet appareil : l'image repart
+    /// dans le format de repli, pour la session (`Session::pyrowave_failed`).
+    /// Rien pour une partie sur console (jamais de PyroWave).
+    fn pyrowave_failed(&self) {}
     /// Taille des images décodées.
     fn decoded_size(&self, _w: u32, _h: u32) {}
     /// Image décodée écartée (une plus récente est montrée).

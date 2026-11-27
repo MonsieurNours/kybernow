@@ -33,9 +33,6 @@ data class StationOffer(
     val shouldCheck: Boolean = false,
 ) {
     companion object {
-        /** L'avis après une mise à jour de l'app attend au plus ce temps les vérifications (`station_offer::NOTICE_WAIT_SECS`). */
-        const val NOTICE_WAIT_MS = 10_000L
-
         fun now(): Long = System.currentTimeMillis() / 1000
 
         /** Le calcul du cœur pour un ordinateur ; [memory] : son `Memory` gardé (JSON). */
@@ -70,9 +67,6 @@ data class StationOffer(
                 shouldCheck = o.optBoolean("should_check"),
             )
         }
-
-        /** `station_offer::BEFORE_NOTICE` : dernière version lancée supposée quand l'app n'en a pas gardé mais connaît des ordinateurs. */
-        const val BEFORE_NOTICE = "0.11.2"
 
         /** Premier lancement après une mise à jour de l'app (jamais au tout premier lancement : [last] nul). */
         fun appUpdated(last: String?, current: String): Boolean = Native.stationOfferAppUpdated(last, current)

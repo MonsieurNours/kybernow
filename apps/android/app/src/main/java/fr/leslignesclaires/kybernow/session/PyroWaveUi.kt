@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.model.PyroWaveLink
 import fr.leslignesclaires.kybernow.ui.Body
 import fr.leslignesclaires.kybernow.ui.FocusCard
@@ -161,5 +162,5 @@ internal fun PyroStats(ui: SessionUi, sec: Second?) {
         Mono(stringResource(R.string.stats_lost_frames) + " ", size = 11f)
         Mono(String.format(locale, "%.1f %%", pct), size = 11f, color = if (lost > 0) amberText else Kn.frost)
     }
-    sec?.lowered?.let { l -> Mono(stringResource(R.string.pyrowave_lowered, l.width, l.height, l.mbps), size = 11f, color = amberText) }
+    sec?.lowered?.let { l -> Mono(Core.pyrowaveLowered(l.width, l.height, l.refresh, l.mbps), size = 11f, color = amberText) }
 }

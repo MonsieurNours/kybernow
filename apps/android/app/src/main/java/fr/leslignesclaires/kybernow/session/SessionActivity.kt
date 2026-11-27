@@ -35,6 +35,7 @@ import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.BorrowAsk
 import fr.leslignesclaires.kybernow.core.BorrowReply
 import fr.leslignesclaires.kybernow.core.ConsoleClient
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.core.Lend
 import fr.leslignesclaires.kybernow.core.LendAvailable
 import fr.leslignesclaires.kybernow.core.LendEnd
@@ -94,6 +95,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         const val EXTRA_GUEST = "guest"
         /** Session d'emprunt (prêt de l'ordinateur) : le prêt et sa demande sont remis en mémoire par `KyberNowApp.handOverLoan`. */
         const val EXTRA_BORROW = "borrow"
+        /** « Caméra… » sans réponse de l'ordinateur : elle s'éteint au bout de ce temps (docs/link-ui.md, « Caméra de l'appareil »). */
+        const val CAMERA_ANSWER_MS = 10_000L
 
         /** Un emprunt : la Station du prêt prépare l'écran en HDR à la demande (le cœur fait de même), sans info à lire. */
         private val LENT_HDR by lazy { HostInfo.parse(JSONObject().put("hdr", JSONObject().put("available", true))) }
@@ -175,18 +178,15 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private var displayWatch: android.hardware.display.DisplayManager.DisplayListener? = null
 
     /**
-     * Micro (docs/micro.md) : la capture (tant que le cœur dit `waiting` ou `on`), l'avis « Micro envoyé à {nom}. » dû
-     * après un allumage par l'utilisateur, et la demande d'autorisation (première fois qu'on l'allume ; [micAskByUser] :
-     * l'allumage vient d'un toucher, pas du choix retenu au départ).
+     * Micro (docs/micro.md) : la capture (tant que le cœur dit `waiting` ou `on`) et la demande d'autorisation
+     * (première fois qu'on l'allume). L'état, ses textes et l'avis « Micro envoyé à {nom}. » viennent du cœur (`MicUi`).
      */
     private val micCapture by lazy { MicCapture(this) { buf, n, rate -> val h = handle; if (h != 0L) Native.sessionPushMicrophone(h, buf, n, rate) } }
-    private var micAnnounce = false
-    private var micAskByUser = false
     private val micAsk = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) applyMic(true, announce = micAskByUser)
+        if (granted) applyMic(true)
         else {
             // Refusée : « Micro » reste coupé (et retenu coupé), avis de link-ui.
-            applyMic(false, announce = false)
+            applyMic(false)
             state.show(Capsule.MicNoAccess, 6000)
         }
     }
@@ -258,7 +258,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         pads.mouse.mac = mac
         ui = SessionUi(
             title, tv, state, this, OnScreenPad(onScreenOut), guest = guest != null, computerName = host.name,
-            borrower = loan != null, lender = loan?.host ?: "", lendUntil = loan?.until, mac = mac, watch = watchUi,
+            borrower = loan != null, lender = loan?.host ?: "", lendUntil = loan?.until, mac = mac, stationSystem = StationSystem.of(host.os, Native.stationIsMac(host.os ?: "")), watch = watchUi,
         ).apply {
             lendWarning = !app.lendWarned
             profile = host.settings.profile
@@ -357,7 +357,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         val d = app.decoders
         val set = host.settings
         val wired = PyroWave.wired(this)
-        val profileBase = { JSONObject(Native.profileSettings(profile.id, d.hevc != null, d.hevc444, d.av1 != null && host.av1)) }
+        val profileBase = { Core.profileSettings(profile.id, d.hevc != null, d.hevc444, d.av1 != null && host.av1) ?: JSONObject().put("profile", profile.id) }
         // Profil Auto : les réglages de son test (docs/profil-auto.md) ; sans test (reçu d'un autre appareil), ceux du cœur.
         val base = if (profile == Profile.AUTO) AutoProfile.settings(set.autoResult, Hdr.wanted(host), wired, profileBase) else profileBase()
         when (if (hevcInstead) "hevc" else set.codec) {
@@ -550,6 +550,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             .put("control_as_command", Native.controlAsCommand(host.settings.ctrlCommandCode, host.os ?: ""))
             // La caméra de l'appareil (docs/webcam.md) : demandée à l'ordinateur si l'appareil en a une (pas un téléviseur).
             .put("sends_camera", !tv && CameraSender.available(this))
+            // Micro (`MicUi` du cœur) : le choix retenu au départ (sans avis à l'arrivée), le nom de l'ordinateur de l'avis
+            // « Micro envoyé à {nom}. » et le raccourci de l'infobulle.
+            .put("microphone", ui.micChoice)
+            .put("computer_name", state.computerName)
+            .put("mic_shortcut", getString(R.string.mic_shortcut))
             .put("recovery", JSONObject().put("watch_image", true).put("fallback_bitrate", 150_000_000))
             .putHdr()
         // Hors de chez soi : « Auto », le réseau d'abord (Admin répond en 1,5 s), le relais de l'ordinateur sinon, Admin
@@ -579,7 +584,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         // Micro retenu allumé pour cet ordinateur : dit au cœur juste après le départ ; l'autorisation perdue entre-temps
         // (« Seulement cette fois ») est redemandée, sans avis à l'arrivée.
         if (ui.micChoice) {
-            if (MicPrefs.granted(this)) Native.sessionSetMicrophone(handle, true) else { micAskByUser = false; micAsk.launch(Manifest.permission.RECORD_AUDIO) }
+            if (MicPrefs.granted(this)) Native.sessionSetMicrophone(handle, true) else micAsk.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
@@ -588,31 +593,25 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     override fun setMicrophone(on: Boolean) {
         if (!ui.micShown) return
         // L'ordinateur ne le prend pas : au toucher, la raison en avis.
-        (ui.mic as? Mic.Refused)?.let { state.show(Capsule.MicRefused(it.text), 6000); return }
+        ui.mic.reason?.let { state.show(Capsule.MicNotice(it), 6000); return }
         if (on && !MicPrefs.granted(this)) {
-            micAskByUser = true
             micAsk.launch(Manifest.permission.RECORD_AUDIO)
             return
         }
-        applyMic(on, announce = on)
+        applyMic(on)
     }
 
     /** Le choix gardé pour cet ordinateur (pour la session chez un invité ou un emprunt) et dit au cœur. */
-    private fun applyMic(on: Boolean, announce: Boolean) {
+    private fun applyMic(on: Boolean) {
         ui.micChoice = on
-        micAnnounce = announce
         saveSettings { it.copy(microphone = on) }
         if (handle != 0L) Native.sessionSetMicrophone(handle, on)
     }
 
-    /** Ce que dit le cœur : capter ou non ; l'avis bref quand il passe à « Envoyé » après un allumage. */
+    /** Ce que dit le cœur : capter ou non. */
     private fun onMic(m: Mic) {
         ui.mic = m
         if (m.capturing && MicPrefs.granted(this)) micCapture.start() else micCapture.stop()
-        when {
-            m == Mic.On && micAnnounce -> { micAnnounce = false; state.show(Capsule.MicSent(host.name)) }
-            m !is Mic.Waiting -> micAnnounce = false
-        }
     }
 
     private fun observe() {
@@ -735,9 +734,10 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         // Les relâchements qui suivent ne nous parviendraient pas : tout est relâché.
         ui.pad.releaseAll()
         haptics.stop()
-        if (handle != 0L) Native.sessionSetBackground(handle, true, 2_000_000)
+        if (handle != 0L) Native.sessionSetBackground(handle, true)
         pads.mouse.stop()
         wifi.release()
+        KeyCapture.set(this, false)
     }
 
     /**
@@ -749,6 +749,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (!::ui.isInitialized || !::haptics.isInitialized || !::stylus.isInitialized) return
+        // La touche ⊞ et Alt+Tab pour l'ordinateur tant que la session a le focus, rendues au système sinon (KeyCapture).
+        KeyCapture.set(this, hasFocus)
         if (!hasFocus) {
             ui.pad.releaseAll()
             haptics.stop()
@@ -782,7 +784,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             camera.open(cameraChoice(), host.settings.camera1080)
             state.cameraState.value = 2
         }
-        if (handle != 0L) Native.sessionSetBackground(handle, false, 0)
+        if (handle != 0L) Native.sessionSetBackground(handle, false)
         if (::state.isInitialized) wifi.acquire()
     }
 
@@ -883,7 +885,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         val lat = Native.sessionLatency(h) ?: return
         val (w, hh, r) = state.mode.value ?: sessionMode
         val settings = settingsJson(ui.profile)
-        val mbps = SessionMode.bitrate(settings.optInt("mbps"), settings.has("profile"), w, hh, r)
+        val mbps = (state.profileBitrate / 1_000_000).toInt()
         val last = LastSession(
             lat[0], lat[1], seconds, System.currentTimeMillis(), w, hh, r, settings.optString("codec").ifEmpty { null }, mbps, state.route.value?.transport?.id,
             hdr = Native.sessionHdrUsed(h),
@@ -1046,7 +1048,14 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         camera.onOpened = { w, h ->
             val res1080 = host.settings.camera1080
             val ok = handle != 0L && Native.cameraStart(handle, false, w, h, res1080, fr.leslignesclaires.kybernow.core.DeviceIdentity.of(this).name)
-            runOnUiThread { if (ok) startCameraPoll() else cameraOff() }
+            runOnUiThread {
+                if (ok) startCameraPoll()
+                else {
+                    // La session ne la prend pas : « La caméra n'a pas pu démarrer sur l'ordinateur. »
+                    cameraNotice(getString(R.string.camera_start_refused))
+                    cameraOff()
+                }
+            }
         }
         camera.open(id, host.settings.camera1080)
     }
@@ -1067,12 +1076,21 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (which == 2 && state.cameraState.value != 0 && next != null) cameraOn(next.first) else cameraOff()
     }
 
-    /** Les réponses de l'ordinateur, quatre fois par seconde tant qu'elle est allumée. */
+    /**
+     * Les réponses de l'ordinateur, quatre fois par seconde tant qu'elle est allumée. Sans réponse en
+     * [CAMERA_ANSWER_MS] (« Caméra… » qui ne finit pas), elle s'éteint : « L'ordinateur ne répond pas : la caméra est éteinte. »
+     */
     private fun startCameraPoll() {
         cameraPoll.removeCallbacksAndMessages(null)
+        val since = android.os.SystemClock.elapsedRealtime()
         val tick = object : Runnable {
             override fun run() {
                 if (handle == 0L || state.cameraState.value == 0) return
+                if (state.cameraState.value == 1 && android.os.SystemClock.elapsedRealtime() - since >= CAMERA_ANSWER_MS) {
+                    cameraNotice(getString(R.string.camera_no_answer))
+                    cameraOff()
+                    return
+                }
                 val events = runCatching { org.json.JSONArray(Native.cameraPoll(handle, ui.computerName)) }.getOrNull()
                 for (i in 0 until (events?.length() ?: 0)) {
                     val e = events!!.getJSONObject(i)
@@ -1713,6 +1731,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                     KeyEvent.KEYCODE_M -> { Native.inputReleaseAll(handle); toggleMenu(); return true }
                     KeyEvent.KEYCODE_Q -> { quit(); return true }
                     KeyEvent.KEYCODE_V -> { setMicrophone(!ui.micChoice); return true }
+                    // Les autres raccourcis de docs/link-ui.md : C caméra, D se déconnecter, R enregistrer, S statistiques.
+                    KeyEvent.KEYCODE_C -> { toggleCamera(); return true }
+                    KeyEvent.KEYCODE_D -> { quit(); return true }
+                    KeyEvent.KEYCODE_R -> { record(); return true }
+                    KeyEvent.KEYCODE_S -> { ui.statsOpen = !ui.statsOpen; return true }
                 }
             }
             // Un invité sans le clavier : ses touches ne partent pas.
@@ -1748,9 +1771,14 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
      */
     private fun SessionUi.anythingModal() = menuOpen || keysOpen || typing || shareOpen || qualityOpen || lendOpen || giveBackConfirm
 
+    /**
+     * Une touche d'un vrai clavier : un clavier alphabétique qui donne le code matériel de la touche. Un appareil virtuel
+     * compte aussi quand il donne ce code (clavier d'un PC relayé, comme Samsung DeX sur ordinateur) ; le clavier de
+     * l'écran, lui, n'en donne pas (`scanCode` à 0) et passe par le texte.
+     */
     private fun isKeyboard(e: KeyEvent): Boolean {
         val d = e.device ?: return false
-        return !d.isVirtual && d.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC && e.scanCode > 0
+        return d.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC && e.scanCode > 0
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {

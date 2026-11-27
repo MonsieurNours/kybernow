@@ -10,8 +10,12 @@
 #   apps/android/scripts/build-native.sh --target <cible>     une seule
 #   apps/android/scripts/build-native.sh --check              cargo check seul
 #   apps/android/scripts/build-native.sh --debug              sans optimisation
-#   apps/android/scripts/build-native.sh --no-pyrowave        sans PyroWave
-#   apps/android/scripts/build-native.sh --kyber-pyrowave     Kyber demande PyroWave
+#   apps/android/scripts/build-native.sh --no-pyrowave        sans le décodeur PyroWave
+#   apps/android/scripts/build-native.sh --sans-pyrowave      sans PyroWave dans Kyber ni le cœur
+#
+# PyroWave est allumé par défaut : Kyber le demande (correctif kyclient 0025,
+# fonctionnalité `pyrowave` du cœur) et libkybernow_pyrowave.so le décode ;
+# --kyber-pyrowave, d'avant la 0.11.1, est gardé sans effet.
 #
 #   aarch64-linux-android       arm64-v8a : téléphones, tablettes, Shield, Google TV Streamer
 #   armv7-linux-androideabi     armeabi-v7a : Chromecast avec Google TV et

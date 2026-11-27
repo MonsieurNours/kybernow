@@ -25,7 +25,10 @@ import java.util.TimeZone
  *   mémoire…) est écrite dans `fins.log` et dans logcat, avec la trace qu'Android en garde (ANR ; plantage natif à
  *   partir d'Android 12) ;
  * - « Envoyer le journal » (Réglages › À propos) réunit le tout, plus ce que logcat a encore de l'app, dans un fichier
- *   texte partagé par la feuille de partage d'Android.
+ *   texte partagé par la feuille de partage d'Android ; au téléviseur, chiffré et déposé sur le relais, ouvert par le
+ *   téléphone qui scanne un QR code ([JournalSeal], `ui/settings/JournalQr.kt`).
+ *
+ * Ni mot de passe, ni jeton, ni code n'y sont écrits par l'app : le cœur et Kyber ne les mettent pas au journal.
  */
 object Journal {
     const val TAG = "KyberNow"
@@ -195,6 +198,22 @@ object Journal {
             if (logcat.isFailure) w.write("(logcat illisible : ${logcat.exceptionOrNull()?.message})\n")
         }
         return out
+    }
+
+    /** La section qui suit l'en-tête et les fins précédentes dans [build]. */
+    const val AFTER_HEAD = "\n===== java.log =====\n"
+
+    /**
+     * La fin de l'en-tête à garder quand le journal doit être coupé (dépôt par QR code, 2 Mio compressés au plus) :
+     * l'appareil, la version et les fins précédentes, tout ce qui précède [AFTER_HEAD] (rien sans elle).
+     */
+    fun headEnd(text: ByteArray): Int {
+        val mark = AFTER_HEAD.toByteArray(Charsets.UTF_8)
+        outer@ for (i in 0..text.size - mark.size) {
+            for (j in mark.indices) if (text[i + j] != mark[j]) continue@outer
+            return i
+        }
+        return 0
     }
 
     /** La feuille de partage d'Android, avec le fichier du journal (FileProvider). */

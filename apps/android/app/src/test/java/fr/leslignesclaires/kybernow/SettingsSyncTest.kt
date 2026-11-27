@@ -37,6 +37,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class SettingsSyncTest {
+    @org.junit.Before fun fakeCore() = FakeCore.install()
+
+    @org.junit.After fun realCore() = FakeCore.reset()
+
     private val key = "share.kybernow.app|acc_lea"
     private val station = "abcdefghijklmnopqrstuvwxyz"
     private val decoders = Decoders(DecoderInfo("avc", 4096, 2160, true), DecoderInfo("hevc", 4096, 2160, true), null, true)

@@ -49,6 +49,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.os.LocaleListCompat
 import fr.leslignesclaires.kybernow.BuildConfig
+import fr.leslignesclaires.kybernow.core.Core
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import fr.leslignesclaires.kybernow.KyberNowApp
@@ -497,7 +498,7 @@ private fun PictureRubric(state: HostSettingsState, actions: HostSettingsActions
     ) { v -> actions.update { it.copy(codec = v) } }
     ChoiceRow(
         stringResource(R.string.settings_bitrate), stringResource(R.string.settings_bitrate_help),
-        listOf(0 to auto) + listOf(20, 40, 60, 90, 150, 300).map { it to stringResource(R.string.settings_mbps, it) }, set.mbps,
+        listOf(0 to auto) + manualBitrates(pyroChosen).map { it to stringResource(R.string.settings_mbps, it) }, set.mbps,
     ) { v -> actions.update { it.copy(mbps = v) } }
     // Carte « Débit » (docs/link-ui.md, « Profil Auto et débit adaptatif ») : sous le débit, profil Auto, le test qui
     // l'a choisi et « Refaire le test » ; puis « Débit adaptatif », à part du profil (jamais « Personnalisé »), avec
@@ -742,9 +743,20 @@ private fun StatsRubric(state: HostSettingsState, actions: HostSettingsActions) 
         Fact(stringResource(R.string.computer_system), info?.os?.takeIf { it.isNotBlank() } ?: host.os ?: "—")
         Fact(stringResource(R.string.computer_gpu), info?.gpu ?: host.gpu ?: "—")
         Fact(stringResource(R.string.computer_address), "${host.address}:${host.port}", mono = true)
-        Fact(stringResource(R.string.computer_fingerprint), host.fingerprint?.let { shortFingerprint(it) } ?: "—", mono = true)
+        Fact(stringResource(R.string.computer_fingerprint), Core.shortFingerprint(host.fingerprint).ifEmpty { "—" }, mono = true)
     }
     if (state.status.certificateChanged) FingerprintPanel(state.fingerprint, actions)
+}
+
+/**
+ * Les débits proposés à la main (docs/link-ui.md, « Débit ») : des paliers jusqu'à 300 Mbit/s, puis, en PyroWave,
+ * jusqu'à la borne du cœur (`manual_mbps`, 2 500) ; aucun au-delà de la borne du format.
+ */
+internal fun manualBitrates(pyrowave: Boolean): List<Int> {
+    val v = Core.values()
+    val max = if (pyrowave) v.manualMbpsMaxPyroWave else v.manualMbpsMax
+    val stops = listOf(20, 40, 60, 90, 150, 300) + if (pyrowave) listOf(500, 1000, 1500, 2000, 2500) else emptyList()
+    return if (max > 0) stops.filter { it <= max } else stops.filter { it <= 300 }
 }
 
 @Composable
@@ -756,9 +768,6 @@ private fun Fact(label: String, value: String, mono: Boolean = false) {
         else Body(value, Modifier.weight(0.62f), size = 15f)
     }
 }
-
-/** Les quatre premiers groupes d'une empreinte, comme dans Admin. */
-private fun shortFingerprint(fp: String) = fr.leslignesclaires.kybernow.ui.add.shortFingerprint(fp)
 
 /** La Station a été réinstallée : la nouvelle empreinte, à comparer à celle d'Admin avant de l'épingler. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -778,7 +787,7 @@ private fun FingerprintPanel(check: FingerprintCheck?, actions: HostSettingsActi
             else -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Body(stringResource(R.string.computer_fingerprint_new), Modifier.weight(0.38f), size = 14f, color = Kn.muted)
-                    Mono(shortFingerprint(seen), Modifier.weight(0.62f), size = 15f, color = Kn.frost, weight = 500)
+                    Mono(Core.shortFingerprint(seen), Modifier.weight(0.62f), size = 15f, color = Kn.frost, weight = 500)
                 }
                 if (!refused) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(8f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
@@ -1057,7 +1066,7 @@ class AppSettingsActions(
     /** Le micro choisi (nul : celui du système). */
     val setMic: (String?) -> Unit = {},
     val setVoiceProcessing: (Boolean) -> Unit = {},
-    /** « Envoyer le journal » (À propos) : le fichier texte du journal, à la feuille de partage d'Android. */
+    /** « Envoyer le journal » (À propos) : le fichier texte du journal, à la feuille de partage d'Android ; au téléviseur, par QR code. */
     val sendJournal: () -> Unit = {},
 )
 
@@ -1090,8 +1099,16 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
     var micDevice by remember { mutableStateOf(MicPrefs.device(context)) }
     var voice by remember { mutableStateOf(MicPrefs.voiceProcessing(context)) }
     var journalPreparing by remember { mutableStateOf(false) }
+    // Android TV : le journal passe par le relais et un QR code (`JournalQrScreen`) ; le relais du compte de l'appareil,
+    // sinon le relais public.
+    val tv = LocalForm.current == FormFactor.TV
+    var journalQr by remember { mutableStateOf(false) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val journalTitle = stringResource(R.string.journal_send)
+    if (journalQr) {
+        JournalQrScreen(stored.firstOrNull()?.relay ?: Core.values().defaultRelay) { journalQr = false }
+        return
+    }
     AppSettingsContent(
         AppSettingsState(
             language, app.device.name, app.device.os, app.decoders, screen, audio, update, beta, accounts = accounts, signingIn = signingIn,
@@ -1114,7 +1131,8 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
             setMic = { k -> MicPrefs.setDevice(context, k); micDevice = k },
             setVoiceProcessing = { on -> MicPrefs.setVoiceProcessing(context, on); voice = on },
             sendJournal = {
-                if (!journalPreparing) {
+                if (tv) journalQr = true
+                else if (!journalPreparing) {
                     journalPreparing = true
                     scope.launch {
                         val file = runCatching { withContext(kotlinx.coroutines.Dispatchers.IO) { fr.leslignesclaires.kybernow.model.Journal.build(context) } }.getOrNull()
@@ -1204,7 +1222,7 @@ fun AppSettingsContent(state: AppSettingsState, actions: AppSettingsActions) {
         InfoRow("KyberNow Link", state.version, stringResource(R.string.app_settings_about_body))
         ActionRow(
             stringResource(if (state.journalPreparing) R.string.journal_preparing else R.string.journal_send),
-            stringResource(R.string.journal_send_help), enabled = !state.journalPreparing, onClick = actions.sendJournal,
+            stringResource(if (tv) R.string.journal_send_help_tv else R.string.journal_send_help), enabled = !state.journalPreparing, onClick = actions.sendJournal,
         )
         GlassButton(stringResource(R.string.welcome_replay), actions.replayWelcome)
         InfoRow(stringResource(R.string.app_settings_licenses), "AGPL-3.0", stringResource(R.string.app_settings_licenses_body))

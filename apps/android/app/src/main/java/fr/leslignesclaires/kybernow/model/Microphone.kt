@@ -8,35 +8,53 @@ import android.media.AudioManager
 import org.json.JSONObject
 
 /**
- * Le micro de l'appareil vu par la session (docs/micro.md, docs/link-ui.md « Micro ») : ce que dit le cœur
- * (`MicState::to_json`, rappel `onMicrophone`). L'app capte tant qu'il est [Waiting] ou [On].
+ * « Micro » tel que l'interface le montre (docs/micro.md, docs/link-ui.md « Micro ») : `MicUi::ui_json` du cœur, tenu
+ * par le pont (rappel `onMicrophone`). Les textes ([label], [tooltip], [tile], [reason]) sont ceux du cœur, dans la langue
+ * de l'app ; l'app n'en écrit aucun. Elle capte tant que [capturing].
  */
-sealed class Mic {
-    /** Coupé : rien n'est capté. */
-    data object Off : Mic()
-    /** Allumé, l'ordinateur n'a pas encore répondu : « Envoi… ». */
-    data object Waiting : Mic()
-    /** Allumé et pris par l'ordinateur : « Envoyé ». */
-    data object On : Mic()
-    /**
-     * L'ordinateur ne le prend pas : « Micro » estompé, [text] la raison (le texte du cœur, link-ui) ; [reason] :
-     * `not_allowed`, `no_device`, `unsupported`, `old_station`.
-     */
-    data class Refused(val reason: String, val text: String) : Mic()
-
-    val capturing get() = this == On || this == Waiting
+data class Mic(
+    /** Allumé par l'utilisateur. */
+    val on: Boolean = false,
+    /** `off`, `waiting` (allumé, l'ordinateur n'a pas encore répondu), `on` (pris), `refused`. */
+    val state: String = OFF,
+    /** La puce est allumée (allumé et pas refusé). */
+    val lit: Boolean = false,
+    /** Le son part vers l'ordinateur : l'icône près de l'indicateur de la session. */
+    val sent: Boolean = false,
+    /** La puce se montre (l'appareil a un micro ; jamais chez un invité que l'hôte ne laisse pas parler). */
+    val shown: Boolean = true,
+    /** Le refus de l'ordinateur (« Mettez à jour la Station pour envoyer le micro. »…) ; nul s'il le prend. */
+    val reason: String? = null,
+    /** « Micro » ou « Micro coupé ». */
+    val label: String = "",
+    /** L'infobulle : la raison du refus, ou l'état et le raccourci. */
+    val tooltip: String = "",
+    /** Le sous-titre de la puce ou de la tuile : « Envoyé », « Coupé », « Envoi… ». */
+    val tile: String = "",
+) {
+    val capturing get() = state == WAITING || state == ON
+    val refused get() = state == REFUSED
 
     companion object {
-        const val NOT_ALLOWED = "not_allowed"
+        const val OFF = "off"
+        const val WAITING = "waiting"
+        const val ON = "on"
+        const val REFUSED = "refused"
 
+        /** Le JSON du pont ; [Mic] coupé, sans texte, s'il ne se lit pas. */
         fun parse(json: String?): Mic {
-            val o = runCatching { JSONObject(json ?: return Off) }.getOrNull() ?: return Off
-            return when (o.optString("state")) {
-                "waiting" -> Waiting
-                "on" -> On
-                "refused" -> Refused(o.optString("reason"), o.optString("text"))
-                else -> Off
-            }
+            val o = runCatching { JSONObject(json ?: return Mic()) }.getOrNull() ?: return Mic()
+            return Mic(
+                on = o.optBoolean("on"),
+                state = o.optString("state").ifEmpty { OFF },
+                lit = o.optBoolean("lit"),
+                sent = o.optBoolean("sent"),
+                shown = o.optBoolean("shown", true),
+                reason = if (o.isNull("reason")) null else o.optString("reason").takeIf { it.isNotEmpty() },
+                label = o.optString("label"),
+                tooltip = o.optString("tooltip"),
+                tile = o.optString("tile"),
+            )
         }
     }
 }

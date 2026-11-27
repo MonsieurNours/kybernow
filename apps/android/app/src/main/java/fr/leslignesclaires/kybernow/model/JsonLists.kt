@@ -17,7 +17,3 @@ fun <T> parseEach(json: String?, parse: (JSONObject) -> T): List<T> {
             .getOrNull()
     }
 }
-
-/** Une adresse IPv4 : quatre nombres de 0 à 255 séparés par des points (une seule règle pour toute l'app). */
-fun isIpv4(address: String): Boolean =
-    address.split('.').let { parts -> parts.size == 4 && parts.all { it.length in 1..3 && it.all(Char::isDigit) && it.toInt() in 0..255 } }

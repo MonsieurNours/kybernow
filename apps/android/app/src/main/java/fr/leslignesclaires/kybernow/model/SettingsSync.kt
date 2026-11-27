@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import fr.leslignesclaires.kybernow.core.AccountReply
 import fr.leslignesclaires.kybernow.core.Accounts
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.core.Native
 import fr.leslignesclaires.kybernow.core.StoredAccount
 import kotlinx.coroutines.CoroutineScope
@@ -33,16 +34,7 @@ object SyncedKeys {
 
     /** Les réglages d'un profil sur cet appareil (`StreamSettings::for_profile` du cœur), le JSON de `sessionStart`. */
     fun profileBase(profile: Profile, hevc: Boolean, hevc444: Boolean, av1: Boolean): JSONObject =
-        runCatching { JSONObject(Native.profileSettings(profile.id, hevc, hevc444, av1)) }.getOrElse {
-            // Sans bibliothèque native : la même règle que le cœur.
-            val (yuv, mbps, reliable) = when (profile) {
-                Profile.GAME -> Triple(false, 60, false)
-                Profile.DESKTOP -> Triple(true, 90, true)
-                Profile.MAX, Profile.AUTO -> Triple(true, 300, false)
-            }
-            JSONObject().put("profile", profile.id).put("codec", if (hevc) "hevc" else "h264").put("yuv444", yuv && hevc && hevc444)
-                .put("mbps", mbps).put("reliable", reliable)
-        }
+        Core.profileSettings(profile.id, hevc, hevc444, av1) ?: JSONObject().put("profile", profile.id)
 
     /**
      * Les réglages de session de [set] (le JSON de `sessionStart`, comme `SessionActivity.settingsJson`) d'après la base de
@@ -63,10 +55,7 @@ object SyncedKeys {
     }
 
     /** Toutes les clés (`SyncedValues::from_stream` du cœur) : la première fois qu'un ordinateur n'a rien au relais. */
-    fun full(stream: JSONObject): JSONObject =
-        runCatching { (Accounts.read(Native.accountSettingsFromStream(stream.toString(), null)) { it as? JSONObject } as? AccountReply.Ok)?.value }.getOrNull()
-            ?: JSONObject().put("profile", stream.opt("profile") ?: JSONObject.NULL).put("codec", stream.optString("codec"))
-                .put("yuv444", stream.optBoolean("yuv444")).put("mbps", stream.optInt("mbps")).put("hdr", stream.optBoolean("hdr"))
+    fun full(stream: JSONObject): JSONObject = Core.settingsFromStream(stream) ?: JSONObject()
 
     /**
      * Les seules clés changées entre [before] et [after] (`stream` : les réglages de session d'[after]) ; nul si rien ne
@@ -88,41 +77,14 @@ object SyncedKeys {
     }
 
     /** Les clés connues et vérifiées d'un `{station, updated_at, values}` (`SyncedSettings::known` du cœur). */
-    fun known(synced: JSONObject): JSONObject =
-        runCatching { (Accounts.read(Native.accountSettingsKnown(synced.toString())) { it as? JSONObject } as? AccountReply.Ok)?.value }.getOrNull()
-            ?: run {
-                // Sans bibliothèque native : les clés d'Android, à peu près vérifiées.
-                val raw = synced.optJSONObject("values") ?: JSONObject()
-                val o = JSONObject()
-                if (raw.has("profile")) {
-                    if (raw.isNull("profile")) o.put("profile", JSONObject.NULL)
-                    else Profile.entries.firstOrNull { it.id == raw.optString("profile") }?.let { o.put("profile", it.id) }
-                }
-                raw.optString("codec").takeIf { it in listOf("h264", "hevc", "av1", "pyrowave") }?.let { o.put("codec", it) }
-                (raw.opt("yuv444") as? Boolean)?.let { o.put("yuv444", it) }
-                (raw.opt("mbps") as? Number)?.toInt()?.takeIf { it in 1..4294 }?.let { o.put("mbps", it) }
-                (raw.opt("hdr") as? Boolean)?.let { o.put("hdr", it) }
-                o
-            }
+    fun known(synced: JSONObject): JSONObject = Core.settingsKnown(synced) ?: JSONObject()
 
     /**
      * Les réglages de session [base] avec les clés reçues [values], ramenés à ce que l'appareil décode ([caps], `{hevc,
      * hevc444, av1, hdr, pyrowave}`) : `SyncedValues::apply_to` du cœur.
      */
     fun applyStream(values: JSONObject, base: JSONObject, caps: JSONObject): JSONObject =
-        runCatching { (Accounts.read(Native.accountSettingsApply(values.toString(), base.toString(), caps.toString())) { it as? JSONObject } as? AccountReply.Ok)?.value }.getOrNull()
-            ?: JSONObject(base.toString()).also { o ->
-                // Sans bibliothèque native : un format que l'appareil ne décode pas ne sert pas.
-                val c = values.optString("codec")
-                val decodes = when (c) {
-                    "h264" -> true
-                    "hevc", "av1", "pyrowave" -> caps.optBoolean(c)
-                    else -> false
-                }
-                if (decodes) o.put("codec", c)
-                if (values.has("mbps")) o.put("mbps", values.optInt("mbps"))
-                if (values.has("hdr")) o.put("hdr", values.optBoolean("hdr"))
-            }
+        Core.settingsApply(values, base, caps) ?: JSONObject(base.toString())
 
     /**
      * Les réglages d'Android après les clés reçues ([values], [known]) et leur application par le cœur ([result],

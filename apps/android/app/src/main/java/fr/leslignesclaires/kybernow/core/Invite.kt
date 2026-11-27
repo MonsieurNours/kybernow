@@ -59,7 +59,7 @@ class Invited(
      */
     fun host(existing: List<Host>, fallbackName: String = ""): Host {
         val fp = fingerprint?.trim()?.takeIf { it.isNotEmpty() }
-        val same = existing.firstOrNull { fp != null && it.fingerprint == fp } ?: existing.firstOrNull { it.address == address && it.port == port }
+        val same = existing.firstOrNull { Core.sameFingerprint(it.fingerprint, fp) } ?: existing.firstOrNull { it.address == address && it.port == port }
         val name = hostname.ifBlank { same?.name ?: fallbackName }.ifBlank { address }
         if (same != null) {
             return same.copy(

@@ -4,16 +4,15 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import fr.leslignesclaires.kybernow.core.Core
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.net.Inet4Address
-import java.net.Inet6Address
 import java.net.InetAddress
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -35,8 +34,7 @@ data class Announced(val serviceName: String, val name: String, val address: Str
  */
 class Discovery(private val context: Context) {
     private val nsd = context.getSystemService(NsdManager::class.java)
-    private val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
-    private var lock: WifiManager.MulticastLock? = null
+    private var lock: Multicast.Hold? = null
     private val main = Handler(Looper.getMainLooper())
     private val resolver = Executors.newSingleThreadExecutor()
     private val _found = MutableStateFlow<List<Announced>>(emptyList())
@@ -50,7 +48,7 @@ class Discovery(private val context: Context) {
     fun start() {
         if (listener != null) return
         generation++
-        lock = wifi?.createMulticastLock("kybernow")?.apply { setReferenceCounted(false); acquire() }
+        lock = Multicast.acquire(context)
         val l = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) {}
             override fun onDiscoveryStopped(serviceType: String) {}
@@ -95,28 +93,32 @@ class Discovery(private val context: Context) {
             done.await(5, TimeUnit.SECONDS)
             val s = resolved ?: return@execute
             val txt = s.attributes.mapValues { (_, v) -> v?.toString(Charsets.UTF_8) }
-            if (txt["kyber"] == "0") return@execute
-            val address = address(s) ?: txt["name"]?.let { n -> runCatching { MdnsLookup.ipv4(n, localIpv4()) }.getOrNull() } ?: run {
-                Log.w("KyberNow", "découverte : aucune adresse utilisable pour ${s.serviceName}")
+            // Les adresses que donne Android, puis celles qu'on va chercher (JmDNS, le nom) ; le cœur choisit
+            // (`discovery::found` : une IPv4 d'abord), lit le nom et met l'empreinte sous sa forme normale.
+            val addresses = addresses(s).ifEmpty {
+                listOfNotNull(txt["name"]?.let { n -> runCatching { MdnsLookup.ipv4(n, localIpv4()) }.getOrNull() })
+            }
+            val found = Core.discoveryFound("${s.serviceName}.$TYPE.local.", s.port, addresses, txt) ?: run {
+                if (txt["kyber"] != "0") Log.w("KyberNow", "découverte : annonce de ${s.serviceName} sans adresse utilisable")
                 return@execute
             }
             val a = Announced(
                 serviceName = s.serviceName,
-                name = txt["name"]?.takeIf { it.isNotBlank() } ?: s.serviceName,
-                address = address,
-                port = s.port,
-                fingerprint = txt["fp"]?.takeIf { it.isNotBlank() },
+                name = found.optString("name").ifBlank { s.serviceName },
+                address = found.optString("host"),
+                port = found.optInt("port", s.port),
+                fingerprint = if (found.isNull("fingerprint")) null else found.optString("fingerprint").takeIf { it.isNotBlank() },
             )
             main.post { if (gen == generation) _found.value = _found.value.filterNot { it.serviceName == a.serviceName } + a }
         }
     }
 
+    /** Les adresses de l'annonce, plus l'IPv4 que donne JmDNS quand Android n'en donne aucune. */
     @Suppress("DEPRECATION")
-    private fun address(s: NsdServiceInfo): String? {
+    private fun addresses(s: NsdServiceInfo): List<String> {
         val all: List<InetAddress> = if (Build.VERSION.SDK_INT >= 34) s.hostAddresses else listOfNotNull(s.host)
-        all.firstOrNull { it is Inet4Address }?.let { return it.hostAddress }
-        ipv4ByJmdns(s.serviceName)?.let { return it }
-        return all.firstOrNull { it is Inet6Address && !it.isLinkLocalAddress }?.hostAddress
+        val jmdns = if (all.none { it is Inet4Address }) ipv4ByJmdns(s.serviceName) else null
+        return all.mapNotNull { it.hostAddress?.substringBefore('%') } + listOfNotNull(jmdns)
     }
 
     /** L'IPv4 du service, demandée par JmDNS sur l'interface du réseau actif (fil du résolveur). */

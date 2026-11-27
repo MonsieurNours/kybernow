@@ -325,7 +325,7 @@ class ShareUiTest {
         show(FormFactor.PHONE) { SessionOverlay(ui) }
         rule.onNodeWithText(text).assertExists()
         rule.onNodeWithText("IPhone de Léa a arrêté le partage.").assertDoesNotExist()
-        rule.onNodeWithText("Retour à l'accueil").assertHasClickAction()
+        rule.onNodeWithText("Revenir à l'accueil").assertHasClickAction()
     }
 
     @Test

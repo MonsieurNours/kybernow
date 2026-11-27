@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -70,6 +71,10 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35], application = Application::class, qualifiers = "fr-w914dp-h411dp-land-xxhdpi")
 class RelayUiTest {
+    @org.junit.Before fun fakeCore() = FakeCore.install()
+
+    @org.junit.After fun realCore() = FakeCore.reset()
+
     @get:Rule val rule = createComposeRule()
 
     private val context get() = ApplicationProvider.getApplicationContext<Application>()
@@ -117,6 +122,11 @@ class RelayUiTest {
     }
 
     private fun show(form: FormFactor, content: @Composable () -> Unit) = rule.setContent { KnTheme(form, motion = false) { content() } }
+
+    /** Une seconde de mesures : le panneau des statistiques se remplit (sans elle, « Les statistiques s'affichent dès que l'image arrive. »). */
+    private fun SessionUi.measured() {
+        state.second.value = fr.leslignesclaires.kybernow.session.Second(8.0, 2.0, 60, 0, 0, 0, 40.0, null)
+    }
 
     private fun share(
         guests: List<ShareGuest> = emptyList(), requests: List<ShareGuest> = emptyList(), relay: ShareRelay? = ShareRelay.JOINED, web: String = "https://share.kybernow.app/j/428913",
@@ -365,26 +375,28 @@ class RelayUiTest {
 
     @Test
     fun theStatistics_haveAPathLine_direct() {
-        show(FormFactor.PHONE) { SessionOverlay(ui(route = RouteInfo(RouteTransport.DIRECT)) { statsOpen = true }) }
-        rule.onNodeWithText("Chemin$nbsp: Direct").assertExists()
+        show(FormFactor.PHONE) { SessionOverlay(ui(route = RouteInfo(RouteTransport.DIRECT)) { statsOpen = true; measured() }) }
+        rule.onNodeWithText("Chemin").assertExists()
+        rule.onNodeWithText("Direct").assertExists()
     }
 
     @Test
     fun theStatistics_haveAPathLine_byTheRelay() {
-        show(FormFactor.PHONE) { SessionOverlay(ui(route = relayRoute) { statsOpen = true }) }
-        rule.onNodeWithText("Chemin$nbsp: Par le relais").assertExists()
+        show(FormFactor.PHONE) { SessionOverlay(ui(route = relayRoute) { statsOpen = true; measured() }) }
+        rule.onNodeWithText("Chemin").assertExists()
+        rule.onAllNodesWithText("Par le relais").onFirst().assertExists()
     }
 
     @Test
     fun theStatisticsPathLine_saysViaTheRelayTcp() {
-        val ui = ui(route = RouteInfo(RouteTransport.RELAY_TCP)) { statsOpen = true }
+        val ui = ui(route = RouteInfo(RouteTransport.RELAY_TCP)) { statsOpen = true; measured() }
         show(FormFactor.PHONE) { SessionOverlay(ui) }
-        rule.onNodeWithText("Chemin$nbsp: Par le relais (TCP)").assertExists()
+        rule.onNodeWithText("Par le relais (TCP)").assertExists()
     }
 
     @Test
     fun theStatistics_haveNoPathLine_beforeTheCoreSaysWhichPath() {
-        show(FormFactor.PHONE) { SessionOverlay(ui(route = null) { statsOpen = true }) }
+        show(FormFactor.PHONE) { SessionOverlay(ui(route = null) { statsOpen = true; measured() }) }
         rule.onNodeWithText("Chemin", substring = true).assertDoesNotExist()
     }
 
@@ -470,7 +482,7 @@ class RelayUiTest {
                 Text(relayRefusalText(RelayRefusal.Message(""), "Atelier"))
             }
         }
-        rule.onNodeWithText("Atelier n'est pas joignable$nbsp: l'ordinateur est éteint ou en veille.").assertExists()
+        rule.onNodeWithText("Atelier n'est pas joignable : l'ordinateur est éteint ou en veille.").assertExists()
         rule.onNodeWithText("Atelier n'est pas joignable hors de chez vous (accès coupé dans Admin).").assertExists()
         rule.onNodeWithText("Le relais ne répond pas.").assertExists()
         rule.onNodeWithText("Admin ne répond pas à cette adresse.").assertExists()

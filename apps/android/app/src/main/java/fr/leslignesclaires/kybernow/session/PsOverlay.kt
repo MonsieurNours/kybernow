@@ -27,6 +27,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.Core
+import fr.leslignesclaires.kybernow.core.RouteTransport
 import fr.leslignesclaires.kybernow.ui.Body
 import fr.leslignesclaires.kybernow.ui.GlassButton
 import fr.leslignesclaires.kybernow.ui.Kn
@@ -97,7 +99,7 @@ internal fun ConsoleTiles(ui: SessionUi, c: ConsoleUi, first: FocusRequester) {
     val route by ui.state.route.collectAsState()
     FlowRow(Modifier.widthIn(max = s.dp(900f)), horizontalArrangement = Arrangement.spacedBy(s.dp(14f), Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(s.dp(14f)), maxItemsInEachRow = 5) {
         Tile(KnIcons.play, stringResource(R.string.session_resume), null, Modifier.focusRequester(first), primary = true) { ui.actions.resume() }
-        if (route?.viaRelay == true) Tile(KnIcons.network, stringResource(R.string.route_relay), null, selected = true) { ui.statsOpen = !ui.statsOpen }
+        if (route?.viaRelay == true) Tile(KnIcons.network, Core.routeLabel(RouteTransport.RELAY), null, selected = true) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.sound, stringResource(if (c.muted) R.string.ps_unmute else R.string.ps_mute), null, selected = c.muted) { c.onMute(!c.muted) }
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), null) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.power, stringResource(R.string.ps_rest_mode), null) { c.onRestMode() }

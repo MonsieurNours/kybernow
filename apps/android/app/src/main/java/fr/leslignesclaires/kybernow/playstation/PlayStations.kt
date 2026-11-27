@@ -1,7 +1,6 @@
 package fr.leslignesclaires.kybernow.playstation
 
 import android.content.Context
-import android.net.wifi.WifiManager
 import android.os.SystemClock
 import android.util.Log
 import fr.leslignesclaires.kybernow.core.ConsoleClient
@@ -97,15 +96,14 @@ class PlayStations(private val context: Context, val store: PsStore, private val
     private var job: Job? = null
     private var users = 0
     private val asked = mutableMapOf<String, Long>()
-    private var lock: WifiManager.MulticastLock? = null
+    private var lock: fr.leslignesclaires.kybernow.model.Multicast.Hold? = null
 
     /** La recherche tourne tant qu'un écran la demande (accueil, ajout). */
     @Synchronized
     fun start() {
         users++
         if (job?.isActive == true) return
-        lock = (context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager)
-            ?.createMulticastLock("kybernow-playstation")?.apply { setReferenceCounted(false); acquire() }
+        lock = fr.leslignesclaires.kybernow.model.Multicast.acquire(context)
         job = scope.launch {
             while (isActive) {
                 searchOnce()
@@ -120,7 +118,7 @@ class PlayStations(private val context: Context, val store: PsStore, private val
         if (users > 0) return
         job?.cancel()
         job = null
-        runCatching { lock?.release() }
+        lock?.release()
         lock = null
     }
 

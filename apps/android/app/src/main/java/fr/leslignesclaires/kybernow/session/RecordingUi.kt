@@ -14,6 +14,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -26,9 +32,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.RecordingState
 import fr.leslignesclaires.kybernow.ui.Body
 import fr.leslignesclaires.kybernow.ui.GlassButton
@@ -104,19 +112,29 @@ internal fun RecordingPill(ui: SessionUi) {
 
 /**
  * Téléphone et tablette, barre de l'hôte, après « Prêter l'ordinateur… » : « Enregistrer » (rond plein), pendant
- * « Arrêter l'enregistrement ». Coupé dans Admin : estompé mais sélectionnable, il donne la raison en avis.
+ * « Arrêter l'enregistrement ». Coupé dans Admin : estompé mais sélectionnable, il donne la raison en avis. À la
+ * souris, l'infobulle du cœur avec le raccourci (« Enregistrer la session sur l'ordinateur (Ctrl + Alt + Maj + R) »).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun RecordingItems(ui: SessionUi) {
     val r = shownRecording(ui) ?: return
     if (ui.guest) return
     val s = LocalScale.current
     val usable = r.allowed || r.active
-    GlassButton(
-        r.action, { ui.actions.record() }, Modifier.alpha(if (usable) 1f else 0.5f),
-        selected = r.active, singleLine = true,
-        leading = { KnIcon(recordIcon, tint = Kn.danger, size = 14f); Spacer(Modifier.width(s.dp(6f))) },
-    )
+    val now = tick(ui, r.active)
+    val label = r.menuLabel(now)
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
+        tooltip = { PlainTooltip(containerColor = Kn.panel, contentColor = Kn.frost) { Body(if (usable) r.tooltip(stringResource(R.string.record_shortcut)) else r.texts.disabled, size = 13f) } },
+        state = rememberTooltipState(),
+    ) {
+        GlassButton(
+            r.action, { ui.actions.record() }, Modifier.alpha(if (usable) 1f else 0.5f).semantics { contentDescription = label },
+            selected = r.active, singleLine = true,
+            leading = { KnIcon(recordIcon, tint = Kn.danger, size = 14f); Spacer(Modifier.width(s.dp(6f))) },
+        )
+    }
 }
 
 /**
@@ -132,6 +150,6 @@ internal fun RecordingTile(ui: SessionUi) {
         return
     }
     val now = tick(ui, r.active)
-    val detail = if (r.active) RecordingState.clock(r.seconds(now)) else r.texts.onComputer
+    val detail = if (r.active) r.clock(now) else r.texts.onComputer
     Tile(recordIcon, r.action, detail, danger = r.active, dimmed = !r.allowed && !r.active) { ui.actions.record() }
 }
