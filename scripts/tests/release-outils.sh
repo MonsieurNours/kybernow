@@ -3,7 +3,9 @@
 # verrous (scripts/verrou.sh), remise à l'origine et état noté des sources de
 # Kyber (scripts/arbres.sh), correctifs client non réécrits et remise à
 # l'origine de tout ce que touchent les correctifs connus
-# (scripts/kyber-client-patches.sh), entrées des étapes : chaque fichier lu
+# (scripts/kyber-client-patches.sh), pose stricte et remise à l'origine
+# (scripts/kyber-patches-lib.sh), liste des correctifs des apps, empreintes de
+# Kyber des trois Stations (server/kyber-patches/apply.sh), entrées des étapes : chaque fichier lu
 # par une recette est dans son empreinte (scripts/release-entrees.sh,
 # scripts/tests/entrees-couvertes.py), liste des fichiers publiés et
 # vérification des fichiers (scripts/release-verifie.py). Lancé par la CI
@@ -119,10 +121,11 @@ echo "== empreinte de la surcouche Windows (server/kyber-patches/stamp.sh)"
 # Calculée dans la copie où elle tourne (l'arbre, au commit de version), et
 # sensible aux sources et aux Cargo.toml des aides micro, caméra, encodeur.
 git clone -q --no-checkout --shared "$ROOT" "$T/copie"
-git -C "$T/copie" checkout -q HEAD -- server/kyber-patches server/micro server/camera server/encoder-check apps/macos/kyber-patches apps/webos/kyber-patches
+AIDES=(server/kyber-patches server/micro server/camera server/encoder-check apps/macos/kyber-patches apps/webos/kyber-patches
+    apps/macos/PyroWave/COMMIT scripts/kyber-patches-lib.sh scripts/kyber-toolchain.sh)
+git -C "$T/copie" checkout -q HEAD -- "${AIDES[@]}"
 S0="$("$T/copie/server/kyber-patches/stamp.sh")"
 MSG="stable d'un calcul à l'autre" vrai test "$S0" = "$("$T/copie/server/kyber-patches/stamp.sh")"
-AIDES=(server/kyber-patches server/micro server/camera server/encoder-check apps/macos/kyber-patches apps/webos/kyber-patches)
 if git -C "$ROOT" diff --quiet HEAD -- "${AIDES[@]}"; then
     MSG="même valeur que dans le dépôt au même commit" vrai test "$S0" = "$("$ROOT/server/kyber-patches/stamp.sh")"
 fi
@@ -133,6 +136,10 @@ MSG="… et calculée dans sa copie, pas dans le dépôt d'où l'on lance" vrai 
 git -C "$T/copie" checkout -q HEAD -- server/micro
 echo "// essai" >> "$(git -C "$T/copie" ls-files -- server/camera | grep -E '\.(c|m|mm|rs|cpp)$' | head -1 | sed "s|^|$T/copie/|")"
 MSG="source de l'aide caméra changée : empreinte changée" vrai test "$("$T/copie/server/kyber-patches/stamp.sh")" != "$S0"
+git -C "$T/copie" checkout -q HEAD -- server/camera
+echo 0000000000000000000000000000000000000000 > "$T/copie/apps/macos/PyroWave/COMMIT"
+MSG="commit de PyroWave changé : empreinte changée (TRANS-19)" vrai test "$("$T/copie/server/kyber-patches/stamp.sh")" != "$S0"
+git -C "$T/copie" checkout -q HEAD -- apps/macos/PyroWave/COMMIT
 
 echo "== correctifs client : non réécrits quand déjà posés"
 . "$ROOT/scripts/kyber-client-patches.sh"
@@ -166,6 +173,155 @@ kyber_apply_client_patches "$KD/kysdk" "$P" > /dev/null
 MSG="correctif connu non demandé : son fichier remis à l'origine" vrai test "$(cat "$KD/kysdk/kyctl/g.txt")" = g
 MSG="… le correctif demandé reste posé" vrai test "$(cat "$KD/kysdk/kyctl/f.txt")" = "$(printf 'a\nc')"
 MSG="correctifs connus : apps et Stations, seulement kyctl, kymux et kynput" vrai test "$(kyber_known_client_patches | wc -l | tr -d ' ')" = 2
+
+echo "== pose des correctifs (scripts/kyber-patches-lib.sh)"
+. "$ROOT/scripts/kyber-patches-lib.sh"
+R="$T/pose"
+mkdir -p "$R/subprojects/txproto"
+( cd "$R" && git init -q && printf '1\n2\n3\n4\n5\n6\n7\n8\n' > a.txt && printf 'x\n' > b.txt && git add a.txt b.txt && git -c user.name=t -c user.email=t@t commit -qm o )
+( cd "$R/subprojects/txproto" && git init -q && printf 't\n' > t.c && git add . && git -c user.name=t -c user.email=t@t commit -qm o )
+cat > "$T/p-exact.patch" << 'FIN'
+--- a/a.txt
++++ b/a.txt
+@@ -3,3 +3,3 @@
+ 3
+-4
++quatre
+ 5
+--- /dev/null
++++ b/n.txt
+@@ -0,0 +1 @@
++neuf
+--- a/subprojects/txproto/t.c
++++ b/subprojects/txproto/t.c
+@@ -1 +1 @@
+-t
++tx
+FIN
+# Première ligne du contexte fausse (« deux » au lieu de 5) : patch ne le
+# pose qu'avec un décalage du contexte (fuzz).
+cat > "$T/p-fuzz.patch" << 'FIN'
+--- a/a.txt
++++ b/a.txt
+@@ -5,3 +5,3 @@
+ deux
+-6
++six
+ 7
+FIN
+cat > "$T/p-faux.patch" << 'FIN'
+--- a/b.txt
++++ b/b.txt
+@@ -1 +1 @@
+-absent
++y
+FIN
+MSG="correctif exact : posé" vrai kyber_patch_put "$T/p-exact.patch" "$R"
+MSG="… fichier ajouté et sous-projet compris" vrai test -f "$R/n.txt" -a "$(cat "$R/subprojects/txproto/t.c")" = tx
+MSG="déjà posé : reconnu" vrai kyber_patch_posed "$T/p-exact.patch" "$R"
+MSG="correctif inapplicable : refusé" faux kyber_patch_put "$T/p-faux.patch" "$R" 2> "$T/msg"
+MSG="… sans rien laisser (b.txt intact, ni .rej ni .orig)" vrai test "$(cat "$R/b.txt")" = x -a -z "$(find "$R" -name '*.rej' -o -name '*.orig')"
+MSG="décalage du contexte : refusé par défaut (STCOM-05)" faux kyber_patch_put "$T/p-fuzz.patch" "$R" 2> "$T/msg"
+MSG="… avec un message qui le dit" vrai grep -q "décalage du contexte" "$T/msg"
+MSG="… a.txt laissé tel quel" vrai grep -qx 6 "$R/a.txt"
+MSG="KYBERNOW_PATCH_STRICT=0 : posé, avec un avertissement" vrai env KYBERNOW_PATCH_STRICT=0 \
+    bash -c '. "$1/scripts/kyber-patches-lib.sh" && kyber_patch_put "$2" "$3" > /dev/null 2> "$4" && grep -q "décalage" "$4"' _ "$ROOT" "$T/p-fuzz.patch" "$R" "$T/msg"
+MSG="… six posé" vrai grep -qx six "$R/a.txt"
+kyber_patch_reset "$R" "$T/p-exact.patch"
+MSG="remise à l'origine : fichier corrigé remis" vrai test "$(sed -n 4p "$R/a.txt")" = 4
+MSG="… fichier ajouté retiré, sous-projet remis dans son propre dépôt" vrai test ! -e "$R/n.txt" -a "$(cat "$R/subprojects/txproto/t.c")" = t
+kyber_patch_put "$T/p-exact.patch" "$R" > /dev/null
+kyber_patch_reset "$R" "$T/p-exact.patch" "$T/p-exact.patch"
+MSG="fichier touché par un correctif déjà posé : laissé tel quel" vrai grep -qx quatre "$R/a.txt"
+# Wraps de meson : le sous-projet extrait de nouveau quand ses fichiers changent.
+KM="$T/kymedia"
+mkdir -p "$KM/subprojects/packagefiles/ffmpeg" "$KM/subprojects/FFmpeg-n8.1" "$KM/builddir-essai/subprojects/FFmpeg-n8.1"
+printf '[wrap-file]\ndirectory = FFmpeg-n8.1\npatch_directory = ffmpeg\n' > "$KM/subprojects/ffmpeg.wrap"
+echo a > "$KM/subprojects/packagefiles/ffmpeg/meson.build"
+kyber_wrap_mark "$KM" ffmpeg
+kyber_wrap_refresh "$KM" ffmpeg builddir-essai > /dev/null
+MSG="wrap inchangé : sous-projet gardé" vrai test -d "$KM/subprojects/FFmpeg-n8.1"
+echo b > "$KM/subprojects/packagefiles/ffmpeg/meson.build"
+kyber_wrap_refresh "$KM" ffmpeg builddir-essai > /dev/null
+MSG="wrap changé : sous-projet et sa compilation retirés" vrai test ! -e "$KM/subprojects/FFmpeg-n8.1" -a ! -e "$KM/builddir-essai/subprojects/FFmpeg-n8.1"
+MSG="commit de PyroWave lu dans apps/macos/PyroWave/COMMIT (TRANS-19)" vrai test "$(kyber_pyrowave_commit)" = "$(tr -d ' \n' < "$ROOT/apps/macos/PyroWave/COMMIT")"
+# shellcheck disable=SC2034  # lues par les fonctions appelées
+pyrowave_illisible() { ( KYBER_TOOLCHAIN_ROOT="$T"; kyber_pyrowave_commit ) 2> /dev/null; }
+MSG="commit de PyroWave absent : erreur" faux pyrowave_illisible
+
+echo "== liste des correctifs des apps (MAC-31)"
+FAKE="$T/fake"
+mkdir -p "$FAKE/apps/macos/kyber-patches" "$FAKE/server/kyber-patches" "$FAKE/apps/webos/kyber-patches"
+touch "$FAKE/apps/macos/kyber-patches/0001-kyclient-a.patch" \
+      "$FAKE/server/kyber-patches/0022-kyclient-hdr.patch" \
+      "$FAKE/server/kyber-patches/0025-kyclient-pyrowave.patch" \
+      "$FAKE/server/kyber-patches/0027-kynput-stylet.patch" \
+      "$FAKE/server/kyber-patches/0050-kynet-retour.patch" \
+      "$FAKE/server/kyber-patches/0060-kyavserver-x.patch" \
+      "$FAKE/apps/webos/kyber-patches/0001-kynput-client.patch"
+noms() { while IFS= read -r f; do basename "$f"; done | tr '\n' ' '; }
+# shellcheck disable=SC2034  # lues par les fonctions appelées
+liste() { ( KYBER_CLIENT_PATCHES_ROOT="$FAKE"; if [ "$1" = defaut ]; then unset KYBER_PYROWAVE; else KYBER_PYROWAVE=$1; fi; shift; kyber_client_patches "$@" | noms ); }
+# shellcheck disable=SC2034  # lues par les fonctions appelées
+empreinte() { ( KYBER_CLIENT_PATCHES_ROOT="$FAKE"; KYBER_PYROWAVE=1; kyber_client_patch_files | noms ); }
+MSG="liste posée, PyroWave allumé par défaut" vrai test "$(liste defaut)" = "0001-kyclient-a.patch 0022-kyclient-hdr.patch 0025-kyclient-pyrowave.patch "
+MSG="liste posée, PyroWave coupé" vrai test "$(liste 0)" = "0001-kyclient-a.patch 0022-kyclient-hdr.patch "
+MSG="correctifs propres à une app en dernier (webOS)" vrai test "$(liste 0 "$FAKE"/apps/webos/kyber-patches/*.patch)" = \
+    "0001-kyclient-a.patch 0022-kyclient-hdr.patch 0001-kynput-client.patch "
+MSG="empreinte : correctifs de la Station compris, en tête" vrai test "$(empreinte)" = \
+    "0027-kynput-stylet.patch 0050-kynet-retour.patch 0001-kyclient-a.patch 0022-kyclient-hdr.patch 0025-kyclient-pyrowave.patch "
+# L'empreinte du Vendor de l'app Mac change avec un correctif kynput de la Station (MAC-03).
+AVANT="$("$ROOT/apps/macos/scripts/build-kyclient.sh" --stamp)"
+KYNPUT_P="$(ls "$ROOT"/server/kyber-patches/*-kynput-*.patch | head -1)"
+cp "$KYNPUT_P" "$T/kynput.sauve"
+trap 'cp "$T/kynput.sauve" "$KYNPUT_P"; rm -rf "$T"' EXIT
+echo "# essai" >> "$KYNPUT_P"
+APRES="$("$ROOT/apps/macos/scripts/build-kyclient.sh" --stamp)"
+cp "$T/kynput.sauve" "$KYNPUT_P"
+trap 'rm -rf "$T"' EXIT
+MSG="Vendor/kyclient.stamp : un correctif kynput de la Station le change" vrai test "$AVANT" != "$APRES"
+# Sources sans git (copie du Flatpak) : posés un à un, ceux déjà posés passés.
+NG="$T/sans-git/kysdk"
+mkdir -p "$NG/kyctl" "$NG/kymux" "$NG/kynput"
+printf 'a\nb\n' > "$NG/kyctl/f.txt"
+kyber_apply_client_patches "$NG" "$P" > /dev/null
+MSG="sans git : correctif posé" vrai test "$(cat "$NG/kyctl/f.txt")" = "$(printf 'a\nc')" -a -f "$NG/kyctl/n.rs"
+SORTIE="$(kyber_apply_client_patches "$NG" "$P")"
+MSG="sans git : déjà posé, passé" vrai test -z "$SORTIE"
+
+echo "== empreintes de Kyber des Stations (STCOM-11, TRANS-03)"
+. "$ROOT/server/kyber-patches/apply.sh"
+H_windows="$(kyber_station_hash "$ROOT" windows)"; H_mac="$(kyber_station_hash "$ROOT" mac)"; H_linux="$(kyber_station_hash "$ROOT" linux)"
+for st in windows mac linux; do
+    MSG="$st : stable d'un calcul à l'autre" vrai test "$(kyber_station_hash "$ROOT" "$st")" = "$(kyber_station_hash "$ROOT" "$st")"
+done
+MSG="trois Stations, trois empreintes" vrai test "$H_windows" != "$H_mac" -a "$H_mac" != "$H_linux"
+MSG="Station inconnue : erreur" faux kyber_station_hash "$ROOT" ios 2> /dev/null
+MSG="surcouche Windows (stamp.sh) : kyber_station_hash windows" vrai test "$("$ROOT/server/kyber-patches/stamp.sh")" = "$H_windows"
+# release.sh, build-kyber.sh (Mac) et kyber-stamp.sh (Linux) : la même fonction.
+eval "$(grep '^mac_kyber_hash()' "$ROOT/scripts/release.sh")"
+MSG="release.sh (mac_kyber_hash) : kyber_station_hash mac" vrai test "$(mac_kyber_hash "$ROOT")" = "$H_mac"
+MSG="build-kyber.sh (Mac) l'écrit avec kyber_station_hash" vrai grep -qF 'kyber_station_hash "$ROOT" mac > "$OUT/.kybernow-patches"' "$ROOT/server/macos/scripts/build-kyber.sh"
+MSG="kyber-stamp.sh (Linux) : kyber_station_hash linux" vrai test \
+    "$(bash -c '. "$1/server/linux/scripts/kyber-stamp.sh" && kyber_linux_patches_hash "$1"' _ "$ROOT")" = "$H_linux"
+# Ce qui change l'empreinte, dans la copie au commit (pas le dépôt).
+git -C "$T/copie" checkout -q HEAD -- server scripts apps/macos/PyroWave apps/macos/kyber-patches apps/webos/kyber-patches
+C_mac="$(kyber_station_hash "$T/copie" mac)"; C_linux="$(kyber_station_hash "$T/copie" linux)"
+echo 0000000000000000000000000000000000000000 > "$T/copie/apps/macos/PyroWave/COMMIT"
+MSG="commit de PyroWave changé : Mac et Linux changent" vrai test "$(kyber_station_hash "$T/copie" mac)" != "$C_mac" -a "$(kyber_station_hash "$T/copie" linux)" != "$C_linux"
+git -C "$T/copie" checkout -q HEAD -- apps/macos/PyroWave/COMMIT
+UP="$(git -C "$T/copie" ls-files -- apps/macos/PyroWave/upstream | head -1)"
+echo "// essai" >> "$T/copie/$UP"
+MSG="port Metal (apps/macos/PyroWave/upstream) changé : Mac change (TRANS-03)" vrai test "$(kyber_station_hash "$T/copie" mac)" != "$C_mac"
+MSG="… pas Linux, qui ne le compile pas" vrai test "$(kyber_station_hash "$T/copie" linux)" = "$C_linux"
+git -C "$T/copie" checkout -q HEAD -- apps/macos/PyroWave
+echo "# essai" >> "$T/copie/scripts/kyber-toolchain.sh"
+MSG="chaîne d'outils changée : Mac et Linux changent" vrai test "$(kyber_station_hash "$T/copie" mac)" != "$C_mac" -a "$(kyber_station_hash "$T/copie" linux)" != "$C_linux"
+git -C "$T/copie" checkout -q HEAD -- scripts/kyber-toolchain.sh
+LP="$(ls "$T/copie"/server/linux/kyber-patches/*.patch | head -1)"
+echo "# essai" >> "$LP"
+MSG="correctif Linux changé : Linux change, pas Mac" vrai test "$(kyber_station_hash "$T/copie" linux)" != "$C_linux" -a "$(kyber_station_hash "$T/copie" mac)" = "$C_mac"
+git -C "$T/copie" checkout -q HEAD -- server/linux/kyber-patches
 
 echo "== entrées des étapes : ce que lit chaque recette est dans son empreinte"
 . "$ROOT/scripts/kyber-toolchain.sh"

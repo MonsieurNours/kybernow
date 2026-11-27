@@ -12,6 +12,8 @@ ROOT="$(cd "$APPS/.." && pwd)"
 PROFILE="${1:-release}"
 TARGET=armv7-unknown-linux-gnueabi
 THIRD_PARTY="$(cd "$ROOT/third_party" && pwd -P)"
+# La version de FFmpeg liée (scripts/kyber-toolchain.sh), pour sa licence.
+. "$ROOT/scripts/kyber-toolchain.sh"
 # La chaîne de scripts/build.sh (qui la passe par WEBOS_TOOLCHAIN) ; lancé
 # seul, la même selon la machine : Linux x86_64 ou Mac Apple Silicon.
 if [ -z "${WEBOS_TOOLCHAIN:-}" ]; then
@@ -42,7 +44,10 @@ cp "$HERE/webos/icon.png" "$HERE/webos/icon-large.png" "$HERE/webos/splash.png" 
 sed "s/@VERSION@/$VERSION/" "$HERE/webos/appinfo.json" > "$STAGE/appinfo.json"
 cp "$ROOT/brand/v2/fonts/OFL-Archivo.txt" "$ROOT/brand/v2/fonts/OFL-MartianMono.txt" "$STAGE/licenses/"
 [ -f "$THIRD_PARTY/sdl-webos/LICENSE.txt" ] && cp "$THIRD_PARTY/sdl-webos/LICENSE.txt" "$STAGE/licenses/SDL2.txt"
-[ -f "$THIRD_PARTY/ffmpeg-7.1.1/COPYING.LGPLv2.1" ] && cp "$THIRD_PARTY/ffmpeg-7.1.1/COPYING.LGPLv2.1" "$STAGE/licenses/FFmpeg-LGPL-2.1.txt"
+# FFmpeg est toujours lié (E-AC-3) : sa licence aussi, sinon rien n'est empaqueté (TRANS-19).
+FFMPEG_LICENSE="$THIRD_PARTY/ffmpeg-$KYBER_FFMPEG/COPYING.LGPLv2.1"
+[ -f "$FFMPEG_LICENSE" ] || { echo "$FFMPEG_LICENSE absent : relancer apps/webos/scripts/build.sh" >&2; exit 1; }
+cp "$FFMPEG_LICENSE" "$STAGE/licenses/FFmpeg-LGPL-2.1.txt"
 [ -f "$ROOT/LICENSE" ] && cp "$ROOT/LICENSE" "$STAGE/licenses/KyberNow-AGPL-3.0.txt"
 
 mkdir -p "$HERE/dist"

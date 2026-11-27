@@ -22,8 +22,9 @@
 # lui-même (libkybernow.dylib, apps/apple/scripts/build-apple.sh).
 #
 # Empreinte : à la fin, Vendor/kyclient.stamp reçoit l'empreinte des correctifs
-# posés (scripts/client-patches.sh, ceux de la Station compris), de ce script
-# et de scripts/kyber-toolchain.sh ;
+# posés (kyber_client_patch_files de scripts/kyber-client-patches.sh, ceux de
+# la Station compris), de ce script et des scripts qu'il lit (chaîne d'outils,
+# pose des correctifs) ;
 # scripts/release.sh la compare à `build-kyclient.sh --stamp` (l'empreinte
 # attendue, sans rien compiler) et recompile si elles diffèrent.
 #
@@ -58,13 +59,13 @@ done
 # Liste des correctifs : la même pour la pose et pour l'empreinte, correctifs
 # de la Station compris (un 0027-kynput changé recompile libkynput).
 . "$ROOT/scripts/kyber-client-patches.sh"
-. "$HERE/scripts/client-patches.sh"
 export KYBER_PYROWAVE
 stamp() {
     local files=()
-    while IFS= read -r f; do files+=("$f"); done < <(mac_client_patch_files "$ROOT")
+    while IFS= read -r f; do files+=("$f"); done < <(kyber_client_patch_files)
     { for f in "${files[@]}"; do basename "$f"; cat "$f"; done
-      cat "$HERE/scripts/build-kyclient.sh" "$HERE/scripts/client-patches.sh" "$ROOT/scripts/kyber-toolchain.sh" "$ROOT/scripts/kyber-client-patches.sh"; echo "pyrowave=$KYBER_PYROWAVE"; } | shasum -a 256 | cut -d' ' -f1
+      cat "$HERE/scripts/build-kyclient.sh" "$ROOT/scripts/kyber-toolchain.sh" "$ROOT/scripts/kyber-client-patches.sh" \
+          "$ROOT/scripts/kyber-patches-lib.sh"; echo "pyrowave=$KYBER_PYROWAVE"; } | kyber_sha256
 }
 if [ "$STAMP_ONLY" = 1 ]; then
     stamp
@@ -97,17 +98,9 @@ app_closed
 . "$ROOT/scripts/verrou.sh"
 kyber_verrou_sortie "$OUT" "build-kyclient.sh" || exit 1
 
-# Sortie de cargo sans les lignes de progression ; avec pipefail, le code de
-# retour reste celui de cargo.
-cargo_quiet() {
-    "$@" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating) ' || true; }
-}
-
 # Chaque correctif vise le dépôt nommé après son numéro ; ses fichiers sont
 # remis à l'origine puis tous reposés dans l'ordre (scripts/kyber-client-patches.sh).
-PATCHES=()
-while IFS= read -r patch; do PATCHES+=("$patch"); done < <(mac_client_patches "$ROOT")
-kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
+kyber_apply_app_patches "$KYSDK" || exit 1
 
 export PATH="$ROOTFS/bin:/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
 export PKG_CONFIG_LIBDIR="$ROOTFS/lib/pkgconfig"

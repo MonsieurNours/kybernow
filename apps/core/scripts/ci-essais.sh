@@ -80,8 +80,7 @@ fi
 # 2. Correctifs des apps.
 # shellcheck source=../../../scripts/kyber-client-patches.sh
 . "$ROOT/scripts/kyber-client-patches.sh"
-PATCHES=("$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch)
-kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}"
+KYBER_PYROWAVE=1 kyber_apply_app_patches "$KYSDK"
 
 # 3. libkynput.
 mkdir -p "$PREFIX/lib/pkgconfig"

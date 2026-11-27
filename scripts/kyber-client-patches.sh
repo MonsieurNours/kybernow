@@ -2,10 +2,22 @@
 # Correctifs KyberNow côté client (apps/macos/kyber-patches, puis ceux de
 # server/kyber-patches nommés *-kyclient-*, puis ceux propres à une app), posés
 # dans les sources de Kyber (third_party/kyber-desktop/kysdk) que partagent les
-# builds des apps et de la Station. Lu (source) par build-kyclient.sh,
-# build-kyber-tvos.sh, apps/core/scripts/build-apple.sh, build-apple-mobile.sh,
-# apps/android/scripts/build-native.sh, apps/windows/scripts/build.sh et
-# apps/webos/scripts/build.sh.
+# builds des apps et de la Station. Une seule liste pour toutes les apps
+# (kyber_client_patches, audit MAC-31), lue (source) par
+# apps/macos/scripts/build-kyclient.sh, apps/apple/scripts/build-apple.sh et
+# build-apple-mobile.sh, apps/tvos/scripts/build-kyber-tvos.sh,
+# apps/core/scripts/build-apple.sh et ci-essais.sh,
+# apps/android/scripts/build-native.sh, apps/windows/scripts/build.sh,
+# apps/linux/scripts/build.sh et apps/webos/scripts/build.sh.
+#
+#   kyber_client_patches [correctif…]        la liste posée par une app, dans
+#                                            l'ordre ; 0025-kyclient-pyrowave
+#                                            seulement avec KYBER_PYROWAVE=1
+#                                            (défaut) ; puis ceux donnés en plus
+#   kyber_client_patch_files [correctif…]    la même, précédée des correctifs de
+#                                            la Station posés d'abord : la base
+#                                            d'une empreinte
+#   kyber_apply_app_patches <kysdk> [correctif…]   pose la liste
 #
 # Pourquoi tout reposer : les mêmes fichiers reçoivent aussi les correctifs de
 # la Station (server/kyber-patches/apply.sh) et ceux d'autres apps. Un
@@ -42,6 +54,8 @@ kyber_client_repo() {
 # kynput/Cargo.toml et ajoute des fichiers ; remettre l'un sans les autres
 # cassait la compilation de kynput).
 KYBER_CLIENT_PATCHES_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=kyber-patches-lib.sh
+. "$KYBER_CLIENT_PATCHES_ROOT/scripts/kyber-patches-lib.sh"
 kyber_station_patches() {
     local patch
     for patch in "$KYBER_CLIENT_PATCHES_ROOT"/server/kyber-patches/*.patch; do
@@ -77,11 +91,60 @@ kyber_client_state() {
         (cd "$kysdk/$r" && git ls-files -o --exclude-standard -z | sort -z | while IFS= read -r -d '' f; do
             echo "$f"; [ -f "$f" ] && cat "$f"
         done)
-    done | { if command -v shasum >/dev/null; then shasum -a 256; else sha256sum; fi; } | cut -d' ' -f1
+    done | kyber_sha256
+}
+
+# kyber_client_patches [correctif…] : les correctifs qu'une app passe à
+# kyber_apply_client_patches, dans l'ordre (ceux de la Station, que celle-ci
+# pose d'abord, n'y sont pas).
+kyber_client_patches() {
+    local patch
+    for patch in "$KYBER_CLIENT_PATCHES_ROOT"/apps/macos/kyber-patches/*.patch; do echo "$patch"; done
+    for patch in "$KYBER_CLIENT_PATCHES_ROOT"/server/kyber-patches/*-kyclient-*.patch; do
+        case "$(basename "$patch")" in
+            *-kyclient-pyrowave.patch) [ "${KYBER_PYROWAVE:-1}" = 1 ] || continue ;;
+        esac
+        echo "$patch"
+    done
+    [ $# -eq 0 ] || printf '%s\n' "$@"
+}
+
+# kyber_client_patch_files [correctif…] : tout ce qui est posé, correctifs de
+# la Station compris (kynput, kynet, kycontroller, kywebplayer, que
+# kyber_apply_client_patches pose d'abord) : la base d'une empreinte
+# (apps/macos/scripts/build-kyclient.sh, Vendor/kyclient.stamp).
+kyber_client_patch_files() {
+    kyber_station_patches
+    kyber_client_patches "$@"
+}
+
+# kyber_apply_app_patches <kysdk> [correctif…] : pose la liste de
+# kyber_client_patches (KYBER_PYROWAVE et les correctifs propres à l'app
+# compris). Code 1 au premier correctif qui ne se pose pas.
+kyber_apply_app_patches() {
+    local kysdk=$1 patch list=()
+    shift
+    while IFS= read -r patch; do list+=("$patch"); done < <(kyber_client_patches "$@")
+    kyber_apply_client_patches "$kysdk" "${list[@]}"
+}
+
+# Sources sans git (copie du Flatpak, apps/linux/scripts/sources.sh, prise
+# dans third_party/ telle quelle) : ni remise à l'origine ni état noté
+# possibles. Chaque correctif, Station d'abord, est passé s'il est déjà posé en
+# entier, sinon posé (kyber_patch_put : sans décalage du contexte).
+kyber_apply_client_patches_sans_git() {
+    local kysdk=$1 patch repo
+    shift
+    for patch in "$@"; do
+        repo="$(kyber_client_repo "$kysdk" "$patch")" || return 1
+        kyber_patch_posed "$patch" "$repo" && continue
+        echo "==> $(basename "$patch")"
+        kyber_patch_put "$patch" "$repo" || return 1
+    done
 }
 
 kyber_apply_client_patches() {
-    local kysdk=$1 patch repo f want mark
+    local kysdk=$1 patch repo want mark
     shift
     # Une seule construction à la fois sur ces sources (scripts/verrou.sh) :
     # rendu à la sortie du script.
@@ -93,8 +156,12 @@ kyber_apply_client_patches() {
     local station=()
     while IFS= read -r patch; do station+=("$patch"); done < <(kyber_station_patches)
     set -- ${station[@]+"${station[@]}"} "$@"
+    if ! git -C "$kysdk/kyctl" rev-parse -q --verify HEAD >/dev/null 2>&1; then
+        kyber_apply_client_patches_sans_git "$kysdk" "$@"
+        return
+    fi
     mark="$kysdk/../.kybernow-correctifs-apps"
-    want="$(for patch in "$@"; do basename "$patch"; cat "$patch"; done | { if command -v shasum >/dev/null; then shasum -a 256; else sha256sum; fi; } | cut -d' ' -f1)"
+    want="$(for patch in "$@"; do basename "$patch"; cat "$patch"; done | kyber_sha256)"
     if [ "$(cat "$mark" 2>/dev/null)" = "$want $(kyber_client_state "$kysdk")" ]; then
         echo "==> correctifs déjà posés ($# correctifs, sources inchangées depuis)"
         return 0
@@ -104,15 +171,7 @@ kyber_apply_client_patches() {
     while IFS= read -r patch; do known+=("$patch"); done < <(kyber_known_client_patches)
     for patch in ${known[@]+"${known[@]}"} "$@"; do
         repo="$(kyber_client_repo "$kysdk" "$patch")" || return 1
-        for f in $(grep -h '^+++ b/' "$patch" | sed 's|^+++ b/||; s|[[:space:]].*||'); do
-            if git -C "$repo" cat-file -e "HEAD:$f" 2>/dev/null; then
-                git -C "$repo" checkout -q HEAD -- "$f"
-            else
-                # Ajouté par un correctif : absent de l'origine.
-                git -C "$repo" rm -q --cached --ignore-unmatch -- "$f" >/dev/null
-                rm -f "$repo/$f"
-            fi
-        done
+        kyber_patch_reset "$repo" "$patch" || return 1
     done
     for patch in "$@"; do
         repo="$(kyber_client_repo "$kysdk" "$patch")" || return 1
@@ -136,7 +195,7 @@ kyber_kynput_stamp() {
         git -C "$repo" rev-parse HEAD
         git -C "$repo" diff HEAD
         (cd "$repo" && git ls-files -o --exclude-standard -z | xargs -0 cat 2>/dev/null) || true
-    } | { if command -v shasum >/dev/null; then shasum -a 256; else sha256sum; fi; } | cut -d' ' -f1
+    } | kyber_sha256
 }
 # kyber_kynput_current <prefix> <empreinte> : vrai si la libkynput de ce rootfs en vient.
 kyber_kynput_current() {

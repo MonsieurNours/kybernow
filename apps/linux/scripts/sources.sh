@@ -7,8 +7,9 @@
 # Usage : apps/linux/scripts/sources.sh [--deps] DEST
 #   --deps : seulement de quoi compiler libkynput et FFmpeg (module du
 #            Flatpak qui ne change pas avec l'app, mis en cache).
-#   --media : build.sh et les correctifs de PyroWave seuls (FFmpeg et
-#            PyroWave, premier module du Flatpak : ni Kyber ni l'app).
+#   --media : build.sh, les correctifs de PyroWave et les scripts communs
+#            qu'il lit seuls (FFmpeg et PyroWave, premier module du Flatpak :
+#            ni Kyber ni l'app).
 # KYBERNOW_KYBER_HEAD=1 : le SDK de Kyber pris dans ses dépôts git (HEAD), sans
 #            les correctifs déjà posés dans third_party/ (voir plus bas).
 set -euo pipefail
@@ -19,6 +20,12 @@ MEDIA=0
 [ "${1:-}" = --deps ] && { DEPS=1; shift; }
 [ "${1:-}" = --media ] && { MEDIA=1; shift; }
 DEST="${1:?usage : sources.sh [--deps] DEST}"
+# Ce que build.sh lit dans tous les cas : versions et commit de PyroWave
+# (scripts/kyber-toolchain.sh, apps/macos/PyroWave/COMMIT), pose des correctifs
+# (scripts/kyber-client-patches.sh et kyber-patches-lib.sh).
+mkdir -p "$DEST/scripts" "$DEST/apps/macos/PyroWave"
+cp "$ROOT/scripts/kyber-toolchain.sh" "$ROOT/scripts/kyber-patches-lib.sh" "$ROOT/scripts/kyber-client-patches.sh" "$DEST/scripts/"
+cp "$ROOT/apps/macos/PyroWave/COMMIT" "$DEST/apps/macos/PyroWave/"
 if [ "$MEDIA" = 1 ]; then
     mkdir -p "$DEST/apps/linux/scripts" "$DEST/apps/linux/pyrowave"
     cp "$HERE/scripts/build.sh" "$DEST/apps/linux/scripts/"

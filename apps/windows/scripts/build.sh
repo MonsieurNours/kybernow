@@ -105,14 +105,7 @@ kyber_toolchain_check rustc cargo-c
 # third_party/ est partagé par toutes les apps, et le cœur sans sa
 # fonctionnalité `pyrowave` ne compile pas contre lui (`fallback_codec`).
 . "$ROOT/scripts/kyber-client-patches.sh"
-PATCHES=("$APPS"/macos/kyber-patches/*.patch)
-for patch in "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
-    case "$(basename "$patch")" in
-        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue ;;
-    esac
-    PATCHES+=("$patch")
-done
-kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
+kyber_apply_app_patches "$KYSDK" || exit 1
 
 # VLC : une fonction vide par export de libvlc.dll (jamais appelée tant que
 # l'image et le son vont à l'app), et un libvlc.pc qui la désigne.
