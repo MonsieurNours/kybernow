@@ -90,4 +90,3 @@ The computer sees a DualShock 4 (ViGEmBus driver): buttons, sticks, triggers and
 - **CI**: build the Mac app (with a `KyberSDK-macOS.zip`) and the Windows binaries.
 - **Kyber**: send the `strip` fix upstream (cargo-c, Xcode 27's linker).
 - **Website**: remove the “beta” markers at 1.0; revisit the Apple TV, iPhone and iPad cards once those apps go through TestFlight or the App Store.
-- **Brand**: confirm the KyberNow name (and Station / Admin / Link / Share) with the Kyber team; the `fr.leslignesclaires.kybernow` identifier does not change.

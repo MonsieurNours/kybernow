@@ -90,4 +90,3 @@ L'ordinateur voit une DualShock 4 (pilote ViGEmBus) : boutons, sticks, gâchette
 - **CI** : compiler l'app Mac (avec un `KyberSDK-macOS.zip`) et les binaires Windows.
 - **Kyber** : remonter le correctif de `strip` (cargo-c, éditeur de liens d'Xcode 27).
 - **Site** : retirer les marques « bêta » à la 1.0 ; revoir les cartes Apple TV, iPhone et iPad quand ces apps passeront par TestFlight ou l'App Store.
-- **Marque** : valider le nom KyberNow (et Station / Admin / Link / Share) avec l'équipe de Kyber ; l'identifiant `fr.leslignesclaires.kybernow` ne change pas.
