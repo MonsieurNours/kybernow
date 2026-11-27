@@ -15,8 +15,13 @@ use tiny_skia::Pixmap;
 
 use crate::i18n::{english, tr};
 use crate::model::{Host, Profile, Store, WakeTarget};
-pub use kybernow_ui::lend::{LendAvail, LendState, LendSlotUi, LendLive, BorrowSource, BorrowUi, waiting_for, ask_host, time_left_label, LendSteam, lend_duration_label, LendHostState, LendNoticeKind, LendRequestUi, LendHostView, LendOp, InviteUi, invitation_added_notice, BorrowSessionUi, LendCodeUi};
-pub use kybernow_ui::share::{relay_wait, RELAY_LINK_WAIT, ShareRelay, ShareRole, ShareAvail, ShareGuest, app_label, duration_label, guests_label, guest_title, ShareMove, watch_stop_word, watch_title, ShareQuality, requests_label, watch_word, watch_screen_word};
+pub use kybernow_ui::lend::{LendAvail, LendState, LendSlotUi, LendLive, BorrowSource, BorrowUi, waiting_for, ask_host, LendSteam, lend_duration_label, LendHostState, LendNoticeKind, LendRequestUi, LendHostView, LendOp, InviteUi, invitation_added_notice, BorrowSessionUi, LendCodeUi};
+pub use kybernow_ui::share::{relay_wait, ShareRelay, ShareRole, ShareAvail, ShareGuest, guests_label, guest_title, ShareMove, watch_stop_word, watch_title, ShareQuality, requests_label, watch_word, watch_screen_word};
+// Pour les captures et les essais (`preview.rs`).
+#[cfg(any(test, not(feature = "device")))]
+pub use kybernow_ui::lend::time_left_label;
+#[cfg(any(test, not(feature = "device")))]
+pub use kybernow_ui::share::{RELAY_LINK_WAIT, app_label, duration_label};
 
 /// Un rectangle à l'écran (1920 × 1080).
 #[derive(Clone, Copy, Debug, PartialEq, Default)]

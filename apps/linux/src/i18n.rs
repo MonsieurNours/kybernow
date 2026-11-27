@@ -3,4 +3,6 @@
 //! réglage Auto / Français / English.
 //! Les textes sont écrits en paires, sur place : `tr("…", "…")`.
 
-pub use kybernow_ui::i18n::{core_text, de, decimal, english, force_english, set_english, settings_for, tr};
+pub use kybernow_ui::i18n::{core_text, de, decimal, english, set_english, settings_for, tr};
+#[cfg(test)]
+pub use kybernow_ui::i18n::force_english;

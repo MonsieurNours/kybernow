@@ -25,7 +25,7 @@ use kybernow_rules::limits::{self, Device};
 use super::ndl;
 use super::media::{AudioSink, VideoSink};
 use super::Event;
-use crate::app::{PathKind, RouteUi, ShareGuest, ShareRelay, ShareView};
+use crate::app::{PathKind, RouteUi, ShareGuest, ShareView};
 use crate::model::{Host, Profile};
 
 /// Ce que partagent la session, ses flux et la boucle principale.
