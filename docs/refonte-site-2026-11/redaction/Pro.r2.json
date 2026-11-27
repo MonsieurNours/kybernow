@@ -1,0 +1,47 @@
+[
+ {
+  "old": "Le texte reste net, les couleurs justes, et le stylet garde sa pression et son inclinaison.",
+  "new": "Le stylet garde sa pression et son inclinaison, et les couleurs restent justes.",
+  "pourquoi": "« texte net » redit juste en dessous"
+ },
+ {
+  "old": "Gratuit aujourd'hui, seul ou en équipe.",
+  "new": "Gratuit, seul ou en équipe.",
+  "pourquoi": "redite du titre de la section Prix"
+ },
+ {
+  "old": "<code>10 bits</code>",
+  "new": "<code>10&nbsp;bits</code>",
+  "pourquoi": "espace insécable entre nombre et unité"
+ },
+ {
+  "old": "<td class=\"us\">10 bits, HEVC ou AV1</td>",
+  "new": "<td class=\"us\">10&nbsp;bits, HEVC ou AV1</td>",
+  "pourquoi": "espace insécable entre nombre et unité"
+ },
+ {
+  "old": "<p>Qui a ouvert quoi, quand, d'où, et chaque droit changé.</p>",
+  "new": "<p>Qui a ouvert quelle machine, quand et d'où, et qui a changé quels droits.</p>",
+  "pourquoi": "redite de l’étape « Tout est noté au journal »"
+ },
+ {
+  "old": "avec aussi une station sous Linux",
+  "new": "avec en plus une station sous Linux",
+  "pourquoi": "« avec aussi » maladroit"
+ },
+ {
+  "old": "note: 'Station de rendu en 5K à 60 Hz'",
+  "new": "note: 'Station de rendu en 5K à 60 Hz'",
+  "pourquoi": "espace insécable entre nombre et unité"
+ },
+ {
+  "old": "text: '« Postes du studio », « Stations de rendu » : un ordinateur",
+  "new": "text: '« Postes du studio », « Stations de rendu » : un ordinateur",
+  "pourquoi": "espaces fines dans les guillemets"
+ },
+ {
+  "old": "valable 7 jours, et",
+  "new": "valable 7 jours, et",
+  "pourquoi": "espace insécable entre nombre et unité"
+ }
+]

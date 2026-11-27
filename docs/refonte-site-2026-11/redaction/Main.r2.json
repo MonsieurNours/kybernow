@@ -1,0 +1,52 @@
+[
+ {
+  "old": "<span class=\"ms\">9,4 ms sur un réseau local</span>",
+  "new": "<span class=\"ms\">9,4&nbsp;ms sur un réseau local</span>",
+  "pourquoi": "espace insécable entre nombre et unité"
+ },
+ {
+  "old": "ms: '5,19 ms'",
+  "new": "ms: '5,19 ms'",
+  "pourquoi": "espace insécable entre nombre et unité"
+ },
+ {
+  "old": "ms: '0,12 ms'",
+  "new": "ms: '0,12 ms'",
+  "pourquoi": "espace insécable entre nombre et unité"
+ },
+ {
+  "old": "ms: '0,66 ms'",
+  "new": "ms: '0,66 ms'",
+  "pourquoi": "espace insécable entre nombre et unité"
+ },
+ {
+  "old": "ms: '2,50 ms'",
+  "new": "ms: '2,50 ms'",
+  "pourquoi": "espace insécable entre nombre et unité"
+ },
+ {
+  "old": "ms: '0,62 ms'",
+  "new": "ms: '0,62 ms'",
+  "pourquoi": "espace insécable entre nombre et unité"
+ },
+ {
+  "old": "aria-label=\"Le symbole de KyberNow : votre",
+  "new": "aria-label=\"Le symbole de KyberNow&#8239;: votre",
+  "pourquoi": "espace fine avant deux-points"
+ },
+ {
+  "old": "Le texte reste net et les couleurs justes, avec votre stylet et tous vos écrans.",
+  "new": "Le texte reste net et les couleurs justes, sur un ou plusieurs écrans, stylet compris.",
+  "pourquoi": "casse le calque sur la porte Jouer"
+ },
+ {
+  "old": "<p class=\"k\">Un projet ouvert</p>",
+  "new": "<p class=\"k\">Logiciel libre</p>",
+  "pourquoi": "« ouvert » trois fois dans le bloc"
+ },
+ {
+  "old": "Chaque mise à jour est vérifiée avant d'être installée, et le Discord vous répond en français et en anglais.",
+  "new": "Chaque mise à jour est vérifiée avant d'être installée. Sur Discord, nous répondons en français et en anglais.",
+  "pourquoi": "deux idées sans lien, séparées"
+ }
+]

@@ -1,0 +1,117 @@
+[
+ {
+  "old": "Depuis un portable, un iPad ou un autre ordinateur, vous travaillez sur la machine du studio. Le texte reste net, les couleurs justes, et le stylet répond comme si la tablette était branchée à la station.",
+  "new": "Depuis un portable, une tablette ou un autre ordinateur, vous travaillez sur la machine restée au bureau. Le texte reste net, les couleurs justes, et le stylet garde sa pression et son inclinaison.",
+  "pourquoi": "accroche agnostique, sans redite de la fiche Stylet"
+ },
+ {
+  "old": "Gratuit aujourd'hui, pour une personne comme pour une équipe.",
+  "new": "Gratuit aujourd'hui, seul ou en équipe.",
+  "pourquoi": "plus court, le prix redit la même chose"
+ },
+ {
+  "old": "FAITES DÉFILER",
+  "new": "",
+  "pourquoi": "mode d'emploi de la page, à retirer"
+ },
+ {
+  "old": "Pour aller vite, la vidéo garde toute la lumière de l'image, mais une seule couleur pour quatre pixels (4:2:0).",
+  "new": "Pour alléger le flux, la vidéo garde la luminosité de chaque pixel, mais une seule couleur pour quatre (4:2:0).",
+  "pourquoi": "terme juste pour un public métier"
+ },
+ {
+  "old": "Le profil Bureau garde toutes les couleurs (4:4:4). Essayez&#8239;:",
+  "new": "Le profil Bureau garde la couleur de chaque pixel (4:4:4).",
+  "pourquoi": "plus précis, sans injonction ni deux-points à effet"
+ },
+ {
+  "old": "Tout votre poste, <em>pas seulement l'écran</em>",
+  "new": "Votre poste complet, <em>du stylet à la webcam</em>",
+  "pourquoi": "antithèse « pas seulement » remplacée par du concret"
+ },
+ {
+  "old": "La seule limite est l'encodeur de la carte graphique de la station&#8239;: 5K à 60&nbsp;Hz, 4K à 160&nbsp;Hz, ce qu'elle sait faire.",
+  "new": "Définition et fréquence ne dépendent que de l'encodeur de la carte graphique de la station, par exemple 5K à 60&nbsp;Hz ou 4K à 160&nbsp;Hz.",
+  "pourquoi": "chute « ce qu'elle sait faire » supprimée"
+ },
+ {
+  "old": "Chaque écran de votre appareil reçoit un écran de la station, et vous ouvrez la station de rendu et le Mac de montage côte à côte.",
+  "new": "Chaque écran devant vous affiche un écran de la station. Vous ouvrez aussi la station de rendu et le Mac de montage côte à côte.",
+  "pourquoi": "deux idées, deux phrases plus nettes"
+ },
+ {
+  "old": "Tous les raccourcis, en plein écran ou toujours. Le copier-coller passe dans les deux sens.",
+  "new": "Tous les raccourcis vont à la station, en plein écran ou en permanence. Le copier-coller passe dans les deux sens.",
+  "pourquoi": "« ou toujours » était obscur"
+ },
+ {
+  "old": "Votre micro et votre caméra arrivent sur la station, pour une visio lancée là-bas.",
+  "new": "Votre micro et votre caméra servent aux visios lancées sur la station.",
+  "pourquoi": "plus direct, sans « là-bas »"
+ },
+ {
+  "old": "La machine puissante reste au bureau ou dans la baie.",
+  "new": "La station reste au bureau ou dans la baie.",
+  "pourquoi": "« puissante » est un mot creux"
+ },
+ {
+  "old": "Les ordinateurs appartiennent à l'équipe. Vous les rangez en groupes, et chacun reçoit ce dont il a besoin, jusqu'à une date si vous voulez.",
+  "new": "Les ordinateurs appartiennent à l'équipe et se rangent en groupes. Chacun reçoit les droits utiles, pour une durée limitée si vous le souhaitez.",
+  "pourquoi": "« ce dont il a besoin » trop vague"
+ },
+ {
+  "old": "Touchez un droit pour l'allumer ou l'éteindre.",
+  "new": "",
+  "pourquoi": "mode d'emploi de la page, à retirer"
+ },
+ {
+  "old": "Tout un parc, <em>sans un clic</em>",
+  "new": "Installez tout un parc <em>sans un clic</em>",
+  "pourquoi": "titre avec un verbe, pas un slogan"
+ },
+ {
+  "old": "La console de l'équipe donne un jeton d'inscription. L'installateur s'en sert sans rien afficher, et range chaque station dans son groupe.",
+  "new": "La console de l'équipe fournit un jeton d'inscription. L'installateur s'en sert en mode silencieux et range chaque station dans son groupe.",
+  "pourquoi": "terme du métier : installation silencieuse"
+ },
+ {
+  "old": "Vos accès <em>restent chez vous</em>",
+  "new": "Vous gardez la main <em>sur les accès</em>",
+  "pourquoi": "titre flou, reprend la voix du carrefour"
+ },
+ {
+  "old": "Le relais public de KyberNow, ou le vôtre, sur votre serveur, en une image Docker.",
+  "new": "Le relais public de KyberNow, ou le vôtre, installé sur votre serveur depuis une image Docker.",
+  "pourquoi": "chaîne de virgules remise d'aplomb"
+ },
+ {
+  "old": "Double authentification obligatoire pour qui administre, clés d'accès comprises.",
+  "new": "Double authentification obligatoire pour les administrateurs, clés d'accès acceptées.",
+  "pourquoi": "« comprises » ambigu, « qui administre » précieux"
+ },
+ {
+  "old": "KyberNow fait le même métier avec un code ouvert, une station sous Linux aussi, sans plafond de définition, avec le HDR, et tout compris sans abonnement.",
+  "new": "KyberNow fait le même métier en code ouvert, avec aussi une station sous Linux, le HDR et aucun plafond de définition. Tout est compris, sans abonnement.",
+  "pourquoi": "énumération trop longue coupée en deux"
+ },
+ {
+  "old": "<th>Ordinateur à distance</th>",
+  "new": "<th>Système de l'ordinateur hôte</th>",
+  "pourquoi": "libellé ambigu, on compare l'hôte"
+ },
+ {
+  "old": "Sans plafond, sinon celui de l'encodeur de la carte graphique",
+  "new": "Limitées par le seul encodeur de la carte graphique",
+  "pourquoi": "« sans plafond, sinon » se contredisait"
+ },
+ {
+  "old": "<th>Couleurs entières (4:4:4)</th>",
+  "new": "<th>Chrominance complète (4:4:4)</th>",
+  "pourquoi": "terme exact pour des pros de l'image"
+ },
+ {
+  "old": "Toutes les fonctions de cette page sont gratuites. Des offres pour les équipes arriveront plus tard&#8239;; nous vous préviendrons avant tout changement.",
+  "new": "Aucune fonction n'est réservée à une offre payante. Des offres d'équipe viendront plus tard&#8239;; nous vous préviendrons avant tout changement.",
+  "pourquoi": "ne parle plus de « cette page »"
+ }
+]

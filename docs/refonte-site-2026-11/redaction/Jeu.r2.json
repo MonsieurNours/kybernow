@@ -1,0 +1,82 @@
+[
+ {
+  "old": "Vous travaillez avec KyberNow&#8239;?",
+  "new": "Vous travaillez à distance&#8239;?",
+  "pourquoi": "le visiteur ne travaille pas encore avec"
+ },
+ {
+  "old": "note: 'Un Raspberry Pi devient une console'",
+  "new": "note: 'Piloté avec la télécommande de la télé'",
+  "pourquoi": "redite mot pour mot du titre Link OS"
+ },
+ {
+  "old": "Une carte microSD, un Pi branché à la télé, et il démarre directement sur KyberNow Link, sans bureau ni réglage.",
+  "new": "Copiez l'image sur une carte microSD et branchez le Pi à la télé. Il démarre directement sur KyberNow Link, sans bureau ni réglage.",
+  "pourquoi": "phrase bancale, « il » sans antécédent clair"
+ },
+ {
+  "old": "<b>Il démarre comme une console</b>",
+  "new": "<b>Prêt dès l'allumage</b>",
+  "pourquoi": "« console » déjà dans le titre"
+ },
+ {
+  "old": "Avec le Pi 400, le Pi 500 et les Compute Module.",
+  "new": "Ainsi que le Pi&nbsp;400, le Pi&nbsp;500 et les Compute Module.",
+  "pourquoi": "insécables comme Pi 3 et Pi 5"
+ },
+ {
+  "old": "aria-label=\"Exemple de soirée : vous, puis Sam de 20 h 30 à 23 h\"",
+  "new": "aria-label=\"Exemple de soirée&#8239;: vous, puis Sam de 20&nbsp;h&nbsp;30 à 23&nbsp;h\"",
+  "pourquoi": "typographie : fine et insécables"
+ },
+ {
+  "old": "<span>Préavis de 2 min</span>",
+  "new": "<span>Préavis de 2&nbsp;min</span>",
+  "pourquoi": "espace insécable entre nombre et unité"
+ },
+ {
+  "old": "<p class=\"k\">Réglé pour le jeu</p>",
+  "new": "<p class=\"k\">Pour les joueurs</p>",
+  "pourquoi": "« réglé » répété dans le titre"
+ },
+ {
+  "old": "<h3>Vos manettes, reconnues</h3>",
+  "new": "<h3>Vos manettes reconnues</h3>",
+  "pourquoi": "virgule de slogan elliptique"
+ },
+ {
+  "old": "<h3>Le HDR, tel quel</h3>",
+  "new": "<h3>Le HDR de vos jeux</h3>",
+  "pourquoi": "titre-slogan elliptique"
+ },
+ {
+  "old": "Les jeux en HDR arrivent avec leurs couleurs et leurs lumières, et des mires vous aident à régler votre écran.",
+  "new": "Les jeux en HDR gardent leurs couleurs et leurs contrastes. Des mires vous aident à régler votre écran.",
+  "pourquoi": "« leurs lumières » vague, deux idées séparées"
+ },
+ {
+  "old": "&lt; 1 ms<small>",
+  "new": "&lt;&nbsp;1&nbsp;ms<small>",
+  "pourquoi": "espaces insécables"
+ },
+ {
+  "old": "<h3>Encore moins de délai, par câble</h3>",
+  "new": "<h3>Encore moins de délai par câble</h3>",
+  "pourquoi": "virgule de slogan inutile"
+ },
+ {
+  "old": "Branché par câble, l'app passe à PyroWave",
+  "new": "Sur un réseau filaire, l'app passe à PyroWave",
+  "pourquoi": "« câble » déjà dans le titre"
+ },
+ {
+  "old": "Sunshine et Moonlight ont rendu le jeu à distance libre accessible à tous",
+  "new": "Sunshine et Moonlight ont mis le jeu à distance libre à la portée de tous",
+  "pourquoi": "« libre accessible » se lit mal"
+ },
+ {
+  "old": "title: 'Dans le canapé, ou dans le lit'",
+  "new": "title: 'Dans le canapé ou dans le lit'",
+  "pourquoi": "virgule fautive avant « ou »"
+ }
+]

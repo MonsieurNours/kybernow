@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Jouer sur la télé avec l&#x27;Apple TV, mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=Martian+Mono:wdth,wght@75..112.5,300..700&amp;display=swap">
+<style>
+body{margin:0;background:#05070A}
+a{color:#E3EDF0}a:hover{color:#FFFFFF}
+.pg{--veil:5,7,10;--veil2:9,13,18;--src:#E3EDF0;--onsig:#05070A;--sigd:#9A8CFF;--spectre:#9A8CFF;--glacier:#5CC8E8;--ink0:#05070A;--ink1:#090D12;--ink2:#0E141A;--ink3:#141B23;--line:#1E2832;--line2:#2B3742;--frost:#E3EDF0;--frost2:#B4C2C9;--mist:#8A99A3;
+  --spectre:#9A8CFF;--glacier:#5CC8E8;
+  background:var(--ink0);color:var(--frost);font-family:"Archivo","Helvetica Neue",Arial,sans-serif;font-size:17px;line-height:1.6;overflow-x:clip}
+.pg *{box-sizing:border-box}
+.wrap{max-width:1240px;margin:0 auto;padding-inline:clamp(20px,4vw,56px)}
+.mono{font-family:"Martian Mono",ui-monospace,Menlo,monospace}
+.k{font-family:"Martian Mono",ui-monospace,Menlo,monospace;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--mist)}
+h1,h2,h3{margin:0;text-wrap:balance}
+p{margin:0}
+.disp{font-stretch:125%;font-weight:760;letter-spacing:-.015em;line-height:1.04}
+.btn{display:inline-flex;align-items:center;gap:10px;min-height:46px;padding:0 20px;border-radius:6px;font-weight:600;font-size:15px;text-decoration:none;border:1px solid var(--line2);background:var(--ink2);color:var(--frost);cursor:pointer;font-family:inherit}
+.btn.sig{background:var(--frost);color:var(--ink0);border-color:transparent;clip-path:polygon(0 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%);border-radius:6px 6px 0 6px}
+.top{position:sticky;top:0;z-index:20;background:rgba(var(--veil),.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:28px;min-height:68px;flex-wrap:wrap}
+.logo{position:relative;display:block;width:150px;height:21px}
+.logo img{position:absolute;inset:0;width:150px;height:21px}
+.logo .g{animation:xfade 8s ease-in-out infinite}
+@keyframes xfade{0%,38%{opacity:0}50%,88%{opacity:1}100%{opacity:0}}
+.nav{display:flex;gap:26px;margin-right:auto;font-size:15px;flex-wrap:wrap}
+.nav a{text-decoration:none;color:var(--frost2)}
+.nav a:hover{color:var(--frost)}
+.nav a.on{color:var(--frost);box-shadow:inset 0 -2px 0 var(--frost);padding-bottom:4px}
+.nav .j{color:var(--spectre)}.nav .p{color:var(--glacier)}
+.nav .disc{display:inline-flex;align-items:center;gap:7px}
+.tools{display:flex;align-items:center;gap:18px;font-size:14px;color:var(--frost2)}
+/* Barre de lecture */
+.progress{position:sticky;top:68px;z-index:19;height:2px;background:transparent}
+.progress i{display:block;height:100%;width:100%;transform-origin:left;transform:scaleX(var(--read, 0));background:linear-gradient(90deg,var(--spectre),var(--glacier))}
+/* En-tête d'article */
+.ahead{padding-block:56px 40px;border-bottom:1px solid var(--line)}
+.crumbs{display:flex;flex-wrap:wrap;gap:8px;font-size:14px;color:var(--mist);margin-bottom:22px}
+.crumbs a{color:var(--frost2);text-decoration:none}
+.crumbs a:hover{color:var(--frost)}
+.ahead h1{font-size:clamp(40px,4.8vw,66px);max-width:20ch}
+.chapo{margin-top:18px;font-size:20px;color:var(--frost2);max-width:62ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.meta span{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:0 12px;border-radius:99px;border:1px solid var(--line2);font-size:13px;color:var(--frost2)}
+/* Corps */
+.body{display:grid;grid-template-columns:240px minmax(0,1fr);gap:56px;padding-block:48px 96px;align-items:start}
+.toc{position:sticky;top:96px;display:grid;gap:2px;font-size:14px}
+.toc b{font-family:"Martian Mono",monospace;font-size:11px;letter-spacing:.14em;color:var(--mist);font-weight:500;margin-bottom:8px}
+.toc a{display:block;padding:7px 12px;border-left:2px solid var(--line);color:var(--frost2);text-decoration:none;line-height:1.35}
+.toc a:hover{color:var(--frost);border-left-color:var(--frost2)}
+.toc a.on{color:var(--frost);border-left-color:var(--spectre)}
+.prose{max-width:720px;display:grid;gap:18px}
+.prose h2{font-size:30px;font-stretch:112%;font-weight:720;line-height:1.15;margin-top:30px;scroll-margin-top:100px}
+.prose h3{font-size:20px;margin-top:10px}
+.prose p,.prose li{color:var(--frost2)}
+.prose strong{color:var(--frost)}
+.prose a{color:var(--frost);text-decoration-color:var(--line2);text-underline-offset:3px}
+.prose code{font-family:"Martian Mono",monospace;font-size:.82em;padding:2px 6px;border-radius:5px;background:var(--ink3);border:1px solid var(--line);color:var(--frost)}
+.prose ul{margin:0;padding-left:20px;display:grid;gap:6px}
+.prose ol{margin:0;padding:0;list-style:none;display:grid;gap:12px;counter-reset:st}
+.prose ol > li{counter-increment:st;position:relative;padding:16px 18px 16px 62px;border-radius:14px;background:var(--ink1);border:1px solid var(--line)}
+.prose ol > li::before{content:counter(st);position:absolute;left:16px;top:14px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-family:"Martian Mono",monospace;font-size:12px;color:var(--frost);border:1px solid var(--line2);background:var(--ink3)}
+.prose blockquote{margin:0;padding:16px 18px;border-radius:14px;background:linear-gradient(90deg,rgba(154,140,255,.10),rgba(92,200,232,.06));border:1px solid var(--line2);color:var(--frost2)}
+.prose blockquote p{color:var(--frost2)}
+.rel{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:40px}
+.rel a{display:grid;gap:6px;padding:18px;border-radius:16px;border:1px solid var(--line);background:var(--ink1);text-decoration:none;color:var(--frost);min-width:0}
+.rel a:hover{border-color:var(--line2)}
+.rel a span{font-family:"Martian Mono",monospace;font-size:11px;color:var(--mist)}
+.helpful{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:40px;padding:18px 20px;border-radius:14px;border:1px solid var(--line);color:var(--frost2);font-size:15px}
+.helpful button{min-height:40px;padding:0 14px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--frost);font:inherit;font-size:14px;cursor:pointer}
+.helpful button.on{background:var(--frost);color:var(--ink0)}
+.ft{padding-block:40px;border-top:1px solid var(--line);color:var(--mist);font-size:14px}
+.ft .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+/* Menu mobile */
+.burger{display:none;width:44px;height:44px;border-radius:10px;border:1px solid var(--line2);background:transparent;cursor:pointer;padding:0;flex-direction:column;align-items:center;justify-content:center;gap:5px}
+.burger span{display:block;width:18px;height:1.6px;border-radius:2px;background:var(--frost);transition:transform .35s cubic-bezier(.2,.9,.1,1),opacity .2s}
+.burger[aria-expanded="true"] span:nth-child(1){transform:translateY(6.6px) rotate(45deg)}
+.burger[aria-expanded="true"] span:nth-child(2){opacity:0}
+.burger[aria-expanded="true"] span:nth-child(3){transform:translateY(-6.6px) rotate(-45deg)}
+.sheet{position:fixed;left:0;right:0;top:64px;bottom:0;z-index:19;display:none;flex-direction:column;justify-content:space-between;gap:28px;padding:28px 24px calc(28px + env(safe-area-inset-bottom, 0px));background:rgba(var(--veil),.97);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);overflow-y:auto}
+.sheet-in{display:grid;gap:4px}
+.mi{display:block;padding:12px 0;font-size:34px;font-stretch:118%;font-weight:720;letter-spacing:-.01em;line-height:1.1;text-decoration:none;color:var(--frost);border-bottom:1px solid var(--line);opacity:0;transform:translateY(14px)}
+.mi.j{color:var(--spectre)}.mi.p{color:var(--glacier)}
+.sheet.open .mi{animation:miIn .5s cubic-bezier(.2,.9,.1,1) both;animation-delay:calc(var(--i) * 45ms + 60ms)}
+@keyframes miIn{to{opacity:1;transform:none}}
+.sheet-foot{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center}
+.sheet-foot .btn{grid-column:1 / -1}
+.mi-small{font-size:16px;color:var(--frost2);text-decoration:none;min-height:44px;display:inline-flex;align-items:center}
+
+/* Thème clair */
+.thm{width:38px;height:38px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--frost2);display:grid;place-items:center;cursor:pointer;padding:0}
+.thm:hover{color:var(--frost)}
+.thm .sun{display:none}
+.pg.light .thm .sun{display:block}.pg.light .thm .moon{display:none}
+.pg:not(.light) .lt{display:none!important}
+.pg.light .dk{display:none!important}
+.pg.light{--ink0:#F2F5F6;--ink1:#E8EDEF;--ink2:#FFFFFF;--ink3:#F6F8F9;--line:#D8E0E4;--line2:#C3CED4;--frost:#0B1117;--frost2:#2F3B45;--mist:#55636E;--spectre:#5340E6;--glacier:#08779E;--src:#0B1117;--veil:242,245,246;--veil2:232,237,239;--onsig:#FFFFFF;color-scheme:light}
+.pg.light :is(.nothing){--ink0:#05070A;--ink1:#090D12;--ink2:#0E141A;--ink3:#141B23;--line:#1E2832;--line2:#2B3742;--frost:#E3EDF0;--frost2:#B4C2C9;--mist:#8A99A3;--veil:5,7,10;--veil2:9,13,18;--sig:var(--sigd);--soft:rgba(154,140,255,.14);--sline:rgba(154,140,255,.45);--src:#E3EDF0;color:var(--frost)}
+.pg.light .hphoto img{filter:brightness(1.08) saturate(.95)}
+@media (max-width:900px){
+  .burger{display:inline-flex}
+  .sheet.open{display:flex}
+  .top .tools > span{display:none}
+  .top .tools{gap:10px;margin-left:auto}
+  .top .wrap{flex-wrap:nowrap;gap:12px;min-height:64px}
+  .top .logo,.top .wrap > a:first-child{flex:none}
+  .top .tools .btn.sig{min-height:40px;padding:0 14px;font-size:14px}
+}
+@media (prefers-reduced-motion:reduce){.sheet.open .mi{animation:none;opacity:1;transform:none}}
+/* Sommaire : bouton et voile réservés au téléphone */
+.tocbtn,.tocscrim{display:none}
+.toclist{display:grid;gap:2px}
+.toc a i{display:none}
+.toc.none{display:none}
+@media (max-width:900px){
+  .nav{display:none}
+  .progress{top:64px;height:3px;background:rgba(var(--veil),.92)}
+  /* En-tête d'article */
+  .ahead{position:relative;padding-block:20px 30px;background:radial-gradient(90% 60% at 0% 0%,color-mix(in srgb,var(--spectre) 13%,transparent),transparent 70%),radial-gradient(70% 50% at 100% 0%,color-mix(in srgb,var(--glacier) 8%,transparent),transparent 70%)}
+  .crumbs{gap:6px;margin-bottom:10px;align-items:center}
+  .crumbs a{display:inline-flex;align-items:center;min-height:44px}
+  .ahead h1{font-size:38px;font-stretch:110%;line-height:1.06;letter-spacing:-.02em;max-width:none}
+  .chapo{font-size:18px;line-height:1.55;margin-top:16px}
+  .meta{margin-top:20px}
+  /* Corps */
+  .body{grid-template-columns:minmax(0,1fr);gap:0;padding-block:0 64px}
+  /* Sommaire collé sous l'en-tête et la barre de lecture, repliable */
+  .toc{position:sticky;top:67px;z-index:18;display:block;margin-inline:-20px;font-size:15px}
+  .tocbtn{position:relative;z-index:2;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:14px;row-gap:2px;width:100%;min-height:62px;padding:9px 20px;border:0;border-bottom:1px solid var(--line);background:rgba(var(--veil),.9);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);color:var(--frost);font:inherit;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .tocmeta{grid-column:1;display:flex;gap:10px;align-items:baseline;font-family:"Martian Mono",ui-monospace,monospace;font-size:10.5px;letter-spacing:.14em;color:var(--mist)}
+  .tocmeta b{display:inline;margin:0;font-size:inherit;letter-spacing:inherit;font-weight:500;color:inherit}
+  .tocpos{color:var(--spectre);letter-spacing:.06em}
+  .tocnow{grid-column:1;font-size:16px;font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tocbtn svg{grid-column:2;grid-row:1 / span 2;box-sizing:content-box;padding:8px;border-radius:10px;border:1px solid var(--line2);color:var(--frost2);transition:transform .35s cubic-bezier(.2,.9,.1,1)}
+  .toc.open .tocbtn svg{transform:rotate(180deg);color:var(--frost)}
+  .toc .toclist{position:absolute;z-index:2;left:0;right:0;top:100%;display:none;gap:2px;max-height:calc(100dvh - 64px - 66px - 28px);overflow-y:auto;overscroll-behavior:contain;padding:8px 10px 12px;background:var(--ink1);border-bottom:1px solid var(--line2);border-radius:0 0 22px 22px;box-shadow:0 40px 60px -30px rgba(var(--veil),.95)}
+  .toc.open .toclist{display:grid;animation:tocIn .32s cubic-bezier(.2,.9,.1,1) both}
+  @keyframes tocIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+  .toclist > b{display:none}
+  .toc .toclist a{display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;min-height:50px;padding:10px 12px;border:0;border-radius:12px;color:var(--frost2);font-size:16px;line-height:1.3}
+  .toc .toclist a i{display:block;font-style:normal;font-family:"Martian Mono",ui-monospace,monospace;font-size:11px;color:var(--mist)}
+  .toc .toclist a.on{background:var(--ink3);color:var(--frost)}
+  .toc .toclist a.on i{color:var(--spectre)}
+  .toc.open .tocscrim{display:block;position:fixed;inset:0;z-index:1;background:rgba(var(--veil),.6)}
+  /* Texte : mesure ~45 signes, interligne large */
+  .prose{gap:16px;padding-top:30px}
+  .prose p,.prose li{font-size:17px;line-height:1.68}
+  .prose h2{font-size:26px;font-stretch:110%;line-height:1.15;margin-top:26px;scroll-margin-top:142px}
+  .prose h3{font-size:19px;line-height:1.3;margin-top:6px}
+  .prose ul{padding-left:0;list-style:none;gap:10px}
+  .prose ul > li{position:relative;padding-left:22px}
+  .prose ul > li::before{content:"";position:absolute;left:3px;top:.72em;width:6px;height:6px;border-radius:50%;background:var(--spectre)}
+  .prose code{font-size:.8em;overflow-wrap:anywhere}
+  .prose a{overflow-wrap:break-word}
+  /* Étapes numérotées : un fil vertical plutôt que des cartes */
+  .prose ol{gap:0;margin-block:2px}
+  .prose ol > li{padding:3px 0 22px 50px;border:0;border-radius:0;background:none}
+  .prose ol > li::before{left:0;top:0;width:34px;height:34px;font-size:12px;font-weight:600;border-color:color-mix(in srgb,var(--spectre) 55%,var(--line2));background:radial-gradient(circle at 30% 25%,color-mix(in srgb,var(--spectre) 24%,var(--ink3)),var(--ink2))}
+  .prose ol > li::after{content:"";position:absolute;left:17px;top:40px;bottom:6px;width:1px;background:linear-gradient(color-mix(in srgb,var(--spectre) 45%,var(--line2)),var(--line))}
+  .prose ol > li:last-child{padding-bottom:4px}
+  .prose ol > li:last-child::after{display:none}
+  /* Encadrés */
+  .prose blockquote{padding:16px 16px 16px 18px;border-left:3px solid var(--spectre);border-radius:6px 16px 16px 6px}
+  /* « Cet article vous a aidé ? » : deux gros boutons au pouce */
+  .helpful{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:36px;padding:18px;border-radius:18px;background:var(--ink1)}
+  .helpful .hq{grid-column:1 / -1;font-size:16px;font-weight:600;color:var(--frost)}
+  .helpful button{min-height:48px;border-radius:10px;font-size:15px}
+  .helpful .hthx{grid-column:1 / -1;font-size:14px}
+  .helpful .hthx:empty{display:none}
+  /* Articles liés */
+  .rel{grid-template-columns:minmax(0,1fr);gap:10px;margin-top:28px}
+  .rel:empty{display:none}
+  .rel a{position:relative;align-content:center;min-height:68px;padding:14px 52px 14px 18px;line-height:1.35}
+  .rel a::after{content:"";position:absolute;right:22px;top:50%;width:8px;height:8px;border-top:1.6px solid var(--frost2);border-right:1.6px solid var(--frost2);transform:translateY(-50%) rotate(45deg)}
+}
+@media (max-width:374px){
+  .ahead h1{font-size:34px}
+  .prose ol > li{padding-left:46px}
+}
+@media (max-width:900px) and (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+@media (prefers-reduced-motion:reduce){.logo .g,.toc.open .toclist{animation:none}.tocbtn svg{transition:none}}
+/* En-tête compact */
+@media (max-width:400px){
+  .top .logo,.top .logo img{width:116px;height:16.2px}
+  .top .wrap{gap:8px}
+  .top .tools{gap:8px}
+  .top .tools .btn.sig{padding:0 12px;font-size:13.5px}
+}
+@media (max-width:389px){
+  .top .tools .btn.sig{padding:0 10px}
+  .map{column-gap:26px}
+  .node{font-size:13.5px;padding:9px 9px;gap:7px}
+  .node::after{width:13px}
+}
+</style>
+</helmet>
+<div class="{{ rootCls }}">
+
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="MainMobile.dc.html" aria-label="KyberNow, accueil">
+      <img class="dk" src="/_blob/17a5ec7a51421394b7eb52319ad30a07" alt="KyberNow"><img class="lt" src="/_blob/611b6d20f3b5596ebeeb51e67178b61e" alt="" aria-hidden="true">
+      <img class="g dk" src="/_blob/1eaee3615692f218cd7e2a9e89c4ed16" alt="" aria-hidden="true"><img class="g lt" src="/_blob/1a7bfae102793249377414c9af3ab1ca" alt="" aria-hidden="true" aria-hidden="true">
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a class="j" href="JeuMobile.dc.html">Jouer</a>
+      <a class="p" href="ProMobile.dc.html">Travailler</a>
+      <a href="MainMobile.dc.html#famille">Share</a>
+      <a href="MainMobile.dc.html#trajet">Technologie</a>
+      <a class="on" href="GuideMobile.dc.html">Guide</a>
+      <a class="disc" href="https://discord.gg/sVy2mu5WdT"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Discord</a>
+    </nav>
+    <div class="tools"><button class="thm" onClick="{{ toggleTheme }}" aria-label="{{ themeLabel }}"><svg class="moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><svg class="sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button><span>Se connecter</span><span class="mono" style="font-size:12px">FR</span><a class="btn sig" href="TelechargerMobile.dc.html">Télécharger</a><button class="burger" onClick="{{ toggleMenu }}" aria-expanded="{{ menuExpanded }}" aria-controls="menu-mobile" aria-label="{{ menuLabel }}"><span></span><span></span><span></span></button></div>
+  </div>
+</header>
+<div class="{{ sheetCls }}" id="menu-mobile" role="dialog" aria-modal="true" aria-label="Menu">
+  <nav class="sheet-in" aria-label="Menu principal">
+      <a class="mi j" href="JeuMobile.dc.html" onClick="{{ closeMenu }}" style="--i: 0">Jouer</a>
+      <a class="mi p" href="ProMobile.dc.html" onClick="{{ closeMenu }}" style="--i: 1">Travailler</a>
+      <a class="mi" href="MainMobile.dc.html#famille" onClick="{{ closeMenu }}" style="--i: 2">Share</a>
+      <a class="mi" href="MainMobile.dc.html#trajet" onClick="{{ closeMenu }}" style="--i: 3">Technologie</a>
+      <a class="mi" href="GuideMobile.dc.html" onClick="{{ closeMenu }}" style="--i: 4">Guide</a>
+      <a class="mi" href="https://discord.gg/sVy2mu5WdT" onClick="{{ closeMenu }}" style="--i: 5">Discord</a>
+  </nav>
+  <div class="sheet-foot">
+    <a class="mi-small" href="#" onClick="{{ closeMenu }}">Se connecter</a>
+    <span class="mi-small">FR · <span style="opacity: .6">EN</span></span>
+    <a class="btn sig" href="TelechargerMobile.dc.html" onClick="{{ closeMenu }}" style="width: 100%; justify-content: center">Télécharger KyberNow</a>
+  </div>
+</div>
+<div class="progress" ref="{{ barRef }}" aria-hidden="true"><i></i></div>
+
+<!-- ARTICLE -->
+<article>
+  <header class="ahead"><div class="wrap">
+    <nav class="crumbs" aria-label="Fil d'Ariane"><a href="GuideMobile.dc.html">Guide</a><span aria-hidden="true">›</span><a href="GuideMobile.dc.html#rubriques">Connecter un appareil</a></nav>
+    <h1 class="disp">Jouer sur la télé avec l&#x27;Apple TV</h1>
+    <p class="chapo">Sur l'Apple TV, votre ordinateur s'affiche en plein écran sur la télé, jusqu'à la 4K à 60 Hz, avec quatre manettes, le son 5.1 ou 7.1 et la Siri Remote en souris. L'ajout se fait de préférence sans rien taper à la télécommande.</p>
+    <div class="meta"><span>Connecter un appareil</span><span>3 min</span></div>
+  </div></header>
+  <div class="wrap body">
+    <nav class="{{ tocCls }}" aria-label="Sommaire de l'article"><button class="tocbtn" type="button" aria-expanded="{{ tocExp }}" aria-controls="toc-list" onClick="{{ toggleToc }}"><span class="tocmeta"><b>DANS CET ARTICLE</b><span class="tocpos">{{ tocPos }}</span></span><span class="tocnow">{{ tocNow }}</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><div class="toclist" id="toc-list"><b>DANS CET ARTICLE</b><sc-for list="{{ toc }}" as="t" hint-placeholder-count="8"><a class="{{ t.cls }}" href="{{ t.href }}" aria-current="{{ t.cur }}" onClick="{{ t.go }}"><i>{{ t.n }}</i>{{ t.label }}</a></sc-for></div><span class="tocscrim" onClick="{{ closeToc }}" aria-hidden="true"></span></nav>
+    <div class="prose" ref="{{ proseRef }}">
+<h2 id="avant-de-commencer">Avant de commencer</h2>
+<ul><li>Une Apple TV 4K de 2021 ou plus récente, sous tvOS 18 ou plus récent.</li><li>La Station installée sur l'ordinateur à retrouver.</li><li>Une manette Bluetooth pour jouer : Xbox, DualSense, DualShock ou MFi. Associez-la dans Réglages › Télécommandes et appareils de l'Apple TV.</li></ul>
+<h2 id="installer-l-app">Installer l'app</h2>
+<ol><li>Sur l'Apple TV, ouvrez l'App Store et cherchez « KyberNow ».</li><li>Installez l'app, puis ouvrez KyberNow depuis l'accueil.</li><li>Acceptez l'accès au réseau local : sans lui, l'app ne trouve pas votre ordinateur.</li></ol>
+<p>Au premier lancement, trois écrans d'accueil vous proposent un compte KyberNow. À la télé, la connexion se fait par un code : un QR code et un code s'affichent, que vous approuvez depuis votre téléphone (ou sur share.kybernow.app/tv). « Continuer sans compte » passe cette étape. Voir <a href="GuideArticleMobile.dc.html">Votre compte KyberNow</a>.</p>
+<h2 id="ajouter-votre-ordinateur">Ajouter votre ordinateur</h2>
+<p>Choisissez « Ajouter un ordinateur ou une console », puis l'une de ces façons :</p>
+<ul><li><strong>Depuis votre Mac</strong> (conseillé) : les ordinateurs déjà ajoutés dans KyberNow Link sur votre Mac arrivent avec leurs accès, par le Trousseau iCloud. Rien à taper, et un mot de passe changé sur le Mac suit tout seul. Il faut le même compte iCloud sur le Mac et l'Apple TV.</li><li><strong>Sur le réseau</strong> : votre ordinateur apparaît tout seul. Entrez le compte créé à l'installation de la Station. Une notification s'affiche sur votre iPhone : tapez avec son clavier, ou remplissez d'un geste avec le Trousseau.</li><li><strong>Code à l'écran</strong> : l'Apple TV affiche un code à six chiffres. Acceptez-le dans Admin, espace Appareils Link (sur un PC, aussi dans le panneau de l'icône près de l'horloge). Rien à taper. Ce code ne passe que sur le réseau local.</li><li><strong>Adresse</strong> : l'adresse IP ou le nom de l'ordinateur et le port d'Admin, puis le compte. C'est le choix à faire par un VPN. Comparez l'empreinte affichée avec celle d'Admin, dans Appareils Link › « Ajouter un appareil ».</li></ul>
+<p>« Avec un compte d'ami » sert à <a href="GuideArticleMobile.dc.html">emprunter un ordinateur</a>, « PlayStation » à <a href="GuideArticleMobile.dc.html">jouer à votre console</a>.</p>
+<p>Choisissez ensuite un profil (Jeu, Bureau, Max ou Auto), puis « Se connecter ».</p>
+<h2 id="sur-l-accueil-de-l-apple-tv">Sur l'accueil de l'Apple TV</h2>
+<p>Placez KyberNow dans la rangée du haut de l'accueil de l'Apple TV. La rangée « Reprendre sur un ordinateur » montre alors chaque ordinateur avec sa dernière image : un clic ouvre directement la session.</p>
+<p>Chaque membre du foyer a ses propres ordinateurs et réglages : l'app suit l'utilisateur choisi dans le Centre de contrôle de l'Apple TV.</p>
+<h2 id="a-la-telecommande-et-a-la-manette">À la télécommande et à la manette</h2>
+<ul><li>Menu fermé, la manette et la télécommande ne parlent qu'au jeu.</li><li>Le bouton Retour de la télécommande, ou L1 + R1 + Start + Select tenus ensemble, ouvrent le menu de session : statistiques, profil, « Pavé en souris », manette en souris et « Se déconnecter ».</li><li>Avec « Pavé en souris », le pavé de la Siri Remote déplace le pointeur, un clic clique et Lecture/Pause fait un clic droit. En profil Bureau, il est actif d'office.</li><li>Un clavier et une souris Bluetooth marchent aussi.</li></ul>
+<p>Le détail est dans <a href="GuideArticleMobile.dc.html">Clavier, souris et raccourcis</a>.</p>
+<h2 id="reglages-conseilles">Réglages conseillés</h2>
+<ul><li><strong>Image</strong> : la définition « Comme cet écran », jusqu'à la 4K à 60 Hz, la limite de l'Apple TV. Laissez l'app caler le téléviseur sur la fréquence de la session.</li><li><strong>HDR</strong> : sur un téléviseur HDR, activez « Adapter la plage dynamique » dans les réglages vidéo de l'Apple TV.</li><li><strong>Son</strong> : Auto suit la sortie de l'Apple TV, en stéréo, 5.1 ou 7.1 vers un ampli HDMI. Dans des AirPods, le son passe en audio spatial. L'app vous prévient quand une sortie ajoute du retard (AirPods, HomePod, AirPlay).</li><li><strong>Réseau</strong> : un câble Ethernet sur l'Apple TV, ou un Wi-Fi 5 GHz ou 6 GHz près de la box. PyroWave demande une Apple TV 4K de 2022 et un câble.</li></ul>
+<h2 id="si-ca-ne-marche-pas">Si ça ne marche pas</h2>
+<ul><li><strong>L'ordinateur n'apparaît pas.</strong> Il doit être allumé, sur le même réseau, avec KyberNow Station en marche. Vérifiez aussi que KyberNow a l'accès au réseau local, dans les réglages de l'Apple TV. Par un VPN, passez par Adresse.</li><li><strong>« Aucun ordinateur publié par votre Mac pour l'instant ».</strong> Ouvrez KyberNow Link sur le Mac, avec le même compte iCloud.</li><li><strong>« Identifiant ou mot de passe refusé ».</strong> Retapez le compte de la Station, celui choisi à son installation ou créé dans Admin › Utilisateurs.</li><li><strong>« Le certificat de la Station ne correspond pas à l'annonce ».</strong> Ce n'est peut-être pas votre ordinateur. Comparez l'empreinte avec celle d'Admin.</li><li><strong>Le son arrive en retard.</strong> Passez par la sortie HDMI de l'Apple TV plutôt que par AirPlay ou des écouteurs Bluetooth.</li></ul>
+      <div class="helpful"><span class="hq">Cet article vous a aidé&#8239;?</span><button class="{{ yesCls }}" onClick="{{ voteYes }}">Oui</button><button class="{{ noCls }}" onClick="{{ voteNo }}">Pas vraiment</button><span class="hthx" aria-live="polite">{{ thanks }}</span></div>
+      <div class="rel"><a href="GuideArticleMobile.dc.html"><span>Connecter un appareil</span>Connecter un appareil à votre ordinateur</a><a href="GuideArticleMobile.dc.html"><span>Pendant la session</span>Clavier, souris et raccourcis</a><a href="GuideArticleMobile.dc.html"><span>Pendant la session</span>Profils, format vidéo, débit et HDR</a><a href="GuideArticleMobile.dc.html"><span>Comptes et équipes</span>Votre compte KyberNow</a></div>
+    </div>
+  </div>
+</article>
+<!-- FIN ARTICLE -->
+
+<footer class="ft"><div class="wrap"><span>KyberNow · Les Lignes Claires</span><span>Jouer · Travailler · Share · Technologie · Comparer · Guide · Mentions légales</span></div></footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":390,"height":5509}}'>
+class Component extends DCLogic {
+  ref(k) {
+    this._refs = this._refs || {};
+    this.els = this.els || {};
+    if (!this._refs[k]) this._refs[k] = (el) => { this.els[k] = el; };
+    return this._refs[k];
+  }
+  componentDidMount() {
+    this._h = () => {
+      if (this._raf) return;
+      this._raf = requestAnimationFrame(() => {
+        this._raf = 0;
+        const bar = this.els && this.els.bar;
+        const se = document.scrollingElement || document.documentElement;
+        const max = se.scrollHeight - window.innerHeight;
+        if (bar) bar.style.setProperty('--read', max > 40 && window.innerHeight < 1600 ? Math.min(1, se.scrollTop / max).toFixed(3) : '0');
+        // Intertitre en cours : le dernier passé sous l'en-tête (et sous le sommaire collé sur téléphone)
+        const pr = this.els && this.els.prose;
+        if (pr) {
+          const line = window.innerWidth <= 900 ? 150 : 130;
+          let k = 0;
+          pr.querySelectorAll('h2[id]').forEach((h, i) => { if (h.getBoundingClientRect().top - line <= 0) k = i; });
+          if (k !== ((this.state || {}).sec || 0)) this.setState({ sec: k });
+        }
+      });
+    };
+    this._k = (e) => { if (e.key === 'Escape' && (this.state || {}).toc) this.setState({ toc: false }); };
+    window.addEventListener('scroll', this._h, { passive: true, capture: true });
+    window.addEventListener('keydown', this._k);
+    this._h();
+  }
+  componentWillUnmount() { window.removeEventListener('scroll', this._h, { capture: true }); window.removeEventListener('keydown', this._k); }
+  renderVals() {
+    const s = this.state || {};
+    const theme = s.theme || this.props.theme || 'dark';
+    const menu = !!s.menu;
+    const vote = s.vote || '';
+    /* CONTENU */
+    const TOC = [{"id": "avant-de-commencer", "label": "Avant de commencer"}, {"id": "installer-l-app", "label": "Installer l'app"}, {"id": "ajouter-votre-ordinateur", "label": "Ajouter votre ordinateur"}, {"id": "sur-l-accueil-de-l-apple-tv", "label": "Sur l'accueil de l'Apple TV"}, {"id": "a-la-telecommande-et-a-la-manette", "label": "À la télécommande et à la manette"}, {"id": "reglages-conseilles", "label": "Réglages conseillés"}, {"id": "si-ca-ne-marche-pas", "label": "Si ça ne marche pas"}];
+    /* FIN DU CONTENU */
+    const sec = Math.min(s.sec || 0, Math.max(TOC.length - 1, 0));
+    const tocOpen = !!s.toc;
+    const pad = (n) => String(n).padStart(2, '0');
+    return {
+      rootCls: 'pg' + (theme === 'light' ? ' light' : ''),
+      toggleTheme: () => this.setState({ theme: theme === 'light' ? 'dark' : 'light' }),
+      themeLabel: theme === 'light' ? 'Passer en thème sombre' : 'Passer en thème clair',
+      toggleMenu: () => this.setState({ menu: !menu, toc: false }),
+      closeMenu: () => this.setState({ menu: false }),
+      menuExpanded: menu ? 'true' : 'false',
+      menuLabel: menu ? 'Fermer le menu' : 'Ouvrir le menu',
+      sheetCls: menu ? 'sheet open' : 'sheet',
+      barRef: this.ref('bar'),
+      proseRef: this.ref('prose'),
+      tocCls: 'toc' + (tocOpen ? ' open' : '') + (TOC.length ? '' : ' none'),
+      tocExp: tocOpen ? 'true' : 'false',
+      toggleToc: () => this.setState({ toc: !tocOpen }),
+      closeToc: () => this.setState({ toc: false }),
+      tocNow: TOC.length ? TOC[sec].label : '',
+      tocPos: TOC.length ? pad(sec + 1) + ' / ' + pad(TOC.length) : '',
+      toc: TOC.map((t, i) => ({ ...t, n: pad(i + 1), href: '#' + t.id, cls: i === sec ? 'on' : '', cur: i === sec ? 'location' : 'false', go: () => this.setState({ toc: false, sec: i }) })),
+      yesCls: vote === 'oui' ? 'on' : '',
+      noCls: vote === 'non' ? 'on' : '',
+      voteYes: () => this.setState({ vote: 'oui' }),
+      voteNo: () => this.setState({ vote: 'non' }),
+      thanks: vote ? 'Merci, c’est noté.' : ''
+    };
+  }
+}
+</script>
+</body>
+</html>

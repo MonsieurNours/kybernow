@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en" data-u="commun" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Install KyberNow Station on Mac · KyberNow</title>
+<meta name="description" content="Install KyberNow Station on a Mac with Apple silicon, grant macOS its three permissions and use this Mac from your other screens.">
+<link rel="canonical" href="https://www.kybernow.app/en/guide/install-station-mac/">
+<meta name="theme-color" content="#05070A">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="KyberNow">
+<meta property="og:locale" content="en_GB">
+<meta property="og:locale:alternate" content="fr_FR">
+<meta property="og:title" content="Install KyberNow Station on Mac · KyberNow">
+<meta property="og:description" content="Install KyberNow Station on a Mac with Apple silicon, grant macOS its three permissions and use this Mac from your other screens.">
+<meta property="og:url" content="https://www.kybernow.app/en/guide/install-station-mac/">
+<meta property="og:image" content="https://www.kybernow.app/assets/og/kybernow-en.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/installer-station-mac/">
+<link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/install-station-mac/">
+<link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/install-station-mac/">
+<script src="/assets/lang.js"></script>
+<script src="/assets/kn/theme.js"></script>
+<link rel="preload" href="/fonts/Archivo-wdth-wght.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/kn/base.css">
+<link rel="stylesheet" href="/assets/kn/guide.css">
+<script type="application/ld+json">[{"@context": "https://schema.org", "@type": "TechArticle", "headline": "Install KyberNow Station on Mac", "description": "Install KyberNow Station on a Mac with Apple silicon, grant macOS its three permissions and use this Mac from your other screens.", "inLanguage": "en", "url": "https://www.kybernow.app/en/guide/install-station-mac/", "publisher": {"@type": "Organization", "name": "Les Lignes Claires"}, "isPartOf": {"@type": "WebSite", "name": "KyberNow", "url": "https://www.kybernow.app/"}}, {"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Guide", "item": "https://www.kybernow.app/en/guide/"}, {"@type": "ListItem", "position": 2, "name": "Install KyberNow Station on Mac", "item": "https://www.kybernow.app/en/guide/install-station-mac/"}]}]</script>
+</head>
+<body>
+<a class="skip" href="#contenu">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="/en/" aria-label="KyberNow, beta, home">
+      <img class="dk" src="/assets/img/logo/logo-spectre.svg" alt="KyberNow" width="150" height="21">
+      <img class="lt" src="/assets/img/logo/logo-spectre-clair.svg" alt="" width="150" height="21" aria-hidden="true">
+      <span class="beta" aria-hidden="true">Beta</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a class="j" href="/en/play/">Play</a>
+      <a class="p" href="/en/pro/">Work</a>
+      <a href="/en/share/">Share</a>
+      <a href="/en/technology/">Technology</a>
+      <a href="/en/guide/" aria-current="page">Guide</a>
+      <a class="disc" href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic" aria-hidden="true"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a>
+    </nav>
+    <div class="tools">
+      <button class="thm" type="button" aria-label="Switch to light theme"><svg class="moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><svg class="sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+      <a class="signin" href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener"><span>Sign in</span></a>
+      <a class="lang" href="/guide/installer-station-mac/" hreflang="fr" lang="fr" data-set-lang="fr">FR</a>
+      <a class="btn sig" href="/en/download/">Download</a>
+      <button class="burger" type="button" aria-expanded="false" aria-controls="menu" aria-label="Open menu"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+<div class="sheet" id="menu" role="dialog" aria-modal="true" aria-label="Menu">
+  <nav aria-label="Main menu">
+    <a class="mi j" href="/en/play/" style="--i: 0">Play</a>
+    <a class="mi p" href="/en/pro/" style="--i: 1">Work</a>
+    <a class="mi" href="/en/share/" style="--i: 2">Share</a>
+    <a class="mi" href="/en/technology/" style="--i: 3">Technology</a>
+    <a class="mi" href="/en/guide/" style="--i: 4">Guide</a>
+    <a class="mi" href="https://discord.gg/sVy2mu5WdT" rel="noopener" style="--i: 5">Discord</a>
+  </nav>
+  <div class="sheet-foot">
+    <a href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener">Sign in</a>
+    <a href="/guide/installer-station-mac/" hreflang="fr" lang="fr" data-set-lang="fr">Français</a>
+    <a class="btn sig" href="/en/download/">Download KyberNow</a>
+  </div>
+</div>
+<div class="progress" aria-hidden="true"><i></i></div>
+<main id="contenu">
+<article>
+  <header class="ahead"><div class="wrap">
+    <nav class="crumbs" aria-label="Breadcrumb"><a href="/en/guide/">Guide</a><span aria-hidden="true">›</span><a href="/en/guide/#rubriques">Install the Station</a></nav>
+    <h1 class="disp">Install KyberNow Station on Mac</h1>
+    <p class="chapo">Your Mac becomes a Station just like a PC: the same Admin, the same apps to connect to it, with a virtual display sized for each device and sound up to 7.1. Installation takes about two minutes, and nothing changes on the Mac until you click “Install”.</p>
+    <div class="meta"><span>Install the Station</span><span>5 min</span></div>
+  </div></header>
+  <div class="wrap body">
+    <nav class="toc" aria-label="Article contents"><button class="tocbtn" type="button" aria-expanded="false" aria-controls="toc-list"><span class="tocmeta"><b>IN THIS ARTICLE</b><span class="tocpos">01 / 10</span></span><span class="tocnow">Before you start</span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><div class="toclist" id="toc-list"><b>IN THIS ARTICLE</b><a class="on" href="#before-you-start"><i>01</i>Before you start</a><a href="#open-the-installer"><i>02</i>Open the installer</a><a href="#welcome"><i>03</i>Welcome</a><a href="#your-account"><i>04</i>Your account</a><a href="#options"><i>05</i>Options</a><a href="#installation"><i>06</i>Installation</a><a href="#permissions"><i>07</i>Permissions</a><a href="#this-mac-is-ready"><i>08</i>This Mac is ready</a><a href="#during-a-session"><i>09</i>During a session</a><a href="#if-something-goes-wrong"><i>10</i>If something goes wrong</a></div><span class="tocscrim" aria-hidden="true"></span></nav>
+    <div class="prose">
+<h2 id="before-you-start">Before you start</h2>
+<ul><li>A Mac with Apple silicon (M1 or later), running macOS 15 Sequoia or later.</li><li>Your macOS account password, asked for once.</li><li>An Ethernet cable to the router, if you can: the installer prefers it to Wi-Fi for gaming.</li></ul>
+<h2 id="open-the-installer">Open the installer</h2>
+<ol><li>On the Mac you want to share, download <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Mac.dmg">KyberNow-Station-Mac.dmg</a> and open it.</li><li>Launch “Install KyberNow Station”. The app is signed and notarised by Apple, so macOS opens it without a warning.</li></ol>
+<h2 id="welcome">Welcome</h2>
+<p>The installer checks the Mac: Apple chip, macOS version, local network, network ports, displays and sound on your devices. A line in red prevents installation (a Mac with an Intel processor, or a macOS version that is too old).</p>
+<p>It chooses two network ports, one for the stream (the picture, sound and controls), the other for KyberNow Admin. “Change” lets you choose others, then “Apply”. Click “Continue”.</p>
+<p>If the Station is already on this Mac, a screen asks what to do with its settings. “Keep my settings” keeps the accounts, added devices, certificate and ports: your devices reconnect with nothing to redo. “Start from scratch” creates a new account, new ports and a new certificate, and you will need to add each device again.</p>
+<h2 id="your-account">Your account</h2>
+<ol><li>Choose a username.</li><li>Choose a password of at least 10 characters.</li><li>Click “Continue”.</li></ol>
+<p>This account protects the Mac. You use it to open Admin and to connect from your devices, which can remember it. The Mac keeps only a hash of it, never the password itself. You can create more accounts later in Admin, in the Users space.</p>
+<h2 id="options">Options</h2>
+<p>Everything is already set, and you can change any of it later in Admin.</p>
+<ul><li><strong>Virtual display sized for each device</strong>: the picture arrives at the device's resolution and refresh rate, in HDR if it asks for it.</li><li><strong>Sound on your devices</strong>: the sound plays on your device, up to 7.1, and the Mac stays silent. A “KyberNow” sound output is added to the Mac.</li><li><strong>Start with the Mac</strong>: the Station is available as soon as you log in.</li><li><strong>Keep the Mac reachable</strong>: no sleep during a session, and wake over the network when a device asks.</li><li><strong>Controllers</strong>: the Mac sees your device's controller as a real controller.</li></ul>
+<p>Click “Install”. macOS then asks for your Mac's password, once only: to copy the app into Applications, add the sound output, open the firewall if it is switched on and allow wake over the network.</p>
+<h2 id="installation">Installation</h2>
+<p>There is nothing for you to do: each step appears as it happens (Kyber engine, the Mac's certificate, KyberNow sound output, start with the Mac, KyberNow Admin, access from your devices).</p>
+<p>Meanwhile, the installer offers to attach the Mac to your KyberNow account, as on a PC. This is optional: “Sign in” or “Create an account”, then the relay's page, where you confirm attaching the Mac. The passkey can use Touch ID. “Later” skips this screen; you can do it in Admin › KyberNow account. See <a href="/en/guide/kybernow-account/">Your KyberNow account</a>.</p>
+<h2 id="permissions">Permissions</h2>
+<p>macOS asks you for three permissions for “KyberNow Station”. For each one, click “Open setting” or “Allow”, then turn on “KyberNow Station” in the macOS setting. The line ticks itself.</p>
+<ol><li><strong>Screen &amp; System Audio Recording</strong>, to send the Mac's picture to your devices.</li><li><strong>Accessibility</strong>, so your devices' keyboard and mouse can control the Mac.</li><li><strong>Microphone</strong>, to read the session's sound on the KyberNow output, which macOS files with the microphones. No real microphone is listened to.</li></ol>
+<p>“Later” skips this screen, but the Station then only half works: no picture, no controls or no sound. You can grant these permissions from the menu bar icon, in the Permissions menu.</p>
+<h2 id="this-mac-is-ready">This Mac is ready</h2>
+<p>The final screen gives the Mac's address, to enter on a device that does not find it on its own, a QR code to “Open Admin on your phone”, and the address to open in a browser to use the Mac without an app. “Open Admin” opens the settings in your browser. The first time, the browser shows a security warning, because the Station signs its own connection: accept it.</p>
+<p>The KyberNow Station icon is in the menu bar, at the top right, with the Station's status and a way into Admin. Admin has the same spaces as on a PC.</p>
+<p>All that is left is to <a href="/en/guide/connect-a-device/">connect a device</a>.</p>
+<h2 id="during-a-session">During a session</h2>
+<ul><li>The Mac creates a virtual display sized for the device and turns off its own displays, as a PC does. They come back on at the end, in the same arrangement.</li><li>The sound goes to the device through the KyberNow output, in stereo, 5.1 or 7.1, and the previous output comes back at the end.</li><li>A locked Mac streams too: you type its password from your device.</li><li>The Station runs in your macOS session. After the Mac restarts, log in once in front of it.</li><li>From a PC or a TV, the ⊞ key acts as ⌘. The session bar's “Keys” menu offers the Mac's key combinations, and the “Ctrl acts as ⌘” setting lets you copy and paste with Ctrl. See <a href="/en/guide/keyboard-and-shortcuts/">Keyboard, mouse and shortcuts</a>.</li></ul>
+<blockquote><p>Good to know: macOS 15 reminds you from time to time that an app is recording the screen. Confirm: it is the Station.</p></blockquote>
+<h2 id="if-something-goes-wrong">If something goes wrong</h2>
+<ul><li><strong>“Installation canceled”.</strong> macOS needs your Mac's password to put the app in Applications and add the sound output. Run the installer again and type it in.</li><li><strong>No picture on the device.</strong> The Screen Recording permission is missing. Grant it from the menu bar icon, in the Permissions menu.</li><li><strong>The keyboard and mouse do nothing.</strong> The Accessibility permission is missing.</li><li><strong>No sound.</strong> The Microphone permission is missing. If the installer says the sound output is in place but macOS does not show it yet, it will appear the next time the Mac starts.</li><li><strong>Nothing responds after a restart.</strong> Log in on the Mac. The Station starts with your session.</li></ul>
+      <div class="helpful"><span class="hq">Did this article help?</span><button type="button" data-vote="oui">Yes</button><button type="button" data-vote="non">Not really</button><span class="hthx" aria-live="polite"></span></div>
+      <div class="rel"><a href="/en/guide/what-you-need/"><span>Get started</span>What you need to get started</a><a href="/en/guide/connect-a-device/"><span>Connect a device</span>Connect a device to your computer</a><a href="/en/guide/keyboard-and-shortcuts/"><span>During a session</span>Keyboard, mouse and shortcuts</a><a href="/en/guide/kybernow-account/"><span>Accounts and teams</span>Your KyberNow account</a></div>
+    </div>
+  </div>
+</article>
+</main>
+<footer class="ft">
+  <div class="wrap">
+    <div class="who">
+      <img class="dk" src="/assets/img/logo/logo-spectre.svg" alt="KyberNow" width="132" height="18">
+      <img class="lt" src="/assets/img/logo/logo-spectre-clair.svg" alt="" width="132" height="18" aria-hidden="true">
+      <span>A free and open project by Les Lignes Claires.</span>
+    </div>
+    <nav aria-label="Footer"><a href="/en/play/">Play</a><a href="/en/pro/">Work</a><a href="/en/share/">Share</a><a href="/en/technology/">Technology</a><a href="/en/guide/">Guide</a><a href="/en/guide/faq/">FAQ</a><a href="/en/download/">Download</a><a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Discord</a><a href="https://github.com/MonsieurNours/kybernow" rel="noopener">GitHub</a><a href="/en/legal/">Legal notice</a></nav>
+  </div>
+</footer>
+<script src="/assets/kn/base.js" defer></script>
+<script src="/assets/kn/guide.js" defer></script>
+</body>
+</html>

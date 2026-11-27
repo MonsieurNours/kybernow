@@ -10,6 +10,22 @@ python3 -m http.server 5200 --directory site
 
 (ou la configuration `site` de `.claude/launch.json`, qui désactive le cache). Les chemins sont absolus (`/assets/…`) : le site doit être servi à la racine d'un domaine, et `file://` ne fonctionne pas.
 
+## Refonte de novembre 2026 : deux entrées
+
+Le site a deux entrées : **Jouer** (particuliers, violet Spectre) et **Travailler** (créatifs, stations déportées, studios, équipes, bleu Glacier), réunies par un accueil-carrefour. Thème sombre ou clair (suit l'appareil, bouton soleil/lune, choix retenu dans `localStorage` « kn-theme »). Maquettes validées, briefs et sources : [docs/refonte-site-2026-11/](../docs/refonte-site-2026-11/) (`BUILD-BRIEF.md` : modèles d'en-tête, de menu et de pied de page, règles de construction).
+
+| Univers | Français | Anglais |
+|---|---|---|
+| carrefour | `/` | `/en/` |
+| jeu | `/jeu/` | `/en/play/` |
+| pro | `/pro/` | `/en/pro/` |
+| commun | `/telecharger/`, `/guide/…`, `/share/`, `/technologie/`, `/mentions-legales/` | `/en/download/`, `/en/guide/…`, `/en/share/`, `/en/technology/`, `/en/legal/` |
+
+- **Socle** : `assets/kn/base.css` (jetons sombre/clair, univers `data-u`, en-tête, menu mobile, boutons, sections, pied de page), `assets/kn/theme.js` (dans `<head>`, avant le rendu), `assets/kn/base.js` (thème, menu, langue, classe `live` sur `<html>` au-delà de 900 px, `KN.pin` pour les sections épinglées, redirection des anciennes ancres `/#…` et `/guide/#…`). Une feuille et un script par page : `assets/kn/{carrefour,jeu,pro,telecharger,guide}.{css,js}`.
+- **Logos** des deux univers et des deux thèmes : `assets/img/logo/{logo,station,link,share,admin}-{spectre,glacier}{,-clair}.svg`. **Photos** de la page Travailler : `assets/img/pro/` (générées, écrans pas encore remplacés par de vraies captures).
+- **Guide** : un article par tuto et une FAQ à part, générés par `scripts/site-guide.py` depuis les Markdown de `docs/refonte-site-2026-11/guide/` (français) et `…/guide/en/` (anglais, `slug_en` dans l'en-tête). Ne pas modifier `site/guide/` à la main : modifier le Markdown, puis relancer le script (il écrit aussi les données structurées `TechArticle`, `BreadcrumbList` et `FAQPage`). `scripts/site-sitemap.py` réécrit `sitemap.xml`.
+- Les sections ci-dessous décrivent encore l'ancien accueil d'une seule page ; elles seront réécrites quand Share, Technologie et les mentions légales auront rejoint la refonte.
+
 ## Pages et langues
 
 | Français | Anglais | Contenu |

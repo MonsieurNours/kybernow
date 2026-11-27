@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en" data-u="commun" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Install your own relay · KyberNow</title>
+<meta name="description" content="Run shares, access away from home and KyberNow accounts through your own relay, on a Linux machine with Docker and your domain name.">
+<link rel="canonical" href="https://www.kybernow.app/en/guide/install-your-relay/">
+<meta name="theme-color" content="#05070A">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="KyberNow">
+<meta property="og:locale" content="en_GB">
+<meta property="og:locale:alternate" content="fr_FR">
+<meta property="og:title" content="Install your own relay · KyberNow">
+<meta property="og:description" content="Run shares, access away from home and KyberNow accounts through your own relay, on a Linux machine with Docker and your domain name.">
+<meta property="og:url" content="https://www.kybernow.app/en/guide/install-your-relay/">
+<meta property="og:image" content="https://www.kybernow.app/assets/og/kybernow-en.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/installer-votre-relais/">
+<link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/install-your-relay/">
+<link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/install-your-relay/">
+<script src="/assets/lang.js"></script>
+<script src="/assets/kn/theme.js"></script>
+<link rel="preload" href="/fonts/Archivo-wdth-wght.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/kn/base.css">
+<link rel="stylesheet" href="/assets/kn/guide.css">
+<script type="application/ld+json">[{"@context": "https://schema.org", "@type": "TechArticle", "headline": "Install your own relay", "description": "Run shares, access away from home and KyberNow accounts through your own relay, on a Linux machine with Docker and your domain name.", "inLanguage": "en", "url": "https://www.kybernow.app/en/guide/install-your-relay/", "publisher": {"@type": "Organization", "name": "Les Lignes Claires"}, "isPartOf": {"@type": "WebSite", "name": "KyberNow", "url": "https://www.kybernow.app/"}}, {"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Guide", "item": "https://www.kybernow.app/en/guide/"}, {"@type": "ListItem", "position": 2, "name": "Install your own relay", "item": "https://www.kybernow.app/en/guide/install-your-relay/"}]}]</script>
+</head>
+<body>
+<a class="skip" href="#contenu">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="/en/" aria-label="KyberNow, beta, home">
+      <img class="dk" src="/assets/img/logo/logo-spectre.svg" alt="KyberNow" width="150" height="21">
+      <img class="lt" src="/assets/img/logo/logo-spectre-clair.svg" alt="" width="150" height="21" aria-hidden="true">
+      <span class="beta" aria-hidden="true">Beta</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a class="j" href="/en/play/">Play</a>
+      <a class="p" href="/en/pro/">Work</a>
+      <a href="/en/share/">Share</a>
+      <a href="/en/technology/">Technology</a>
+      <a href="/en/guide/" aria-current="page">Guide</a>
+      <a class="disc" href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic" aria-hidden="true"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a>
+    </nav>
+    <div class="tools">
+      <button class="thm" type="button" aria-label="Switch to light theme"><svg class="moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><svg class="sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+      <a class="signin" href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener"><span>Sign in</span></a>
+      <a class="lang" href="/guide/installer-votre-relais/" hreflang="fr" lang="fr" data-set-lang="fr">FR</a>
+      <a class="btn sig" href="/en/download/">Download</a>
+      <button class="burger" type="button" aria-expanded="false" aria-controls="menu" aria-label="Open menu"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+<div class="sheet" id="menu" role="dialog" aria-modal="true" aria-label="Menu">
+  <nav aria-label="Main menu">
+    <a class="mi j" href="/en/play/" style="--i: 0">Play</a>
+    <a class="mi p" href="/en/pro/" style="--i: 1">Work</a>
+    <a class="mi" href="/en/share/" style="--i: 2">Share</a>
+    <a class="mi" href="/en/technology/" style="--i: 3">Technology</a>
+    <a class="mi" href="/en/guide/" style="--i: 4">Guide</a>
+    <a class="mi" href="https://discord.gg/sVy2mu5WdT" rel="noopener" style="--i: 5">Discord</a>
+  </nav>
+  <div class="sheet-foot">
+    <a href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener">Sign in</a>
+    <a href="/guide/installer-votre-relais/" hreflang="fr" lang="fr" data-set-lang="fr">Français</a>
+    <a class="btn sig" href="/en/download/">Download KyberNow</a>
+  </div>
+</div>
+<div class="progress" aria-hidden="true"><i></i></div>
+<main id="contenu">
+<article>
+  <header class="ahead"><div class="wrap">
+    <nav class="crumbs" aria-label="Breadcrumb"><a href="/en/guide/">Guide</a><span aria-hidden="true">›</span><a href="/en/guide/#rubriques">Away from home</a></nav>
+    <h1 class="disp">Install your own relay</h1>
+    <p class="chapo">KyberNow's public relay works for everyone, with nothing to install. Your own relay sends shares, access away from home and accounts through a machine you run yourself, for a team, a club or on principle.</p>
+    <div class="meta"><span>Away from home</span><span>45 min</span></div>
+  </div></header>
+  <div class="wrap body">
+    <nav class="toc" aria-label="Article contents"><button class="tocbtn" type="button" aria-expanded="false" aria-controls="toc-list"><span class="tocmeta"><b>IN THIS ARTICLE</b><span class="tocpos">01 / 10</span></span><span class="tocnow">What you need</span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><div class="toclist" id="toc-list"><b>IN THIS ARTICLE</b><a class="on" href="#what-you-need"><i>01</i>What you need</a><a href="#1-dns"><i>02</i>1. DNS</a><a href="#2-ports-and-the-router"><i>03</i>2. Ports and the router</a><a href="#3-the-dns-host-s-token"><i>04</i>3. The DNS host&#x27;s token</a><a href="#4-the-files"><i>05</i>4. The files</a><a href="#5-the-certificate-as-a-test-first"><i>06</i>5. The certificate, as a test first</a><a href="#6-in-admin-on-each-station"><i>07</i>6. In Admin, on each Station</a><a href="#kybernow-accounts-on-your-relay"><i>08</i>KyberNow accounts on your relay</a><a href="#update-the-relay"><i>09</i>Update the relay</a><a href="#if-something-goes-wrong"><i>10</i>If something goes wrong</a></div><span class="tocscrim" aria-hidden="true"></span></nav>
+    <div class="prose">
+<p>This article is for someone comfortable with a Linux server. The relay is a ready-made Docker image, published with every KyberNow version: there is nothing to compile.</p>
+<h2 id="what-you-need">What you need</h2>
+<ul><li>A Linux machine that is always on, with Docker and <code>docker compose</code>.</li><li>A domain name, for example relay.example.org, whose DNS zone can be managed through an API. Gandi is the default; another DNS host supported by lego, the tool that obtains the certificate, works too, by changing <code>--dns gandiv5</code> in <code>lego.sh</code> and the token variable in <code>docker-compose.yml</code>.</li><li>A port open from outside to the machine, over TCP and UDP, 443 preferably. UDP carries the picture; without it, the relay falls back to TCP, fine for watching and less good for playing.</li><li>For KyberNow accounts, an outgoing mail server (SMTP), if you want self-service sign-up.</li></ul>
+<h2 id="1-dns">1. DNS</h2>
+<p>Create two records pointing to your public IPv4 address:</p>
+<p>| Name | Type | Value | |---|---|---| | <code>relay.example.org</code> | A | your public address | | <code>*.relay.example.org</code> | A | the same address |</p>
+<p>The wildcard name is for the browser: each computer gets its own address under your domain. On port 443, the browser also goes end to end through <code>&lt;identifier&gt;.station.relay.example.org</code>: the relay forwards the connection as it is, and each computer obtains its own certificate from Let's Encrypt. The wildcard name already answers for it; a <code>*.station.relay.example.org</code> record pointing to the same address is clearer. If the zone has CAA records, they must allow <code>letsencrypt.org</code>. Only add an AAAA record if the machine is genuinely reachable over IPv6 on the public port.</p>
+<h2 id="2-ports-and-the-router">2. Ports and the router</h2>
+<p>Three ports follow one another, over TCP and UDP:</p>
+<ul><li>the relay's <strong>listening port</strong> on the machine, <code>RELAY_LISTEN</code> in <code>.env</code>, 8443 by default;</li><li>the <strong>public port</strong>, the one devices reach from the internet, <code>RELAY_PUBLIC_PORT</code>;</li><li>the <strong>router</strong>, which forwards the public port to the machine's listening port.</li></ul>
+<p>| On the router | In <code>.env</code> | Address to give Admin | |---|---|---| | 443 outside to 8443 on the machine | <code>RELAY_PUBLIC_PORT=443</code> | <code>relay.example.org</code> | | 9443 outside to 9443 on the machine | <code>RELAY_LISTEN=0.0.0.0:9443</code> | <code>relay.example.org:9443</code> | | 8443 outside to 8443 on the machine | nothing | <code>relay.example.org:8443</code> |</p>
+<p>Port 443 is the simplest: nothing to remember for the people you share with, and networks that only let web traffic out let it through. It is also the only port that lets the browser go end to end.</p>
+<h2 id="3-the-dns-host-s-token">3. The DNS host's token</h2>
+<p>In your Gandi account, create a personal access token limited to your domain, with permission to manage its technical configuration. Let's Encrypt uses it to check that the domain is yours. Note its expiry date: the certificate stops renewing after it.</p>
+<pre class="code"><code>mkdir -p ~/kybernow-relay/secrets ~/kybernow-relay/certs ~/kybernow-relay/config
+cd ~/kybernow-relay
+nano secrets/gandi_pat      # the token alone, on one line
+chmod 600 secrets/gandi_pat
+touch secrets/smtp_password # the SMTP password for accounts, empty without SMTP
+chmod 644 secrets/smtp_password</code></pre>
+<h2 id="4-the-files">4. The files</h2>
+<p>Download the relay's four files, then prepare <code>.env</code>:</p>
+<pre class="code"><code>cd ~/kybernow-relay
+for f in docker-compose.yml lego.sh update.sh .env.example; do curl -fsSLO https://raw.githubusercontent.com/MonsieurNours/kybernow/main/server/relay/$f; done
+cp .env.example .env
+nano .env                   # RELAY_DOMAIN, LEGO_EMAIL, and the ports</code></pre>
+<p>The relay receives a lot of UDP packets: give it large buffers, once, as root.</p>
+<pre class="code"><code>printf &#x27;net.core.rmem_max=8388608\nnet.core.wmem_max=8388608\n&#x27; | sudo tee /etc/sysctl.d/90-kybernow-relay.conf
+sudo sysctl --system</code></pre>
+<h2 id="5-the-certificate-as-a-test-first">5. The certificate, as a test first</h2>
+<p>Read Let's Encrypt's terms, set <code>LEGO_ACCEPT_TOS=yes</code> in <code>.env</code>, then start the relay:</p>
+<pre class="code"><code>docker compose up -d
+docker compose logs -f lego</code></pre>
+<p>The relay starts with a test certificate, which no browser recognises, to prove that the DNS and the token work. Once <code>certs/certificates/&lt;domain&gt;.crt</code> is there, switch to production:</p>
+<pre class="code"><code>nano .env                   # LEGO_SERVER=https://acme-v02.api.letsencrypt.org/directory
+rm -rf certs/certificates
+docker compose up -d lego</code></pre>
+<p>The relay reloads its certificate by itself, without restarting, and lego renews it 30 days before it expires.</p>
+<h2 id="6-in-admin-on-each-station">6. In Admin, on each Station</h2>
+<ol><li>Open Admin, under Link devices, in the “Away from home” section.</li><li>In “Relay”, type your relay's address, with its port if it isn't 443: <code>relay.example.org</code>, or <code>relay.example.org:9443</code>.</li><li>“Save”. “Relay reached” confirms that the Station has found it.</li></ol>
+<p>Share links and QR codes then carry your relay's address. A code typed into an app goes through the public relay and through the relays of the computers the app already knows: for a guest who doesn't know your relay, give them the link or the QR code.</p>
+<blockquote><p>Good to know: without a real certificate, with a relay that signs its own, the apps work if the address carries the certificate's fingerprint (<code>relay.example.org:9443#sha256:ab:cd:…</code>). The browser, on the other hand, needs a real certificate.</p></blockquote>
+<h2 id="kybernow-accounts-on-your-relay">KyberNow accounts on your relay</h2>
+<p>Accounts are off to begin with. To turn them on:</p>
+<pre class="code"><code>mkdir -p data &amp;&amp; sudo chown 65532:65532 data      # the database and key, owned by the image&#x27;s user
+nano config/relay.toml                             # [accounts] enabled = true (template: relay.toml.example)
+docker compose up -d relay</code></pre>
+<ul><li><strong>Email</strong>: <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code> and <code>SMTP_FROM</code> in <code>.env</code>, the password in <code>secrets/smtp_password</code>. Without SMTP, there is no sign-up, no address verification and no forgotten-password reset: you create the accounts yourself, already verified.</li></ul>
+<p>``<code>sh docker compose exec relay kybernow-relay accounts add ana@example.org --name Ana </code>``</p>
+<ul><li><strong>Backups</strong>: keep the <code>data/</code> folder, with the relay's database and key. Losing the key turns off two-factor authentication for every account.</li><li><strong>In the apps</strong>, “Connect an account” then “Another relay…”; in the Station installers, “Other relay…”. Your relay's accounts are separate from those on share.kybernow.app, and a passkey only works on the relay where it was created.</li></ul>
+<h2 id="update-the-relay">Update the relay</h2>
+<p>The relay updates itself every night at 4 am UTC (<code>RELAY_UPDATE_HOUR</code>), and only restarts if the image has changed. <code>RELAY_AUTO_UPDATE=no</code> turns this update off. To accept only a signed image, give a cosign public key in <code>RELAY_COSIGN_KEY</code>; to freeze a version, pin the image by its digest in <code>RELAY_IMAGE</code>. By hand:</p>
+<pre class="code"><code>docker compose pull
+docker compose up -d</code></pre>
+<h2 id="if-something-goes-wrong">If something goes wrong</h2>
+<ul><li><strong>No certificate.</strong> Read <code>docker compose logs -f lego</code>: a DNS record is missing, or the token doesn't have the right permissions, or it has expired.</li><li><strong>Admin shows “Relay unreachable”.</strong> Check the router's forwarding, over TCP and UDP, and the port in the address.</li><li><strong>Sessions switch to “Via the relay (TCP)”.</strong> UDP isn't reaching the machine: check the router and the firewall.</li><li><strong>Devices at home can't reach the relay by its name.</strong> The router doesn't loop back to the local network (no NAT loopback). Have your local DNS (Pi-hole, the router) give the machine's local address for <code>relay.example.org</code> and <code>*.relay.example.org</code>.</li><li><strong>A certificate about to expire.</strong> An alert on the <code>relay_tls_cert_expiry_seconds</code> metric, at 14 days, warns you about an expired Gandi token.</li></ul>
+<p>The full step by step, with every setting, operations and logs, is in the <a href="https://github.com/MonsieurNours/kybernow/blob/main/server/relay/README.en.md">relay's README on GitHub</a>.</p>
+      <div class="helpful"><span class="hq">Did this article help?</span><button type="button" data-vote="oui">Yes</button><button type="button" data-vote="non">Not really</button><span class="hthx" aria-live="polite"></span></div>
+      <div class="rel"><a href="/en/guide/away-from-home/"><span>Away from home</span>Reach your computer away from home</a><a href="/en/guide/families-and-teams/"><span>Accounts and teams</span>Families and teams</a><a href="/en/guide/kybernow-account/"><span>Accounts and teams</span>Your KyberNow account</a></div>
+    </div>
+  </div>
+</article>
+</main>
+<footer class="ft">
+  <div class="wrap">
+    <div class="who">
+      <img class="dk" src="/assets/img/logo/logo-spectre.svg" alt="KyberNow" width="132" height="18">
+      <img class="lt" src="/assets/img/logo/logo-spectre-clair.svg" alt="" width="132" height="18" aria-hidden="true">
+      <span>A free and open project by Les Lignes Claires.</span>
+    </div>
+    <nav aria-label="Footer"><a href="/en/play/">Play</a><a href="/en/pro/">Work</a><a href="/en/share/">Share</a><a href="/en/technology/">Technology</a><a href="/en/guide/">Guide</a><a href="/en/guide/faq/">FAQ</a><a href="/en/download/">Download</a><a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Discord</a><a href="https://github.com/MonsieurNours/kybernow" rel="noopener">GitHub</a><a href="/en/legal/">Legal notice</a></nav>
+  </div>
+</footer>
+<script src="/assets/kn/base.js" defer></script>
+<script src="/assets/kn/guide.js" defer></script>
+</body>
+</html>

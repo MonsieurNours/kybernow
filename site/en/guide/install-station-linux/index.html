@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en" data-u="commun" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Install KyberNow Station on Linux · KyberNow</title>
+<meta name="description" content="Install KyberNow Station on Ubuntu, Debian, Fedora, Bazzite or SteamOS, then find your account and open KyberNow Admin.">
+<link rel="canonical" href="https://www.kybernow.app/en/guide/install-station-linux/">
+<meta name="theme-color" content="#05070A">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="KyberNow">
+<meta property="og:locale" content="en_GB">
+<meta property="og:locale:alternate" content="fr_FR">
+<meta property="og:title" content="Install KyberNow Station on Linux · KyberNow">
+<meta property="og:description" content="Install KyberNow Station on Ubuntu, Debian, Fedora, Bazzite or SteamOS, then find your account and open KyberNow Admin.">
+<meta property="og:url" content="https://www.kybernow.app/en/guide/install-station-linux/">
+<meta property="og:image" content="https://www.kybernow.app/assets/og/kybernow-en.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/installer-station-linux/">
+<link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/install-station-linux/">
+<link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/install-station-linux/">
+<script src="/assets/lang.js"></script>
+<script src="/assets/kn/theme.js"></script>
+<link rel="preload" href="/fonts/Archivo-wdth-wght.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/kn/base.css">
+<link rel="stylesheet" href="/assets/kn/guide.css">
+<script type="application/ld+json">[{"@context": "https://schema.org", "@type": "TechArticle", "headline": "Install KyberNow Station on Linux", "description": "Install KyberNow Station on Ubuntu, Debian, Fedora, Bazzite or SteamOS, then find your account and open KyberNow Admin.", "inLanguage": "en", "url": "https://www.kybernow.app/en/guide/install-station-linux/", "publisher": {"@type": "Organization", "name": "Les Lignes Claires"}, "isPartOf": {"@type": "WebSite", "name": "KyberNow", "url": "https://www.kybernow.app/"}}, {"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Guide", "item": "https://www.kybernow.app/en/guide/"}, {"@type": "ListItem", "position": 2, "name": "Install KyberNow Station on Linux", "item": "https://www.kybernow.app/en/guide/install-station-linux/"}]}]</script>
+</head>
+<body>
+<a class="skip" href="#contenu">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="/en/" aria-label="KyberNow, beta, home">
+      <img class="dk" src="/assets/img/logo/logo-spectre.svg" alt="KyberNow" width="150" height="21">
+      <img class="lt" src="/assets/img/logo/logo-spectre-clair.svg" alt="" width="150" height="21" aria-hidden="true">
+      <span class="beta" aria-hidden="true">Beta</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a class="j" href="/en/play/">Play</a>
+      <a class="p" href="/en/pro/">Work</a>
+      <a href="/en/share/">Share</a>
+      <a href="/en/technology/">Technology</a>
+      <a href="/en/guide/" aria-current="page">Guide</a>
+      <a class="disc" href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic" aria-hidden="true"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a>
+    </nav>
+    <div class="tools">
+      <button class="thm" type="button" aria-label="Switch to light theme"><svg class="moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><svg class="sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+      <a class="signin" href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener"><span>Sign in</span></a>
+      <a class="lang" href="/guide/installer-station-linux/" hreflang="fr" lang="fr" data-set-lang="fr">FR</a>
+      <a class="btn sig" href="/en/download/">Download</a>
+      <button class="burger" type="button" aria-expanded="false" aria-controls="menu" aria-label="Open menu"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+<div class="sheet" id="menu" role="dialog" aria-modal="true" aria-label="Menu">
+  <nav aria-label="Main menu">
+    <a class="mi j" href="/en/play/" style="--i: 0">Play</a>
+    <a class="mi p" href="/en/pro/" style="--i: 1">Work</a>
+    <a class="mi" href="/en/share/" style="--i: 2">Share</a>
+    <a class="mi" href="/en/technology/" style="--i: 3">Technology</a>
+    <a class="mi" href="/en/guide/" style="--i: 4">Guide</a>
+    <a class="mi" href="https://discord.gg/sVy2mu5WdT" rel="noopener" style="--i: 5">Discord</a>
+  </nav>
+  <div class="sheet-foot">
+    <a href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener">Sign in</a>
+    <a href="/guide/installer-station-linux/" hreflang="fr" lang="fr" data-set-lang="fr">Français</a>
+    <a class="btn sig" href="/en/download/">Download KyberNow</a>
+  </div>
+</div>
+<div class="progress" aria-hidden="true"><i></i></div>
+<main id="contenu">
+<article>
+  <header class="ahead"><div class="wrap">
+    <nav class="crumbs" aria-label="Breadcrumb"><a href="/en/guide/">Guide</a><span aria-hidden="true">›</span><a href="/en/guide/#rubriques">Install the Station</a></nav>
+    <h1 class="disp">Install KyberNow Station on Linux</h1>
+    <p class="chapo">Your Linux computer becomes a Station, with the same Admin and the same apps as a Windows PC. It installs as a .deb or .rpm package, or in your home folder on Bazzite, Fedora Silverblue or Kinoite and SteamOS.</p>
+    <div class="meta"><span>Install the Station</span><span>5 min</span></div>
+  </div></header>
+  <div class="wrap body">
+    <nav class="toc" aria-label="Article contents"><button class="tocbtn" type="button" aria-expanded="false" aria-controls="toc-list"><span class="tocmeta"><b>IN THIS ARTICLE</b><span class="tocpos">01 / 08</span></span><span class="tocnow">Before you start</span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><div class="toclist" id="toc-list"><b>IN THIS ARTICLE</b><a class="on" href="#before-you-start"><i>01</i>Before you start</a><a href="#ubuntu-debian-fedora"><i>02</i>Ubuntu, Debian, Fedora</a><a href="#bazzite-fedora-silverblue-or-kinoite-steamos"><i>03</i>Bazzite, Fedora Silverblue or Kinoite, SteamOS</a><a href="#your-first-account"><i>04</i>Your first account</a><a href="#open-admin"><i>05</i>Open Admin</a><a href="#after-a-restart"><i>06</i>After a restart</a><a href="#what-a-linux-station-does"><i>07</i>What a Linux Station does</a><a href="#if-something-goes-wrong"><i>08</i>If something goes wrong</a></div><span class="tocscrim" aria-hidden="true"></span></nav>
+    <div class="prose">
+<h2 id="before-you-start">Before you start</h2>
+<ul><li>Ubuntu 24.04, Debian 13 or Fedora 42, or a later release. Bazzite, Fedora Silverblue or Kinoite and SteamOS use the archive, further down.</li><li>An x86_64 processor (most PCs) or arm64.</li><li>GNOME or KDE Plasma 6 on Wayland, or Sway and Hyprland, for the virtual display sized for each device. On X11 and other desktops, the Station sends the computer's displays as they are.</li><li>Your user account, with the right to use <code>sudo</code>. This is the account that can then update the Station from Admin.</li></ul>
+<p>The Station picks the encoder to suit your card: NVENC for an NVIDIA card with its proprietary driver, VA-API for AMD and Intel, otherwise the processor.</p>
+<h2 id="ubuntu-debian-fedora">Ubuntu, Debian, Fedora</h2>
+<ol><li>Download the package for your system and processor:</li></ol>
+<p>| | x86_64 | arm64 | |---|---|---| | Ubuntu, Debian | <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Linux-x86_64.deb">KyberNow-Station-Linux-x86_64.deb</a> | <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Linux-arm64.deb">KyberNow-Station-Linux-arm64.deb</a> | | Fedora | <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Linux-x86_64.rpm">KyberNow-Station-Linux-x86_64.rpm</a> | <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Linux-arm64.rpm">KyberNow-Station-Linux-arm64.rpm</a> |</p>
+<ol><li>Open a terminal in the download folder and install it:</li></ol>
+<p>``<code>sh sudo apt install ./KyberNow-Station-Linux-x86_64.deb     # Ubuntu, Debian sudo dnf install ./KyberNow-Station-Linux-x86_64.rpm     # Fedora </code>``</p>
+<p>If the system firewall is running (firewalld or ufw), the package opens the Station's ports in it.</p>
+<ol><li>Log out, then log back in: the Station starts with your session. To launch it straight away, without logging out:</li></ol>
+<p>``<code>sh systemctl --user start kybernow-admin kybernow-kyber kybernow-tray </code>``</p>
+<h2 id="bazzite-fedora-silverblue-or-kinoite-steamos">Bazzite, Fedora Silverblue or Kinoite, SteamOS</h2>
+<p>On these systems, the system folder cannot be changed. The Station installs in your home folder, without a restart, and stays in place when the system updates. It then updates from Admin, with no password.</p>
+<ol><li>On SteamOS, switch to Desktop Mode: Steam button › Power › Switch to Desktop. The Station works in Desktop Mode.</li><li>Download <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Linux-x86_64.tar.xz">KyberNow-Station-Linux-x86_64.tar.xz</a>, or <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Linux-aarch64.tar.xz">KyberNow-Station-Linux-aarch64.tar.xz</a> for an ARM machine.</li><li>Open a terminal (Konsole) in the download folder and type:</li></ol>
+<p>``<code>sh tar -xf KyberNow-Station-Linux-x86_64.tar.xz ./kybernow-station-*/install.sh </code>``</p>
+<ol><li>If you are asked for your password, it is so your devices' keyboard, mouse and controllers can drive the computer: a system rule, added once. On most machines with Steam you are not asked, because Steam has already done it. On SteamOS, if you have never set a password, type <code>passwd</code> first.</li><li>The installation shows Admin's address and where to find your first account's password.</li></ol>
+<h2 id="your-first-account">Your first account</h2>
+<p>The Station creates an account the first time it starts. Its username is your Linux username. Its password is picked at random and stored in a file that only you can read:</p>
+<pre class="code"><code>cat ~/.local/share/kybernow/station/admin/mot-de-passe</code></pre>
+<p>You use this account to open Admin and to connect your devices. You can change its password and create more accounts in Admin, in the Users space.</p>
+<h2 id="open-admin">Open Admin</h2>
+<p>A KyberNow Station icon appears next to the clock. Its menu offers “Open Admin”, “Restart the Station”, “Share a screen…” and “Lend the computer…”.</p>
+<ul><li>On KDE Plasma, the icon shows up by itself.</li><li>On GNOME, it needs the AppIndicator extension, included as standard on Ubuntu. Elsewhere, install the <code>gnome-shell-extension-appindicator</code> package.</li></ul>
+<p>Admin opens in your browser. The first time, the browser shows a security warning, because the Station signs its own connection: accept it. Admin has the same spaces as on a PC: Overview, Picture and sound, Recordings, Link devices, Lending, Users, System and KyberNow account. To attach the computer to your account, open KyberNow account: see <a href="/en/guide/kybernow-account/">Your KyberNow account</a>.</p>
+<p>All that is left is to <a href="/en/guide/connect-a-device/">connect a device</a>.</p>
+<h2 id="after-a-restart">After a restart</h2>
+<p>The Station runs in your session: it starts when you log in and stops when you log out. A locked screen streams too, and you type the password from your device.</p>
+<p>For the Station to be there after a restart with nobody at the computer, turn on automatic login in your system settings. On SteamOS and Bazzite Deck, which start in Game Mode, make the computer start in Desktop Mode:</p>
+<pre class="code"><code>steamos-session-select plasma-persistent</code></pre>
+<blockquote><p>Good to know: your devices' camera reaches the computer as “KyberNow Camera”, which browsers and OBS can see. For Zoom, Discord and other apps to see it too, install v4l2loopback (<code>sudo apt install v4l2loopback-dkms</code> on Ubuntu and Debian, <code>sudo dnf install akmod-v4l2loopback</code> on Fedora, with the RPM Fusion repository), then restart. See <a href="/en/guide/stylus-microphone-camera/">Stylus, microphone, camera and recording</a>.</p></blockquote>
+<h2 id="what-a-linux-station-does">What a Linux Station does</h2>
+<ul><li>The virtual display sized for each device, on GNOME, KDE Plasma, Sway and Hyprland, with one display or several.</li><li>Sound in stereo, 5.1 or 7.1, through a “KyberNow” output; the original output comes back at the end.</li><li>Controllers: a PlayStation controller arrives as a DualSense, the others as an Xbox controller.</li><li>The stylus, the clipboard, lending the computer, and PyroWave with a graphics card that supports Vulkan 1.3.</li></ul>
+<h2 id="if-something-goes-wrong">If something goes wrong</h2>
+<ul><li><strong>No icon by the clock on GNOME.</strong> Install and turn on the AppIndicator extension, then log back in.</li><li><strong>Your devices cannot find the computer.</strong> Check they are on the same network, and that your firewall lets the Station through. Over a VPN, add the computer by its address: see <a href="/en/guide/connect-a-device/">Connect a device to your computer</a>.</li><li><strong>Updating from Admin does not go through.</strong> If the Station was installed some other way than with <code>sudo</code> or <code>pkexec</code>, your account does not yet have the right to update it. Add it to the Station's group, then log back in:</li></ul>
+<p>``<code>sh sudo usermod -aG kybernow-station YOUR_USERNAME </code>``</p>
+<ul><li><strong>No virtual display.</strong> The session is on X11 or on a desktop the Station does not support. Log in to a GNOME or KDE Plasma session on Wayland.</li><li><strong>Two accounts logged in at once.</strong> Only one session at a time carries the Station. Log out of the other.</li></ul>
+      <div class="helpful"><span class="hq">Did this article help?</span><button type="button" data-vote="oui">Yes</button><button type="button" data-vote="non">Not really</button><span class="hthx" aria-live="polite"></span></div>
+      <div class="rel"><a href="/en/guide/what-you-need/"><span>Get started</span>What you need to get started</a><a href="/en/guide/connect-a-device/"><span>Connect a device</span>Connect a device to your computer</a><a href="/en/guide/link-linux-steam-deck/"><span>Connect a device</span>Use your computer from Linux or a Steam Deck</a><a href="/en/guide/update/"><span>Maintenance</span>Update KyberNow</a></div>
+    </div>
+  </div>
+</article>
+</main>
+<footer class="ft">
+  <div class="wrap">
+    <div class="who">
+      <img class="dk" src="/assets/img/logo/logo-spectre.svg" alt="KyberNow" width="132" height="18">
+      <img class="lt" src="/assets/img/logo/logo-spectre-clair.svg" alt="" width="132" height="18" aria-hidden="true">
+      <span>A free and open project by Les Lignes Claires.</span>
+    </div>
+    <nav aria-label="Footer"><a href="/en/play/">Play</a><a href="/en/pro/">Work</a><a href="/en/share/">Share</a><a href="/en/technology/">Technology</a><a href="/en/guide/">Guide</a><a href="/en/guide/faq/">FAQ</a><a href="/en/download/">Download</a><a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Discord</a><a href="https://github.com/MonsieurNours/kybernow" rel="noopener">GitHub</a><a href="/en/legal/">Legal notice</a></nav>
+  </div>
+</footer>
+<script src="/assets/kn/base.js" defer></script>
+<script src="/assets/kn/guide.js" defer></script>
+</body>
+</html>

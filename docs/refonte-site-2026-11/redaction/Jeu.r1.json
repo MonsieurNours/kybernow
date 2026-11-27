@@ -1,0 +1,102 @@
+[
+ {
+  "old": "Sur la télé, la tablette, le Steam Deck, un autre ordinateur ou dans un navigateur, avec votre manette. En moins de 10&nbsp;ms, en 4K et en HDR.",
+  "new": "Vous jouez avec votre manette sur l'écran le plus proche, en 4K et en HDR. L'image met moins de 10&nbsp;ms à arriver.",
+  "pourquoi": "pas de liste de plateformes, chiffre expliqué"
+ },
+ {
+  "old": "'Ou la tablette, ou le téléphone'",
+  "new": "'Aussi sur tablette et téléphone'",
+  "pourquoi": "jamais de phrase qui commence par « Ou »"
+ },
+ {
+  "old": "FAITES DÉFILER",
+  "new": "",
+  "pourquoi": "mode d'emploi de la page, à retirer"
+ },
+ {
+  "old": "<p class=\"k\">Choisissez votre appareil</p>",
+  "new": "<p class=\"k\">Vos appareils</p>",
+  "pourquoi": "étiquette sans consigne de navigation"
+ },
+ {
+  "old": "Où voulez-vous <em>jouer&#8239;?</em>",
+  "new": "Ce qu'il vous faut <em>sur chaque écran</em>",
+  "pourquoi": "titre informatif au lieu d'une question"
+ },
+ {
+  "old": "Le jeu continue pendant que l'ordinateur reste au bureau.",
+  "new": "L'ordinateur reste dans le bureau, vous jouez où vous voulez.",
+  "pourquoi": "idée floue rendue concrète"
+ },
+ {
+  "old": "'La fréquence variable, si votre écran la gère.'",
+  "new": "'L’image suit le rythme du jeu si votre écran gère la fréquence variable.'",
+  "pourquoi": "dit l'effet avant le terme technique"
+ },
+ {
+  "old": "'Safari et Firefox passent par WebSocket, avec un peu plus de délai.'",
+  "new": "'Safari et Firefox marchent aussi, avec un peu plus de délai.'",
+  "pourquoi": "jargon inutile pour le grand public"
+ },
+ {
+  "old": "Jouez aussi à votre <em>PS5 et votre PS4</em>",
+  "new": "Jouez aussi à votre <em>PS5 ou à votre PS4</em>",
+  "pourquoi": "construction correcte du complément"
+ },
+ {
+  "old": "Vous associez la console une fois avec le code qu'elle affiche. Ensuite elle se réveille et la partie s'ouvre, en HDR sur un écran HDR.",
+  "new": "Vous associez la console une fois, avec le code qu'elle affiche. Ensuite, elle sort de veille et la partie s'ouvre, en HDR si votre écran le permet.",
+  "pourquoi": "moins de personnification, fin moins redondante"
+ },
+ {
+  "old": "Hors de chez vous, la console se joint par le relais de KyberNow, avec une Station allumée à la maison.",
+  "new": "Hors de chez vous, vous passez par le relais de KyberNow. Il suffit d'une Station allumée à la maison.",
+  "pourquoi": "« se joint » bancal, condition plus nette"
+ },
+ {
+  "old": "La télé allume KyberNow Link OS, puis affiche l'accueil",
+  "new": "La télé affiche le démarrage de KyberNow Link OS, puis l'accueil",
+  "pourquoi": "décrit ce qu'on voit, sans personnifier"
+ },
+ {
+  "old": "<b>Un allumage de console</b>",
+  "new": "<b>Il démarre comme une console</b>",
+  "pourquoi": "titre avec un verbe, lisible seul"
+ },
+ {
+  "old": "Le symbole s'allume, le son de KyberNow, puis vos ordinateurs.",
+  "new": "Le symbole s'éclaire, le son de KyberNow retentit, puis vos ordinateurs apparaissent.",
+  "pourquoi": "phrase bancale sans verbe corrigée"
+ },
+ {
+  "old": "Et quand vous n'êtes pas devant, votre ordinateur sert à quelqu'un d'autre.",
+  "new": "Quand vous n'êtes pas devant, votre ordinateur peut servir à quelqu'un d'autre.",
+  "pourquoi": "pas de phrase en « Et »"
+ },
+ {
+  "old": "avec Steam et les jeux que vous permettez",
+  "new": "avec Steam et les jeux que vous autorisez",
+  "pourquoi": "verbe juste"
+ },
+ {
+  "old": "Votre ordinateur devient une console</h3>",
+  "new": "Le lanceur de jeux s'ouvre tout seul</h3>",
+  "pourquoi": "doublon avec Link OS, titre plus précis"
+ },
+ {
+  "old": "Steam Big Picture s'ouvre pour la télé, Playnite pour le Steam Deck, et se referme à la fin.",
+  "new": "Steam Big Picture s'ouvre sur la télé, Playnite sur le Steam Deck, et tout se referme à la fin de la session.",
+  "pourquoi": "sujet du dernier verbe clarifié"
+ },
+ {
+  "old": "<h3>Il tient bon quand le Wi-Fi flanche</h3>",
+  "new": "<h3>L'image tient bon quand le Wi-Fi flanche</h3>",
+  "pourquoi": "« Il » sans antécédent"
+ },
+ {
+  "old": "Toujours, avec QUIC",
+  "new": "Toujours, même chez vous",
+  "pourquoi": "l'effet plutôt que le protocole"
+ }
+]
