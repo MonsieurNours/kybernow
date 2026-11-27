@@ -165,6 +165,10 @@
 #         retour (FeedbackEvent::Lost) réparées aussitôt
 #   0028-kynput-paquets-courts : presse-papiers et contrôle trop courts
 #         refusés, sans panique (lus avant les droits de 0019)
+#   0029-txproto-forme-du-pointeur : une forme de pointeur reçue n'est
+#         jamais perdue (gardée pointeur masqué, lue souris immobile, relue sur
+#         MORE_DATA, file pleine qui garde la dernière), filet de sécurité de
+#         250 ms par GetCursorInfo, forme WGC illisible relue après 250 ms
 #   0085-kynet-plafond-donnees : un paquet de données (flux montant) annonce
 #         16 Mio au plus, refusé avant toute allocation
 #
