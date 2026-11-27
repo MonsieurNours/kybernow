@@ -262,7 +262,7 @@ struct SessionMenu: View {
                 let share = session.lostFramesShare
                 HStack(spacing: 8) {
                     Circle().fill(share == 0 ? Theme.ok : Theme.warn).frame(width: 9, height: 9)
-                    Text(verbatim: "\(PyroWaveText.lostFrames) \(PyroWaveText.percent(share))")
+                    Text(verbatim: "\(PyroWaveText.lostFrames) \(LinkFormat.percent(share))")
                 }
             } else {
                 HStack(spacing: 8) {

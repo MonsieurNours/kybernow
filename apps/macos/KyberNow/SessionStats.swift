@@ -218,7 +218,7 @@ struct StatsPanel: View {
             if pyrowave {
                 let lost = Double(history.reduce(0) { $0 + $1.lostFrames })
                 let shown = history.reduce(0) { $0 + $1.fps }
-                row(PyroWaveText.lostFrames, PyroWaveText.percent(lost + shown > 0 ? lost / (lost + shown) * 100 : 0))
+                row(PyroWaveText.lostFrames, LinkFormat.percent(lost + shown > 0 ? lost / (lost + shown) * 100 : 0))
             }
             if let lowered {
                 GridRow {

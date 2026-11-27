@@ -18,9 +18,21 @@ enum LinkFormat {
         return french ? text.replacingOccurrences(of: ".", with: ",") : text
     }
 
-    /// « 8,9 ms ».
-    static func ms(_ value: Double) -> String {
-        "\(decimal(value)) ms"
+    /// « 8,9 ms » ; sans l'unité, « 8,9 » (une courbe, un repère).
+    static func ms(_ value: Double, unit: Bool = true) -> String {
+        unit ? "\(decimal(value)) ms" : decimal(value)
+    }
+
+    /// « 42,5 Mbit/s », « 312 Mbit/s ».
+    static func mbps(_ value: Double) -> String {
+        "\(decimal(value)) Mbit/s"
+    }
+
+    /// Un pourcentage : « 0,8 % », deux décimales sous 0,1 % (« 0,04 % »).
+    static func percent(_ value: Double) -> String {
+        if value <= 0 { return "0 %" }
+        let text = String(format: "%.\(value < 0.1 ? 2 : 1)f", value)
+        return (french ? text.replacingOccurrences(of: ".", with: ",") : text) + " %"
     }
 
     /// « 42 min », « 1 h 05 ».
@@ -1607,12 +1619,6 @@ enum PyroWaveText {
     static var switchToHEVC: String { String(localized: "Passer en HEVC") }
     /// Statistiques, ligne en plus.
     static var lostFrames: String { String(localized: "Images perdues") }
-    /// Sa valeur : « 0,8 % » (deux décimales sous 0,1 %).
-    static func percent(_ value: Double) -> String {
-        if value <= 0 { return "0 %" }
-        let text = String(format: "%.\(value < 0.1 ? 2 : 1)f", value)
-        return (LanguageChoice.effective == "fr" ? text.replacingOccurrences(of: ".", with: ",") : text) + " %"
-    }
     /// Aide de « Texte net (4:4:4) » avec PyroWave.
     static var sharpText: String { String(localized: "Avec PyroWave, presque sans coût : seul le débit monte.") }
     /// Valeur inactive : la Station ne le propose pas.

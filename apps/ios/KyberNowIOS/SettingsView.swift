@@ -682,7 +682,7 @@ private struct SettingsPane: View {
     /// Données consommées en une heure à ce débit, en gigaoctets.
     private var gigabytesPerHour: String {
         let gb = Double(effectiveBitrate) * 3600 / 8 / 1000
-        return gb >= 10 ? String(Int(gb.rounded())) : StatsFormat.decimal(gb)
+        return gb >= 10 ? String(Int(gb.rounded())) : LinkFormat.decimal(gb)
     }
 
     /// PyroWave : son débit est voulu, l'avertissement ambre du format suffit.
