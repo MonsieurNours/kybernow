@@ -566,6 +566,17 @@ fn local_guard(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> Result<()
     crate::api::local_only(s, peer, headers).map_err(IntoResponse::into_response)
 }
 
+/// Rattacher la Station ou changer son relais : l'installateur seulement
+/// (jeton lisible par un administrateur, voir `local_token`), jamais un
+/// compte Windows standard qui a le jeton local de sa session.
+fn installer_guard(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> Result<(), Response> {
+    local_guard(s, peer, headers)?;
+    if !s.local_token.accepts_installer(headers) {
+        return Err(refuse(StatusCode::FORBIDDEN, "installer_only", Msg::new("accounts.installerOnly")));
+    }
+    Ok(())
+}
+
 fn refuse(status: StatusCode, code: &str, msg: Msg) -> Response {
     (status, Json(json!({ "error": msg.text(), "code": code }))).into_response()
 }
@@ -609,7 +620,7 @@ pub async fn local_get(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo
 
 /// `PUT /api/local/account/relay {relay}` : le relais choisi, sans rattacher (« Plus tard »).
 pub async fn local_relay(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<LocalRelayBody>) -> Response {
-    if let Err(r) = local_guard(&s, peer, &headers) {
+    if let Err(r) = installer_guard(&s, peer, &headers) {
         return r;
     }
     if body.relay.is_none() {
@@ -624,7 +635,7 @@ pub async fn local_relay(State(s): State<AppState>, ConnectInfo(peer): ConnectIn
 /// `POST /api/local/account/attach {relay?}` : comme « Se connecter » dans
 /// Admin, la page du relais à ouvrir (`{url, expires}`), pour la fenêtre de l'installateur.
 pub async fn local_attach(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<LocalRelayBody>) -> Response {
-    if let Err(r) = local_guard(&s, peer, &headers) {
+    if let Err(r) = installer_guard(&s, peer, &headers) {
         return r;
     }
     if let Err(r) = set_relay_locally(&s, body.relay.as_deref()) {
@@ -664,7 +675,7 @@ pub fn enroll_token_ok(token: &str) -> bool {
 /// de contrôle (`enroll`) ; sa réponse `attached` est épinglée comme un
 /// rattachement confirmé dans la console.
 pub async fn local_enroll(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<EnrollBody>) -> Response {
-    if let Err(r) = local_guard(&s, peer, &headers) {
+    if let Err(r) = installer_guard(&s, peer, &headers) {
         return r;
     }
     let token = body.token.trim();
@@ -1634,7 +1645,28 @@ mod tests {
         }
         let mut h = HeaderMap::new();
         h.insert(crate::local_token::HEADER, std::fs::read_to_string(file).unwrap().trim().parse().unwrap());
+        let installer = s.data_dir.join(crate::local_token::INSTALLER_FILE);
+        h.insert(crate::local_token::INSTALLER_HEADER, std::fs::read_to_string(installer).unwrap().trim().parse().unwrap());
         h
+    }
+
+    /// Un compte Windows standard a le jeton local de sa session, pas celui
+    /// de l'installateur : il ne rattache pas la Station ni ne change son relais.
+    #[tokio::test]
+    async fn le_jeton_de_la_session_ne_suffit_pas_pour_rattacher() {
+        let (s, _dir) = state();
+        let mut session = local(&s);
+        session.remove(crate::local_token::INSTALLER_HEADER);
+        let (status, v) = body(local_relay(State(s.clone()), here(), session.clone(), Json(LocalRelayBody { relay: Some("relais.pirate.example".into()) })).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::FORBIDDEN, Some("installer_only")));
+        let (status, v) = body(local_attach(State(s.clone()), here(), session.clone(), Json(LocalRelayBody::default())).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::FORBIDDEN, Some("installer_only")));
+        let (status, v) = body(local_enroll(State(s.clone()), here(), session.clone(), Json(EnrollBody { token: "kne_7Qm2xR9pLa4V".into(), relay: None })).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::FORBIDDEN, Some("installer_only")));
+        // L'état reste lisible avec le jeton local seul.
+        let (status, _) = body(local_get(State(s.clone()), here(), session).await).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_ne!(s.settings.lock().unwrap().relay.server(), "relais.pirate.example");
     }
 
     #[tokio::test]

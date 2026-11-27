@@ -12,6 +12,7 @@
     "wrongPassword": "mot de passe incorrect",
     "localOnly": "réservé à l'ordinateur local",
     "localToken": "jeton local absent ou périmé",
+    "localDuringLoan": "pas pendant un prêt de l'ordinateur : passez par KyberNow Admin",
     "unknownAction": "action inconnue : {action}",
     "unreadableBody": "corps illisible : {error}",
     "hdrNotInSession": "Seul l'appareil en session peut changer le HDR de cet ordinateur.",
@@ -290,6 +291,7 @@
     "unavailable": "L'ordinateur n'a pas pu créer l'accès : réessayez."
   },
   "accounts": {
+    "installerOnly": "réservé à l'installateur de KyberNow Station",
     "off": "Cet ordinateur n'accepte pas les comptes KyberNow (Admin › Compte KyberNow).",
     "notAttached": "Cet ordinateur n'est rattaché à aucun compte KyberNow.",
     "expired": "Jeton d'accès échu : l'app en redemande un au relais.",

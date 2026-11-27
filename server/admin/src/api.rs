@@ -402,6 +402,17 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
 /// Les routes `/api/local/*` : depuis l'ordinateur lui-même (loopback, aussi
 /// en IPv4 projeté en IPv6) **et** avec le jeton local de la session de
 /// l'utilisateur (`x-kyber-local`, voir `local_token.rs`).
+/// Comme [`local_only`], mais refusé pendant un prêt : le prêt se fait dans la
+/// session de l'hôte, où l'ami peut lire le jeton local. Accepter un
+/// appareil ou installer une mise à jour reste à l'hôte (Admin).
+fn local_outside_loan(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> ApiResult<()> {
+    local_only(s, peer, headers)?;
+    if s.lend.loan().is_some() {
+        return Err(ApiError::msg(StatusCode::FORBIDDEN, Msg::new("api.localDuringLoan")));
+    }
+    Ok(())
+}
+
 pub(crate) fn local_only(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> ApiResult<()> {
     if !peer.ip().to_canonical().is_loopback() {
         return Err(ApiError::msg(StatusCode::FORBIDDEN, Msg::new("api.localOnly")));
@@ -499,7 +510,7 @@ async fn local_update_install(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
-    local_only(&s, peer, &headers)?;
+    local_outside_loan(&s, peer, &headers)?;
     update_install(State(s), body).await
 }
 
@@ -511,7 +522,7 @@ async fn local_pair_answer(
     headers: HeaderMap,
     Path((id, action)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
-    local_only(&s, peer, &headers)?;
+    local_outside_loan(&s, peer, &headers)?;
     match action.as_str() {
         "accept" => pair_accept(State(s), Path(id)).await,
         "refuse" => pair_refuse(State(s), Path(id)).await,
