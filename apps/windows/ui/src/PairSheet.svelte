@@ -16,6 +16,7 @@
     l'app les dit.
 -->
 <script lang="ts">
+  import Sheet from './lib/Sheet.svelte'
   import { onMount, tick, untrack } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import type { PsAccount, PsFound, PsKept, PsState } from './lib/api'
@@ -139,7 +140,7 @@
   const consolesOf = (id: string) => ps.accounts.find((a) => a.id === id)?.consoles ?? 0
 </script>
 
-<div class="veil" role="presentation" onclick={(e) => e.target === e.currentTarget && !busy && onclose()}>
+<Sheet onclose={onclose} outside={!busy} escape={!busy} z={32}>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pair-title">
     <button type="button" class="close" aria-label={t('common.close')} disabled={busy} onclick={onclose}><Icon name="x" size={14} /></button>
     <div class="head">
@@ -227,27 +228,10 @@
 
     {#if error}<div class="error" role="alert">{error}</div>{/if}
   </div>
-</div>
+</Sheet>
 
 <style>
   /* Au-dessus de l'ajout (« Ajouter un compte » depuis l'onglet PlayStation). */
-  .veil {
-    position: absolute;
-    inset: 0;
-    z-index: 32;
-    background: rgb(5 7 10 / 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 56px 24px 24px;
-    animation: fade 0.25s var(--ease-out);
-  }
-
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
-  }
 
   .sheet {
     position: relative;
@@ -264,14 +248,7 @@
       radial-gradient(520px 320px at 100% 0%, rgb(109 91 255 / 0.18), transparent 70%),
       var(--ink-1);
     box-shadow: 0 40px 120px rgb(0 0 0 / 0.6);
-    animation: rise 0.32s var(--ease-out);
-  }
-
-  @keyframes rise {
-    from {
-      transform: translateY(18px) scale(0.985);
-      opacity: 0;
-    }
+    animation: sheet-rise 0.32s var(--ease-out);
   }
 
   .head {

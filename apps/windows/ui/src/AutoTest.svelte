@@ -8,6 +8,7 @@
   réglages), « Annuler » et « Refaire le test ». Échec (Station injoignable) : son texte et « Réessayer ».
 -->
 <script lang="ts">
+  import Sheet from './lib/Sheet.svelte'
   import { onMount } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import type { AutoChoice, AutoOutcome, AutoProgress, AutoResult, AutoStep, Computer, Settings } from './lib/api'
@@ -98,9 +99,7 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && cancel()} />
-
-<div class="veil" role="presentation" onclick={(e) => e.target === e.currentTarget && phase !== 'running' && cancel()}>
+<Sheet onclose={cancel} outside={phase !== 'running'}>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="autotest-title">
     <button type="button" class="close" aria-label={t('common.close')} disabled={applying} onclick={cancel}><Icon name="x" size={14} /></button>
     <div class="head">
@@ -151,26 +150,9 @@
       </div>
     {/if}
   </div>
-</div>
+</Sheet>
 
 <style>
-  .veil {
-    position: absolute;
-    inset: 0;
-    z-index: 30;
-    background: rgb(5 7 10 / 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 56px 24px 24px;
-    animation: fade 0.25s var(--ease-out);
-  }
-
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
-  }
 
   .sheet {
     position: relative;
@@ -185,14 +167,7 @@
     border-radius: 22px;
     background: var(--ink-1);
     box-shadow: 0 40px 120px rgb(0 0 0 / 0.6);
-    animation: rise 0.32s var(--ease-out);
-  }
-
-  @keyframes rise {
-    from {
-      transform: translateY(18px) scale(0.985);
-      opacity: 0;
-    }
+    animation: sheet-rise 0.32s var(--ease-out);
   }
 
   .head {

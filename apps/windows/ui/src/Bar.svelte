@@ -79,6 +79,7 @@
   le dit sous la barre.
 -->
 <script lang="ts">
+  import { menuKeys } from './lib/menukeys'
   import { onMount, tick, untrack } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import StatsPanel from './lib/StatsPanel.svelte'
@@ -1377,7 +1378,7 @@
         {@render chipBody(camera.state === 0 ? 'camera-off' : 'camera', camera.state === 1 ? t('camera.starting') : t('camera.camera'), true)}
       </button>
       {#if menu === 'camera'}
-        <div class="menu" role="menu" aria-label={t('camera.camera')}>
+        <div class="menu" role="menu" use:menuKeys={closeMenu} aria-label={t('camera.camera')}>
           <button role="menuitem" onclick={toggleCamera}>
             <span class="tick"></span><span class="name">{camera.state === 0 ? t('camera.turn_on') : t('camera.turn_off')}</span><span class="hint"></span>
           </button>
@@ -1408,7 +1409,7 @@
       {@render chipBody(stats?.relative ? 'crosshair' : 'cursor', mouseLabel, true)}
     </button>
     {#if menu === 'mouse'}
-      <div class="menu" role="menu" aria-label={t('bar.mouse')}>
+      <div class="menu" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.mouse')}>
         {#each mouseChoices as m (m.id)}
           <button role="menuitemradio" aria-checked={m.id === mouseSetting} onclick={() => pickMouse(m.id)}>
             <span class="tick">{#if m.id === mouseSetting}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
@@ -1427,7 +1428,7 @@
       {@render chipBody('keyboard', t('bar.keys'), true)}
     </button>
     {#if menu === 'keys'}
-      <div class="menu keys" role="menu" aria-label={t('bar.keys')}>
+      <div class="menu keys" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.keys')}>
         {#each keys as k (k.id)}
           <button role="menuitem" onclick={() => pickKeys(k.id)}>
             <span class="name">{k.name}</span><span class="hint">{k.hint}</span>
@@ -1704,7 +1705,7 @@
         {@render chipBody('monitor', shownQuality, true)}
       </button>
       {#if menu === 'quality'}
-        <div class="menu quality" role="menu" aria-label={t('share.quality')}>
+        <div class="menu quality" role="menu" use:menuKeys={closeMenu} aria-label={t('share.quality')}>
           <div class="menu-title" aria-hidden="true">{t('share.quality')}</div>
           {#each shareQualities as q (q)}
             <button role="menuitemradio" aria-checked={q === guest.quality} onclick={() => pickQuality(q)}>
@@ -1722,7 +1723,7 @@
           {@render chipBody('monitor', guest.watch.screen, true)}
         </button>
         {#if menu === 'screen'}
-          <div class="menu quality" role="menu" aria-label={guest.watch.screen}>
+          <div class="menu quality" role="menu" use:menuKeys={closeMenu} aria-label={guest.watch.screen}>
             <div class="menu-title" aria-hidden="true">{guest.watch.screen}</div>
             {#each guest.watch.screens as sc (sc.id)}
               <button role="menuitemradio" aria-checked={sc.id === watched} onclick={() => pickScreen(sc.id)}>
@@ -1755,7 +1756,7 @@
           {@render chipBody('tower', t('bar.computers'), true)}
         </button>
         {#if menu === 'computers'}
-          <div class="menu computers" role="menu" aria-label={t('bar.computers')}>
+          <div class="menu computers" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.computers')}>
             {#each others as c (c.id)}
               {@const inert = c.pick === 'full' || c.pick === 'waking' || c.pick === 'busy'}
               <button
@@ -1971,7 +1972,7 @@
         {@render chipBody(profileIcon, profileName, true, true)}
       </button>
       {#if menu === 'profile'}
-        <div class="menu" role="menu" aria-label={t('bar.profile')}>
+        <div class="menu" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.profile')}>
           {#each profiles as p (p.id)}
             <button role="menuitemradio" aria-checked={p.id === profile} onclick={() => pickProfile(p.id)}>
               <span class="tick">{#if p.id === profile}<Icon name="check" size={14} stroke={2.2} />{/if}</span>

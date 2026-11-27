@@ -11,6 +11,7 @@
   jour) : `station_pending` pendant l'attente, `station-outcome` à la fin.
 -->
 <script lang="ts">
+  import Sheet from './lib/Sheet.svelte'
   import { onMount } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import type { Computer, StationOutcome, StationRefusal } from './lib/api'
@@ -177,7 +178,7 @@
 
 {#if confirm}
   {@const c = confirm}
-  <div class="veil" role="presentation" onclick={(e) => e.target === e.currentTarget && (confirm = null)}>
+  <Sheet onclose={() => (confirm = null)} fixed animate={false}>
     <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-text">
       <h2 id="confirm-title">{c.device ? t('station.in_session_title', { device: c.device }) : t('station.in_session_anonymous')}</h2>
       <p id="confirm-text">{c.kind === 'restart' ? t('station.in_session_restart') : t('station.in_session_update')}</p>
@@ -186,7 +187,7 @@
         <button class="danger" onclick={() => run(c.kind, true)}>{c.kind === 'restart' ? t('station.restart_anyway') : t('station.update_anyway')}</button>
       </div>
     </div>
-  </div>
+  </Sheet>
 {/if}
 
 <style>
@@ -331,17 +332,6 @@
     background: #c42b1c;
     color: #fff;
     font-weight: 600;
-  }
-
-  .veil {
-    position: fixed;
-    inset: 0;
-    z-index: 30;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 56px 24px 24px;
-    background: rgb(5 7 10 / 0.7);
   }
 
   .dialog {

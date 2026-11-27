@@ -46,6 +46,7 @@
   cœur ; la ligne « Écran » dit alors « …, en HDR ». Ailleurs, aucune trace du HDR.
 -->
 <script lang="ts">
+  import { menuKeys } from './lib/menukeys'
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import StationBanner from './StationBanner.svelte'
@@ -390,7 +391,7 @@
               <Icon name="user" size={18} stroke={1.6} />{psAccountName(chosenAccount)}<Icon name="caret" size={14} stroke={2} />
             </button>
             {#if accountMenu}
-              <div class="menu" role="menu">
+              <div class="menu" role="menu" use:menuKeys={() => (accountMenu = false)}>
                 {#each c.accounts as a (a.id)}
                   <button role="menuitemradio" aria-checked={a.id === chosenAccount.id} onclick={() => ((accountMenu = false), a.id !== chosenAccount.id && onchooseaccount?.(c.id, a.id))}>
                     <span class="tick">{#if a.id === chosenAccount.id}<Icon name="check" size={14} stroke={2.2} />{/if}</span>{psAccountName(a)}
