@@ -289,6 +289,21 @@
   /** Médiane de chaque seconde d'image, et l'heure de la première image :
    * la dernière session (Statistiques) et la médiane envoyée à la fin. */
   let secondMedians: number[] = []
+  const MAX_SECOND_MEDIANS = 6 * 3600
+
+  /** Le rectangle de la toile, gardé tant qu'elle ne change ni de taille ni de place (WEB-18 : sans lui, une mise en
+   * page forcée à chaque mouvement de souris). */
+  let rectCache: { el: Element; rect: DOMRect } | null = null
+  let rectWatch: ResizeObserver | null = null
+  function canvasRect(el: Element): DOMRect {
+    if (rectCache?.el === el) return rectCache.rect
+    rectWatch?.disconnect()
+    rectWatch = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => (rectCache = null)) : null
+    rectWatch?.observe(el)
+    rectCache = { el, rect: el.getBoundingClientRect() }
+    return rectCache.rect
+  }
+  const forgetRect = () => (rectCache = null)
   let firstImageAt = 0
   let lastSaved = false
   /** D'où part le délai de l'image : la connexion (le démarrage de l'image
@@ -1912,7 +1927,7 @@
     setPositionMapper((cx, cy) => {
       const c = document.getElementById('kn-canvas')
       if (!c || !canvasSize.width) return null
-      const r = c.getBoundingClientRect()
+      const r = canvasRect(c)
       if (cx < r.left || cy < r.top || cx >= r.right || cy >= r.bottom) return null
       return {
         x: Math.min(canvasSize.width - 1, ((cx - r.left) * canvasSize.width) / r.width),
@@ -2043,6 +2058,10 @@
       if (document.visibilityState === 'hidden' && heartbeat.running) heartbeat.now()
     }
     window.addEventListener('resize', resize)
+    window.addEventListener('resize', forgetRect)
+    window.addEventListener('scroll', forgetRect, true)
+    window.visualViewport?.addEventListener('resize', forgetRect)
+    document.addEventListener('fullscreenchange', forgetRect)
     document.addEventListener('fullscreenchange', onFullscreenChange)
     window.addEventListener('pointerdown', unlockAudio)
     window.addEventListener('keydown', unlockAudio)
@@ -2050,19 +2069,28 @@
     document.addEventListener('visibilitychange', hidden)
     if (document.fullscreenElement) onFullscreenChange()
 
-    // Mesures et signal de vie.
+    // Mesures et signal de vie. L'historique se tient toujours ; l'état affiché ne change que quand quelque chose le
+    // montre (WEB-18 : la barre et les statistiques fermées, rien n'est à redessiner).
+    const sparkBuf: number[] = []
     const metrics = setInterval(() => {
       if (!engine || phase !== 'live') return
-      latency = engine.latency.median()
+      const l = engine.latency.median()
+      if (l) {
+        sparkBuf.push(l.total)
+        if (sparkBuf.length > 32) sparkBuf.shift()
+      }
+      if (!(barVisible || metricsOpen || touchBar)) return
+      latency = l
       fps = engine.latency.fps()
       pyroStats = plan?.pyrowave ? pyrowaveStats() : null
-      if (latency) spark = [...spark.slice(-31), latency.total]
+      spark = sparkBuf.slice()
     }, 500)
-    // Médiane de chaque seconde d'image, pour la dernière session.
+    // Médiane de chaque seconde d'image, pour la dernière session (bornée à 6 h, WEB-18).
     const seconds = setInterval(() => {
       if (!engine || phase !== 'live') return
       const v = engine.latency.lastSecond()
       if (v !== null) secondMedians.push(v)
+      if (secondMedians.length > MAX_SECOND_MEDIANS) secondMedians.splice(0, secondMedians.length - MAX_SECOND_MEDIANS)
     }, 1000)
     // La latence du signal de vie (le Worker envoie la dernière connue).
     const sampler = setInterval(() => {
@@ -2120,6 +2148,11 @@
       cancelDwell()
       touch?.destroy()
       window.removeEventListener('resize', resize)
+      window.removeEventListener('resize', forgetRect)
+      window.removeEventListener('scroll', forgetRect, true)
+      window.visualViewport?.removeEventListener('resize', forgetRect)
+      document.removeEventListener('fullscreenchange', forgetRect)
+      rectWatch?.disconnect()
       window.visualViewport?.removeEventListener('resize', viewport)
       window.visualViewport?.removeEventListener('scroll', viewport)
       window.removeEventListener('beforeunload', beforeUnload)

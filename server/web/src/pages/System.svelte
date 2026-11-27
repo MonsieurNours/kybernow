@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
   import { tick, untrack } from 'svelte'
-  import { api, ApiError, type GpuVendor, type LogFile, type UpdateChannel, type UpdateStatus } from '../lib/api'
+  import { api, ApiError, KYBER_VERSION, type GpuVendor, type LogFile, type UpdateChannel, type UpdateStatus } from '../lib/api'
   import { app, errorText, field, kyber, loadKyber, markRestartPending, notify, refreshStatus, setValues, value } from '../lib/store.svelte'
   import Icon from '../lib/Icon.svelte'
   import Segmented from '../lib/Segmented.svelte'
@@ -483,7 +483,7 @@
 
 <header class="space-head with-tabs">
   <div>
-    <span class="lbl">KyberNow Station {status?.admin_version ?? ''} · Kyber 0.29</span>
+    <span class="lbl">KyberNow Station {status?.admin_version ?? ''} · Kyber {status?.kyber_version ?? KYBER_VERSION}</span>
     <h1>{t('system.title')}</h1>
     <p>{t('system.intro')}</p>
     <nav class="tabs" aria-label={t('system.sections')}>

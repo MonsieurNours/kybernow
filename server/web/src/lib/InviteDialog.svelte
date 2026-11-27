@@ -6,6 +6,7 @@
   porte est attendu 10 s au plus, comme pour le prêt.
 -->
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { api, type Invite, type InvitesView, type InviteShown } from './api'
   import { errorText, notify } from './store.svelte'
   import { copyText } from './lend'
@@ -42,23 +43,32 @@
     return () => clearInterval(timer)
   })
 
-  let waitFrom = 0
+  /** L'invitation dont le relais prend le code (`null` sinon) : une valeur simple, qui ne change pas à chaque relecture. */
+  const connectingId = $derived(invite?.relay?.state === 'connecting' ? invite.id : null)
+  /** Depuis quand on attend le relais : posé par un effet, pas dans un `$derived` (WEB-27). */
+  let waitFrom = $state(0)
+  $effect(() => {
+    const id = connectingId
+    untrack(() => (waitFrom = id ? waitFrom || Date.now() : 0))
+  })
   const relay = $derived.by(() => {
     const st = invite?.relay?.state ?? null
     if (st !== 'connecting') return st
-    if (!waitFrom) waitFrom = Date.now()
-    return now - waitFrom < 10000 ? 'waiting' : 'unreachable'
+    return !waitFrom || now - waitFrom < 10000 ? 'waiting' : 'unreachable'
   })
 
-  // Tant que le relais prend le code, l'invitation est relue : son lien portera le relais.
+  // Tant que le relais prend le code, l'invitation est relue : son lien portera le relais. L'effet ne suit que
+  // l'identifiant (WEB-27 : il se recréait à chaque relecture, qui réécrit `shown`).
   $effect(() => {
-    if (invite?.relay?.state !== 'connecting') return
-    const id = invite.id
+    const id = connectingId
+    if (!id) return
     const timer = setInterval(async () => {
       try {
         const view = await api.invites()
         const fresh = view.invites.find((i) => i.id === id)
-        if (fresh && shown) shown = { ...shown, ...view, invite: fresh }
+        untrack(() => {
+          if (fresh && shown) shown = { ...shown, ...view, invite: fresh }
+        })
         onchange(view)
       } catch {
         // 401 gérée globalement ; on réessaie au tour suivant.

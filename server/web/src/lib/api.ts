@@ -215,6 +215,8 @@ export interface Status {
   os?: string | null
   lan_ip?: string
   admin_version: string
+  /** La version de Kyber, quand Admin la donne (sinon `KYBER_VERSION`, celle livrée avec la Station). */
+  kyber_version?: string
   kyber_dir: string
   config_path: string
   config_found: boolean
@@ -801,6 +803,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   return data as T
 }
+
+/** La version de Kyber livrée avec les Stations (WEB-27 : un seul endroit, en attendant qu'Admin la donne). */
+export const KYBER_VERSION = '0.29'
 
 export const api = {
   session: () =>

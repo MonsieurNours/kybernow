@@ -293,7 +293,7 @@
       {#each spaces as s (s.id)}
         <a href="#/{s.id}" class:current={s.id === current.id} aria-current={s.id === current.id ? 'page' : undefined}>
           {#if s.icon === 'link'}<Mark size={21} state="now" neutral="currentColor" />{:else}<Icon name={s.icon} size={22} />{/if}
-          {s.short}
+          <span class="label">{s.short}</span>
           {#if s.id === 'systeme' && updateBadge}<span class="pip" aria-label={t('app.updatePip')}></span>{/if}
           {#if s.id === 'appareils' && pairRequests.length}<span class="pip" aria-label={t('app.pairPip')}></span>{/if}
           {#if s.id === 'pret' && lendRequests.length}<span class="pip" aria-label={t('app.lendPip')}></span>{/if}
@@ -517,6 +517,17 @@
     color: var(--bad-text);
   }
 
+  /* Téléphone étroit : les icônes seules, le libellé reste lu par les lecteurs d'écran (WEB-16). */
+  @media (max-width: 480px) {
+    .tabbar .label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+  }
+
   @media (max-width: 760px) {
     .shell {
       grid-template-columns: 1fr;
@@ -563,6 +574,8 @@
     .tabbar a {
       position: relative;
       flex: 1;
+      /* Huit onglets (WEB-16) : chacun peut rétrécir sous la largeur de son libellé. */
+      min-width: 0;
       min-height: 56px;
       display: flex;
       flex-direction: column;
@@ -572,6 +585,13 @@
       font-size: 10.5px;
       color: var(--faint);
       text-decoration: none;
+    }
+
+    .tabbar .label {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .tabbar a.current {
