@@ -64,7 +64,7 @@ Written on 26/11/2026, branch `claude/micro-5db32e`; **nothing has been tried en
 | Part | State |
 |---|---|
 | Transport | common upstream channel 0085 (webcam session), merged into the branch; “microphone” asked at every start |
-| Right and several microphones (friend, allowed guests, no `busy`) | `0085-kycontroller-micro-droits.patch`, applied after the common channel; 114 kycontroller tests |
+| Right and several microphones (friend, allowed guests, no `busy`) | `0086-kycontroller-micro-droits.patch`, applied after the common channel; 114 kycontroller tests |
 | `kybernow-micro` helper | built for Mac, Windows, Linux; 7 tests (packets, losses, buffer); `--check` checked on this Mac (3: older driver) |
 | Mac driver “Micro KyberNow” | built; not installed (administrator) |
 | VB-CABLE | shipped by the Windows Station installer from 0.11.6 on (pack 46 in `third_party/payload/vbcable/`); not yet tried on a PC |
@@ -74,7 +74,7 @@ Written on 26/11/2026, branch `claude/micro-5db32e`; **nothing has been tried en
 
 ### Still to do
 
-- Redo `0085-kycontroller-micro-droits` on top of the borrower fix the webcam is making in 0085.
+- Redo `0086-kycontroller-micro-droits` on top of the borrower fix the webcam is making in 0085.
 - Web client: the upstream channel in the engine (web copy of kyclient and kyber-web), then `engineSendsMicrophone()`.
 - Tests: microphone received in “CABLE Output” (Windows, the helper runs as SYSTEM: WASAPI and the default microphone from session 0 are to be checked), “Micro KyberNow” (Mac, once the driver is installed), PipeWire (VM); echo with and without voice processing; Wi-Fi loss on the reliable stream; guests and lending.
 - `scripts/release.sh`: the Windows overlay's fingerprint (`kyber-overlay.stamp`) doesn't count `server/micro`; `server/micro/Cargo.toml`'s version isn't aligned.

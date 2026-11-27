@@ -76,10 +76,10 @@ index 7e1490e..2e5fbb3 100644
              guest_image: Default::default(),
          }
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index 26dfbfd..889a2e7 100644
+index 731b65c..eae03d3 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
-@@ -1495,6 +1495,9 @@ struct RoleRequest {
+@@ -1502,6 +1502,9 @@ struct RoleRequest {
      user: String,
      role: ShareRole,
      rev: u64,
@@ -89,7 +89,7 @@ index 26dfbfd..889a2e7 100644
  }
  
  /// `POST /kybernow/role`: a guest's new role, for its sessions (newer
-@@ -1505,7 +1508,12 @@ pub(crate) async fn post_role(
+@@ -1512,7 +1515,12 @@ pub(crate) async fn post_role(
      req: HttpRequest,
      body: web::Bytes,
  ) -> HttpResponse {
@@ -103,7 +103,7 @@ index 26dfbfd..889a2e7 100644
          Ok(request) => request,
          Err(refusal) => return refusal,
      };
-@@ -1520,7 +1528,15 @@ pub(crate) async fn post_role(
+@@ -1527,7 +1535,15 @@ pub(crate) async fn post_role(
          .unwrap()
          .values_mut()
          .filter(|s| s.username == user)
@@ -120,7 +120,7 @@ index 26dfbfd..889a2e7 100644
          .collect();
      info!(
          "\"{user}\" is now {role:?} (rev {rev}): {} sessions",
-@@ -1670,6 +1686,7 @@ mod tests {
+@@ -1677,6 +1693,7 @@ mod tests {
              rev,
              quality: ShareQuality::Host,
              hdr: false,
@@ -129,10 +129,10 @@ index 26dfbfd..889a2e7 100644
      }
  
 diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
-index b4367c1..159b55f 100644
+index 99073eb..4adfadb 100644
 --- a/kycontroller/src/kymux_controller/mod.rs
 +++ b/kycontroller/src/kymux_controller/mod.rs
-@@ -961,7 +961,9 @@ async fn start_session(
+@@ -966,7 +966,9 @@ async fn start_session(
              .with_session(&session_id, |s| Ok(crate::uplink::is_borrower(&s.username)))
              .unwrap_or(false);
          let guest = crate::kybernow::is_guest(ctrl, &session_id) && !borrower;
