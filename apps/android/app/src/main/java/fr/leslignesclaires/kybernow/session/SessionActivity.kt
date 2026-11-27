@@ -737,6 +737,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (handle != 0L) Native.sessionSetBackground(handle, true)
         pads.mouse.stop()
         wifi.release()
+        KeyCapture.set(this, false)
     }
 
     /**
@@ -748,6 +749,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (!::ui.isInitialized || !::haptics.isInitialized || !::stylus.isInitialized) return
+        // La touche ⊞ et Alt+Tab pour l'ordinateur tant que la session a le focus, rendues au système sinon (KeyCapture).
+        KeyCapture.set(this, hasFocus)
         if (!hasFocus) {
             ui.pad.releaseAll()
             haptics.stop()
@@ -1768,9 +1771,14 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
      */
     private fun SessionUi.anythingModal() = menuOpen || keysOpen || typing || shareOpen || qualityOpen || lendOpen || giveBackConfirm
 
+    /**
+     * Une touche d'un vrai clavier : un clavier alphabétique qui donne le code matériel de la touche. Un appareil virtuel
+     * compte aussi quand il donne ce code (clavier d'un PC relayé, comme Samsung DeX sur ordinateur) ; le clavier de
+     * l'écran, lui, n'en donne pas (`scanCode` à 0) et passe par le texte.
+     */
     private fun isKeyboard(e: KeyEvent): Boolean {
         val d = e.device ?: return false
-        return !d.isVirtual && d.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC && e.scanCode > 0
+        return d.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC && e.scanCode > 0
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {

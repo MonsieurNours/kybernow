@@ -11,6 +11,9 @@
     <!-- Découverte des ordinateurs sur le réseau (mDNS) et Wake-on-LAN. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- La touche ⊞, Alt+Tab et les raccourcis du système pour l'ordinateur pendant une session (session/KeyCapture.kt) :
+         protection « normal », sans effet sur les versions d'Android qui ne la connaissent pas. -->
+    <uses-permission android:name="android.permission.CAPTURE_KEYBOARD" />
     <!-- QR code d'Admin, à la caméra (téléphone, tablette). -->
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Micro de l'appareil vers l'ordinateur (docs/micro.md), demandé au premier allumage seulement. -->
