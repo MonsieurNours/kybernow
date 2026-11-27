@@ -1,9 +1,9 @@
 diff --git a/kynput/src/linux/abs_pointer.rs b/kynput/src/linux/abs_pointer.rs
 new file mode 100644
-index 0000000..1c780a3
+index 0000000..9a6bad8
 --- /dev/null
 +++ b/kynput/src/linux/abs_pointer.rs
-@@ -0,0 +1,151 @@
+@@ -0,0 +1,160 @@
 +// Project Kyber: abs_pointer.rs
 +// Copyright © 2022-2026 Kyber SAS
 +// SPDX-License-Identifier: LicenseRef-Kyber-Commercial OR AGPL-3.0-or-later
@@ -140,6 +140,15 @@ index 0000000..1c780a3
 +    )
 +}
 +
++/// Relâchement d'un bouton par le pointeur absolu s'il est branché (sans le
++/// brancher) : il a pu recevoir l'appui avant qu'un mouvement relatif rende
++/// la main à la souris relative.
++pub(crate) fn release_button(code: EventCode) -> Result<()> {
++    let Some(Some(device)) = DEVICE.get() else { return Ok(()) };
++    let device = device.lock().unwrap_or_else(|e| e.into_inner());
++    write(&device, &[(code, 0)])
++}
++
 +/// Clic ou molette par le pointeur absolu (quand il tient le pointeur).
 +pub(crate) fn emit(events: &[(EventCode, i32)]) -> Result<()> {
 +    let Some(device) = device() else { return Ok(()) };
@@ -156,23 +165,30 @@ index 0000000..1c780a3
 +    }
 +}
 diff --git a/kynput/src/linux/host_mouse.rs b/kynput/src/linux/host_mouse.rs
-index 06f305c..4a6edfe 100644
+index 06f305c..9966743 100644
 --- a/kynput/src/linux/host_mouse.rs
 +++ b/kynput/src/linux/host_mouse.rs
-@@ -82,6 +82,12 @@ impl Backend {
+@@ -82,6 +82,19 @@ impl Backend {
  
          let ev_code = EventCode::EV_KEY(ev_key);
  
++        // KyberNow : un relâchement part vers les deux périphériques : l'appui
++        // a pu partir vers l'autre (glisser commencé en absolu, puis
++        // pointeur capturé), et le compositeur garderait le bouton enfoncé.
++        // Relâcher un bouton qui n'est pas enfoncé ne fait rien.
++        if !event.pressed {
++            super::abs_pointer::release_button(ev_code)?;
++        }
 +        // KyberNow : le pointeur absolu (Wayland) tient le pointeur, ses clics
 +        // passent par lui.
-+        if super::abs_pointer::active() {
-+            return super::abs_pointer::emit(&[(ev_code, event.pressed as i32)]);
++        else if super::abs_pointer::active() {
++            return super::abs_pointer::emit(&[(ev_code, 1)]);
 +        }
 +
          let sys_event = EvdevEvent::new(&ts, &ev_code, event.pressed as i32);
          self.device.write_event(&sys_event)?;
  
-@@ -93,6 +99,7 @@ impl Backend {
+@@ -93,6 +106,7 @@ impl Backend {
  
      fn inject_move(&self, event: &MouseMove) -> Result<()> {
          let ts = TimeVal::new(0, 0);
@@ -180,7 +196,7 @@ index 06f305c..4a6edfe 100644
  
          if event.dx != 0 {
              let ev_code = EventCode::EV_REL(EV_REL::REL_X);
-@@ -120,6 +127,10 @@ impl Backend {
+@@ -120,6 +134,10 @@ impl Backend {
      fn uinput_inject_wheel(&self, ev_code: EventCode, value: i32) -> Result<()> {
          let ts = TimeVal::new(0, 0);
  
