@@ -1,4 +1,5 @@
 diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
+index 6127019..9718fb4 100644
 --- a/subprojects/txproto/src/encode.c
 +++ b/subprojects/txproto/src/encode.c
 @@ -32,6 +32,7 @@
@@ -9,15 +10,101 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
  #include "os_compat.h"
  #include <libtxproto/utils.h>
  #include "utils.h"
-@@ -591,6 +592,7 @@
+@@ -637,6 +638,8 @@ static int recreate_encoder(EncodingContext *ctx, AVFrame *conf)
      int ret;
  
      sp_log(ctx, SP_LOG_INFO, "Recreate encoder\n");
 +    kn_recovery_reset(ctx->kn_recovery); /* KyberNow (0060) */
++    av_frame_unref(ctx->kn_last); /* an image of the former configuration */
  
      /* Delete encoder */
      if (ctx->enc_frames_ref)
-@@ -738,6 +740,14 @@
+@@ -703,6 +706,71 @@ static void kn_report_dropped(EncodingContext *ctx, const AVFrame *frame)
+     }
+ }
+ 
++/* KyberNow (0060): a repair or a keyframe is asked for: unless an image
++ * comes within kn_repeat_us, the last one is encoded again (still screen).
++ * Control thread. */
++static void kn_repeat_arm(EncodingContext *ctx)
++{
++    int_fast64_t none = 0;
++    if (!ctx->kn_repeat_us || !ctx->codec || ctx->codec->type != AVMEDIA_TYPE_VIDEO)
++        return;
++    atomic_compare_exchange_strong(&ctx->kn_repeat_due, &none,
++                                   av_gettime_relative() + ctx->kn_repeat_us);
++    sp_frame_fifo_wake(ctx->src_frames);
++}
++
++/* KyberNow (0060): the last image given to the encoder, again, with a pts
++ * as much newer as the time since it went in (the capture's clock), its
++ * timing dropped (it was not captured now). NULL without one. */
++static AVFrame *kn_repeat_frame(EncodingContext *ctx)
++{
++    AVFrame *frame;
++    int64_t elapsed;
++
++    if (!ctx->kn_last || !ctx->kn_last->buf[0])
++        return NULL;
++    frame = av_frame_clone(ctx->kn_last);
++    if (!frame)
++        return NULL;
++    elapsed = av_gettime_relative() - ctx->kn_last_at;
++    if (frame->opaque_ref) {
++        FormatExtraData *fe = (FormatExtraData *)frame->opaque_ref->data;
++        elapsed = av_rescale_q(elapsed, AV_TIME_BASE_Q, fe->time_base);
++    }
++    frame->pts += FFMAX(elapsed, 1);
++    frame->pict_type = AV_PICTURE_TYPE_NONE;
++    av_frame_remove_side_data(frame, KN_FRAME_DATA_TIMING);
++    return frame;
++}
++
++/* KyberNow (0060): the next image of a video encoder, from the capture, or
++ * the last one again when a repair is due and none came; NULL for the end
++ * of the stream (or a flush), as sp_frame_fifo_pop(). */
++static AVFrame *kn_next_video_frame(EncodingContext *ctx)
++{
++    for (;;) {
++        AVFrame *frame = NULL;
++        int64_t due = atomic_load(&ctx->kn_repeat_due), wait = -1;
++
++        if (due)
++            wait = FFMAX(due - av_gettime_relative(), 0);
++        if (!sp_frame_fifo_pop_timed(ctx->src_frames, &frame, wait)) {
++            if (frame) /* a new image: it carries the repair */
++                atomic_store(&ctx->kn_repeat_due, 0);
++            return frame;
++        }
++        due = atomic_load(&ctx->kn_repeat_due);
++        if (due && av_gettime_relative() >= due) {
++            atomic_store(&ctx->kn_repeat_due, 0);
++            if ((frame = kn_repeat_frame(ctx))) {
++                sp_log(ctx, SP_LOG_VERBOSE, "No image since %.0f ms: the last one again\n",
++                       (av_gettime_relative() - ctx->kn_last_at) / 1000.0);
++                return frame;
++            }
++        }
++    }
++}
++
+ static void *encoding_thread(void *arg)
+ {
+     EncodingContext *ctx = arg;
+@@ -739,7 +807,11 @@ static void *encoding_thread(void *arg)
+             if (ctx->avctx->flags & AV_CODEC_FLAG_GLOBAL_HEADER)
+                 ctx->attach_sidedata = 1;
+         } else if (!flush) {
+-            frame = sp_frame_fifo_pop(ctx->src_frames);
++            /* KyberNow (0060): a video image, or the last one again. */
++            if (ctx->codec->type == AVMEDIA_TYPE_VIDEO && ctx->kn_repeat_us)
++                frame = kn_next_video_frame(ctx);
++            else
++                frame = sp_frame_fifo_pop(ctx->src_frames);
+             flush = !frame;
+             if (frame && ctx->codec->type == AVMEDIA_TYPE_VIDEO)
+                 kn_report_dropped(ctx, frame); /* KyberNow (0040) */
+@@ -784,6 +856,14 @@ static void *encoding_thread(void *arg)
                  out_pkt = av_packet_alloc();
  
                  int clear_forced_idr = 0;
@@ -32,7 +119,22 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
                  if (frame && atomic_load(&ctx->force_idr)) {
                      /* Force the next frame to be an IDR. The option name differs
                       * across encoders: nvenc and x264 expose "forced-idr" (dash),
-@@ -773,6 +783,15 @@
+@@ -810,6 +890,14 @@ static void *encoding_thread(void *arg)
+                 if (frame && ctx->codec->type == AVMEDIA_TYPE_VIDEO)
+                     kn_timing_sent(&ctx->kn_timing, frame);
+ 
++                /* KyberNow (0060): kept, to be encoded again for a repair
++                 * on a still screen (kn_next_video_frame). */
++                if (frame && ctx->codec->type == AVMEDIA_TYPE_VIDEO && ctx->kn_repeat_us) {
++                    av_frame_unref(ctx->kn_last);
++                    if (ctx->kn_last && av_frame_ref(ctx->kn_last, frame) >= 0)
++                        ctx->kn_last_at = av_gettime_relative();
++                }
++
+                 /* Give frame */
+                 ret = avcodec_send_frame(ctx->avctx, frame);
+                 av_frame_free(&frame);
+@@ -819,6 +907,15 @@ static void *encoding_thread(void *arg)
                      goto fail;
                  }
  
@@ -48,7 +150,7 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
                  if (clear_forced_idr) {
                      /* Restore the default so subsequent frames are not also
                       * promoted to IDR. */
-@@ -829,6 +848,15 @@
+@@ -875,6 +972,15 @@ static void *encoding_thread(void *arg)
                  goto fail;
              }
  
@@ -64,7 +166,19 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
              /* KyberNow (0023): the steps of the image, a line every 5 s. */
              if (ctx->codec->type == AVMEDIA_TYPE_VIDEO) {
                  char kn_line[512];
-@@ -943,6 +971,17 @@
+@@ -959,6 +1065,11 @@ static int encoder_ioctx_ctrl_cb(AVBufferRef *event_ref, void *callback_ctx,
+             else
+                 sp_packet_fifo_set_max_queued(ctx->src_frames, len);
+         }
++        /* KyberNow (0060): "repeat_ms", see kn_repeat_us (0: off). */
++        if ((tmp_val = dict_get(event->opts, "repeat_ms"))) {
++            long ms = strtol(tmp_val, NULL, 10);
++            ctx->kn_repeat_us = ms > 0 ? ms * 1000 : 0;
++        }
+         /* KyberNow (0040): "latest_only" = 0 brings back the plain FIFO. */
+         if ((tmp_val = dict_get(event->opts, "latest_only"))) {
+             ctx->kn_latest_only = !!strtol(tmp_val, NULL, 10);
+@@ -989,9 +1100,22 @@ static int encoder_ioctx_ctrl_cb(AVBufferRef *event_ref, void *callback_ctx,
  
              sp_log(ctx, SP_LOG_INFO, "Change bitrate to %d\n", bitrate);
              ctx->avctx->bit_rate = bitrate;
@@ -79,40 +193,197 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
 +            }
 +            sp_log(ctx, SP_LOG_VERBOSE, "Repair asked for, up to %lld\n", last_pts);
 +            kn_recovery_request(ctx->kn_recovery, last_pts);
++            kn_repeat_arm(ctx);
          } else if (!strcmp(command, "force_idr")) {
              sp_log(ctx, SP_LOG_INFO, "Force IDR\n");
              atomic_store(&ctx->force_idr, 1);
-@@ -1035,6 +1074,7 @@
++            kn_repeat_arm(ctx); /* KyberNow (0060) */
+         } else {
+             sp_log(ctx, SP_LOG_WARN, "Got unknown command %s\n", command);
+         }
+@@ -1081,6 +1205,8 @@ static void encoder_free(void *opaque, uint8_t *data)
  
      avcodec_free_context(&ctx->avctx);
      kn_timing_free(&ctx->kn_timing); /* KyberNow (0023) */
 +    kn_recovery_free(&ctx->kn_recovery); /* KyberNow (0060) */
++    av_frame_free(&ctx->kn_last);
  
      pthread_mutex_destroy(&ctx->lock);
  
-@@ -1068,6 +1108,7 @@
+@@ -1114,6 +1240,10 @@ AVBufferRef *sp_encoder_alloc(void)
      ctx->soft_flush = ATOMIC_VAR_INIT(0);
      ctx->force_idr = ATOMIC_VAR_INIT(0);
      ctx->kn_latest_only = 1; /* KyberNow (0040) */
 +    ctx->kn_recovery = kn_recovery_new(); /* KyberNow (0060) */
++    ctx->kn_last = av_frame_alloc();
++    ctx->kn_repeat_us = 50000;
++    atomic_init(&ctx->kn_repeat_due, 0);
  
      ctx->src_frames = sp_frame_fifo_create(ctx, 8, FRAME_FIFO_BLOCK_NO_INPUT);
      ctx->dst_packets = sp_packet_fifo_create(ctx, 0, 0);
+diff --git a/subprojects/txproto/src/fifo_template.c b/subprojects/txproto/src/fifo_template.c
+index ec84ef7..162aabf 100644
+--- a/subprojects/txproto/src/fifo_template.c
++++ b/subprojects/txproto/src/fifo_template.c
+@@ -16,7 +16,9 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
++#include <errno.h>
+ #include <libtxproto/utils.h>
++#include <libavutil/time.h>
+ 
+ typedef struct SNAME {
+     TYPE **queued;
+@@ -37,6 +39,8 @@ typedef struct SNAME {
+      * `dropped` counts the items it replaced. */
+     int latest_only;
+     int dropped;
++    /* KyberNow (0060): fifo_wake() was called (fifo_pop_timed). */
++    int woken;
+ } SNAME;
+ 
+ static AVBufferRef *find_ref_by_data(AVBufferRef *entry, void *opaque)
+@@ -373,6 +377,68 @@ unlock:
+     return ret;
+ }
+ 
++/* KyberNow (0060): fifo_pop() that waits for an item at most `timeout_us`
++ * (< 0: without limit, 0: not at all) and returns early when fifo_wake() is
++ * called: 0 with the item (NULL for an end of stream or a flush), or
++ * AVERROR(EAGAIN) with none. For an encoder that has something to do while
++ * no image comes (encode.c: the last image again, for a repair). */
++int RENAME(fifo_pop_timed)(AVBufferRef *src, TYPE **dst, int64_t timeout_us)
++{
++    int ret = 0;
++
++    *dst = NULL;
++    if (!src)
++        return 0;
++
++    SNAME *ctx = (SNAME *)src->data;
++    pthread_mutex_lock(&ctx->lock);
++
++    if (!ctx->num_queued && !ctx->woken && timeout_us) {
++        if (timeout_us < 0) {
++            while (!ctx->num_queued && !ctx->woken)
++                pthread_cond_wait(&ctx->cond_in, &ctx->lock);
++        } else {
++            /* pthread_cond_timedwait() reads the wall clock (CLOCK_REALTIME),
++             * as av_gettime() does. */
++            const int64_t until = av_gettime() + timeout_us;
++            struct timespec ts = { until / 1000000, (until % 1000000) * 1000 };
++            while (!ctx->num_queued && !ctx->woken)
++                if (pthread_cond_timedwait(&ctx->cond_in, &ctx->lock, &ts) == ETIMEDOUT)
++                    break;
++        }
++    }
++    ctx->woken = 0;
++
++    if (!ctx->num_queued) {
++        ret = AVERROR(EAGAIN);
++        goto unlock;
++    }
++
++    *dst = ctx->queued[0];
++    ctx->num_queued--;
++    memmove(&ctx->queued[0], &ctx->queued[1], ctx->num_queued*sizeof(TYPE *));
++
++    if (ctx->max_queued > 0)
++        pthread_cond_signal(&ctx->cond_out);
++
++unlock:
++    pthread_mutex_unlock(&ctx->lock);
++    return ret;
++}
++
++/* KyberNow (0060): ends a wait of fifo_pop_timed() (or the next one) with
++ * AVERROR(EAGAIN). */
++void RENAME(fifo_wake)(AVBufferRef *src)
++{
++    if (!src)
++        return;
++    SNAME *ctx = (SNAME *)src->data;
++    pthread_mutex_lock(&ctx->lock);
++    ctx->woken = 1;
++    pthread_cond_broadcast(&ctx->cond_in);
++    pthread_mutex_unlock(&ctx->lock);
++}
++
+ TYPE *RENAME(fifo_pop)(AVBufferRef *src)
+ {
+     TYPE *ret;
+diff --git a/subprojects/txproto/src/include/libtxproto/encode.h b/subprojects/txproto/src/include/libtxproto/encode.h
+index d8401ac..d2d7c80 100644
 --- a/subprojects/txproto/src/include/libtxproto/encode.h
 +++ b/subprojects/txproto/src/include/libtxproto/encode.h
-@@ -98,6 +98,9 @@
+@@ -98,6 +98,19 @@ typedef struct EncodingContext {
      int64_t kn_dropped_sent_at;
      int kn_dropped_logged;
      int64_t kn_dropped_logged_at;
 +
 +    /* KyberNow (0060): repair of a loss without a keyframe (kn_recovery.h) */
 +    struct KnRecovery *kn_recovery;
++    /* KyberNow (0060): a still screen sends no image, so a repair or a
++     * keyframe asked for would wait for the next movement. The last image
++     * given to the encoder is kept, and encoded again (newer pts) when one
++     * is asked for and no image comes within kn_repeat_us ("repeat_ms"
++     * option, 50 ms; 0: off). kn_repeat_due: when (av_gettime_relative()),
++     * 0 when nothing is pending. */
++    AVFrame *kn_last;
++    int64_t kn_last_at;
++    int64_t kn_repeat_us;
++    atomic_int_fast64_t kn_repeat_due;
  } EncodingContext;
  
  AVBufferRef *sp_encoder_alloc(void);
+diff --git a/subprojects/txproto/src/include/libtxproto/fifo_bufferref.h b/subprojects/txproto/src/include/libtxproto/fifo_bufferref.h
+index 6e4cdd1..dcdf07a 100644
+--- a/subprojects/txproto/src/include/libtxproto/fifo_bufferref.h
++++ b/subprojects/txproto/src/include/libtxproto/fifo_bufferref.h
+@@ -40,6 +40,9 @@ int RENAME(fifo_unmirror_all)(AVBufferRef *dst);
+ int   RENAME(fifo_push)(AVBufferRef *dst, TYPE *in);
+ TYPE *RENAME(fifo_pop)(AVBufferRef *src);
+ int   RENAME(fifo_pop_flags)(AVBufferRef *src, TYPE **ret, FNAME flags);
++/* KyberNow (0060): see fifo_template.c. */
++int   RENAME(fifo_pop_timed)(AVBufferRef *src, TYPE **ret, int64_t timeout_us);
++void  RENAME(fifo_wake)(AVBufferRef *src);
+ TYPE *RENAME(fifo_peek)(AVBufferRef *src);
+ 
+ #undef TYPE
+diff --git a/subprojects/txproto/src/include/libtxproto/fifo_frame.h b/subprojects/txproto/src/include/libtxproto/fifo_frame.h
+index 09536ef..1640a9a 100644
+--- a/subprojects/txproto/src/include/libtxproto/fifo_frame.h
++++ b/subprojects/txproto/src/include/libtxproto/fifo_frame.h
+@@ -59,6 +59,9 @@ int RENAME(fifo_unmirror_all)(AVBufferRef *dst);
+ int   RENAME(fifo_push)(AVBufferRef *dst, TYPE *in);
+ TYPE *RENAME(fifo_pop)(AVBufferRef *src);
+ int   RENAME(fifo_pop_flags)(AVBufferRef *src, TYPE **ret, FNAME flags);
++/* KyberNow (0060): see fifo_template.c. */
++int   RENAME(fifo_pop_timed)(AVBufferRef *src, TYPE **ret, int64_t timeout_us);
++void  RENAME(fifo_wake)(AVBufferRef *src);
+ TYPE *RENAME(fifo_peek)(AVBufferRef *src);
+ 
+ #undef TYPE
+diff --git a/subprojects/txproto/src/include/libtxproto/fifo_packet.h b/subprojects/txproto/src/include/libtxproto/fifo_packet.h
+index af9cdf1..2b8d012 100644
+--- a/subprojects/txproto/src/include/libtxproto/fifo_packet.h
++++ b/subprojects/txproto/src/include/libtxproto/fifo_packet.h
+@@ -59,6 +59,9 @@ int RENAME(fifo_unmirror_all)(AVBufferRef *dst);
+ int   RENAME(fifo_push)(AVBufferRef *dst, TYPE *in);
+ TYPE *RENAME(fifo_pop)(AVBufferRef *src);
+ int   RENAME(fifo_pop_flags)(AVBufferRef *src, TYPE **ret, FNAME flags);
++/* KyberNow (0060): see fifo_template.c. */
++int   RENAME(fifo_pop_timed)(AVBufferRef *src, TYPE **ret, int64_t timeout_us);
++void  RENAME(fifo_wake)(AVBufferRef *src);
+ TYPE *RENAME(fifo_peek)(AVBufferRef *src);
+ 
+ #undef TYPE
+diff --git a/subprojects/txproto/src/include/libtxproto/txproto.h b/subprojects/txproto/src/include/libtxproto/txproto.h
+index 23027c6..829eea7 100644
 --- a/subprojects/txproto/src/include/libtxproto/txproto.h
 +++ b/subprojects/txproto/src/include/libtxproto/txproto.h
-@@ -77,6 +77,11 @@
+@@ -77,6 +77,11 @@ int tx_encoder_set_bitrate(TXMainContext *ctx, AVBufferRef *encoder, int bitrate
  
  int tx_encoder_force_idr(TXMainContext *ctx, AVBufferRef *encoder);
  
@@ -124,7 +395,40 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
  AVBufferRef *tx_muxer_create(TXMainContext *ctx, const char *out_url,
                               const char *out_format, AVDictionary *options,
                               AVDictionary *init_opts);
---- a/subprojects/txproto/src/kn_recovery.h
+diff --git a/subprojects/txproto/src/iosys_dxgi.c b/subprojects/txproto/src/iosys_dxgi.c
+index 4f1ff4c..9ab0925 100644
+--- a/subprojects/txproto/src/iosys_dxgi.c
++++ b/subprojects/txproto/src/iosys_dxgi.c
+@@ -803,7 +803,9 @@ static int allocate_texture_pool(DxgiCtx *ctx, DxgiCapture *priv,
+     hw_frames_ctx_cfg->sw_format = priv->hdr == KN_HDR_PQ ? AV_PIX_FMT_P010 : AV_PIX_FMT_BGRA;
+     hw_frames_ctx_cfg->width = priv->hdr == KN_HDR_PQ ? FFALIGN(width, 2) : width;
+     hw_frames_ctx_cfg->height = priv->hdr == KN_HDR_PQ ? FFALIGN(height, 2) : height;
+-    hw_frames_ctx_cfg->initial_pool_size = 6;
++    /* KyberNow (0060): one more than 6, for the last image the encoder keeps
++     * to encode it again on a still screen (encode.c, kn_repeat_frame). */
++    hw_frames_ctx_cfg->initial_pool_size = 7;
+ 
+     /* Required for AMF */
+     AVD3D11VAFramesContext *d3d11_frames_ctx = (AVD3D11VAFramesContext *)hw_frames_ctx_cfg->hwctx;
+diff --git a/subprojects/txproto/src/iosys_nvfbc.c b/subprojects/txproto/src/iosys_nvfbc.c
+index e0fee54..942bd13 100644
+--- a/subprojects/txproto/src/iosys_nvfbc.c
++++ b/subprojects/txproto/src/iosys_nvfbc.c
+@@ -466,7 +466,9 @@ static int allocate_texture_pool(NVFBCCtx *ctx, NVFBCCapture *priv, size_t width
+     hw_frames_ctx_cfg->sw_format = AV_PIX_FMT_BGRA;
+     hw_frames_ctx_cfg->width = width;
+     hw_frames_ctx_cfg->height = height;
+-    hw_frames_ctx_cfg->initial_pool_size = 6;
++    /* KyberNow (0060): one more than 6, for the last image the encoder keeps
++     * to encode it again on a still screen (encode.c, kn_repeat_frame). */
++    hw_frames_ctx_cfg->initial_pool_size = 7;
+ 
+     err = av_hwframe_ctx_init(priv->hw_frames_ctx);
+     if (err < 0) {
+diff --git a/subprojects/txproto/src/kn_recovery.h b/subprojects/txproto/src/kn_recovery.h
+new file mode 100644
+index 0000000..cdbc512
+--- /dev/null
 +++ b/subprojects/txproto/src/kn_recovery.h
 @@ -0,0 +1,277 @@
 +/*
@@ -404,26 +708,44 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
 +}
 +
 +#endif /* KN_RECOVERY_H */
+diff --git a/subprojects/txproto/src/txproto.c b/subprojects/txproto/src/txproto.c
+index a5b5489..6229193 100644
 --- a/subprojects/txproto/src/txproto.c
 +++ b/subprojects/txproto/src/txproto.c
-@@ -333,20 +333,58 @@
-     int err = 0;
+@@ -355,6 +355,44 @@ int tx_encoder_force_idr(TXMainContext *ctx, AVBufferRef *encoder)
+     return 0;
+ }
  
-     err = av_dict_set(&commands, "command", "force_idr", 0);
++/* KyberNow (0060) */
++int tx_encoder_recover(TXMainContext *ctx, AVBufferRef *encoder, int64_t last_pts)
++{
++    AVDictionary *commands = NULL;
++    int err = 0;
++
++    err = av_dict_set(&commands, "command", "recover", 0);
 +    if (err < 0) {
 +        sp_log(ctx, SP_LOG_ERROR, "av_dict_set() failed: %s!", av_err2str(err));
++        return err;
++    }
++
++    err = av_dict_set_int(&commands, "last_pts", last_pts, 0);
++    if (err < 0) {
++        sp_log(ctx, SP_LOG_ERROR, "av_dict_set_int() failed: %s!", av_err2str(err));
++        av_dict_free(&commands);
 +        return err;
 +    }
 +
 +    err = sp_encoder_ctrl(encoder, SP_EVENT_CTRL_COMMAND, commands);
 +    if (err < 0) {
 +        sp_log(ctx, SP_LOG_ERROR, "sp_encoder_ctrl() failed: %s!", av_err2str(err));
++        av_dict_free(&commands);
 +        return err;
 +    }
 +
 +    err = sp_add_commit_fn_to_list(ctx, sp_encoder_ctrl, encoder);
 +    if (err < 0) {
 +        sp_log(ctx, SP_LOG_ERROR, "sp_add_commit_fn_to_list() failed: %s!", av_err2str(err));
++        av_dict_free(&commands);
 +        return err;
 +    }
 +
@@ -432,36 +754,6 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
 +    return 0;
 +}
 +
-+/* KyberNow (0060) */
-+int tx_encoder_recover(TXMainContext *ctx, AVBufferRef *encoder, int64_t last_pts)
-+{
-+    AVDictionary *commands = NULL;
-+    int err = 0;
-+
-+    err = av_dict_set(&commands, "command", "recover", 0);
-     if (err < 0) {
-         sp_log(ctx, SP_LOG_ERROR, "av_dict_set() failed: %s!", av_err2str(err));
-         return err;
-     }
- 
-+    err = av_dict_set_int(&commands, "last_pts", last_pts, 0);
-+    if (err < 0) {
-+        sp_log(ctx, SP_LOG_ERROR, "av_dict_set_int() failed: %s!", av_err2str(err));
-+        av_dict_free(&commands);
-+        return err;
-+    }
-+
-     err = sp_encoder_ctrl(encoder, SP_EVENT_CTRL_COMMAND, commands);
-     if (err < 0) {
-         sp_log(ctx, SP_LOG_ERROR, "sp_encoder_ctrl() failed: %s!", av_err2str(err));
-+        av_dict_free(&commands);
-         return err;
-     }
- 
-     err = sp_add_commit_fn_to_list(ctx, sp_encoder_ctrl, encoder);
-     if (err < 0) {
-         sp_log(ctx, SP_LOG_ERROR, "sp_add_commit_fn_to_list() failed: %s!", av_err2str(err));
-+        av_dict_free(&commands);
-         return err;
-     }
- 
+ AVBufferRef *tx_muxer_create(TXMainContext *ctx, const char *out_url,
+                              const char *out_format, AVDictionary *options,
+                              AVDictionary *init_opts)

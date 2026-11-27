@@ -1,5 +1,5 @@
 diff --git a/subprojects/libavconv/libavgrab/avgrab.c b/subprojects/libavconv/libavgrab/avgrab.c
-index 6b6538173b..546e1851f0 100644
+index 6b65381..546e185 100644
 --- a/subprojects/libavconv/libavgrab/avgrab.c
 +++ b/subprojects/libavconv/libavgrab/avgrab.c
 @@ -1195,8 +1195,8 @@ int avgrabi_capture_send_frame(GrabCapture *c, unsigned stream_idx,
@@ -14,7 +14,7 @@ index 6b6538173b..546e1851f0 100644
      if (frame->nb_samples && frame->sample_rate) {
          frame->duration = av_rescale_q(frame->nb_samples,
 diff --git a/subprojects/libavconv/libavgrab/avgrab.h b/subprojects/libavconv/libavgrab/avgrab.h
-index 0c10320563..90545f1a5b 100644
+index 0c10320..90545f1 100644
 --- a/subprojects/libavconv/libavgrab/avgrab.h
 +++ b/subprojects/libavconv/libavgrab/avgrab.h
 @@ -616,6 +616,12 @@ typedef struct AVGrabSource {
@@ -31,7 +31,7 @@ index 0c10320563..90545f1a5b 100644
  
  /**
 diff --git a/subprojects/libavconv/libavgrab/internal.h b/subprojects/libavconv/libavgrab/internal.h
-index 0bef4a80e7..cac6d591f7 100644
+index 0bef4a8..cac6d59 100644
 --- a/subprojects/libavconv/libavgrab/internal.h
 +++ b/subprojects/libavconv/libavgrab/internal.h
 @@ -189,6 +189,9 @@ int avgrabi_source_stream_add(GrabSource *src,
@@ -45,45 +45,30 @@ index 0bef4a80e7..cac6d591f7 100644
  
  int avgrabi_capture_send_frame(GrabCapture *c, unsigned stream_idx,
 diff --git a/subprojects/libavconv/libavgrab/wasapi.c b/subprojects/libavconv/libavgrab/wasapi.c
-index 0d16aa4c14..06dbc088cb 100644
+index 0d16aa4..3b6ba7c 100644
 --- a/subprojects/libavconv/libavgrab/wasapi.c
 +++ b/subprojects/libavconv/libavgrab/wasapi.c
-@@ -9,6 +9,7 @@
-  */
+@@ -35,6 +35,8 @@
  
- #include <stdatomic.h>
-+#include <stdlib.h>
+ #include "avgrab.h"
+ #include "internal.h"
++/* KyberNow: the clock of txproto's WASAPI capture (0003), one source. */
++#include "../../txproto/src/kn_audio_clock.h"
  
- #define COBJMACROS
- #define CONST_VTABLE
-@@ -27,6 +28,7 @@
- #include <libavutil/error.h>
- #include <libavutil/frame.h>
- #include <libavutil/log.h>
-+#include <libavutil/mathematics.h>
- #include <libavutil/mem.h>
- #include <libavutil/samplefmt.h>
- #include <libavutil/time.h>
-@@ -57,8 +59,18 @@ typedef struct WasapiCapture {
+ typedef struct WasapiProviderContext {
+     IMMDeviceEnumerator        *e;
+@@ -57,6 +59,10 @@ typedef struct WasapiCapture {
      int                         sample_rate;
      int                         block_align;
      AVChannelLayout             ch_layout;
 +
-+    /* KyberNow: timestamps follow the sample count, resynchronised on the
-+     * capture clock when they drift (same as txproto 0003). The arrival time
-+     * made packets read in a burst share almost the same pts, so audio went
-+     * "backward in time" for the encoder and the player. */
-+    int64_t                     sync_pts;     /* us, first sample since the last sync */
-+    int64_t                     sync_samples; /* samples captured since the last sync */
-+    int                         synced;
++    /* KyberNow: timestamps follow the sample count, with the clock of the
++     * txproto capture (one source, kn_audio_clock.h of txproto 0003). */
++    KnAudioClock                clock;
  } WasapiCapture;
  
-+#define WASAPI_RESYNC_US 40000
-+
  static void wasapi_capture_uninit(GrabCapture *c)
- {
-     WasapiCapture *priv = c->priv;
-@@ -251,8 +263,9 @@ static int wasapi_capture_thread(GrabCapture *c)
+@@ -251,8 +257,9 @@ static int wasapi_capture_thread(GrabCapture *c)
          if (atomic_load(&c->quit))
              break;
  
@@ -94,7 +79,7 @@ index 0d16aa4c14..06dbc088cb 100644
          if (hr == AUDCLNT_S_BUFFER_EMPTY) {
              // XXX make this interruptible
              DWORD wait = WaitForSingleObject(priv->event, INFINITE);
-@@ -275,11 +288,35 @@ static int wasapi_capture_thread(GrabCapture *c)
+@@ -275,11 +282,24 @@ static int wasapi_capture_thread(GrabCapture *c)
              goto finish;
          }
  
@@ -109,30 +94,19 @@ index 0d16aa4c14..06dbc088cb 100644
  
 -        ret = avgrabi_capture_send_frame(c, 0, frame, 0);
 +        {
-+            /* u64QPCPosition is in 100 ns units, on the same clock as
-+             * av_gettime_relative() (QueryPerformanceCounter). */
-+            /* A position flagged in error is not used (device change, resume). */
-+            int qpc_valid = qpc && !(flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR);
-+            int64_t captured = qpc_valid ? (int64_t)(qpc / 10) - c->params.epoch
-+                                         : av_gettime_relative() - c->params.epoch;
-+            int64_t expected = priv->sync_pts +
-+                               av_rescale(priv->sync_samples, 1000000, priv->sample_rate);
-+            if (!priv->synced || (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) ||
-+                llabs(captured - expected) > WASAPI_RESYNC_US) {
-+                priv->sync_pts     = captured;
-+                priv->sync_samples = 0;
-+                priv->synced       = 1;
-+                expected           = captured;
-+            }
-+            frame->pts = expected;
-+            priv->sync_samples += nb_samples;
++            /* KyberNow: see kn_audio_clock.h. */
++            int64_t captured = kn_audio_captured_us(qpc, !!(flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR),
++                                                    c->params.epoch);
++            frame->pts = kn_audio_clock_pts(&priv->clock, captured,
++                                            !!(flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY),
++                                            priv->sample_rate, nb_samples);
 +        }
 +
 +        ret = avgrabi_capture_send_frame(c, 0, frame, CAPTURE_SEND_PROVIDER_PTS);
          if (ret < 0) {
              if (ret != AVERROR_EOF && ret != AVERROR_EXIT)
                  av_log(c, AV_LOG_ERROR, "Unable to send a frame downstream: %s\n",
-@@ -398,6 +435,20 @@ static int wasapi_source(GrabProviderContext *gp, GrabSourceSet *ss,
+@@ -398,6 +418,20 @@ static int wasapi_source(GrabProviderContext *gp, GrabSourceSet *ss,
      priv_src->dev = dev;
      IMMDevice_AddRef(dev);
  

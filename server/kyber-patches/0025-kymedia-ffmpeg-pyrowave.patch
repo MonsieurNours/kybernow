@@ -37,21 +37,23 @@ index c3c5cb3..af406ee 100644
    common_conf += [
 diff --git a/subprojects/packagefiles/ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch b/subprojects/packagefiles/ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch
 new file mode 100644
-index 0000000..ab5e595
+index 0000000..556e40c
 --- /dev/null
 +++ b/subprojects/packagefiles/ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch
-@@ -0,0 +1,748 @@
+@@ -0,0 +1,949 @@
 +From: KyberNow
 +Subject: [PATCH] avcodec: PyroWave encoder for D3D11 frames (libpyrowave)
 +
 +AV_CODEC_ID_PYROWAVE (as in HansKristian-Work/FFmpeg, branch pyrowave) and an
 +encoder taking the D3D11 frames of a desktop capture without any CPU copy:
 +GPU copy into a texture shared with a Vulkan device on the same adapter,
-+shared D3D11 fence, pyrowave_encoder_encode_gpu_scaled(). KyberNow,
-+docs/pyrowave.md.
++shared D3D11 fence, pyrowave_encoder_encode_gpu_scaled(). What the three
++PyroWave encoders of KyberNow share (options, configuration packet "KNPW"
++version 1 or 2 with the HDR10 metadata, packetization) is in
++libavcodec/pyrowave_common.h. KyberNow, docs/pyrowave.md.
 +---
 +diff --git a/configure b/configure
-+index fc991e0..5b10300 100755
++index fc991e099a..5b1030044e 100755
 +--- a/configure
 ++++ b/configure
 +@@ -265,6 +265,7 @@ External library support:
@@ -88,7 +90,7 @@ index 0000000..ab5e595
 + if enabled libc_iconv; then
 +     check_func_headers iconv.h iconv
 +diff --git a/libavcodec/Makefile b/libavcodec/Makefile
-+index 12a8265..a96b44a 100644
++index 12a8265025..a96b44aff0 100644
 +--- a/libavcodec/Makefile
 ++++ b/libavcodec/Makefile
 +@@ -1202,6 +1202,7 @@ OBJS-$(CONFIG_LIBOPUS_DECODER)            += libopusdec.o libopus.o     \
@@ -100,7 +102,7 @@ index 0000000..ab5e595
 + OBJS-$(CONFIG_LIBRSVG_DECODER)            += librsvgdec.o
 + OBJS-$(CONFIG_LIBSHINE_ENCODER)           += libshine.o
 +diff --git a/libavcodec/allcodecs.c b/libavcodec/allcodecs.c
-+index 695214f..0673c5e 100644
++index 695214f192..0673c5e58c 100644
 +--- a/libavcodec/allcodecs.c
 ++++ b/libavcodec/allcodecs.c
 +@@ -812,6 +812,7 @@ extern const FFCodec ff_libopencore_amrwb_decoder;
@@ -112,7 +114,7 @@ index 0000000..ab5e595
 + extern const FFCodec ff_librsvg_decoder;
 + extern const FFCodec ff_libshine_encoder;
 +diff --git a/libavcodec/codec_desc.c b/libavcodec/codec_desc.c
-+index a9f21f8..a36b02d 100644
++index a9f21f8152..a36b02d228 100644
 +--- a/libavcodec/codec_desc.c
 ++++ b/libavcodec/codec_desc.c
 +@@ -2009,6 +2009,13 @@ static const AVCodecDescriptor codec_descriptors[] = {
@@ -130,7 +132,7 @@ index 0000000..ab5e595
 +     /* various PCM "codecs" */
 +     {
 +diff --git a/libavcodec/codec_id.h b/libavcodec/codec_id.h
-+index 6529f0a..4902bc0 100644
++index 6529f0a6bc..4902bc0670 100644
 +--- a/libavcodec/codec_id.h
 ++++ b/libavcodec/codec_id.h
 +@@ -332,6 +332,7 @@ enum AVCodecID {
@@ -143,10 +145,10 @@ index 0000000..ab5e595
 +     AV_CODEC_ID_FIRST_AUDIO = 0x10000,     ///< A dummy id pointing at the start of audio codecs
 +diff --git a/libavcodec/libpyrowave_enc.c b/libavcodec/libpyrowave_enc.c
 +new file mode 100644
-+index 0000000..801c184
++index 0000000000..cce2320294
 +--- /dev/null
 ++++ b/libavcodec/libpyrowave_enc.c
-+@@ -0,0 +1,642 @@
++@@ -0,0 +1,505 @@
 ++/*
 ++ * PyroWave encoder for D3D11 frames (KyberNow).
 ++ *
@@ -179,13 +181,9 @@ index 0000000..ab5e595
 ++ * Input: BGRA (SDR, encoded BT.709 full range) or P010 (HDR10 from the
 ++ * capture: PQ, BT.2020, limited range, kept as is).
 ++ *
-++ * Extradata (16 bytes, KyberNow contract, docs/pyrowave.md):
-++ *   "KNPW" | version u8 = 1 | chroma u8 (0 = 4:2:0, 1 = 4:4:4) |
-++ *   colour u8 (0 = SDR BT.709, 1 = HDR10 BT.2020 PQ) |
-++ *   range u8 (0 = full, 1 = limited) | width u32 LE | height u32 LE.
-++ * Each packet is a whole frame, the concatenation of the packets of
-++ * pyrowave_encoder_packetize() for the packet_size boundary, always a key
-++ * frame.
+++ * Options, configuration packet ("KNPW", version 1 or 2 with the HDR10
+++ * metadata of the capture) and packets: pyrowave_common.h, shared with the
+++ * Mac and Linux encoders (docs/pyrowave.md).
 ++ */
 ++
 ++#define COBJMACROS
@@ -208,18 +206,11 @@ index 0000000..ab5e595
 ++#include "codec_internal.h"
 ++#include "encode.h"
 ++#include "hwconfig.h"
-++
-++#define KNPW_HEADER_SIZE 16
+++#include "pyrowave_common.h"
 ++
 ++typedef struct PyroWaveD3D11Context {
 ++    const AVClass *class;
-++
-++    /* Options */
-++    int chroma444;
-++    int out_width, out_height;
-++    int packet_size;
-++    int fps;
-++    int gpu_priority;
+++    FFPyroWaveOptions pw;
 ++
 ++    /* D3D11 side (the capture's device) */
 ++    AVBufferRef *frames_ref;
@@ -240,28 +231,10 @@ index 0000000..ab5e595
 ++    int width, height;
 ++    int hdr;
 ++
-++    pyrowave_packet *packets;
-++    size_t nb_packets_alloc;
 ++    uint8_t *bitstream;
 ++    unsigned int bitstream_size;
 ++    int64_t frames;
 ++} PyroWaveD3D11Context;
-++
-++static const char *pw_result_name(pyrowave_result r)
-++{
-++    switch (r) {
-++    case PYROWAVE_SUCCESS:                         return "success";
-++    case PYROWAVE_TIMEOUT:                         return "timeout";
-++    case PYROWAVE_ERROR_INVALID_ARGUMENT:          return "invalid argument";
-++    case PYROWAVE_ERROR_OUT_OF_HOST_MEMORY:        return "out of host memory";
-++    case PYROWAVE_ERROR_OUT_OF_DEVICE_MEMORY:      return "out of device memory";
-++    case PYROWAVE_ERROR_NO_VULKAN:                 return "no Vulkan";
-++    case PYROWAVE_ERROR_NOT_IMPLEMENTED:           return "not implemented";
-++    case PYROWAVE_ERROR_UNSUPPORTED_EXTERNAL_HANDLE: return "unsupported external handle";
-++    case PYROWAVE_ERROR_FAILED_EXTERNAL_HANDLE:    return "failed external handle";
-++    default:                                       return "generic error";
-++    }
-++}
 ++
 ++static VkFormat pw_vk_format(DXGI_FORMAT format)
 ++{
@@ -367,7 +340,7 @@ index 0000000..ab5e595
 ++
 ++    r = pyrowave_image_create(&create, &s->image);
 ++    if (r != PYROWAVE_SUCCESS) {
-++        av_log(avctx, AV_LOG_ERROR, "Vulkan cannot import the shared texture: %s\n", pw_result_name(r));
+++        av_log(avctx, AV_LOG_ERROR, "Vulkan cannot import the shared texture: %s\n", ff_pyrowave_result_name(r));
 ++        /* The handle is only taken over by a successful import. */
 ++        CloseHandle(handle);
 ++        s->image = NULL;
@@ -381,20 +354,6 @@ index 0000000..ab5e595
 ++    av_log(avctx, AV_LOG_VERBOSE, "Shared texture %dx%d (DXGI format %d) imported in Vulkan\n",
 ++           width, height, format);
 ++    return 0;
-++}
-++
-++static void pw_set_extradata(AVCodecContext *avctx)
-++{
-++    PyroWaveD3D11Context *s = avctx->priv_data;
-++    uint8_t *h = avctx->extradata;
-++
-++    memcpy(h, "KNPW", 4);
-++    h[4] = 1;
-++    h[5] = s->chroma444 && !s->hdr ? 1 : 0;
-++    h[6] = s->hdr ? 1 : 0;
-++    h[7] = s->hdr ? 1 : 0;
-++    AV_WL32(h + 8, s->width);
-++    AV_WL32(h + 12, s->height);
 ++}
 ++
 ++static av_cold int pw_close(AVCodecContext *avctx)
@@ -421,8 +380,6 @@ index 0000000..ab5e595
 ++        ID3D11Device5_Release(s->device5);
 ++    s->device5 = NULL;
 ++    av_buffer_unref(&s->frames_ref);
-++    av_freep(&s->packets);
-++    s->nb_packets_alloc = 0;
 ++    av_freep(&s->bitstream);
 ++    s->bitstream_size = 0;
 ++    return 0;
@@ -440,6 +397,7 @@ index 0000000..ab5e595
 ++    pyrowave_result r;
 ++    VkQueueGlobalPriority priority;
 ++    uint32_t major, minor, patch;
+++    int ret;
 ++
 ++    if (!avctx->hw_frames_ctx) {
 ++        av_log(avctx, AV_LOG_ERROR, "PyroWave takes D3D11 frames only (no hw_frames_ctx)\n");
@@ -458,24 +416,10 @@ index 0000000..ab5e595
 ++    s->d3d = hwfc->device_ctx->hwctx;
 ++    s->hdr = hwfc->sw_format == AV_PIX_FMT_P010;
 ++
-++    s->width  = s->out_width  > 0 ? s->out_width  : avctx->width;
-++    s->height = s->out_height > 0 ? s->out_height : avctx->height;
-++    /* 4:4:4 in SDR only: the HDR10 capture is P010 (4:2:0). */
-++    if (s->chroma444 && s->hdr) {
-++        av_log(avctx, AV_LOG_WARNING, "4:4:4 refused with HDR10 (P010 capture): 4:2:0\n");
-++        s->chroma444 = 0;
-++    }
-++    if (!s->chroma444 && ((s->width | s->height) & 1)) {
-++        av_log(avctx, AV_LOG_ERROR, "4:2:0 needs an even size, not %dx%d\n", s->width, s->height);
-++        return AVERROR(EINVAL);
-++    }
-++
-++    pyrowave_get_api_version(&major, &minor, &patch);
-++    if (major != PYROWAVE_API_VERSION_MAJOR) {
-++        av_log(avctx, AV_LOG_ERROR, "PyroWave API %u.%u.%u, %d.x expected\n",
-++               major, minor, patch, PYROWAVE_API_VERSION_MAJOR);
-++        return AVERROR_EXTERNAL;
-++    }
+++    if ((ret = ff_pyrowave_size(avctx, &s->pw, s->hdr, &s->width, &s->height)) < 0)
+++        return ret;
+++    if ((ret = ff_pyrowave_check_api(avctx, &major, &minor, &patch)) < 0)
+++        return ret;
 ++
 ++    hr = ID3D11Device_QueryInterface(s->d3d->device, &IID_ID3D11Device5, (void **)&s->device5);
 ++    if (SUCCEEDED(hr))
@@ -501,7 +445,7 @@ index 0000000..ab5e595
 ++        return AVERROR_EXTERNAL;
 ++    }
 ++
-++    switch (s->gpu_priority) {
+++    switch (s->pw.gpu_priority) {
 ++    case 0:  priority = VK_QUEUE_GLOBAL_PRIORITY_MEDIUM;   break;
 ++    case 2:  priority = VK_QUEUE_GLOBAL_PRIORITY_REALTIME; break;
 ++    default: priority = VK_QUEUE_GLOBAL_PRIORITY_HIGH;     break;
@@ -510,7 +454,7 @@ index 0000000..ab5e595
 ++    r = pyrowave_create_device_by_compat(0, 0, NULL, NULL, (const pyrowave_luid *)&adapter_desc.AdapterLuid,
 ++                                         priority, &s->device);
 ++    if (r != PYROWAVE_SUCCESS) {
-++        av_log(avctx, AV_LOG_ERROR, "No suitable Vulkan 1.3 device on this adapter: %s\n", pw_result_name(r));
+++        av_log(avctx, AV_LOG_ERROR, "No suitable Vulkan 1.3 device on this adapter: %s\n", ff_pyrowave_result_name(r));
 ++        s->device = NULL;
 ++        return AVERROR_EXTERNAL;
 ++    }
@@ -537,7 +481,7 @@ index 0000000..ab5e595
 ++    sync_info.semaphore_type  = VK_SEMAPHORE_TYPE_TIMELINE;
 ++    r = pyrowave_sync_object_create(&sync_info, &s->sync);
 ++    if (r != PYROWAVE_SUCCESS) {
-++        av_log(avctx, AV_LOG_ERROR, "Vulkan cannot import the shared fence: %s\n", pw_result_name(r));
+++        av_log(avctx, AV_LOG_ERROR, "Vulkan cannot import the shared fence: %s\n", ff_pyrowave_result_name(r));
 ++        /* The handle is only taken over by a successful import. */
 ++        CloseHandle(fence_handle);
 ++        s->sync = NULL;
@@ -548,45 +492,25 @@ index 0000000..ab5e595
 ++    enc_info.device = s->device;
 ++    enc_info.width  = s->width;
 ++    enc_info.height = s->height;
-++    enc_info.chroma = s->chroma444 ? PYROWAVE_CHROMA_SUBSAMPLING_444 : PYROWAVE_CHROMA_SUBSAMPLING_420;
+++    enc_info.chroma = s->pw.chroma444 ? PYROWAVE_CHROMA_SUBSAMPLING_444 : PYROWAVE_CHROMA_SUBSAMPLING_420;
 ++    r = pyrowave_encoder_create(&enc_info, &s->encoder);
 ++    if (r != PYROWAVE_SUCCESS) {
 ++        av_log(avctx, AV_LOG_ERROR, "Cannot create the encoder (%dx%d): %s\n",
-++               s->width, s->height, pw_result_name(r));
+++               s->width, s->height, ff_pyrowave_result_name(r));
 ++        s->encoder = NULL;
 ++        return AVERROR_EXTERNAL;
 ++    }
 ++
 ++    /* Global header: the sinks send it as the stream's config packet. */
-++    avctx->extradata = av_mallocz(KNPW_HEADER_SIZE + AV_INPUT_BUFFER_PADDING_SIZE);
-++    if (!avctx->extradata)
-++        return AVERROR(ENOMEM);
-++    avctx->extradata_size = KNPW_HEADER_SIZE;
-++    pw_set_extradata(avctx);
+++    if ((ret = ff_pyrowave_set_extradata(avctx, &s->pw, s->hdr, s->width, s->height)) < 0)
+++        return ret;
 ++
 ++    avctx->color_range = s->hdr ? AVCOL_RANGE_MPEG : AVCOL_RANGE_JPEG;
-++    av_log(avctx, AV_LOG_INFO, "PyroWave encoder %dx%d %s, %s, input %dx%d %s, packets of %d bytes\n",
-++           s->width, s->height, s->chroma444 ? "4:4:4" : "4:2:0",
+++    av_log(avctx, AV_LOG_INFO, "PyroWave encoder %dx%d %s, %s, input %dx%d %s, KNPW version %d\n",
+++           s->width, s->height, s->pw.chroma444 ? "4:4:4" : "4:2:0",
 ++           s->hdr ? "HDR10 (PQ, BT.2020, limited)" : "SDR (BT.709, full)",
-++           avctx->width, avctx->height, av_get_pix_fmt_name(hwfc->sw_format), s->packet_size);
+++           avctx->width, avctx->height, av_get_pix_fmt_name(hwfc->sw_format), s->pw.header_version);
 ++    return 0;
-++}
-++
-++/* Bytes for one frame: bitrate / 8 / fps, a multiple of 4. */
-++static size_t pw_frame_budget(AVCodecContext *avctx)
-++{
-++    PyroWaveD3D11Context *s = avctx->priv_data;
-++    AVRational fps = avctx->framerate;
-++    int64_t size;
-++
-++    if (s->fps > 0)
-++        fps = (AVRational){ s->fps, 1 };
-++    else if (fps.num <= 0 || fps.den <= 0)
-++        fps = (AVRational){ 60, 1 };
-++    size = av_rescale_rnd(avctx->bit_rate > 0 ? avctx->bit_rate : 200000000, fps.den,
-++                          (int64_t)fps.num * 8, AV_ROUND_DOWN);
-++    size &= ~(int64_t)3;
-++    return FFMAX(size, 4096);
 ++}
 ++
 ++static int pw_encode(AVCodecContext *avctx, AVPacket *pkt, const AVFrame *frame, int *got_packet)
@@ -596,7 +520,7 @@ index 0000000..ab5e595
 ++    UINT index = (UINT)(intptr_t)frame->data[1];
 ++    D3D11_TEXTURE2D_DESC src_desc;
 ++    pyrowave_result r;
-++    size_t budget, nb_packets = 0, out_packets, total = 0;
+++    size_t budget;
 ++    int ret;
 ++
 ++    *got_packet = 0;
@@ -644,7 +568,7 @@ index 0000000..ab5e595
 ++    pyrowave_scaled_encode_info info = { 0 };
 ++    r = pyrowave_image_get_image_view(s->image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_USAGE_SAMPLED_BIT, &info.view);
 ++    if (r != PYROWAVE_SUCCESS) {
-++        av_log(avctx, AV_LOG_ERROR, "No view of the shared texture: %s\n", pw_result_name(r));
+++        av_log(avctx, AV_LOG_ERROR, "No view of the shared texture: %s\n", ff_pyrowave_result_name(r));
 ++        return AVERROR_EXTERNAL;
 ++    }
 ++    if (s->hdr) {
@@ -661,77 +585,25 @@ index 0000000..ab5e595
 ++    }
 ++    info.ycbcr_chroma_midpoint = 0.5f;
 ++
-++    budget = pw_frame_budget(avctx);
+++    budget = ff_pyrowave_frame_budget(avctx, &s->pw);
 ++    pyrowave_rate_control rate = { budget };
 ++
 ++    r = pyrowave_encoder_encode_gpu_scaled(s->encoder, &acquire, &release, &info, &rate);
 ++    if (r != PYROWAVE_SUCCESS) {
-++        av_log(avctx, AV_LOG_ERROR, "Encode failed: %s\n", pw_result_name(r));
+++        av_log(avctx, AV_LOG_ERROR, "Encode failed: %s\n", ff_pyrowave_result_name(r));
 ++        return AVERROR_EXTERNAL;
 ++    }
 ++
-++    r = pyrowave_encoder_compute_num_packets(s->encoder, s->packet_size, &nb_packets);
-++    if (r != PYROWAVE_SUCCESS || !nb_packets) {
-++        av_log(avctx, AV_LOG_ERROR, "Packetization failed: %s\n", pw_result_name(r));
-++        return AVERROR_EXTERNAL;
-++    }
-++    if (nb_packets > s->nb_packets_alloc) {
-++        ret = av_reallocp_array(&s->packets, nb_packets, sizeof(*s->packets));
-++        if (ret < 0) {
-++            s->nb_packets_alloc = 0;
-++            return ret;
-++        }
-++        s->nb_packets_alloc = nb_packets;
-++    }
-++
-++    /* pyrowave_encoder_packetize() ignores the size it is given (only an
-++     * assert checks it, gone in a release build): a block larger than the
-++     * packet boundary makes a packet of its own, larger than the boundary,
-++     * so the frame can take more than nb_packets * packet_size. It never
-++     * takes more than the encoded bitstream plus the sequence header: the
-++     * frame is put together in a buffer of that size, then copied. */
-++    const void *mapped_bitstream, *mapped_meta;
-++    size_t mapped_bitstream_size = 0, mapped_meta_size = 0;
-++    r = pyrowave_encoder_get_mapped_raw_bitstream(s->encoder, &mapped_bitstream, &mapped_bitstream_size,
-++                                                  &mapped_meta, &mapped_meta_size);
-++    if (r != PYROWAVE_SUCCESS) {
-++        av_log(avctx, AV_LOG_ERROR, "Bitstream size unknown: %s\n", pw_result_name(r));
-++        return AVERROR_EXTERNAL;
-++    }
-++    size_t capacity = FFMAX(nb_packets * (size_t)s->packet_size, mapped_bitstream_size + 256);
-++    if (capacity > UINT_MAX)
-++        return AVERROR(ENOMEM);
-++    av_fast_malloc(&s->bitstream, &s->bitstream_size, capacity);
-++    if (!s->bitstream)
-++        return AVERROR(ENOMEM);
-++    out_packets = nb_packets;
-++    r = pyrowave_encoder_packetize(s->encoder, s->packets, s->packet_size, &out_packets, s->bitstream, capacity);
-++    if (r != PYROWAVE_SUCCESS || out_packets > nb_packets) {
-++        av_log(avctx, AV_LOG_ERROR, "Packetization failed: %s\n", pw_result_name(r));
-++        return AVERROR_EXTERNAL;
-++    }
-++    /* One media packet per frame: the PyroWave packets end to end. */
-++    for (size_t i = 0; i < out_packets; i++) {
-++        if (s->packets[i].offset > capacity || s->packets[i].size > capacity - s->packets[i].offset ||
-++            total > capacity - s->packets[i].size) {
-++            av_log(avctx, AV_LOG_ERROR, "Packetization overflow\n");
-++            return AVERROR_BUG;
-++        }
-++        if (s->packets[i].offset != total)
-++            memmove(s->bitstream + total, s->bitstream + s->packets[i].offset, s->packets[i].size);
-++        total += s->packets[i].size;
-++    }
-++    if ((ret = ff_get_encode_buffer(avctx, pkt, total, 0)) < 0)
+++    if ((ret = ff_pyrowave_packetize(avctx, s->encoder, &s->bitstream, &s->bitstream_size, pkt)) < 0)
 ++        return ret;
-++    memcpy(pkt->data, s->bitstream, total);
 ++
 ++    pkt->pts = pkt->dts = frame->pts;
 ++    pkt->flags |= AV_PKT_FLAG_KEY;
 ++    *got_packet = 1;
 ++
 ++    if (!(s->frames++ % 600))
-++        av_log(avctx, AV_LOG_VERBOSE, "Frame %"PRId64": %zu bytes (budget %zu), %zu packets\n",
-++               s->frames, total, budget, out_packets);
+++        av_log(avctx, AV_LOG_VERBOSE, "Frame %"PRId64": %d bytes (budget %zu)\n",
+++               s->frames, pkt->size, budget);
 ++    return 0;
 ++}
 ++
@@ -747,15 +619,8 @@ index 0000000..ab5e595
 ++    NULL
 ++};
 ++
-++#define OFFSET(x) offsetof(PyroWaveD3D11Context, x)
-++#define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
 ++static const AVOption pw_options[] = {
-++    { "chroma444",    "Encode 4:4:4 (SDR only)",                   OFFSET(chroma444),    AV_OPT_TYPE_BOOL, { .i64 = 0 },    0, 1,       VE },
-++    { "out_width",    "Encoded width (scaled on the GPU), 0: input", OFFSET(out_width),  AV_OPT_TYPE_INT,  { .i64 = 0 },    0, 16384,   VE },
-++    { "out_height",   "Encoded height, 0: input",                  OFFSET(out_height),   AV_OPT_TYPE_INT,  { .i64 = 0 },    0, 16384,   VE },
-++    { "packet_size",  "PyroWave packet boundary in bytes",         OFFSET(packet_size),  AV_OPT_TYPE_INT,  { .i64 = 1152 }, 256, 65535, VE },
-++    { "fps",          "Frames per second for the frame budget, 0: framerate", OFFSET(fps), AV_OPT_TYPE_INT, { .i64 = 0 },   0, 1000,    VE },
-++    { "gpu_priority", "Vulkan queue priority: 0 medium, 1 high, 2 realtime", OFFSET(gpu_priority), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 2, VE },
+++    FF_PYROWAVE_OPTIONS(PyroWaveD3D11Context),
 ++    { NULL },
 ++};
 ++
@@ -789,3 +654,339 @@ index 0000000..ab5e595
 ++    .defaults       = pw_defaults,
 ++    .caps_internal  = FF_CODEC_CAP_INIT_CLEANUP,
 ++};
++diff --git a/libavcodec/pyrowave_common.h b/libavcodec/pyrowave_common.h
++new file mode 100644
++index 0000000000..1a674078e1
++--- /dev/null
+++++ b/libavcodec/pyrowave_common.h
++@@ -0,0 +1,330 @@
+++/*
+++ * PyroWave encoders of KyberNow: what they share.
+++ *
+++ * This file is part of FFmpeg.
+++ *
+++ * FFmpeg is free software; you can redistribute it and/or
+++ * modify it under the terms of the GNU Lesser General Public
+++ * License as published by the Free Software Foundation; either
+++ * version 2.1 of the License, or (at your option) any later version.
+++ *
+++ * FFmpeg is distributed in the hope that it will be useful,
+++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+++ * Lesser General Public License for more details.
+++ *
+++ * You should have received a copy of the GNU Lesser General Public
+++ * License along with FFmpeg; if not, write to the Free Software
+++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+++ */
+++
+++/*
+++ * One source for the three PyroWave encoders of KyberNow: libpyrowave
+++ * (D3D11 frames, Windows), libpyrowave_metal (VideoToolbox frames, Mac) and
+++ * libpyrowave_vulkan (DMA-BUF frames, Linux). Options, encoded size, frame
+++ * budget, the configuration packet ("KNPW") and, for the two Vulkan ones,
+++ * the packetization: a fix made here is made for all of them.
+++ *
+++ * Configuration packet (extradata), KyberNow contract, little endian:
+++ *   version 1 (16 bytes, every app):
+++ *     0  "KNPW"
+++ *     4  version u8 (1)
+++ *     5  chroma u8 (0 = 4:2:0, 1 = 4:4:4)
+++ *     6  colour u8 (0 = SDR BT.709, 1 = HDR10 BT.2020 PQ)
+++ *     7  range u8 (0 = full, 1 = limited)
+++ *     8  width u32, 12 height u32
+++ *   version 2 (48 bytes, header_version=2, apps that ask for it): the same
+++ *   first 16 bytes with version 2, then the HDR10 static metadata of the
+++ *   capture:
+++ *     16 flags u8 (bit 0: mastering display below, bit 1: content light
+++ *        level below; a field without its bit is 0 and means nothing)
+++ *     17 3 bytes, 0
+++ *     20 red x, red y, green x, green y, blue x, blue y, white x, white y:
+++ *        u16 each, CIE 1931, units of 0.00002 (as HEVC SEI 137, but red
+++ *        first)
+++ *     36 max luminance u32, 40 min luminance u32: units of 0.0001 cd/m2
+++ *     44 MaxCLL u16, 46 MaxFALL u16: cd/m2
+++ * Each packet is a whole frame: the PyroWave sequence header followed by
+++ * every coded block, as pyrowave_encoder_packetize() writes them end to
+++ * end; always a key frame.
+++ */
+++
+++#ifndef AVCODEC_PYROWAVE_COMMON_H
+++#define AVCODEC_PYROWAVE_COMMON_H
+++
+++#include <limits.h>
+++#include <stddef.h>
+++#include <stdint.h>
+++#include <string.h>
+++
+++#include "libavutil/attributes.h"
+++#include "libavutil/frame.h"
+++#include "libavutil/intreadwrite.h"
+++#include "libavutil/log.h"
+++#include "libavutil/mastering_display_metadata.h"
+++#include "libavutil/mathematics.h"
+++#include "libavutil/mem.h"
+++#include "libavutil/opt.h"
+++#include "avcodec.h"
+++#include "encode.h"
+++
+++#define FF_PYROWAVE_HEADER_V1_SIZE 16
+++#define FF_PYROWAVE_HEADER_V2_SIZE 48
+++#define FF_PYROWAVE_HDR_MASTERING  1
+++#define FF_PYROWAVE_HDR_LIGHT      2
+++
+++/* Options of every PyroWave encoder, right after the AVClass pointer of
+++ * its context, as `FFPyroWaveOptions pw;`. */
+++typedef struct FFPyroWaveOptions {
+++    int chroma444;
+++    int out_width, out_height;
+++    int packet_size;
+++    int fps;
+++    int gpu_priority;
+++    int header_version;
+++} FFPyroWaveOptions;
+++
+++#define FF_PYROWAVE_OPTIONS(ctx)                                                                        \
+++    { "chroma444",    "Encode 4:4:4 (SDR only)", offsetof(ctx, pw.chroma444),                           \
+++      AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM },     \
+++    { "out_width",    "Encoded width (scaled on the GPU), 0: input", offsetof(ctx, pw.out_width),       \
+++      AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 16384, AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM },  \
+++    { "out_height",   "Encoded height, 0: input", offsetof(ctx, pw.out_height),                         \
+++      AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 16384, AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM },  \
+++    { "packet_size",  "Ignored: one packet per frame (kept for older callers)",                         \
+++      offsetof(ctx, pw.packet_size), AV_OPT_TYPE_INT, { .i64 = 1152 }, 256, 65535,                      \
+++      AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM },                                           \
+++    { "fps",          "Frames per second for the frame budget, 0: framerate", offsetof(ctx, pw.fps),    \
+++      AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1000, AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM },   \
+++    { "gpu_priority", "GPU queue priority: 0 medium, 1 high, 2 realtime (Vulkan; Metal has none)",      \
+++      offsetof(ctx, pw.gpu_priority), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 2,                              \
+++      AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM },                                           \
+++    { "header_version", "KNPW configuration packet: 1 (16 bytes, every app) or 2 (HDR10 metadata)",     \
+++      offsetof(ctx, pw.header_version), AV_OPT_TYPE_INT, { .i64 = 1 }, 1, 2,                            \
+++      AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM }
+++
+++/* HDR10 static metadata of the configuration packet, version 2. */
+++typedef struct FFPyroWaveHdr {
+++    int flags;              /* FF_PYROWAVE_HDR_MASTERING, FF_PYROWAVE_HDR_LIGHT */
+++    uint16_t primaries[3][2]; /* red, green, blue x y, 0.00002 */
+++    uint16_t white[2];
+++    uint32_t max_luminance; /* 0.0001 cd/m2 */
+++    uint32_t min_luminance;
+++    uint16_t max_cll, max_fall;
+++} FFPyroWaveHdr;
+++
+++static av_unused uint32_t ff_pyrowave_fixed(AVRational q, int64_t scale, uint32_t max)
+++{
+++    int64_t v;
+++    if (q.den <= 0 || q.num < 0)
+++        return 0;
+++    v = av_rescale(q.num, scale, q.den);
+++    return v > max ? max : (uint32_t)v;
+++}
+++
+++/* The metadata the capture gave the encoder (txproto and libavconv copy the
+++ * capture's frame side data into decoded_side_data before opening it). */
+++static av_unused void ff_pyrowave_hdr_from_ctx(const AVCodecContext *avctx, FFPyroWaveHdr *m)
+++{
+++    const AVFrameSideData *sd;
+++
+++    memset(m, 0, sizeof(*m));
+++    sd = av_frame_side_data_get(avctx->decoded_side_data, avctx->nb_decoded_side_data,
+++                                AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
+++    if (sd) {
+++        const AVMasteringDisplayMetadata *mdm = (const AVMasteringDisplayMetadata *)sd->data;
+++        if (mdm->has_primaries && mdm->has_luminance) {
+++            m->flags |= FF_PYROWAVE_HDR_MASTERING;
+++            for (int i = 0; i < 3; i++)
+++                for (int j = 0; j < 2; j++)
+++                    m->primaries[i][j] = ff_pyrowave_fixed(mdm->display_primaries[i][j], 50000, 50000);
+++            m->white[0] = ff_pyrowave_fixed(mdm->white_point[0], 50000, 50000);
+++            m->white[1] = ff_pyrowave_fixed(mdm->white_point[1], 50000, 50000);
+++            m->max_luminance = ff_pyrowave_fixed(mdm->max_luminance, 10000, UINT32_MAX);
+++            m->min_luminance = ff_pyrowave_fixed(mdm->min_luminance, 10000, UINT32_MAX);
+++        }
+++    }
+++    sd = av_frame_side_data_get(avctx->decoded_side_data, avctx->nb_decoded_side_data,
+++                                AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
+++    if (sd) {
+++        const AVContentLightMetadata *cll = (const AVContentLightMetadata *)sd->data;
+++        m->flags |= FF_PYROWAVE_HDR_LIGHT;
+++        m->max_cll  = cll->MaxCLL > 65535 ? 65535 : cll->MaxCLL;
+++        m->max_fall = cll->MaxFALL > 65535 ? 65535 : cll->MaxFALL;
+++    }
+++}
+++
+++/* Writes the configuration packet (FF_PYROWAVE_HEADER_V1_SIZE or _V2_SIZE
+++ * bytes, by `version`). `m`: version 2 only, NULL for none. */
+++static av_unused int ff_pyrowave_write_header(uint8_t *h, int version, int chroma444, int hdr,
+++                                              int width, int height, const FFPyroWaveHdr *m)
+++{
+++    const int size = version >= 2 ? FF_PYROWAVE_HEADER_V2_SIZE : FF_PYROWAVE_HEADER_V1_SIZE;
+++
+++    memset(h, 0, size);
+++    memcpy(h, "KNPW", 4);
+++    h[4] = version >= 2 ? 2 : 1;
+++    h[5] = chroma444 && !hdr ? 1 : 0;
+++    h[6] = hdr ? 1 : 0;
+++    h[7] = hdr ? 1 : 0; /* HDR10 from the capture: limited range */
+++    AV_WL32(h + 8, width);
+++    AV_WL32(h + 12, height);
+++    if (version >= 2 && m) {
+++        h[16] = m->flags & (FF_PYROWAVE_HDR_MASTERING | FF_PYROWAVE_HDR_LIGHT);
+++        for (int i = 0; i < 3; i++) {
+++            AV_WL16(h + 20 + 4 * i, m->primaries[i][0]);
+++            AV_WL16(h + 22 + 4 * i, m->primaries[i][1]);
+++        }
+++        AV_WL16(h + 32, m->white[0]);
+++        AV_WL16(h + 34, m->white[1]);
+++        AV_WL32(h + 36, m->max_luminance);
+++        AV_WL32(h + 40, m->min_luminance);
+++        AV_WL16(h + 44, m->max_cll);
+++        AV_WL16(h + 46, m->max_fall);
+++    }
+++    return size;
+++}
+++
+++/* The global header the sinks send as the stream's configuration packet:
+++ * version 1 unless the caller asked for 2 (an app that reads it), with the
+++ * capture's HDR10 metadata in HDR. */
+++static av_unused int ff_pyrowave_set_extradata(AVCodecContext *avctx, const FFPyroWaveOptions *o,
+++                                               int hdr, int width, int height)
+++{
+++    FFPyroWaveHdr m;
+++    const int size = o->header_version >= 2 ? FF_PYROWAVE_HEADER_V2_SIZE : FF_PYROWAVE_HEADER_V1_SIZE;
+++
+++    av_freep(&avctx->extradata);
+++    avctx->extradata = av_mallocz(size + AV_INPUT_BUFFER_PADDING_SIZE);
+++    if (!avctx->extradata)
+++        return AVERROR(ENOMEM);
+++    if (hdr)
+++        ff_pyrowave_hdr_from_ctx(avctx, &m);
+++    else
+++        memset(&m, 0, sizeof(m));
+++    avctx->extradata_size = ff_pyrowave_write_header(avctx->extradata, o->header_version, o->chroma444,
+++                                                     hdr, width, height, &m);
+++    if (hdr && o->header_version >= 2)
+++        av_log(avctx, AV_LOG_VERBOSE, "KNPW version 2: %s%s\n",
+++               m.flags & FF_PYROWAVE_HDR_MASTERING ? "mastering display" : "no mastering display",
+++               m.flags & FF_PYROWAVE_HDR_LIGHT ? ", content light level" : "");
+++    return 0;
+++}
+++
+++/* The encoded size (out_width, out_height, or the input's), checked:
+++ * 4:4:4 in SDR only (the HDR10 capture is P010, 4:2:0), an even size in
+++ * 4:2:0. */
+++static av_unused int ff_pyrowave_size(AVCodecContext *avctx, FFPyroWaveOptions *o, int hdr,
+++                                      int *width, int *height)
+++{
+++    *width  = o->out_width  > 0 ? o->out_width  : avctx->width;
+++    *height = o->out_height > 0 ? o->out_height : avctx->height;
+++    if (o->chroma444 && hdr) {
+++        av_log(avctx, AV_LOG_WARNING, "4:4:4 refused with HDR10 (P010 capture): 4:2:0\n");
+++        o->chroma444 = 0;
+++    }
+++    if (!o->chroma444 && ((*width | *height) & 1)) {
+++        av_log(avctx, AV_LOG_ERROR, "4:2:0 needs an even size, not %dx%d\n", *width, *height);
+++        return AVERROR(EINVAL);
+++    }
+++    return 0;
+++}
+++
+++/* Bytes for one frame: bitrate / 8 / fps, a multiple of 4. */
+++static av_unused size_t ff_pyrowave_frame_budget(const AVCodecContext *avctx, const FFPyroWaveOptions *o)
+++{
+++    AVRational fps = avctx->framerate;
+++    int64_t size;
+++
+++    if (o->fps > 0)
+++        fps = (AVRational){ o->fps, 1 };
+++    else if (fps.num <= 0 || fps.den <= 0)
+++        fps = (AVRational){ 60, 1 };
+++    size = av_rescale_rnd(avctx->bit_rate > 0 ? avctx->bit_rate : 200000000, fps.den,
+++                          (int64_t)fps.num * 8, AV_ROUND_DOWN);
+++    size &= ~(int64_t)3;
+++    return FFMAX(size, 4096);
+++}
+++
+++#ifdef PYROWAVE_API_VERSION_MAJOR
+++/* The Vulkan library (pyrowave.h): libpyrowave and libpyrowave_vulkan. */
+++
+++static av_unused const char *ff_pyrowave_result_name(pyrowave_result r)
+++{
+++    switch (r) {
+++    case PYROWAVE_SUCCESS:                         return "success";
+++    case PYROWAVE_TIMEOUT:                         return "timeout";
+++    case PYROWAVE_ERROR_INVALID_ARGUMENT:          return "invalid argument";
+++    case PYROWAVE_ERROR_OUT_OF_HOST_MEMORY:        return "out of host memory";
+++    case PYROWAVE_ERROR_OUT_OF_DEVICE_MEMORY:      return "out of device memory";
+++    case PYROWAVE_ERROR_NO_VULKAN:                 return "no Vulkan";
+++    case PYROWAVE_ERROR_NOT_IMPLEMENTED:           return "not implemented";
+++    case PYROWAVE_ERROR_UNSUPPORTED_EXTERNAL_HANDLE: return "unsupported external handle";
+++    case PYROWAVE_ERROR_FAILED_EXTERNAL_HANDLE:    return "failed external handle";
+++    default:                                       return "generic error";
+++    }
+++}
+++
+++static av_unused int ff_pyrowave_check_api(AVCodecContext *avctx, uint32_t *major, uint32_t *minor,
+++                                           uint32_t *patch)
+++{
+++    pyrowave_get_api_version(major, minor, patch);
+++    if (*major != PYROWAVE_API_VERSION_MAJOR) {
+++        av_log(avctx, AV_LOG_ERROR, "PyroWave API %u.%u.%u, %d.x expected\n",
+++               *major, *minor, *patch, PYROWAVE_API_VERSION_MAJOR);
+++        return AVERROR_EXTERNAL;
+++    }
+++    return 0;
+++}
+++
+++/* Upper bound of the PyroWave sequence header written before the blocks. */
+++#define FF_PYROWAVE_SEQUENCE_HEADER_MAX 256
+++
+++/*
+++ * The encoded frame, once the encode is done, in `pkt`.
+++ *
+++ * pyrowave_encoder_packetize() ignores the size it is given (only an assert
+++ * checks it, gone in a release build), and a block larger than the packet
+++ * boundary makes a packet of its own, larger than the boundary: a buffer of
+++ * n packets of the boundary could overflow (KYB-01). The frame is the
+++ * sequence header followed by the coded blocks, all inside the encoded
+++ * bitstream: it never takes more than that bitstream plus the header. It is
+++ * put together in `*buf` (kept between frames), in a single packet: the
+++ * blocks are written end to end whatever the boundary, so one call with a
+++ * boundary no frame reaches gives the contract's frame at once (no packet
+++ * count to compute, no moves).
+++ */
+++static av_unused int ff_pyrowave_packetize(AVCodecContext *avctx, pyrowave_encoder encoder,
+++                                           uint8_t **buf, unsigned int *buf_size, AVPacket *pkt)
+++{
+++    const void *bitstream, *meta;
+++    size_t bitstream_size = 0, meta_size = 0, count = 1, capacity;
+++    pyrowave_packet whole = { 0 };
+++    pyrowave_result r;
+++    int ret;
+++
+++    r = pyrowave_encoder_get_mapped_raw_bitstream(encoder, &bitstream, &bitstream_size, &meta, &meta_size);
+++    if (r != PYROWAVE_SUCCESS) {
+++        av_log(avctx, AV_LOG_ERROR, "Bitstream size unknown: %s\n", ff_pyrowave_result_name(r));
+++        return AVERROR_EXTERNAL;
+++    }
+++    capacity = bitstream_size + FF_PYROWAVE_SEQUENCE_HEADER_MAX;
+++    if (capacity > UINT_MAX || capacity > INT_MAX)
+++        return AVERROR(ENOMEM);
+++    av_fast_malloc(buf, buf_size, capacity);
+++    if (!*buf)
+++        return AVERROR(ENOMEM);
+++    r = pyrowave_encoder_packetize(encoder, &whole, SIZE_MAX, &count, *buf, capacity);
+++    if (r != PYROWAVE_SUCCESS || count != 1 || whole.offset || !whole.size || whole.size > capacity) {
+++        av_log(avctx, AV_LOG_ERROR, "Packetization failed: %s (%zu packets, %zu bytes)\n",
+++               ff_pyrowave_result_name(r), count, (size_t)whole.size);
+++        return AVERROR_EXTERNAL;
+++    }
+++    if ((ret = ff_get_encode_buffer(avctx, pkt, whole.size, 0)) < 0)
+++        return ret;
+++    memcpy(pkt->data, *buf, whole.size);
+++    return 0;
+++}
+++#endif /* PYROWAVE_API_VERSION_MAJOR */
+++
+++#endif /* AVCODEC_PYROWAVE_COMMON_H */

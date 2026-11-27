@@ -1,5 +1,5 @@
 diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
-index d52336d..f9e1fae 100644
+index 32ed140..21b9f6e 100644
 --- a/subprojects/txproto/src/encode.c
 +++ b/subprojects/txproto/src/encode.c
 @@ -28,6 +28,8 @@
@@ -11,7 +11,7 @@ index d52336d..f9e1fae 100644
  #include "os_compat.h"
  #include <libtxproto/utils.h>
  #include "utils.h"
-@@ -108,6 +110,20 @@ static int init_avctx(EncodingContext *ctx, AVFrame *conf)
+@@ -142,6 +144,20 @@ static int init_avctx(EncodingContext *ctx, AVFrame *conf)
  
          ctx->avctx->sample_aspect_ratio = conf->sample_aspect_ratio;
  
@@ -32,7 +32,7 @@ index d52336d..f9e1fae 100644
          if (ctx->width && ctx->height) {
              ctx->avctx->width  = ctx->width;
              ctx->avctx->height = ctx->height;
-@@ -766,6 +782,13 @@ static void *encoding_thread(void *arg)
+@@ -812,6 +828,13 @@ static void *encoding_thread(void *arg)
                  ctx->attach_sidedata = 0;
              }
  
@@ -47,7 +47,7 @@ index d52336d..f9e1fae 100644
              out_pkt->time_base = ctx->avctx->time_base;
  
 diff --git a/subprojects/txproto/src/iosys_dxgi.c b/subprojects/txproto/src/iosys_dxgi.c
-index db5cea7..ac217a2 100644
+index cd9eccf..74d9aaf 100644
 --- a/subprojects/txproto/src/iosys_dxgi.c
 +++ b/subprojects/txproto/src/iosys_dxgi.c
 @@ -34,6 +34,7 @@
@@ -232,7 +232,7 @@ index db5cea7..ac217a2 100644
  #define KN_WGC_SLOTS 3
  #define KN_WGC_STATE_RUNNING 1
  /* Session marker published by KyberNow Admin (global namespace, SYSTEM
-@@ -1117,6 +1211,7 @@ static void kn_wgc_release_textures(KnWgc *w)
+@@ -1124,6 +1218,7 @@ static void kn_wgc_release_textures(KnWgc *w)
  
  static void kn_wgc_close(DxgiCapture *priv)
  {
@@ -240,7 +240,7 @@ index db5cea7..ac217a2 100644
      KnWgc *w = priv->wgc;
      if (!w)
          return;
-@@ -1269,9 +1364,11 @@ static int kn_wgc_open(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx)
+@@ -1281,9 +1376,11 @@ static int kn_wgc_open(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int64
      }
  
      sp_log(entry, SP_LOG_INFO, "WGC: capture through Windows Graphics Capture (agent %lu found after %d ms, "
@@ -254,7 +254,7 @@ index db5cea7..ac217a2 100644
             w->header->border_required ? "required by Windows" : "off");
      return 0;
  
-@@ -1535,10 +1632,12 @@ static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *
+@@ -1598,10 +1695,12 @@ static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *
          const int64_t frame_time = w->header->frame_time;
  
          if (generation != w->generation) {
@@ -269,7 +269,7 @@ index db5cea7..ac217a2 100644
          }
  
          if (IDXGIKeyedMutex_AcquireSync(w->mutexes[slot], 0, 10) != S_OK) {
-@@ -1568,12 +1667,14 @@ static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *
+@@ -1631,12 +1730,14 @@ static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *
              continue;
          }
  
@@ -289,7 +289,7 @@ index db5cea7..ac217a2 100644
  
          w->last_counter = counter;
          copied++;
-@@ -1687,6 +1788,9 @@ static void *dxgi_capture_thread(void *s)
+@@ -1734,6 +1835,9 @@ static void *dxgi_capture_thread(void *s)
          goto fail;
      }
  
@@ -299,7 +299,7 @@ index db5cea7..ac217a2 100644
      err = sp_dxgi_cursor_handler_init(&priv->cursor_sink, entry->identifier,
                                        priv->cursor_move_rate);
      if (err < 0) {
-@@ -1835,32 +1939,18 @@ static void *dxgi_capture_thread(void *s)
+@@ -1891,32 +1995,18 @@ static void *dxgi_capture_thread(void *s)
              continue;
          }
  
@@ -338,7 +338,7 @@ index db5cea7..ac217a2 100644
  
          hr = IDXGIOutputDuplication_ReleaseFrame(priv->output_duplication);
          if (hr == DXGI_ERROR_ACCESS_LOST) {
-@@ -1918,6 +2008,7 @@ fail:
+@@ -1974,6 +2064,7 @@ fail:
      av_frame_free(&kn_held); /* KyberNow (0020) */
  
      stop_capture(priv);
@@ -346,7 +346,7 @@ index db5cea7..ac217a2 100644
      release_texture_pool(priv);
  
      if (dxgi_output)
-@@ -1992,6 +2083,16 @@ static int dxgi_init_io(AVBufferRef *ctx_ref, AVBufferRef *entry,
+@@ -2048,6 +2139,16 @@ static int dxgi_init_io(AVBufferRef *ctx_ref, AVBufferRef *entry,
      if (max_rate)
          cap_priv->max_framerate = av_clip(strtol(max_rate->value, NULL, 10), 0, 1000);
  
@@ -365,14 +365,14 @@ index db5cea7..ac217a2 100644
  
 diff --git a/subprojects/txproto/src/kn_hdr_capture.h b/subprojects/txproto/src/kn_hdr_capture.h
 new file mode 100644
-index 0000000..372fd19
+index 0000000..8a3171e
 --- /dev/null
 +++ b/subprojects/txproto/src/kn_hdr_capture.h
 @@ -0,0 +1,844 @@
 +/*
 + * KyberNow (0022): HDR desktop capture on Windows, shared by both capture
-+ * engines. The same file is in txproto (src/kn_hdr_capture.h) and in
-+ * libavgrab (libavgrab/kn_hdr_capture.h).
++ * engines: this one file, which libavgrab (dxgi.c, 0022-libavgrab-hdr)
++ * includes from here, so that a fix is never made in one copy only.
 + *
 + * IDXGIOutput1::DuplicateOutput() gives an HDR desktop brought down to 8-bit
 + * SDR by Windows. For an HDR stream, the desktop is duplicated in 16-bit
@@ -1215,15 +1215,15 @@ index 0000000..372fd19
 +#endif /* KN_HDR_CAPTURE_H */
 diff --git a/subprojects/txproto/src/kn_hdr_meta.h b/subprojects/txproto/src/kn_hdr_meta.h
 new file mode 100644
-index 0000000..0858667
+index 0000000..3bcdf63
 --- /dev/null
 +++ b/subprojects/txproto/src/kn_hdr_meta.h
 @@ -0,0 +1,240 @@
 +/*
 + * KyberNow (0022): HDR10 static metadata written into the coded stream.
 + *
-+ * The same file is in txproto (src/kn_hdr_meta.h) and in libavconv
-+ * (libavconv/kn_hdr_meta.h).
++ * One file for both engines: libavconv (enc.c, 0022-libavgrab-hdr)
++ * includes it from here.
 + *
 + * AMF and Quick Sync write the mastering display and content light level
 + * metadata from the frames' side data. NVENC only does it with the Video

@@ -100,7 +100,8 @@ struct kn_pw {
     CVPixelBufferRef p010 = nullptr;
     id<MTLTexture> p010_tex[2];
 
-    size_t num_packets = 0;
+    // L'image mise bout à bout (kn_pw_frame).
+    std::vector<uint8_t> frame;
     double convert_ms = 0, encode_ms = 0;
     uint64_t encode_start = 0;
     char err[256] = {};
@@ -295,7 +296,7 @@ static bool run(kn_pw *pw, void (^encode)(id<MTLComputeCommandEncoder>)) {
     return true;
 }
 
-extern "C" int kn_pw_encode(kn_pw *pw, void *pixbuf, size_t budget, size_t packet_size, size_t *capacity) {
+extern "C" int kn_pw_encode(kn_pw *pw, void *pixbuf, size_t budget) {
     @autoreleasepool {
         CVPixelBufferRef pb = (CVPixelBufferRef)pixbuf;
         IOSurfaceRef surface = pb ? CVPixelBufferGetIOSurface(pb) : nullptr;
@@ -340,7 +341,7 @@ extern "C" int kn_pw_encode(kn_pw *pw, void *pixbuf, size_t budget, size_t packe
                 input.planes[i] = pw->planes[i];
         } else {
             // P010 plage réduite seulement : c'est ce que le paquet de
-            // configuration annonce (`kn_pw_config_packet`), et la capture ne
+            // configuration annonce (pyrowave_common.h de FFmpeg), et la capture ne
             // demande pas autre chose ; la pleine plage serait mal lue (STMAC-22).
             if (fmt != kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange) {
                 set_err(pw, "format d'entrée %c%c%c%c en HDR (P010 plage réduite attendu)", fmt >> 24, fmt >> 16, fmt >> 8, fmt);
@@ -391,36 +392,42 @@ extern "C" int kn_pw_encode(kn_pw *pw, void *pixbuf, size_t budget, size_t packe
             set_err(pw, "encodage : %s (%s)", pyrowave_result_to_string(r), pw->log);
             return -1;
         }
-        size_t n = 0;
-        r = pyrowave_encoder_compute_num_packets(pw->enc, packet_size, &n);
-        if (r != PYROWAVE_SUCCESS || !n) {
-            set_err(pw, "nombre de paquets : %s", pyrowave_result_to_string(r));
-            return -1;
-        }
-        // Un bloc plus grand que la frontière fait un paquet plus grand
-        // qu'elle : la place se compte sur le budget, pas sur n × packet_size.
-        pw->num_packets = n;
-        *capacity = MAX(n * packet_size, budget + n * 64 + 4096);
         return 0;
     }
 }
 
-extern "C" int kn_pw_packetize(kn_pw *pw, size_t packet_size, uint8_t *dst, size_t capacity, size_t *size) {
-    std::vector<pyrowave_packet> packets(pw->num_packets);
-    size_t count = packets.size();
-    pyrowave_result r = pyrowave_encoder_packetize(pw->enc, packets.data(), packet_size, &count, dst, capacity);
+// L'en-tête de séquence de PyroWave (8 octets aujourd'hui) tient dans cette
+// marge, comme dans pyrowave_common.h de FFmpeg.
+static const size_t kSequenceHeaderMax = 256;
+
+extern "C" int kn_pw_frame(kn_pw *pw, const uint8_t **data, size_t *size) {
+    // L'image est l'en-tête de séquence puis les blocs codés, tous dans le
+    // flux encodé : elle n'en dépasse jamais la taille plus l'en-tête
+    // (l'ancienne place, budget + n × 64 + 4096, n'était pas une borne : un
+    // bloc plus gros que la frontière en fait sortir l'image, et le port
+    // Metal la tronque alors sans le dire).
+    const void *bits = nullptr, *meta = nullptr;
+    size_t bits_size = 0, meta_size = 0;
+    pyrowave_result r = pyrowave_encoder_get_mapped_raw_bitstream(pw->enc, &bits, &bits_size, &meta, &meta_size);
     if (r != PYROWAVE_SUCCESS) {
-        set_err(pw, "mise en paquets : %s", pyrowave_result_to_string(r));
+        set_err(pw, "taille du flux encodé : %s", pyrowave_result_to_string(r));
         return -1;
     }
-    // Une image = les paquets bout à bout (contrat KyberNow).
-    size_t total = 0;
-    for (size_t i = 0; i < count; i++) {
-        if (packets[i].offset != total)
-            memmove(dst + total, dst + packets[i].offset, packets[i].size);
-        total += packets[i].size;
+    const size_t capacity = bits_size + kSequenceHeaderMax;
+    if (pw->frame.size() < capacity)
+        pw->frame.resize(capacity);
+    // Un seul paquet : une frontière qu'aucune image n'atteint. PyroWave met
+    // les blocs bout à bout quelle que soit la frontière : c'est l'image du
+    // contrat, sans compter les paquets ni les déplacer.
+    pyrowave_packet whole = {};
+    size_t count = 1;
+    r = pyrowave_encoder_packetize(pw->enc, &whole, SIZE_MAX, &count, pw->frame.data(), capacity);
+    if (r != PYROWAVE_SUCCESS || count != 1 || whole.offset || !whole.size || whole.size > capacity) {
+        set_err(pw, "mise en paquets : %s (%zu paquets, %zu octets)", pyrowave_result_to_string(r), count, whole.size);
+        return -1;
     }
-    *size = total;
+    *data = pw->frame.data();
+    *size = whole.size;
     pw->encode_ms = ticks_ms(mach_absolute_time() - pw->encode_start);
     return 0;
 }
@@ -434,18 +441,6 @@ extern "C" void kn_pw_last_timing(const kn_pw *pw, double *convert_ms, double *e
         *convert_ms = pw->convert_ms;
     if (encode_ms)
         *encode_ms = pw->encode_ms;
-}
-
-extern "C" void kn_pw_config_packet(const kn_pw *pw, uint8_t out[16]) {
-    memcpy(out, "KNPW", 4);
-    out[4] = 1;
-    out[5] = pw->chroma444 ? 1 : 0;
-    out[6] = pw->hdr ? 1 : 0;
-    out[7] = pw->hdr ? 1 : 0; // HDR10 de la capture : plage réduite ('x420')
-    for (int i = 0; i < 4; i++) {
-        out[8 + i] = (uint8_t)((uint32_t)pw->width >> (8 * i));
-        out[12 + i] = (uint8_t)((uint32_t)pw->height >> (8 * i));
-    }
 }
 
 // Vérification d'Admin : une mire BGRA 256 × 256 encodée à ~3 bits par point,
@@ -488,14 +483,14 @@ extern "C" int kn_pw_selftest(char *msg, size_t msg_size) {
             CVPixelBufferRelease(pb);
             return say(4, "%s", err);
         }
-        const size_t packet = 1152;
-        size_t capacity = 0, size = 0;
+        const uint8_t *frame = nullptr;
+        size_t size = 0;
         std::vector<uint8_t> bits;
-        int rc = kn_pw_encode(pw, pb, W * H * 3 / 8, packet, &capacity);
-        if (rc == 0) {
-            bits.resize(capacity);
-            rc = kn_pw_packetize(pw, packet, bits.data(), capacity, &size);
-        }
+        int rc = kn_pw_encode(pw, pb, W * H * 3 / 8);
+        if (rc == 0)
+            rc = kn_pw_frame(pw, &frame, &size);
+        if (rc == 0)
+            bits.assign(frame, frame + size);
         CVPixelBufferRelease(pb);
         if (rc < 0) {
             int code = say(4, "%s", kn_pw_error(pw));

@@ -71,7 +71,7 @@ index 2fa072a..24509bf 100644
 +                                      const DXGI_OUTDUPL_POINTER_SHAPE_INFO *shape_info,
 +                                      const uint8_t *data, uint32_t size);
 diff --git a/subprojects/txproto/src/iosys_dxgi.c b/subprojects/txproto/src/iosys_dxgi.c
-index 98d3d8f..add3e78 100644
+index 98d3d8f..8c0b155 100644
 --- a/subprojects/txproto/src/iosys_dxgi.c
 +++ b/subprojects/txproto/src/iosys_dxgi.c
 @@ -131,6 +131,9 @@ typedef struct DxgiCapture {
@@ -84,7 +84,7 @@ index 98d3d8f..add3e78 100644
  } DxgiCapture;
  
  static uint32_t gen_identifier(const char *s)
-@@ -876,6 +879,694 @@ static int check_resolution_change(DxgiCapture *priv,
+@@ -876,6 +879,746 @@ static int check_resolution_change(DxgiCapture *priv,
      return 0;
  }
  
@@ -170,6 +170,12 @@ index 98d3d8f..add3e78 100644
 +
 +/* No heartbeat from the agent for this long: back to desktop duplication. */
 +#define KN_WGC_STALE_100NS (3LL * 10000000LL)
++/* The agent is looked for this long when the capture starts (it may still
++ * be starting); then, from desktop duplication, again every 3 s, longer (up
++ * to a minute) while WGC opens without giving a frame. */
++#define KN_WGC_LOOK_US (1500LL * 1000LL)
++#define KN_WGC_RETRY_US (3LL * 1000000LL)
++#define KN_WGC_RETRY_MAX_US (60LL * 1000000LL)
 +/* Capture latency is logged over this period. */
 +#define KN_LATENCY_PERIOD_US (5LL * 1000000LL)
 +
@@ -365,8 +371,9 @@ index 98d3d8f..add3e78 100644
 +}
 +
 +/* Opens the WGC ring of this output, if KyberNow Admin started one for it
-+ * in the current session. */
-+static int kn_wgc_open(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx)
++ * in the current session, looking for it during `look_us` (0: once, without
++ * a line in the log when there is none). */
++static int kn_wgc_open(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int64_t look_us)
 +{
 +    char id[32], ring[64], name[128];
 +    DXGI_ADAPTER_DESC1 adapter_desc;
@@ -383,16 +390,19 @@ index 98d3d8f..add3e78 100644
 +        return AVERROR(ENOENT);
 +    snprintf(name, sizeof(name), "KyberNowWGC_%s", ring);
 +
-+    /* Its capture agent may still be starting: looked for during 1.5 s. */
++    /* Its capture agent may still be starting: looked for during look_us. */
 +    const int64_t looked_at = av_gettime_relative();
-+    const int64_t deadline = looked_at + 1500000;
-+    sp_log(entry, SP_LOG_INFO, "WGC: looking for the capture agent of %s\n", id);
++    const int64_t deadline = looked_at + look_us;
++    const int quiet = !look_us;
++    if (!quiet)
++        sp_log(entry, SP_LOG_INFO, "WGC: looking for the capture agent of %s\n", id);
 +    HANDLE mapping;
 +    while (!(mapping = OpenFileMappingA(FILE_MAP_READ, FALSE, name)) &&
 +           av_gettime_relative() < deadline && !atomic_load(&priv->quit))
 +        av_usleep(100000);
 +    if (!mapping) {
-+        sp_log(entry, SP_LOG_INFO, "WGC: no capture agent for %s (%lu): desktop duplication\n", id, GetLastError());
++        if (!quiet)
++            sp_log(entry, SP_LOG_INFO, "WGC: no capture agent for %s (%lu): desktop duplication\n", id, GetLastError());
 +        return AVERROR(ENOENT);
 +    }
 +
@@ -420,8 +430,9 @@ index 98d3d8f..add3e78 100644
 +        av_usleep(50000);
 +    if (w->header->state != KN_WGC_STATE_RUNNING ||
 +        kn_now_100ns() - w->header->heartbeat_time > KN_WGC_STALE_100NS) {
-+        sp_log(entry, SP_LOG_WARN, "WGC: capture agent for %s is not running (state %u): desktop duplication\n",
-+               id, w->header->state);
++        if (!quiet)
++            sp_log(entry, SP_LOG_WARN, "WGC: capture agent for %s is not running (state %u): desktop duplication\n",
++                   id, w->header->state);
 +        goto fail;
 +    }
 +    if (FAILED(IDXGIAdapter1_GetDesc1(ctx->dxgi_adapter, &adapter_desc)) ||
@@ -620,6 +631,9 @@ index 98d3d8f..add3e78 100644
 +/* Capture loop for an output with a WGC ring. Returns 0 on stop, an error
 + * when the ring stops working (the caller falls back to duplication);
 + * `*fatal` gets the errors that stop desktop duplication too. */
++/* Captures through WGC until the agent stops, nothing comes in 2.5 s, or
++ * the capture quits. Returns the number of images copied; a fatal error
++ * goes to `fatal`. */
 +static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *fatal)
 +{
 +    KnWgc *w = priv->wgc;
@@ -646,7 +660,7 @@ index 98d3d8f..add3e78 100644
 +        if (w->header->state != KN_WGC_STATE_RUNNING ||
 +            kn_now_100ns() - w->header->heartbeat_time > KN_WGC_STALE_100NS) {
 +            sp_log(entry, SP_LOG_WARN, "WGC: capture agent stopped\n");
-+            return AVERROR_EXTERNAL;
++            return copied;
 +        }
 +
 +        kn_wgc_poll_cursor(entry, priv, w);
@@ -670,7 +684,7 @@ index 98d3d8f..add3e78 100644
 +                   "generation %u, %ux%u, texture open failures %d, lock timeouts %d)\n",
 +                   (unsigned long long)counter, w->header->generation, w->header->width,
 +                   w->header->height, w->open_failures, lock_timeouts);
-+            return AVERROR_EXTERNAL;
++            return copied;
 +        }
 +        if (!counter)
 +            continue; /* the agent has no frame yet */
@@ -773,13 +787,51 @@ index 98d3d8f..add3e78 100644
 +        }
 +    }
 +
-+    return 0;
++    return copied;
++}
++
++/* KyberNow (0018): when desktop duplication looks for the WGC agent again
++ * (KYB-17), and how long it then waits. */
++typedef struct KnWgcRetry {
++    int64_t at;
++    int64_t interval;
++} KnWgcRetry;
++
++/* KyberNow (0018): captures through WGC while the agent of this display
++ * runs. Desktop duplication is stopped only once the agent is found, and
++ * starts again (top of the capture loop) when WGC ends; it then looks for
++ * the agent again after `retry->interval`: 3 s, doubled up to a minute
++ * while WGC opens without giving a frame. 0: no agent, desktop duplication
++ * goes on; 1: WGC ran and ended, desktop duplication starts again; < 0:
++ * fatal error. */
++static int kn_wgc_run(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int64_t look_us,
++                      KnWgcRetry *retry)
++{
++    int fatal = 0, copied;
++
++    if (kn_wgc_open(entry, priv, ctx, look_us) < 0) {
++        retry->at = av_gettime_relative() + retry->interval;
++        return 0;
++    }
++    stop_capture(priv);
++    copied = kn_wgc_loop(entry, priv, ctx, &fatal);
++    kn_wgc_close(priv);
++    stop_capture(priv); /* the input desktop the WGC loop opened */
++    if (fatal)
++        return fatal;
++    priv->got_first_frame = 0;
++    retry->interval = copied ? KN_WGC_RETRY_US : FFMIN(retry->interval * 2, KN_WGC_RETRY_MAX_US);
++    retry->at = av_gettime_relative() + retry->interval;
++    if (!atomic_load(&priv->quit))
++        sp_log(entry, SP_LOG_WARN, "WGC: back to desktop duplication (%d images copied; agent looked for "
++               "again in %d s)\n", copied, (int)(retry->interval / 1000000));
++    return 1;
 +}
 +
  static void *dxgi_capture_thread(void *s)
  {
      IOSysEntry *entry = s;
-@@ -885,6 +1576,7 @@ static void *dxgi_capture_thread(void *s)
+@@ -885,6 +1628,7 @@ static void *dxgi_capture_thread(void *s)
      AVFrame* frame = NULL;
      HRESULT hr;
      int err = 0;
@@ -787,32 +839,38 @@ index 98d3d8f..add3e78 100644
  
      sp_set_thread_name_self(sp_class_get_name(entry));
      sp_eventlist_dispatch(entry, entry->events, SP_EVENT_ON_CONFIG | SP_EVENT_ON_INIT, NULL);
-@@ -903,6 +1595,24 @@ static void *dxgi_capture_thread(void *s)
+@@ -903,6 +1647,14 @@ static void *dxgi_capture_thread(void *s)
          goto fail;
      }
  
 +    /* KyberNow (0018): secondary displays of a multi-display session are
 +     * captured through Windows Graphics Capture when KyberNow Admin started
 +     * a capture agent for them; desktop duplication otherwise, or if it stops. */
-+    if (kn_wgc_open(entry, priv, ctx) == 0) {
-+        int fatal = 0;
-+        kn_wgc_loop(entry, priv, ctx, &fatal);
-+        kn_wgc_close(priv);
-+        if (fatal) {
-+            err = fatal;
-+            goto fail;
-+        }
-+        if (atomic_load(&priv->quit))
-+            goto fail;
-+        sp_log(entry, SP_LOG_WARN, "WGC: back to desktop duplication\n");
-+        stop_capture(priv);
-+        priv->got_first_frame = 0;
-+    }
++    KnWgcRetry kn_retry = { 0, KN_WGC_RETRY_US };
++    err = kn_wgc_run(entry, priv, ctx, KN_WGC_LOOK_US, &kn_retry);
++    if (err < 0 || atomic_load(&priv->quit))
++        goto fail;
 +
      while (!atomic_load(&priv->quit)) {
          /* Capture may be restarted multiple time during a session in some cases:
           * - Fullscreen switch
-@@ -943,10 +1653,21 @@ static void *dxgi_capture_thread(void *s)
+@@ -912,6 +1664,15 @@ static void *dxgi_capture_thread(void *s)
+          * Capture restart can fail if the current user isn't allowed to access Secure
+          * Desktop. Restart retries are done because the user is likely to quit Secure
+          * Desktop. In this case, capture restart will succeed. */
++        /* KyberNow (0018): the WGC agent back (restarted by Admin after a
++         * crash): its capture is taken back instead of staying on desktop
++         * duplication until the end of the session (KYB-17). */
++        if (av_gettime_relative() >= kn_retry.at) {
++            err = kn_wgc_run(entry, priv, ctx, 0, &kn_retry);
++            if (err < 0 || atomic_load(&priv->quit))
++                goto fail;
++        }
++
+         if (!priv->output_duplication) {
+             err = start_capture(priv, ctx, dxgi_output);
+             if (err < 0) {
+@@ -943,10 +1704,21 @@ static void *dxgi_capture_thread(void *s)
          }
  
          if (!priv->got_first_frame) {
