@@ -36,12 +36,14 @@ fn code(e: &RecordingError) -> i32 {
 /// `device_id`. Bloquant (15 s au plus) : jamais sur le fil principal.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleRecording(mut env: Env, _: JClass, h: jlong, device_id: JString, record: jboolean) -> jstring {
-    let Some(c) = console(h) else { return std::ptr::null_mut() };
-    let device_id = string(&mut env, &device_id);
-    let lang = i18n::current();
-    let s = match c.recording(&device_id, record != JNI_FALSE) {
-        Ok(state) => serde_json::json!({ "code": 0, "value": state.ui_json(lang, None) }).to_string(),
-        Err(e) => serde_json::json!({ "code": code(&e), "error": e.text(lang) }).to_string(),
-    };
-    give(&mut env, &s)
+    kybernow_core::ffi_guard!(null => {
+        let Some(c) = console(h) else { return std::ptr::null_mut() };
+        let device_id = string(&mut env, &device_id);
+        let lang = i18n::current();
+        let s = match c.recording(&device_id, record != JNI_FALSE) {
+            Ok(state) => serde_json::json!({ "code": 0, "value": state.ui_json(lang, None) }).to_string(),
+            Err(e) => serde_json::json!({ "code": code(&e), "error": e.text(lang) }).to_string(),
+        };
+        give(&mut env, &s)
+    })
 }

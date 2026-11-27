@@ -62,25 +62,31 @@ mod jni_exports {
         computer: JString,
         now: jlong,
     ) -> jstring {
-        let state = string(&mut env, &state);
-        let op = string(&mut env, &op);
-        let computer = string(&mut env, &computer);
-        let s = super::step(&state, &op, has_account != 0, &computer, now.max(0) as u64);
-        give(&mut env, &s)
+        kybernow_core::ffi_guard!(null => {
+            let state = string(&mut env, &state);
+            let op = string(&mut env, &op);
+            let computer = string(&mut env, &computer);
+            let s = super::step(&state, &op, has_account != 0, &computer, now.max(0) as u64);
+            give(&mut env, &s)
+        })
     }
 
     /// `Native.welcomeSignUpUrl` : la page d'inscription, dans la langue de l'app.
     #[unsafe(no_mangle)]
     pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_welcomeSignUpUrl(mut env: Env, _: JClass, relay: JString) -> jstring {
-        let relay = string(&mut env, &relay);
-        let s = super::sign_up_url(&relay, i18n::current());
-        give(&mut env, &s)
+        kybernow_core::ffi_guard!(null => {
+            let relay = string(&mut env, &relay);
+            let s = super::sign_up_url(&relay, i18n::current());
+            give(&mut env, &s)
+        })
     }
 
     /// `Native.welcomeStationUrl` : la page de téléchargement de KyberNow Station.
     #[unsafe(no_mangle)]
     pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_welcomeStationUrl(mut env: Env, _: JClass) -> jstring {
-        give(&mut env, kybernow_core::welcome::STATION_DOWNLOAD_URL)
+        kybernow_core::ffi_guard!(null => {
+            give(&mut env, kybernow_core::welcome::STATION_DOWNLOAD_URL)
+        })
     }
 }
 

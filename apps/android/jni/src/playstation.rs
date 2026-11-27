@@ -86,32 +86,38 @@ fn wait(ms: jint) -> Duration {
 /// par l'app.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_search(mut env: Env, _: JClass, direct_json: JString, wait_ms: jint) -> jstring {
-    let direct: Vec<Ipv4Addr> = serde_json::from_str::<Vec<String>>(&string(&mut env, &direct_json))
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|a| a.parse().ok())
-        .collect();
-    let found = discovery::search(wait(wait_ms), &direct).unwrap_or_default();
-    give(&mut env, &found_json(&found))
+    kybernow_core::ffi_guard!(null => {
+        let direct: Vec<Ipv4Addr> = serde_json::from_str::<Vec<String>>(&string(&mut env, &direct_json))
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|a| a.parse().ok())
+            .collect();
+        let found = discovery::search(wait(wait_ms), &direct).unwrap_or_default();
+        give(&mut env, &found_json(&found))
+    })
 }
 
 /// Une seule console à `address` (adresse ou adresse par le relais), sans
 /// diffusion. Même JSON. Bloque.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_searchAt(mut env: Env, _: JClass, address: JString, wait_ms: jint) -> jstring {
-    let Some(at) = parse_addr(&string(&mut env, &address)) else { return give(&mut env, "[]") };
-    let found = discovery::search_at(wait(wait_ms), false, &[at]).unwrap_or_default();
-    give(&mut env, &found_json(&found))
+    kybernow_core::ffi_guard!(null => {
+        let Some(at) = parse_addr(&string(&mut env, &address)) else { return give(&mut env, "[]") };
+        let found = discovery::search_at(wait(wait_ms), false, &[at]).unwrap_or_default();
+        give(&mut env, &found_json(&found))
+    })
 }
 
 /// Réveille une console associée (`registeredJson` : l'association). Vrai si le paquet est parti.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_wake(mut env: Env, _: JClass, address: JString, registered_json: JString) -> jboolean {
-    let (addr, reg) = (string(&mut env, &address), string(&mut env, &registered_json));
-    let (Some(addr), Ok(r)) = (parse_addr(&addr), serde_json::from_str::<Registered>(&reg)) else { return JNI_FALSE };
-    let model = if matches!(r.target, regist::TargetName::Ps5V1) { Model::Ps5 } else { Model::Ps4 };
-    let Some(cred) = r.wake_credential() else { return JNI_FALSE };
-    jbool(discovery::wake_at(&addr, model, cred).is_ok())
+    kybernow_core::ffi_guard!(1 => {
+        let (addr, reg) = (string(&mut env, &address), string(&mut env, &registered_json));
+        let (Some(addr), Ok(r)) = (parse_addr(&addr), serde_json::from_str::<Registered>(&reg)) else { return JNI_FALSE };
+        let model = if matches!(r.target, regist::TargetName::Ps5V1) { Model::Ps5 } else { Model::Ps4 };
+        let Some(cred) = r.wake_credential() else { return JNI_FALSE };
+        jbool(discovery::wake_at(&addr, model, cred).is_ok())
+    })
 }
 
 // MARK: - Compte PSN et association
@@ -119,13 +125,17 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_wake(mut 
 /// Page de connexion au compte Sony (WebView).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_loginUrl(mut env: Env, _: JClass) -> jstring {
-    give(&mut env, psn::LOGIN_URL)
+    kybernow_core::ffi_guard!(null => {
+        give(&mut env, psn::LOGIN_URL)
+    })
 }
 
 /// Vrai pour l'adresse de retour de Sony : la WebView s'arrête là.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_isRedirect(mut env: Env, _: JClass, url: JString) -> jboolean {
-    jbool(psn::is_redirect(&string(&mut env, &url)))
+    kybernow_core::ffi_guard!({
+        jbool(psn::is_redirect(&string(&mut env, &url)))
+    })
 }
 
 /// Identifiant du compte d'après l'adresse de retour (deux requêtes HTTPS :
@@ -133,24 +143,28 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_isRedirec
 /// ou `{"error": "…"}`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_account(mut env: Env, _: JClass, redirect_url: JString) -> jstring {
-    let url = string(&mut env, &redirect_url);
-    let result = match psn::code_from_redirect(&url) {
-        None => json!({ "error": psn::PsnError::NoCode.to_string() }),
-        Some(code) => match psn::account(&code) {
-            Ok(a) => json!({ "account": a.id.to_base64(), "online_id": a.online_id }),
-            Err(e) => {
-                log::warn!("PlayStation : identifiant du compte non lu : {e}");
-                json!({ "error": e.to_string() })
-            }
-        },
-    };
-    give(&mut env, &result.to_string())
+    kybernow_core::ffi_guard!(null => {
+        let url = string(&mut env, &redirect_url);
+        let result = match psn::code_from_redirect(&url) {
+            None => json!({ "error": psn::PsnError::NoCode.to_string() }),
+            Some(code) => match psn::account(&code) {
+                Ok(a) => json!({ "account": a.id.to_base64(), "online_id": a.online_id }),
+                Err(e) => {
+                    log::warn!("PlayStation : identifiant du compte non lu : {e}");
+                    json!({ "error": e.to_string() })
+                }
+            },
+        };
+        give(&mut env, &result.to_string())
+    })
 }
 
 /// L'identifiant saisi à la main se lit (base64 de 8 octets).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_accountIdValid(mut env: Env, _: JClass, id: JString) -> jboolean {
-    jbool(PsnId::from_base64(&string(&mut env, &id)).is_some())
+    kybernow_core::ffi_guard!({
+        jbool(PsnId::from_base64(&string(&mut env, &id)).is_some())
+    })
 }
 
 /// Associe la console (`target` de la recherche, `account` en base64, `pin` :
@@ -166,27 +180,29 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_regist(
     account: JString,
     pin: jint,
 ) -> jstring {
-    let (address, target, account) = (string(&mut env, &address), string(&mut env, &target), string(&mut env, &account));
-    let fail = |env: &mut Env, code: &str, detail: String| give(env, &json!({ "error": code, "detail": detail }).to_string());
-    let Some(addr) = parse_addr(&address) else { return fail(&mut env, "other", "adresse illisible".into()) };
-    let Ok(target) = serde_json::from_value::<regist::TargetName>(serde_json::Value::String(target)) else {
-        return fail(&mut env, "other", "cible illisible".into());
-    };
-    let Some(id) = PsnId::from_base64(&account) else { return fail(&mut env, "account", "identifiant illisible".into()) };
-    match regist::regist_at(&addr, target.into(), &id, pin.max(0) as u32) {
-        Ok(r) => give(&mut env, &json!({ "registered": r }).to_string()),
-        Err(e) => {
-            log::warn!("PlayStation : association refusée : {e}");
-            let code = match &e {
-                RegistError::NoAnswer | RegistError::Refused => "no_answer",
-                RegistError::Rejected { reason: Some(regist::REASON_REGIST_FAILED), .. } => "wrong_code",
-                RegistError::Rejected { reason: Some(regist::REASON_INVALID_PSN_ID), .. } => "account",
-                RegistError::Network(_) => "network",
-                _ => "other",
-            };
-            fail(&mut env, code, e.to_string())
+    kybernow_core::ffi_guard!(null => {
+        let (address, target, account) = (string(&mut env, &address), string(&mut env, &target), string(&mut env, &account));
+        let fail = |env: &mut Env, code: &str, detail: String| give(env, &json!({ "error": code, "detail": detail }).to_string());
+        let Some(addr) = parse_addr(&address) else { return fail(&mut env, "other", "adresse illisible".into()) };
+        let Ok(target) = serde_json::from_value::<regist::TargetName>(serde_json::Value::String(target)) else {
+            return fail(&mut env, "other", "cible illisible".into());
+        };
+        let Some(id) = PsnId::from_base64(&account) else { return fail(&mut env, "account", "identifiant illisible".into()) };
+        match regist::regist_at(&addr, target.into(), &id, pin.max(0) as u32) {
+            Ok(r) => give(&mut env, &json!({ "registered": r }).to_string()),
+            Err(e) => {
+                log::warn!("PlayStation : association refusée : {e}");
+                let code = match &e {
+                    RegistError::NoAnswer | RegistError::Refused => "no_answer",
+                    RegistError::Rejected { reason: Some(regist::REASON_REGIST_FAILED), .. } => "wrong_code",
+                    RegistError::Rejected { reason: Some(regist::REASON_INVALID_PSN_ID), .. } => "account",
+                    RegistError::Network(_) => "network",
+                    _ => "other",
+                };
+                fail(&mut env, code, e.to_string())
+            }
         }
-    }
+    })
 }
 
 // MARK: - Hors de chez soi (docs/relais.md, « Consoles PlayStation »)
@@ -198,9 +214,11 @@ const NOT_SEEN: i32 = 40;
 /// d'Admin `{"code": 0, "value": [{host_id, name, model, state, seen}]}`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_stationConsoles(mut env: Env, _: JClass, h: jlong) -> jstring {
-    let Some(c) = console(h) else { return give(&mut env, "{\"code\":1,\"error\":\"\"}") };
-    let s = envelope(c.consoles());
-    give(&mut env, &s)
+    kybernow_core::ffi_guard!(null => {
+        let Some(c) = console(h) else { return give(&mut env, "{\"code\":1,\"error\":\"\"}") };
+        let s = envelope(c.consoles());
+        give(&mut env, &s)
+    })
 }
 
 /// Joint la console `hostId` par la Station de `h` (une console d'Admin par
@@ -210,15 +228,17 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_stationCo
 /// (40 : la Station ne voit pas la console). Bloque.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_remoteOpen(mut env: Env, _: JClass, h: jlong, host_id: JString) -> jstring {
-    let host_id = string(&mut env, &host_id);
-    let Some(c) = console(h) else { return give(&mut env, "{\"code\":1,\"error\":\"\"}") };
-    let s = match Remote::open(c, &host_id) {
-        Ok(remote) => json!({ "code": 0, "handle": REMOTES.insert(remote) }).to_string(),
-        Err(RemoteError::NotSeen) => json!({ "code": NOT_SEEN, "error": RemoteError::NotSeen.to_string() }).to_string(),
-        Err(RemoteError::NotRelayed) => json!({ "code": 1, "error": RemoteError::NotRelayed.to_string() }).to_string(),
-        Err(RemoteError::Console(e)) => envelope::<()>(Err(e)),
-    };
-    give(&mut env, &s)
+    kybernow_core::ffi_guard!(null => {
+        let host_id = string(&mut env, &host_id);
+        let Some(c) = console(h) else { return give(&mut env, "{\"code\":1,\"error\":\"\"}") };
+        let s = match Remote::open(c, &host_id) {
+            Ok(remote) => json!({ "code": 0, "handle": REMOTES.insert(remote) }).to_string(),
+            Err(RemoteError::NotSeen) => json!({ "code": NOT_SEEN, "error": RemoteError::NotSeen.to_string() }).to_string(),
+            Err(RemoteError::NotRelayed) => json!({ "code": 1, "error": RemoteError::NotRelayed.to_string() }).to_string(),
+            Err(RemoteError::Console(e)) => envelope::<()>(Err(e)),
+        };
+        give(&mut env, &s)
+    })
 }
 
 /// Consoles jointes, parties et attentes d'un envoi : par numéro (`registry`).
@@ -235,24 +255,30 @@ fn remote(h: jlong) -> Option<Arc<Remote>> {
 /// L'adresse de la console par le relais, à passer aux autres fonctions.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_remoteAddress(mut env: Env, _: JClass, h: jlong) -> jstring {
-    match remote(h) {
-        Some(r) => give(&mut env, &r.endpoint().to_text()),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match remote(h) {
+            Some(r) => give(&mut env, &r.endpoint().to_text()),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Le chemin (JSON de `onRoute` des sessions : `transport`, `relay`, `rtt_client`, `rtt_station`).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_remoteRoute(mut env: Env, _: JClass, h: jlong) -> jstring {
-    match remote(h) {
-        Some(r) => give(&mut env, &serde_json::to_string(&r.route_info()).unwrap_or_default()),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match remote(h) {
+            Some(r) => give(&mut env, &serde_json::to_string(&r.route_info()).unwrap_or_default()),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_remoteFree(_: Env, _: JClass, h: jlong) {
-    drop(REMOTES.remove(h));
+    kybernow_core::ffi_guard!({
+        drop(REMOTES.remove(h));
+    })
 }
 
 // MARK: - Réglages
@@ -260,19 +286,25 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_remoteFre
 /// Les réglages par défaut d'une console (JSON) : Auto, 60 i/s.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_defaultSettings(mut env: Env, _: JClass) -> jstring {
-    give(&mut env, &serde_json::to_string(&PlaySettings::default()).unwrap_or_default())
+    kybernow_core::ffi_guard!(null => {
+        give(&mut env, &serde_json::to_string(&PlaySettings::default()).unwrap_or_default())
+    })
 }
 
 /// Vrai si les réglages s'écartent d'Auto (« Personnalisé » à l'accueil).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_settingsCustom(mut env: Env, _: JClass, json: JString) -> jboolean {
-    jbool(serde_json::from_str::<PlaySettings>(&string(&mut env, &json)).is_ok_and(|s| s.is_custom()))
+    kybernow_core::ffi_guard!({
+        jbool(serde_json::from_str::<PlaySettings>(&string(&mut env, &json)).is_ok_and(|s| s.is_custom()))
+    })
 }
 
 /// La disposition par défaut du clavier et de la souris (JSON).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_defaultLayout(mut env: Env, _: JClass) -> jstring {
-    give(&mut env, &serde_json::to_string(&Layout::default()).unwrap_or_default())
+    kybernow_core::ffi_guard!(null => {
+        give(&mut env, &serde_json::to_string(&Layout::default()).unwrap_or_default())
+    })
 }
 
 // MARK: - Partie
@@ -422,211 +454,243 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_start(
     listener: JObject,
     refresh: jint,
 ) -> jlong {
-    let (address, reg, settings) = (string(&mut env, &address), string(&mut env, &registered_json), string(&mut env, &settings_json));
-    let (Some(addr), Ok(r)) = (parse_addr(&address), serde_json::from_str::<Registered>(&reg)) else {
-        log::error!("PlayStation : adresse ou association illisible");
-        return 0;
-    };
-    let w = window(&mut env, &surface);
-    let Ok(listener) = Listener::new(&mut env, &listener) else { return 0 };
-    let settings = serde_json::from_str::<PlaySettings>(&settings).unwrap_or_default();
-    let ps5 = matches!(r.target, regist::TargetName::Ps5V1);
-    let profile = settings.profile(hevc_decoder != 0, ps5);
-    let host = Arc::new(Host {
-        listener,
-        surface: crate::media::SurfaceSlot::new(w),
-        refresh: AtomicU32::new(refresh.max(0) as u32),
-        size: (profile.width, profile.height),
-        hdr: profile.hdr,
-        play: OnceLock::new(),
-        engine: Mutex::new(None),
-        muted: std::sync::atomic::AtomicBool::new(false),
-    });
-    let video: Arc<dyn PacketHandler> = VideoSink::new(host.clone() as Arc<dyn MediaHost>);
-    let audio: Arc<dyn PacketHandler> = AudioSink::new(host.clone() as Arc<dyn MediaHost>);
-    gamepads::set_app_feedback(Some(Arc::new(Feedback(host.clone()))));
-    let h = host.clone();
-    let on_state = Box::new(move |state: PlayState| {
-        let (code, w, hh, hdr, detail) = match &state {
-            PlayState::Connecting => (CONNECTING, 0, 0, false, String::new()),
-            PlayState::Streaming { width, height, hdr } => (STREAMING, *width, *height, *hdr, String::new()),
-            PlayState::CantDisplay(true) => (CANT_DISPLAY, 0, 0, false, String::new()),
-            PlayState::CantDisplay(false) => (CAN_DISPLAY, 0, 0, false, String::new()),
-            PlayState::Ended(end) => match end {
-                PlayEnd::Stopped => (END_STOPPED, 0, 0, false, String::new()),
-                PlayEnd::InUse => (END_IN_USE, 0, 0, false, String::new()),
-                PlayEnd::NotPaired => (END_NOT_PAIRED, 0, 0, false, String::new()),
-                PlayEnd::Unreachable(s) => (END_UNREACHABLE, 0, 0, false, s.clone()),
-                PlayEnd::Remote(s) => (END_REMOTE, 0, 0, false, s.clone()),
-            },
+    kybernow_core::ffi_guard!({
+        let (address, reg, settings) = (string(&mut env, &address), string(&mut env, &registered_json), string(&mut env, &settings_json));
+        let (Some(addr), Ok(r)) = (parse_addr(&address), serde_json::from_str::<Registered>(&reg)) else {
+            log::error!("PlayStation : adresse ou association illisible");
+            return 0;
         };
-        h.listener.with(|env, obj| {
-            let d = env.new_string(&detail)?;
-            env.call_method(
-                obj,
-                "onPsState",
-                "(IIIZLjava/lang/String;)V",
-                &[JValue::Int(code), JValue::Int(w as i32), JValue::Int(hh as i32), JValue::Bool(hdr as u8), JValue::Object(&d)],
-            )
-            .map(|_| ())
+        let w = window(&mut env, &surface);
+        let Ok(listener) = Listener::new(&mut env, &listener) else { return 0 };
+        let settings = serde_json::from_str::<PlaySettings>(&settings).unwrap_or_default();
+        let ps5 = matches!(r.target, regist::TargetName::Ps5V1);
+        let profile = settings.profile(hevc_decoder != 0, ps5);
+        let host = Arc::new(Host {
+            listener,
+            surface: crate::media::SurfaceSlot::new(w),
+            refresh: AtomicU32::new(refresh.max(0) as u32),
+            size: (profile.width, profile.height),
+            hdr: profile.hdr,
+            play: OnceLock::new(),
+            engine: Mutex::new(None),
+            muted: std::sync::atomic::AtomicBool::new(false),
         });
-    });
-    let h = host.clone();
-    let on_pad = Box::new(move |e: PadEvent| match e {
-        PadEvent::Menu => h.listener.void("onPsMenu", "()V", &[]),
-        PadEvent::Navigate(k) => {
-            // Comme les touches de navigation des apps Apple (`KN_PAD_KEY_*`).
-            let key = match k {
-                PadKey::Left => 0,
-                PadKey::Right => 1,
-                PadKey::Up => 2,
-                PadKey::Down => 3,
-                PadKey::Accept => 4,
-                PadKey::Back => 5,
+        let video: Arc<dyn PacketHandler> = VideoSink::new(host.clone() as Arc<dyn MediaHost>);
+        let audio: Arc<dyn PacketHandler> = AudioSink::new(host.clone() as Arc<dyn MediaHost>);
+        gamepads::set_app_feedback(Some(Arc::new(Feedback(host.clone()))));
+        let h = host.clone();
+        let on_state = Box::new(move |state: PlayState| {
+            let (code, w, hh, hdr, detail) = match &state {
+                PlayState::Connecting => (CONNECTING, 0, 0, false, String::new()),
+                PlayState::Streaming { width, height, hdr } => (STREAMING, *width, *height, *hdr, String::new()),
+                PlayState::CantDisplay(true) => (CANT_DISPLAY, 0, 0, false, String::new()),
+                PlayState::CantDisplay(false) => (CAN_DISPLAY, 0, 0, false, String::new()),
+                PlayState::Ended(end) => match end {
+                    PlayEnd::Stopped => (END_STOPPED, 0, 0, false, String::new()),
+                    PlayEnd::InUse => (END_IN_USE, 0, 0, false, String::new()),
+                    PlayEnd::NotPaired => (END_NOT_PAIRED, 0, 0, false, String::new()),
+                    PlayEnd::Unreachable(s) => (END_UNREACHABLE, 0, 0, false, s.clone()),
+                    PlayEnd::Remote(s) => (END_REMOTE, 0, 0, false, s.clone()),
+                },
             };
-            h.listener.void("onPsNavigate", "(I)V", &[JValue::Int(key)]);
-        }
-    });
-    let play = Play::start(addr, &r, PlayOptions { settings, hevc_decoder: hevc_decoder != 0 }, video, Some(audio), on_state, on_pad);
-    let h = host.clone();
-    play.set_on_keyboard(Some(Box::new(move |e: KeyboardEvent| {
-        let (code, t) = match e {
-            KeyboardEvent::Open(t) => (KEYBOARD_OPEN, t),
-            KeyboardEvent::Text(t) => (KEYBOARD_TEXT, t),
-            KeyboardEvent::Closed => (KEYBOARD_CLOSED, String::new()),
-        };
-        h.listener.with(|env, obj| {
-            let s = env.new_string(&t)?;
-            env.call_method(obj, "onPsKeyboard", "(ILjava/lang/String;)V", &[JValue::Int(code), JValue::Object(&s)]).map(|_| ())
+            h.listener.with(|env, obj| {
+                let d = env.new_string(&detail)?;
+                env.call_method(
+                    obj,
+                    "onPsState",
+                    "(IIIZLjava/lang/String;)V",
+                    &[JValue::Int(code), JValue::Int(w as i32), JValue::Int(hh as i32), JValue::Bool(hdr as u8), JValue::Object(&d)],
+                )
+                .map(|_| ())
+            });
         });
-    })));
-    let play = Arc::new(Mutex::new(Some(play)));
-    let _ = host.play.set(Arc::downgrade(&play));
-    PLAYS.insert(Handle { host, play })
+        let h = host.clone();
+        let on_pad = Box::new(move |e: PadEvent| match e {
+            PadEvent::Menu => h.listener.void("onPsMenu", "()V", &[]),
+            PadEvent::Navigate(k) => {
+                // Comme les touches de navigation des apps Apple (`KN_PAD_KEY_*`).
+                let key = match k {
+                    PadKey::Left => 0,
+                    PadKey::Right => 1,
+                    PadKey::Up => 2,
+                    PadKey::Down => 3,
+                    PadKey::Accept => 4,
+                    PadKey::Back => 5,
+                };
+                h.listener.void("onPsNavigate", "(I)V", &[JValue::Int(key)]);
+            }
+        });
+        let play = Play::start(addr, &r, PlayOptions { settings, hevc_decoder: hevc_decoder != 0 }, video, Some(audio), on_state, on_pad);
+        let h = host.clone();
+        play.set_on_keyboard(Some(Box::new(move |e: KeyboardEvent| {
+            let (code, t) = match e {
+                KeyboardEvent::Open(t) => (KEYBOARD_OPEN, t),
+                KeyboardEvent::Text(t) => (KEYBOARD_TEXT, t),
+                KeyboardEvent::Closed => (KEYBOARD_CLOSED, String::new()),
+            };
+            h.listener.with(|env, obj| {
+                let s = env.new_string(&t)?;
+                env.call_method(obj, "onPsKeyboard", "(ILjava/lang/String;)V", &[JValue::Int(code), JValue::Object(&s)]).map(|_| ())
+            });
+        })));
+        let play = Arc::new(Mutex::new(Some(play)));
+        let _ = host.play.set(Arc::downgrade(&play));
+        PLAYS.insert(Handle { host, play })
+    })
 }
 
 /// La surface a changé (recréée, retirée en arrière-plan).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_setSurface(mut env: Env, _: JClass, h: jlong, surface: JObject, refresh: jint) {
-    let Some(h) = handle(h) else { return };
-    let w = window(&mut env, &surface);
-    if refresh > 0 {
-        h.host.refresh.store(refresh as u32, Ordering::Relaxed);
-    }
-    h.host.set_window(w);
+    kybernow_core::ffi_guard!({
+        let Some(h) = handle(h) else { return };
+        let w = window(&mut env, &surface);
+        if refresh > 0 {
+            h.host.refresh.store(refresh as u32, Ordering::Relaxed);
+        }
+        h.host.set_window(w);
+    })
 }
 
 /// Arrête la partie, attend sa fin (le dernier `onPsState` est une fin) et
 /// la libère. Hors du fil principal.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_stop(_: Env, _: JClass, h: jlong) {
-    let Some(h) = PLAYS.remove(h) else { return };
-    // Le verrou n'est pas tenu pendant l'attente : le fil du décodeur peut encore le prendre.
-    let play = h.play.lock().unwrap().take();
-    if let Some(mut p) = play {
-        p.stop();
-    }
-    gamepads::set_app_feedback(None);
-    for p in gamepads::pads() {
-        gamepads::unplug(p.id);
-    }
-    h.host.set_window(None);
+    kybernow_core::ffi_guard!({
+        let Some(h) = PLAYS.remove(h) else { return };
+        // Le verrou n'est pas tenu pendant l'attente : le fil du décodeur peut encore le prendre.
+        let play = h.play.lock().unwrap().take();
+        if let Some(mut p) = play {
+            p.stop();
+        }
+        gamepads::set_app_feedback(None);
+        for p in gamepads::pads() {
+            gamepads::unplug(p.id);
+        }
+        h.host.set_window(None);
+    })
 }
 
 /// Touche du clavier (usage USB HID), traduite en manette d'après la disposition.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_key(_: Env, _: JClass, h: jlong, usage: jint, pressed: jboolean) {
-    with_play(h, |p| p.key(usage as u16, pressed != 0));
+    kybernow_core::ffi_guard!({
+        with_play(h, |p| p.key(usage as u16, pressed != 0));
+    })
 }
 
 /// Bouton de la souris : 0 gauche, 1 droit, 2 milieu, 3 et 4 latéraux.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_mouseButton(_: Env, _: JClass, h: jlong, button: jint, pressed: jboolean) {
-    with_play(h, |p| p.mouse_button(button as u8, pressed != 0));
+    kybernow_core::ffi_guard!({
+        with_play(h, |p| p.mouse_button(button as u8, pressed != 0));
+    })
 }
 
 /// Déplacement brut de la souris capturée.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_mouseMove(_: Env, _: JClass, h: jlong, dx: jfloat, dy: jfloat) {
-    with_play(h, |p| p.mouse_move(dx, dy));
+    kybernow_core::ffi_guard!({
+        with_play(h, |p| p.mouse_move(dx, dy));
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_releaseAll(_: Env, _: JClass, h: jlong) {
-    with_play(h, Play::release_all);
+    kybernow_core::ffi_guard!({
+        with_play(h, Play::release_all);
+    })
 }
 
 /// Pose la disposition du clavier et de la souris de la console. Faux si le JSON est illisible.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_setLayout(mut env: Env, _: JClass, h: jlong, json: JString) -> jboolean {
-    let Ok(layout) = serde_json::from_str::<Layout>(&string(&mut env, &json)) else { return JNI_FALSE };
-    with_play(h, |p| p.set_layout(layout));
-    jbool(true)
+    kybernow_core::ffi_guard!({
+        let Ok(layout) = serde_json::from_str::<Layout>(&string(&mut env, &json)) else { return JNI_FALSE };
+        with_play(h, |p| p.set_layout(layout));
+        jbool(true)
+    })
 }
 
 /// Intensités de la manette (0 à 100 %), tout de suite.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_setIntensities(_: Env, _: JClass, h: jlong, rumble: jint, triggers: jint) {
-    with_play(h, |p| p.set_intensities(rumble.clamp(0, 100) as u8, triggers.clamp(0, 100) as u8));
+    kybernow_core::ffi_guard!({
+        with_play(h, |p| p.set_intensities(rumble.clamp(0, 100) as u8, triggers.clamp(0, 100) as u8));
+    })
 }
 
 /// La barre (ou le menu du téléviseur) s'ouvre : la console reçoit une manette au repos.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_setCaptured(_: Env, _: JClass, h: jlong, on: jboolean) {
-    with_play(h, |p| p.set_captured(on != 0));
+    kybernow_core::ffi_guard!({
+        with_play(h, |p| p.set_captured(on != 0));
+    })
 }
 
 /// Son coupé ou rétabli (« Couper le son »).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_setMuted(_: Env, _: JClass, h: jlong, muted: jboolean) {
-    let Some(h) = handle(h) else { return };
-    h.host.muted.store(muted != 0, Ordering::Relaxed);
-    if let Some(e) = h.host.engine.lock().unwrap().as_ref() {
-        e.set_muted(muted != 0);
-    }
+    kybernow_core::ffi_guard!({
+        let Some(h) = handle(h) else { return };
+        h.host.muted.store(muted != 0, Ordering::Relaxed);
+        if let Some(e) = h.host.engine.lock().unwrap().as_ref() {
+            e.set_muted(muted != 0);
+        }
+    })
 }
 
 /// Mesures depuis l'appel précédent (une fois par seconde) : `width`,
 /// `height`, `hevc`, `hdr`, `target_kbps`, `fps`, `mbps`, `lost`, `recovered`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_stats(mut env: Env, _: JClass, h: jlong) -> jstring {
-    let mut out = None;
-    with_play(h, |p| out = serde_json::to_string(&p.stats()).ok());
-    match out {
-        Some(s) => give(&mut env, &s),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        let mut out = None;
+        with_play(h, |p| out = serde_json::to_string(&p.stats()).ok());
+        match out {
+            Some(s) => give(&mut env, &s),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// « Mettre la console en veille » (la partie se termine ensuite).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_gotoBed(_: Env, _: JClass, h: jlong) {
-    with_play(h, |p| {
-        p.goto_bed();
-    });
+    kybernow_core::ffi_guard!({
+        with_play(h, |p| {
+            p.goto_bed();
+        });
+    })
 }
 
 /// Clavier de la console ouvert : le texte entier de son champ, à chaque changement.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_keyboardText(mut env: Env, _: JClass, h: jlong, text: JString) -> jboolean {
-    let t = string(&mut env, &text);
-    let mut ok = false;
-    with_play(h, |p| ok = p.keyboard_text(&t));
-    jbool(ok)
+    kybernow_core::ffi_guard!({
+        let t = string(&mut env, &text);
+        let mut ok = false;
+        with_play(h, |p| ok = p.keyboard_text(&t));
+        jbool(ok)
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_keyboardAccept(_: Env, _: JClass, h: jlong) -> jboolean {
-    let mut ok = false;
-    with_play(h, |p| ok = p.keyboard_accept());
-    jbool(ok)
+    kybernow_core::ffi_guard!({
+        let mut ok = false;
+        with_play(h, |p| ok = p.keyboard_accept());
+        jbool(ok)
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_keyboardReject(_: Env, _: JClass, h: jlong) -> jboolean {
-    let mut ok = false;
-    with_play(h, |p| ok = p.keyboard_reject());
-    jbool(ok)
+    kybernow_core::ffi_guard!({
+        let mut ok = false;
+        with_play(h, |p| ok = p.keyboard_reject());
+        jbool(ok)
+    })
 }
 
 // MARK: - Manettes de l'app, le temps d'une partie
@@ -642,40 +706,52 @@ fn axis(i: jint) -> Option<PadAxis> {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_padPlug(_: Env, _: JClass, pad: jint, vendor: jint, product: jint) {
-    gamepads::plug(pad as PadId, u16::try_from(vendor).ok(), u16::try_from(product).ok());
+    kybernow_core::ffi_guard!({
+        gamepads::plug(pad as PadId, u16::try_from(vendor).ok(), u16::try_from(product).ok());
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_padUnplug(_: Env, _: JClass, pad: jint) {
-    gamepads::unplug(pad as PadId);
+    kybernow_core::ffi_guard!({
+        gamepads::unplug(pad as PadId);
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_padButton(_: Env, _: JClass, pad: jint, b: jint, pressed: jboolean) {
-    if let Some(b) = button(b) {
-        gamepads::button(pad as PadId, b, pressed != 0);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(b) = button(b) {
+            gamepads::button(pad as PadId, b, pressed != 0);
+        }
+    })
 }
 
 /// `value` : −32768 à 32767 pour les sticks (Y positif vers le bas), 0 à 32767 pour les gâchettes.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_padAxis(_: Env, _: JClass, pad: jint, a: jint, value: jint) {
-    if let Some(a) = axis(a) {
-        gamepads::axis(pad as PadId, a, value.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(a) = axis(a) {
+            gamepads::axis(pad as PadId, a, value.clamp(i16::MIN as i32, i16::MAX as i32) as i16);
+        }
+    })
 }
 
 /// Pavé tactile : un doigt (0 ou 1) posé à `(x, y)` (de 0 à 1), ou levé.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_padTouch(_: Env, _: JClass, pad: jint, finger: jint, down: jboolean, x: jfloat, y: jfloat) {
-    let at = (down != 0).then_some((x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)));
-    gamepads::global().touch_finger(pad as PadId, finger.max(0) as usize, at);
+    kybernow_core::ffi_guard!({
+        let at = (down != 0).then_some((x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)));
+        gamepads::global().touch_finger(pad as PadId, finger.max(0) as usize, at);
+    })
 }
 
 /// Clic du pavé tactile.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_padTouchClick(_: Env, _: JClass, pad: jint, pressed: jboolean) {
-    gamepads::global().touch_click(pad as PadId, pressed != 0);
+    kybernow_core::ffi_guard!({
+        gamepads::global().touch_click(pad as PadId, pressed != 0);
+    })
 }
 
 // MARK: - Envoi entre appareils (docs/playstation.md, « Plusieurs appareils »)
@@ -684,14 +760,16 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_padTouchC
 /// `android` ou `androidtv`). 0 si l'écoute est impossible ; à libérer par `handoffStop`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffReceive(mut env: Env, _: JClass, name: JString, platform: JString) -> jlong {
-    let (name, platform) = (string(&mut env, &name), string(&mut env, &platform));
-    match handoff::Receiver::start(&name, &platform) {
-        Ok(r) => RECEIVERS.insert(Mutex::new(r)),
-        Err(e) => {
-            log::warn!("PlayStation : attente d'un envoi impossible ({e})");
-            0
+    kybernow_core::ffi_guard!({
+        let (name, platform) = (string(&mut env, &name), string(&mut env, &platform));
+        match handoff::Receiver::start(&name, &platform) {
+            Ok(r) => RECEIVERS.insert(Mutex::new(r)),
+            Err(e) => {
+                log::warn!("PlayStation : attente d'un envoi impossible ({e})");
+                0
+            }
         }
-    }
+    })
 }
 
 fn receiver(h: jlong) -> Option<Arc<Mutex<handoff::Receiver>>> {
@@ -701,10 +779,12 @@ fn receiver(h: jlong) -> Option<Arc<Mutex<handoff::Receiver>>> {
 /// Le code à 6 chiffres à afficher.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffCode(mut env: Env, _: JClass, h: jlong) -> jstring {
-    match receiver(h) {
-        Some(r) => give(&mut env, &r.lock().unwrap_or_else(|e| e.into_inner()).code()),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match receiver(h) {
+            Some(r) => give(&mut env, &r.lock().unwrap_or_else(|e| e.into_inner()).code()),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Le prochain évènement, attendu `timeoutMs` au plus (bloque) :
@@ -712,44 +792,52 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffCo
 /// `{"event":"expired"}`, ou nul.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffNext(mut env: Env, _: JClass, h: jlong, timeout_ms: jint) -> jstring {
-    let Some(r) = receiver(h) else { return std::ptr::null_mut() };
-    let s = match r.lock().unwrap_or_else(|e| e.into_inner()).next(Duration::from_millis(timeout_ms.max(0) as u64)) {
-        Some(handoff::Event::Received(bundle)) => json!({ "event": "received", "bundle": bundle }).to_string(),
-        Some(handoff::Event::NewCode(code)) => json!({ "event": "new_code", "code": code }).to_string(),
-        Some(handoff::Event::Expired) => json!({ "event": "expired" }).to_string(),
-        None => return std::ptr::null_mut(),
-    };
-    give(&mut env, &s)
+    kybernow_core::ffi_guard!(null => {
+        let Some(r) = receiver(h) else { return std::ptr::null_mut() };
+        let s = match r.lock().unwrap_or_else(|e| e.into_inner()).next(Duration::from_millis(timeout_ms.max(0) as u64)) {
+            Some(handoff::Event::Received(bundle)) => json!({ "event": "received", "bundle": bundle }).to_string(),
+            Some(handoff::Event::NewCode(code)) => json!({ "event": "new_code", "code": code }).to_string(),
+            Some(handoff::Event::Expired) => json!({ "event": "expired" }).to_string(),
+            None => return std::ptr::null_mut(),
+        };
+        give(&mut env, &s)
+    })
 }
 
 /// Arrête l'attente et la libère.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffStop(_: Env, _: JClass, h: jlong) {
-    // Un `handoffNext` encore en cours garde l'attente jusqu'à son retour (AND-09).
-    drop(RECEIVERS.remove(h));
+    kybernow_core::ffi_guard!({
+        // Un `handoffNext` encore en cours garde l'attente jusqu'à son retour (AND-09).
+        drop(RECEIVERS.remove(h));
+    })
 }
 
 /// Les appareils du réseau qui attendent un envoi, cherchés `waitMs` (bloque) :
 /// `[{"name","platform","address":"ip:port"}]`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffDiscover(mut env: Env, _: JClass, wait_ms: jint) -> jstring {
-    let list = handoff::discover(Duration::from_millis(wait_ms.max(0) as u64), &[]).unwrap_or_default();
-    let v: Vec<_> = list.iter().map(|w| json!({ "name": w.name, "platform": w.platform, "address": w.addr.to_string() })).collect();
-    give(&mut env, &serde_json::Value::Array(v).to_string())
+    kybernow_core::ffi_guard!(null => {
+        let list = handoff::discover(Duration::from_millis(wait_ms.max(0) as u64), &[]).unwrap_or_default();
+        let v: Vec<_> = list.iter().map(|w| json!({ "name": w.name, "platform": w.platform, "address": w.addr.to_string() })).collect();
+        give(&mut env, &serde_json::Value::Array(v).to_string())
+    })
 }
 
 /// Envoie le paquet à `address` (`ip:port`) avec le code tapé (bloque
 /// quelques secondes) : `{"ok":true}` ou `{"error":"refused"|"unreachable","detail":"…"}`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffSend(mut env: Env, _: JClass, address: JString, code: JString, bundle: JString) -> jstring {
-    let (address, code, bundle) = (string(&mut env, &address), string(&mut env, &code), string(&mut env, &bundle));
-    let s = match address.parse::<std::net::SocketAddr>() {
-        Err(_) => json!({ "error": "unreachable", "detail": "adresse illisible" }),
-        Ok(to) => match handoff::send(to, &code, &bundle) {
-            Ok(()) => json!({ "ok": true }),
-            Err(handoff::SendError::Refused) => json!({ "error": "refused", "detail": "" }),
-            Err(handoff::SendError::Unreachable(d)) => json!({ "error": "unreachable", "detail": d }),
-        },
-    };
-    give(&mut env, &s.to_string())
+    kybernow_core::ffi_guard!(null => {
+        let (address, code, bundle) = (string(&mut env, &address), string(&mut env, &code), string(&mut env, &bundle));
+        let s = match address.parse::<std::net::SocketAddr>() {
+            Err(_) => json!({ "error": "unreachable", "detail": "adresse illisible" }),
+            Ok(to) => match handoff::send(to, &code, &bundle) {
+                Ok(()) => json!({ "ok": true }),
+                Err(handoff::SendError::Refused) => json!({ "error": "refused", "detail": "" }),
+                Err(handoff::SendError::Unreachable(d)) => json!({ "error": "unreachable", "detail": d }),
+            },
+        };
+        give(&mut env, &s.to_string())
+    })
 }

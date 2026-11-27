@@ -63,17 +63,19 @@ pub(crate) fn jbool(b: bool) -> jboolean {
 /// et langue des messages du cœur.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_init(mut env: Env, _: JClass, language: JString, journal: JString) {
-    static LOG: OnceLock<()> = OnceLock::new();
-    let dir = string(&mut env, &journal);
-    LOG.get_or_init(|| {
-        crate::journal::init_logger();
-        if !dir.is_empty() {
-            crate::journal::install(std::path::Path::new(&dir));
-        }
-        log::info!("KyberNow Link {} : journal ouvert", env!("CARGO_PKG_VERSION"));
-    });
-    let tag = string(&mut env, &language);
-    i18n::set_current(Lang::from_tag(&tag));
+    kybernow_core::ffi_guard!({
+        static LOG: OnceLock<()> = OnceLock::new();
+        let dir = string(&mut env, &journal);
+        LOG.get_or_init(|| {
+            crate::journal::init_logger();
+            if !dir.is_empty() {
+                crate::journal::install(std::path::Path::new(&dir));
+            }
+            log::info!("KyberNow Link {} : journal ouvert", env!("CARGO_PKG_VERSION"));
+        });
+        let tag = string(&mut env, &language);
+        i18n::set_current(Lang::from_tag(&tag));
+    })
 }
 
 /// PyroWave (docs/pyrowave-client-android.md) : la sonde du lancement, hors
@@ -81,9 +83,11 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_init(mut en
 /// relue). JSON `{"available": bool, "report": "GPU, chemin" ou la raison}`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_pyrowaveProbe(mut env: Env, _: JClass) -> jstring {
-    let (available, report) = crate::pyrowave::probe();
-    log::info!("PyroWave : {} ({report})", if available { "disponible" } else { "indisponible" });
-    give(&mut env, &serde_json::json!({ "available": available, "report": report }).to_string())
+    kybernow_core::ffi_guard!(null => {
+        let (available, report) = crate::pyrowave::probe();
+        log::info!("PyroWave : {} ({report})", if available { "disponible" } else { "indisponible" });
+        give(&mut env, &serde_json::json!({ "available": available, "report": report }).to_string())
+    })
 }
 
 // MARK: - Admin
@@ -122,51 +126,63 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleNew(
     password: JString,
     pinned: JString,
 ) -> jlong {
-    let (host, user, password, pinned) =
-        (string(&mut env, &host), string(&mut env, &user), string(&mut env, &password), optional(&mut env, &pinned));
-    Box::into_raw(Box::new(Console::new(&host, port as u16, &user, &password, pinned))) as jlong
+    kybernow_core::ffi_guard!({
+        let (host, user, password, pinned) =
+            (string(&mut env, &host), string(&mut env, &user), string(&mut env, &password), optional(&mut env, &pinned));
+        Box::into_raw(Box::new(Console::new(&host, port as u16, &user, &password, pinned))) as jlong
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleFree(_: Env, _: JClass, h: jlong) {
-    if h != 0 {
-        drop(unsafe { Box::from_raw(h as *mut Console) });
-    }
+    kybernow_core::ffi_guard!({
+        if h != 0 {
+            drop(unsafe { Box::from_raw(h as *mut Console) });
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleFingerprintSeen(mut env: Env, _: JClass, h: jlong) -> jstring {
-    match console(h).and_then(|c| c.fingerprint_seen()) {
-        Some(fp) => give(&mut env, &fp),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match console(h).and_then(|c| c.fingerprint_seen()) {
+            Some(fp) => give(&mut env, &fp),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleInfo(mut env: Env, _: JClass, h: jlong) -> jstring {
-    let Some(c) = console(h) else { return std::ptr::null_mut() };
-    let s = envelope(c.info());
-    give(&mut env, &s)
+    kybernow_core::ffi_guard!(null => {
+        let Some(c) = console(h) else { return std::ptr::null_mut() };
+        let s = envelope(c.info());
+        give(&mut env, &s)
+    })
 }
 
 /// Premier contact : `value` nul si le compte manque (la poignée de main a
 /// montré le certificat).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleProbe(mut env: Env, _: JClass, h: jlong) -> jstring {
-    let Some(c) = console(h) else { return std::ptr::null_mut() };
-    let s = envelope(c.probe());
-    give(&mut env, &s)
+    kybernow_core::ffi_guard!(null => {
+        let Some(c) = console(h) else { return std::ptr::null_mut() };
+        let s = envelope(c.probe());
+        give(&mut env, &s)
+    })
 }
 
 /// Aperçu JPEG de l'écran de l'ordinateur ; nul en cas d'erreur, vide si
 /// Admin ne peut pas capturer.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consolePreview<'a>(env: Env<'a>, _: JClass, h: jlong, width: jint) -> JByteArray<'a> {
-    let Some(c) = console(h) else { return JByteArray::default() };
-    match c.preview(width.max(0) as u32) {
-        Ok(bytes) => env.byte_array_from_slice(&bytes).unwrap_or_default(),
-        Err(_) => JByteArray::default(),
-    }
+    kybernow_core::ffi_guard!({
+        let Some(c) = console(h) else { return JByteArray::default() };
+        match c.preview(width.max(0) as u32) {
+            Ok(bytes) => env.byte_array_from_slice(&bytes).unwrap_or_default(),
+            Err(_) => JByteArray::default(),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -177,27 +193,31 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consolePair
     code: JString,
     device_json: JString,
 ) -> jstring {
-    let Some(c) = console(h) else { return std::ptr::null_mut() };
-    let (code, device) = (string(&mut env, &code), string(&mut env, &device_json));
-    let s = match serde_json::from_str::<DeviceInfo>(&device) {
-        Ok(d) => envelope(c.pair_request(&code, &d)),
-        Err(e) => serde_json::json!({ "code": 1, "error": e.to_string() }).to_string(),
-    };
-    give(&mut env, &s)
+    kybernow_core::ffi_guard!(null => {
+        let Some(c) = console(h) else { return std::ptr::null_mut() };
+        let (code, device) = (string(&mut env, &code), string(&mut env, &device_json));
+        let s = match serde_json::from_str::<DeviceInfo>(&device) {
+            Ok(d) => envelope(c.pair_request(&code, &d)),
+            Err(e) => serde_json::json!({ "code": 1, "error": e.to_string() }).to_string(),
+        };
+        give(&mut env, &s)
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consolePairStatus(mut env: Env, _: JClass, h: jlong, id: JString) -> jstring {
-    let Some(c) = console(h) else { return std::ptr::null_mut() };
-    let id = string(&mut env, &id);
-    let r = c.pair_status(&id).map(|s| match s {
-        PairStatus::Pending => serde_json::json!({ "status": "pending" }),
-        PairStatus::Refused => serde_json::json!({ "status": "refused" }),
-        PairStatus::Expired => serde_json::json!({ "status": "expired" }),
-        PairStatus::Accepted { username, password } => serde_json::json!({ "status": "accepted", "username": username, "password": password }),
-    });
-    let s = envelope(r);
-    give(&mut env, &s)
+    kybernow_core::ffi_guard!(null => {
+        let Some(c) = console(h) else { return std::ptr::null_mut() };
+        let id = string(&mut env, &id);
+        let r = c.pair_status(&id).map(|s| match s {
+            PairStatus::Pending => serde_json::json!({ "status": "pending" }),
+            PairStatus::Refused => serde_json::json!({ "status": "refused" }),
+            PairStatus::Expired => serde_json::json!({ "status": "expired" }),
+            PairStatus::Accepted { username, password } => serde_json::json!({ "status": "accepted", "username": username, "password": password }),
+        });
+        let s = envelope(r);
+        give(&mut env, &s)
+    })
 }
 
 // MARK: - Station (rubrique « Station » des réglages d'un ordinateur)
@@ -239,11 +259,13 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleStat
     device_id: JString,
     force: jboolean,
 ) -> jstring {
-    let Some(c) = console(h) else { return std::ptr::null_mut() };
-    let device_id = optional(&mut env, &device_id);
-    let r = c.station_restart(device_id.as_deref(), force != JNI_FALSE).map(|()| serde_json::json!({ "ok": true }));
-    let s = station_envelope(r);
-    give(&mut env, &s)
+    kybernow_core::ffi_guard!(null => {
+        let Some(c) = console(h) else { return std::ptr::null_mut() };
+        let device_id = optional(&mut env, &device_id);
+        let r = c.station_restart(device_id.as_deref(), force != JNI_FALSE).map(|()| serde_json::json!({ "ok": true }));
+        let s = station_envelope(r);
+        give(&mut env, &s)
+    })
 }
 
 /// Lance la mise à jour de la Station (comme « Installer maintenant » dans
@@ -257,11 +279,13 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleStat
     device_id: JString,
     force: jboolean,
 ) -> jstring {
-    let Some(c) = console(h) else { return std::ptr::null_mut() };
-    let device_id = optional(&mut env, &device_id);
-    let r = c.station_update(device_id.as_deref(), force != JNI_FALSE).map(|version| serde_json::json!({ "version": version }));
-    let s = station_envelope(r);
-    give(&mut env, &s)
+    kybernow_core::ffi_guard!(null => {
+        let Some(c) = console(h) else { return std::ptr::null_mut() };
+        let device_id = optional(&mut env, &device_id);
+        let r = c.station_update(device_id.as_deref(), force != JNI_FALSE).map(|version| serde_json::json!({ "version": version }));
+        let s = station_envelope(r);
+        give(&mut env, &s)
+    })
 }
 
 // MARK: - Mise à jour des Stations proposée par l'app (docs/link-ui.md, « Mise à jour des Stations »)
@@ -272,9 +296,11 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleStat
 /// 0.11.3). Bloquant (20 s au plus).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleStationCheck(mut env: Env, _: JClass, h: jlong) -> jstring {
-    let Some(c) = console(h) else { return std::ptr::null_mut() };
-    let s = envelope(c.station_check());
-    give(&mut env, &s)
+    kybernow_core::ffi_guard!(null => {
+        let Some(c) = console(h) else { return std::ptr::null_mut() };
+        let s = envelope(c.station_check());
+        give(&mut env, &s)
+    })
 }
 
 /// Le bandeau, la puce, l'avis et la vérification d'un ordinateur
@@ -284,33 +310,41 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleStat
 /// réseau.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_stationOfferEvaluate(mut env: Env, _: JClass, input: JString) -> jstring {
-    let input = string(&mut env, &input);
-    let s = station_offer::evaluate_json(&input);
-    give(&mut env, &s)
+    kybernow_core::ffi_guard!(null => {
+        let input = string(&mut env, &input);
+        let s = station_offer::evaluate_json(&input);
+        give(&mut env, &s)
+    })
 }
 
 /// Premier lancement après une mise à jour de l'app (`station_offer::app_updated`) :
 /// jamais au tout premier lancement (`last` vide).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_stationOfferAppUpdated(mut env: Env, _: JClass, last: JString, current: JString) -> jboolean {
-    let (last, current) = (optional(&mut env, &last), string(&mut env, &current));
-    jbool(station_offer::app_updated(last.as_deref(), &current))
+    kybernow_core::ffi_guard!({
+        let (last, current) = (optional(&mut env, &last), string(&mut env, &current));
+        jbool(station_offer::app_updated(last.as_deref(), &current))
+    })
 }
 
 /// Adresse d'Admin à ouvrir dans le navigateur (`https://adresse:port/`).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleAdminUrl(mut env: Env, _: JClass, h: jlong) -> jstring {
-    let Some(c) = console(h) else { return std::ptr::null_mut() };
-    let url = c.admin_url();
-    give(&mut env, &url)
+    kybernow_core::ffi_guard!(null => {
+        let Some(c) = console(h) else { return std::ptr::null_mut() };
+        let url = c.admin_url();
+        give(&mut env, &url)
+    })
 }
 
 /// Adresse d'Admin sans connexion (`console::admin_url` du cœur) : une IPv6
 /// prend ses crochets (`https://[fe80::1]:47990/`), une seule fois (TRANS-36).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_adminUrl(mut env: Env, _: JClass, host: JString, port: jint) -> jstring {
-    let host = string(&mut env, &host);
-    give(&mut env, &kybernow_core::console::admin_url(&host, port.clamp(0, u16::MAX as jint) as u16))
+    kybernow_core::ffi_guard!(null => {
+        let host = string(&mut env, &host);
+        give(&mut env, &kybernow_core::console::admin_url(&host, port.clamp(0, u16::MAX as jint) as u16))
+    })
 }
 
 // MARK: - Réveil par le réseau
@@ -320,11 +354,13 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_adminUrl(mu
 /// ou nul si elle ne vaut rien (AND-21).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_wakeParseMac(mut env: Env, _: JClass, text: JString) -> jstring {
-    let text = string(&mut env, &text);
-    match wake::parse_mac(&text) {
-        Some(m) => give(&mut env, &m.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        let text = string(&mut env, &text);
+        match wake::parse_mac(&text) {
+            Some(m) => give(&mut env, &m.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Réveille un ordinateur (Wake-on-LAN) : `targets_json`, les cartes gardées
@@ -336,15 +372,17 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_wakeParseMa
 /// aucun n'est parti. Rapide, mais hors du fil principal.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_wake(mut env: Env, _: JClass, targets_json: JString) -> jint {
-    let json = string(&mut env, &targets_json);
-    match wake::send(&wake::targets_from_json(&json)) {
-        Ok(_) => 0,
-        Err(wake::WakeError::NoTarget) => 20,
-        Err(e) => {
-            log::warn!("réveil : {e}");
-            1
+    kybernow_core::ffi_guard!(1 => {
+        let json = string(&mut env, &targets_json);
+        match wake::send(&wake::targets_from_json(&json)) {
+            Ok(_) => 0,
+            Err(wake::WakeError::NoTarget) => 20,
+            Err(e) => {
+                log::warn!("réveil : {e}");
+                1
+            }
         }
-    }
+    })
 }
 
 // MARK: - Session
@@ -369,106 +407,126 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionStar
     listener: JObject,
     refresh: jint,
 ) -> jlong {
-    let params = string(&mut env, &params);
-    let w = window(&mut env, &surface);
-    let Ok(listener) = Listener::new(&mut env, &listener) else { return 0 };
-    match session::start(&params, listener, w, refresh.max(0) as u32) {
-        Ok(h) => SESSIONS.insert(h),
-        Err(e) => {
-            log::error!("session : paramètres illisibles ({e})");
-            0
+    kybernow_core::ffi_guard!({
+        let params = string(&mut env, &params);
+        let w = window(&mut env, &surface);
+        let Ok(listener) = Listener::new(&mut env, &listener) else { return 0 };
+        match session::start(&params, listener, w, refresh.max(0) as u32) {
+            Ok(h) => SESSIONS.insert(h),
+            Err(e) => {
+                log::error!("session : paramètres illisibles ({e})");
+                0
+            }
         }
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionStop(_: Env, _: JClass, h: jlong) {
-    if let Some(h) = handle(h) {
-        h.session.stop();
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(h) = handle(h) {
+            h.session.stop();
+        }
+    })
 }
 
 /// Session d'emprunt : « Rendre l'ordinateur » (le prêt finit, puis la session).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionGiveBack(_: Env, _: JClass, h: jlong) {
-    if let Some(h) = handle(h) {
-        h.session.give_back();
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(h) = handle(h) {
+            h.session.give_back();
+        }
+    })
 }
 
 /// Libère la session une fois son fil terminé (attente faite ici, hors du
 /// fil principal de préférence).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionFree(_: Env, _: JClass, h: jlong) {
-    let Some(h) = SESSIONS.remove(h) else { return };
-    h.session.stop();
-    h.session.wait();
-    h.shared.set_window(None);
-    // La chaîne d'entrées tient `Shared` (rappels, presse-papiers) et `Shared`
-    // la tient : sans ceci, une fin par panique du fil de session laissait
-    // fuir `Shared` et l'activité de Kotlin (AND-16).
-    h.shared.input.lock().unwrap_or_else(|e| e.into_inner()).take();
+    kybernow_core::ffi_guard!({
+        let Some(h) = SESSIONS.remove(h) else { return };
+        h.session.stop();
+        h.session.wait();
+        h.shared.set_window(None);
+        // La chaîne d'entrées tient `Shared` (rappels, presse-papiers) et `Shared`
+        // la tient : sans ceci, une fin par panique du fil de session laissait
+        // fuir `Shared` et l'activité de Kotlin (AND-16).
+        h.shared.input.lock().unwrap_or_else(|e| e.into_inner()).take();
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetSurface(mut env: Env, _: JClass, h: jlong, surface: JObject, refresh: jint) {
-    let Some(h) = handle(h) else { return };
-    let w = window(&mut env, &surface);
-    if refresh > 0 {
-        h.shared.set_device_refresh(refresh as u32);
-    }
-    h.shared.set_window(w);
+    kybernow_core::ffi_guard!({
+        let Some(h) = handle(h) else { return };
+        let w = window(&mut env, &surface);
+        if refresh > 0 {
+            h.shared.set_device_refresh(refresh as u32);
+        }
+        h.shared.set_window(w);
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetSettings(mut env: Env, _: JClass, h: jlong, json: JString) -> jboolean {
-    let Some(h) = handle(h) else { return JNI_FALSE };
-    let json = string(&mut env, &json);
-    match session::parse_settings(&json) {
-        Ok(s) => {
-            h.session.set_settings(s);
-            JNI_TRUE
+    kybernow_core::ffi_guard!({
+        let Some(h) = handle(h) else { return JNI_FALSE };
+        let json = string(&mut env, &json);
+        match session::parse_settings(&json) {
+            Ok(s) => {
+                h.session.set_settings(s);
+                JNI_TRUE
+            }
+            Err(e) => {
+                log::warn!("réglages illisibles ({e})");
+                JNI_FALSE
+            }
         }
-        Err(e) => {
-            log::warn!("réglages illisibles ({e})");
-            JNI_FALSE
-        }
-    }
+    })
 }
 
 /// Arrière-plan : débit plafonné (bit/s, 0 le retire) et image figée.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetBackground(_: Env, _: JClass, h: jlong, background: jboolean, cap: jint) {
-    let Some(h) = handle(h) else { return };
-    let bg = background != 0;
-    if bg && let Some(p) = h.shared.current_input() {
-        p.release_all();
-    }
-    h.session.set_bitrate_cap((bg && cap > 0).then_some(cap as u32));
-    h.session.set_hidden(bg);
+    kybernow_core::ffi_guard!({
+        let Some(h) = handle(h) else { return };
+        let bg = background != 0;
+        if bg && let Some(p) = h.shared.current_input() {
+            p.release_all();
+        }
+        h.session.set_bitrate_cap((bg && cap > 0).then_some(cap as u32));
+        h.session.set_hidden(bg);
+    })
 }
 
 /// PyroWave (docs/pyrowave.md, « Définition ramenée ») : débit du lien vers
 /// l'ordinateur, en Mbit/s (0 : inconnu).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetLinkMbps(_: Env, _: JClass, h: jlong, mbps: jint) {
-    if let Some(h) = handle(h) {
-        h.session.set_link_mbps((mbps > 0).then_some(mbps as u32));
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(h) = handle(h) {
+            h.session.set_link_mbps((mbps > 0).then_some(mbps as u32));
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionPickDisplay(_: Env, _: JClass, h: jlong, id: jint) {
-    if let Some(h) = handle(h) {
-        h.session.pick_display(id as u32);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(h) = handle(h) {
+            h.session.pick_display(id as u32);
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionRestoreMode(_: Env, _: JClass, h: jlong) {
-    if let Some(h) = handle(h) {
-        h.session.restore_mode();
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(h) = handle(h) {
+            h.session.restore_mode();
+        }
+    })
 }
 
 // MARK: - Micro (docs/micro.md)
@@ -477,16 +535,20 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionRest
 /// micro est proposé à chaque session, même coupé. Une fois au lancement.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_setDeviceHasMicrophone(_: Env, _: JClass, has: jboolean) {
-    kybernow_core::micro::set_device_has_microphone(has != 0);
+    kybernow_core::ffi_guard!({
+        kybernow_core::micro::set_device_has_microphone(has != 0);
+    })
 }
 
 /// « Micro » allumé ou coupé (barre, réglage de l'ordinateur) : juste après
 /// `sessionStart`, puis à chaque changement. `onMicrophone` suit.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetMicrophone(_: Env, _: JClass, h: jlong, on: jboolean) {
-    if let Some(h) = handle(h) {
-        h.session.set_microphone(on != 0);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(h) = handle(h) {
+            h.session.set_microphone(on != 0);
+        }
+    })
 }
 
 /// Les échantillons du micro, depuis le fil de capture : `n` flottants mono
@@ -500,25 +562,27 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionPush
     n: jint,
     rate: jint,
 ) {
-    use std::cell::RefCell;
-    thread_local! {
-        static BUF: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) };
-    }
-    let Some(h) = handle(h) else { return };
-    if n <= 0 || rate <= 0 || samples.is_null() {
-        return;
-    }
-    let len = env.get_array_length(&samples).unwrap_or(0).min(n);
-    if len <= 0 {
-        return;
-    }
-    BUF.with(|b| {
-        let mut b = b.borrow_mut();
-        b.resize(len as usize, 0.0);
-        if env.get_float_array_region(&samples, 0, &mut b).is_ok() {
-            h.session.push_microphone(&b, rate as u32);
+    kybernow_core::ffi_guard!({
+        use std::cell::RefCell;
+        thread_local! {
+            static BUF: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) };
         }
-    });
+        let Some(h) = handle(h) else { return };
+        if n <= 0 || rate <= 0 || samples.is_null() {
+            return;
+        }
+        let len = env.get_array_length(&samples).unwrap_or(0).min(n);
+        if len <= 0 {
+            return;
+        }
+        BUF.with(|b| {
+            let mut b = b.borrow_mut();
+            b.resize(len as usize, 0.0);
+            if env.get_float_array_region(&samples, 0, &mut b).is_ok() {
+                h.session.push_microphone(&b, rate as u32);
+            }
+        });
+    })
 }
 
 // MARK: - HDR (docs/hdr.md)
@@ -528,9 +592,11 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionPush
 /// (« Premières images ») et `onHdr` suit. Sans effet pour un invité.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetHdr(_: Env, _: JClass, h: jlong, hdr: jboolean) {
-    if let Some(h) = handle(h) {
-        h.session.set_hdr(hdr != 0);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(h) = handle(h) {
+            h.session.set_hdr(hdr != 0);
+        }
+    })
 }
 
 /// L'écran de l'appareil gagne ou perd le HDR (téléviseur qui coupe le HDR,
@@ -545,17 +611,21 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionScre
     hdr: jboolean,
     luminance_json: JString,
 ) {
-    let Some(h) = handle(h) else { return };
-    let json = optional(&mut env, &luminance_json);
-    let luminance = crate::hdr::luminance(json.as_deref());
-    h.shared.set_luminance(if hdr != 0 { luminance } else { None });
-    h.session.screen_hdr_changed(0, hdr != 0, luminance);
+    kybernow_core::ffi_guard!({
+        let Some(h) = handle(h) else { return };
+        let json = optional(&mut env, &luminance_json);
+        let luminance = crate::hdr::luminance(json.as_deref());
+        h.shared.set_luminance(if hdr != 0 { luminance } else { None });
+        h.session.screen_hdr_changed(0, hdr != 0, luminance);
+    })
 }
 
 /// Un écran au moins a été en HDR pendant la session (« HDR » de la dernière session).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionHdrUsed(_: Env, _: JClass, h: jlong) -> jboolean {
-    jbool(handle(h).is_some_and(|h| h.session.hdr_used()))
+    kybernow_core::ffi_guard!({
+        jbool(handle(h).is_some_and(|h| h.session.hdr_used()))
+    })
 }
 
 /// La ligne « Débit visé » des Statistiques (valeurs 22 à 24 de `onSecond` :
@@ -563,18 +633,22 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionHdrU
 /// `null` pour une raison inconnue.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_targetBitrateText(mut env: Env, _: JClass, bitrate: jlong, profile: jlong, reason: jint) -> jstring {
-    use kybernow_core::adaptive::{TargetBitrate, TargetReason};
-    let clamp = |v: jlong| v.clamp(0, u32::MAX as jlong) as u32;
-    match TargetReason::from_code(reason.max(0) as u32) {
-        Some(reason) => give(&mut env, &TargetBitrate { bitrate: clamp(bitrate), profile: clamp(profile), reason }.text(i18n::current())),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        use kybernow_core::adaptive::{TargetBitrate, TargetReason};
+        let clamp = |v: jlong| v.clamp(0, u32::MAX as jlong) as u32;
+        match TargetReason::from_code(reason.max(0) as u32) {
+            Some(reason) => give(&mut env, &TargetBitrate { bitrate: clamp(bitrate), profile: clamp(profile), reason }.text(i18n::current())),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Le libellé de la ligne : « Débit visé » / “Target bitrate”.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_targetBitrateLabel(mut env: Env, _: JClass) -> jstring {
-    give(&mut env, &kybernow_core::adaptive::TargetBitrate::label(i18n::current()))
+    kybernow_core::ffi_guard!(null => {
+        give(&mut env, &kybernow_core::adaptive::TargetBitrate::label(i18n::current()))
+    })
 }
 
 /// La puce « HDR » de l'accueil, la ligne de Réglages › Image et celle de la
@@ -592,26 +666,30 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_hdrState(
     capabilities_json: JString,
     screen_hdr: jboolean,
 ) -> jstring {
-    let (info, settings, caps) = (string(&mut env, &info_json), string(&mut env, &settings_json), string(&mut env, &capabilities_json));
-    match crate::hdr::state_json(&info, &settings, &caps, screen_hdr != 0) {
-        Some(json) => give(&mut env, &json),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        let (info, settings, caps) = (string(&mut env, &info_json), string(&mut env, &settings_json), string(&mut env, &capabilities_json));
+        match crate::hdr::state_json(&info, &settings, &caps, screen_hdr != 0) {
+            Some(json) => give(&mut env, &json),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Latence de la session : [médiane, p95] en ms, ou nul sans mesure.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionLatency<'a>(env: Env<'a>, _: JClass, h: jlong) -> jni::objects::JDoubleArray<'a> {
-    let Some(h) = handle(h) else { return Default::default() };
-    let (Some(med), p95) = h.session.latency().session() else { return Default::default() };
-    let v = [med, p95.unwrap_or(med)];
-    match env.new_double_array(2) {
-        Ok(a) => {
-            let _ = env.set_double_array_region(&a, 0, &v);
-            a
+    kybernow_core::ffi_guard!({
+        let Some(h) = handle(h) else { return Default::default() };
+        let (Some(med), p95) = h.session.latency().session() else { return Default::default() };
+        let v = [med, p95.unwrap_or(med)];
+        match env.new_double_array(2) {
+            Ok(a) => {
+                let _ = env.set_double_array_region(&a, 0, &v);
+                a
+            }
+            Err(_) => Default::default(),
         }
-        Err(_) => Default::default(),
-    }
+    })
 }
 
 // MARK: - Entrées
@@ -630,14 +708,18 @@ unsafe extern "C" {
 /// Scancode Windows d'un code de touche Linux ; −1 : inconnu.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_scancode(_: Env, _: JClass, evdev: jint) -> jint {
-    let mut sc: u16 = 0;
-    if evdev > 0 && evdev < 0xFFFF && unsafe { kynput_keycode_evdev_to_kyber(evdev as u16, &mut sc) } { sc as jint } else { -1 }
+    kybernow_core::ffi_guard!(-1 => {
+        let mut sc: u16 = 0;
+        if evdev > 0 && evdev < 0xFFFF && unsafe { kynput_keycode_evdev_to_kyber(evdev as u16, &mut sc) } { sc as jint } else { -1 }
+    })
 }
 
 /// Touche envoyée telle quelle (combinaisons des menus, rangée du clavier de l'écran).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputKey(_: Env, _: JClass, h: jlong, scancode: jint, pressed: jboolean) {
-    input(h, |p| p.key(scancode as u16, pressed != 0));
+    kybernow_core::ffi_guard!({
+        input(h, |p| p.key(scancode as u16, pressed != 0));
+    })
 }
 
 /// Touche tapée sur un clavier physique : face à une Station Mac, Ctrl et ⊞
@@ -645,62 +727,78 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputKey(_:
 /// relâche chaque touche telle qu'elle est partie).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputKeyTyped(_: Env, _: JClass, h: jlong, scancode: jint, pressed: jboolean) {
-    let pressed = pressed != 0;
-    input(h, |p| p.key(p.outgoing_scancode(scancode as u16, pressed), pressed));
+    kybernow_core::ffi_guard!({
+        let pressed = pressed != 0;
+        input(h, |p| p.key(p.outgoing_scancode(scancode as u16, pressed), pressed));
+    })
 }
 
 /// « Ctrl agit comme ⌘ » changé pendant la session : tout de suite, et pour
 /// les chaînes d'entrées suivantes (relance, reconnexion).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputSetControlAsCommand(_: Env, _: JClass, h: jlong, on: jboolean) {
-    if let Some(h) = handle(h) {
-        h.shared.set_control_as_command(on != 0);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(h) = handle(h) {
+            h.shared.set_control_as_command(on != 0);
+        }
+    })
 }
 
 /// La Station est un Mac (`keymap::station_is_mac` : son système commence par « macOS »).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_stationIsMac(mut env: Env, _: JClass, os: JString) -> jboolean {
-    jbool(keymap::station_is_mac(&string(&mut env, &os)))
+    kybernow_core::ffi_guard!({
+        jbool(keymap::station_is_mac(&string(&mut env, &os)))
+    })
 }
 
 /// « Ctrl agit comme ⌘ » pour cet ordinateur (`keymap::control_as_command`) ;
 /// `setting` : −1 jamais changé, 0 éteint, 1 allumé.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_controlAsCommand(mut env: Env, _: JClass, setting: jint, os: JString) -> jboolean {
-    let setting = (setting >= 0).then_some(setting != 0);
-    jbool(keymap::control_as_command(setting, &string(&mut env, &os)))
+    kybernow_core::ffi_guard!({
+        let setting = (setting >= 0).then_some(setting != 0);
+        jbool(keymap::control_as_command(setting, &string(&mut env, &os)))
+    })
 }
 
 /// L'ordinateur crée les manettes de l'appareil (`Info::gamepads_available`,
 /// d'après le JSON de `consoleInfo`) : vrai sans le champ (Stations d'avant).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_gamepadsAvailable(mut env: Env, _: JClass, info: JString) -> jboolean {
-    let info: kybernow_core::console::Info = serde_json::from_str(&string(&mut env, &info)).unwrap_or_default();
-    jbool(info.gamepads_available())
+    kybernow_core::ffi_guard!({
+        let info: kybernow_core::console::Info = serde_json::from_str(&string(&mut env, &info)).unwrap_or_default();
+        jbool(info.gamepads_available())
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputText(mut env: Env, _: JClass, h: jlong, text: JString) {
-    let s = string(&mut env, &text);
-    input(h, |p| p.type_text(&s));
+    kybernow_core::ffi_guard!({
+        let s = string(&mut env, &text);
+        input(h, |p| p.type_text(&s));
+    })
 }
 
 /// Pointeur tenu par l'appareil déplacé (pixels de l'écran de l'ordinateur).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_pointerMoveBy(_: Env, _: JClass, h: jlong, dx: jdouble, dy: jdouble) {
-    if let Some(h) = handle(h) {
-        h.shared.pointer.move_by(dx, dy);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(h) = handle(h) {
+            h.shared.pointer.move_by(dx, dy);
+        }
+    })
 }
 
 /// Pointeur placé à un endroit de l'écran de l'ordinateur (toucher direct).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_pointerMoveTo(_: Env, _: JClass, h: jlong, x: jdouble, y: jdouble) {
-    let Some(h) = handle(h) else { return };
-    let host = h.shared.pointer.host_size();
-    let (cx, cy) = h.shared.pointer.state().position().unwrap_or((host.0 / 2.0, host.1 / 2.0));
-    h.shared.pointer.move_by(x - cx, y - cy);
+    kybernow_core::ffi_guard!({
+        let Some(h) = handle(h) else { return };
+        let host = h.shared.pointer.host_size();
+        let (cx, cy) = h.shared.pointer.state().position().unwrap_or((host.0 / 2.0, host.1 / 2.0));
+        h.shared.pointer.move_by(x - cx, y - cy);
+    })
 }
 
 /// Stylet (docs/link-ui.md, « Stylet » ; docs/stylet.md) à (`x`, `y`) de
@@ -726,59 +824,71 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputPen(
     eraser: jboolean,
     barrel: jboolean,
 ) -> jboolean {
-    let clamp = |v: jdouble| v.round().clamp(i16::MIN as f64, i16::MAX as f64) as i16;
-    let pen = kybernow_core::input::PenInput {
-        in_range: in_range != 0,
-        contact: contact != 0,
-        pressure: if pressure.is_finite() { pressure.clamp(0.0, 1.0) } else { 1.0 },
-        // La pointe vers `orientation` : le stylet penche à l'opposé.
-        // Azimut du cœur : 0 vers la droite, sens horaire, d'où + π/2.
-        tilt: (has_tilt != 0 && tilt.is_finite() && orientation.is_finite()).then(|| {
-            kybernow_core::input::tilt_from_altitude_azimuth(std::f32::consts::FRAC_PI_2 - tilt, orientation + std::f32::consts::FRAC_PI_2)
-        }),
-        rotation: None,
-        eraser: eraser != 0,
-        barrel: barrel != 0,
-    };
-    let mut sent = false;
-    input(h, |p| sent = p.pen_on(None, clamp(x), clamp(y), &pen));
-    jbool(sent)
+    kybernow_core::ffi_guard!({
+        let clamp = |v: jdouble| v.round().clamp(i16::MIN as f64, i16::MAX as f64) as i16;
+        let pen = kybernow_core::input::PenInput {
+            in_range: in_range != 0,
+            contact: contact != 0,
+            pressure: if pressure.is_finite() { pressure.clamp(0.0, 1.0) } else { 1.0 },
+            // La pointe vers `orientation` : le stylet penche à l'opposé.
+            // Azimut du cœur : 0 vers la droite, sens horaire, d'où + π/2.
+            tilt: (has_tilt != 0 && tilt.is_finite() && orientation.is_finite()).then(|| {
+                kybernow_core::input::tilt_from_altitude_azimuth(std::f32::consts::FRAC_PI_2 - tilt, orientation + std::f32::consts::FRAC_PI_2)
+            }),
+            rotation: None,
+            eraser: eraser != 0,
+            barrel: barrel != 0,
+        };
+        let mut sent = false;
+        input(h, |p| sent = p.pen_on(None, clamp(x), clamp(y), &pen));
+        jbool(sent)
+    })
 }
 
 /// Souris relative (jeux, pointeur capturé).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputMouseMove(_: Env, _: JClass, h: jlong, dx: jint, dy: jint) {
-    let clamp = |v: jint| v.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
-    input(h, |p| p.mouse_move(clamp(dx), clamp(dy)));
+    kybernow_core::ffi_guard!({
+        let clamp = |v: jint| v.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+        input(h, |p| p.mouse_move(clamp(dx), clamp(dy)));
+    })
 }
 
 /// `button` : 0 gauche, 1 droit, 2 milieu, 3 précédent, 4 suivant.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputMouseButton(_: Env, _: JClass, h: jlong, button: jint, pressed: jboolean) {
-    let b = match button {
-        1 => MouseButtonType::Right,
-        2 => MouseButtonType::Middle,
-        3 => MouseButtonType::Side,
-        4 => MouseButtonType::Extra,
-        _ => MouseButtonType::Left,
-    };
-    input(h, |p| p.mouse_button(b, pressed != 0));
+    kybernow_core::ffi_guard!({
+        let b = match button {
+            1 => MouseButtonType::Right,
+            2 => MouseButtonType::Middle,
+            3 => MouseButtonType::Side,
+            4 => MouseButtonType::Extra,
+            _ => MouseButtonType::Left,
+        };
+        input(h, |p| p.mouse_button(b, pressed != 0));
+    })
 }
 
 /// Molette, en crans (positif : vers le bas, vers la droite).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputWheel(_: Env, _: JClass, h: jlong, dx: jfloat, dy: jfloat) {
-    input(h, |p| p.wheel(dx, dy));
+    kybernow_core::ffi_guard!({
+        input(h, |p| p.wheel(dx, dy));
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputSetRelative(_: Env, _: JClass, h: jlong, on: jboolean) {
-    input(h, |p| p.set_relative(on != 0));
+    kybernow_core::ffi_guard!({
+        input(h, |p| p.set_relative(on != 0));
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputReleaseAll(_: Env, _: JClass, h: jlong) {
-    input(h, |p| p.release_all());
+    kybernow_core::ffi_guard!({
+        input(h, |p| p.release_all());
+    })
 }
 
 /// Souris relative voulue (règles Auto / Bureau / Jeu, sans exiger le pointeur
@@ -793,18 +903,20 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_mouseWantsR
     visible_for_ms: jdouble,
     relative_active: jboolean,
 ) -> jboolean {
-    let mode = match mode {
-        1 => MouseMode::Desktop,
-        2 => MouseMode::Game,
-        _ => MouseMode::Auto,
-    };
-    jbool(MouseModeRules { needs_hidden_pointer: false }.wants_relative(
-        mode,
-        game_fullscreen != 0,
-        remote_hidden != 0,
-        Duration::from_secs_f64(visible_for_ms.max(0.0) / 1000.0),
-        relative_active != 0,
-    ))
+    kybernow_core::ffi_guard!({
+        let mode = match mode {
+            1 => MouseMode::Desktop,
+            2 => MouseMode::Game,
+            _ => MouseMode::Auto,
+        };
+        jbool(MouseModeRules { needs_hidden_pointer: false }.wants_relative(
+            mode,
+            game_fullscreen != 0,
+            remote_hidden != 0,
+            Duration::from_secs_f64(visible_for_ms.max(0.0) / 1000.0),
+            relative_active != 0,
+        ))
+    })
 }
 
 // MARK: - Manettes
@@ -822,31 +934,41 @@ fn axis(i: jint) -> Option<PadAxis> {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padPlug(_: Env, _: JClass, h: jlong, pad: jint, vendor: jint, product: jint) {
-    input(h, |p| p.gamepad_plug(pad as u32, u16::try_from(vendor).ok(), u16::try_from(product).ok()));
+    kybernow_core::ffi_guard!({
+        input(h, |p| p.gamepad_plug(pad as u32, u16::try_from(vendor).ok(), u16::try_from(product).ok()));
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padUnplug(_: Env, _: JClass, h: jlong, pad: jint) {
-    input(h, |p| p.gamepad_unplug(pad as u32));
+    kybernow_core::ffi_guard!({
+        input(h, |p| p.gamepad_unplug(pad as u32));
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padButton(_: Env, _: JClass, h: jlong, pad: jint, b: jint, pressed: jboolean) {
-    let Some(b) = button(b) else { return };
-    input(h, |p| p.gamepad_button(pad as u32, b, pressed != 0));
+    kybernow_core::ffi_guard!({
+        let Some(b) = button(b) else { return };
+        input(h, |p| p.gamepad_button(pad as u32, b, pressed != 0));
+    })
 }
 
 /// `value` : −32768 à 32767 pour les sticks (Y positif vers le bas), 0 à 32767 pour les gâchettes.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padAxis(_: Env, _: JClass, h: jlong, pad: jint, a: jint, value: jint) {
-    let Some(a) = axis(a) else { return };
-    input(h, |p| p.gamepad_axis(pad as u32, a, value.clamp(i16::MIN as i32, i16::MAX as i32) as i16));
+    kybernow_core::ffi_guard!({
+        let Some(a) = axis(a) else { return };
+        input(h, |p| p.gamepad_axis(pad as u32, a, value.clamp(i16::MIN as i32, i16::MAX as i32) as i16));
+    })
 }
 
 /// Manette rendue au jeu ou prise par le menu : sticks et gâchettes au repos.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padAxesRest(_: Env, _: JClass, h: jlong, pad: jint) {
-    input(h, |p| p.gamepad_axes_rest(pad as u32));
+    kybernow_core::ffi_guard!({
+        input(h, |p| p.gamepad_axes_rest(pad as u32));
+    })
 }
 
 // MARK: - Profils
@@ -863,23 +985,25 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_profileSett
     hevc444: jboolean,
     av1: jboolean,
 ) -> jstring {
-    use kybernow_core::profile::{Capabilities, Codec, Profile, StreamSettings};
-    let p = string(&mut env, &profile);
-    let profile = Profile::parse(&p).unwrap_or(Profile::Jeu);
-    let s = StreamSettings::for_profile(profile, Capabilities { hevc: hevc != 0, hevc444: hevc444 != 0, av1: av1 != 0, hdr: false, pyrowave: false });
-    let codec = match s.codec {
-        Codec::H264 => "h264",
-        Codec::Hevc => "hevc",
-        Codec::Av1 => "av1",
-        Codec::PyroWave => "pyrowave",
-    };
-    let json = serde_json::json!({
-        "profile": p.to_lowercase(),
-        "codec": codec,
-        "yuv444": s.yuv444,
-        "mbps": s.mbps,
-        "reliable": s.reliable,
+    kybernow_core::ffi_guard!(null => {
+        use kybernow_core::profile::{Capabilities, Codec, Profile, StreamSettings};
+        let p = string(&mut env, &profile);
+        let profile = Profile::parse(&p).unwrap_or(Profile::Jeu);
+        let s = StreamSettings::for_profile(profile, Capabilities { hevc: hevc != 0, hevc444: hevc444 != 0, av1: av1 != 0, hdr: false, pyrowave: false });
+        let codec = match s.codec {
+            Codec::H264 => "h264",
+            Codec::Hevc => "hevc",
+            Codec::Av1 => "av1",
+            Codec::PyroWave => "pyrowave",
+        };
+        let json = serde_json::json!({
+            "profile": p.to_lowercase(),
+            "codec": codec,
+            "yuv444": s.yuv444,
+            "mbps": s.mbps,
+            "reliable": s.reliable,
+        })
+        .to_string();
+        give(&mut env, &json)
     })
-    .to_string();
-    give(&mut env, &json)
 }

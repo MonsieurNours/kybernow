@@ -37,11 +37,13 @@ fn bad(e: impl std::fmt::Display) -> String {
 /// au plus), hors du fil principal.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inviteRedeem(mut env: Env, _: JClass, code: JString, password: JString, device: JString) -> jstring {
-    let (code, password, device) = (string(&mut env, &code), string(&mut env, &password), string(&mut env, &device));
-    let s = match (serde_json::from_str::<InviteCode>(&code), serde_json::from_str::<DeviceInfo>(&device)) {
-        (Ok(c), Ok(d)) => invite_envelope(invite::redeem(&c, &password, &d), &c.computer),
-        (Err(e), _) => bad(e),
-        (_, Err(e)) => bad(e),
-    };
-    give(&mut env, &s)
+    kybernow_core::ffi_guard!(null => {
+        let (code, password, device) = (string(&mut env, &code), string(&mut env, &password), string(&mut env, &device));
+        let s = match (serde_json::from_str::<InviteCode>(&code), serde_json::from_str::<DeviceInfo>(&device)) {
+            (Ok(c), Ok(d)) => invite_envelope(invite::redeem(&c, &password, &d), &c.computer),
+            (Err(e), _) => bad(e),
+            (_, Err(e)) => bad(e),
+        };
+        give(&mut env, &s)
+    })
 }
