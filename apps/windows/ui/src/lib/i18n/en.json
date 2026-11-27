@@ -486,6 +486,8 @@
     "session_closes": "Your session will close when your friend arrives.",
     "cancel_code": "Cancel code",
     "trust": "Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
+    "trust_mac": "Your friend plays in your Mac session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
+    "trust_other": "Your friend plays in your session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
     "disabled": "Lending is off in Admin (“Lending” page).",
     "unsupported": "Lending needs KyberNow Station 0.9.0 or later.",
     "wants_to_borrow": "{name} wants to borrow the computer.",

@@ -1560,6 +1560,19 @@ fn displays_info(app: AppHandle, id: String, settings: Settings) -> Result<Displ
     Ok(DisplaysInfo { enabled: choice.setting_enabled(), shown: choice.shown_setting().as_str(), count, virtual_display: choice.virtual_display, hdr, hdr_on, plan: planned })
 }
 
+/// Le système d'une Station d'après `os` de son `info` (« Windows 11 Pro
+/// 24H2 », « macOS 15.2 », une distribution Linux) : `windows`, `mac`
+/// (la règle du cœur, `keymap::station_is_mac`), sinon `other`.
+fn station_system(os: &str) -> &'static str {
+    if kybernow_core::input::keymap::station_is_mac(os) {
+        "mac"
+    } else if os.trim_start().to_ascii_lowercase().starts_with("windows") {
+        "windows"
+    } else {
+        "other"
+    }
+}
+
 /// « Envoyer le journal » (Réglages de l'app › À propos, docs/link-ui.md) :
 /// le fichier `kybernow-journal.txt` (`journal.rs`), puis la fenêtre
 /// « Partager » de Windows au-dessus de l'accueil. Le temps de la préparation,
@@ -2145,6 +2158,10 @@ struct BarShown {
     /// (« ⌘ ⇥ », « ⌘ Espace »…). Faux pour un invité ou un ami, qui ne
     /// connaissent pas son système.
     mac: bool,
+    /// Le système de la Station (`windows`, `mac`, `other` : Linux ou
+    /// inconnu), d'après `os` de son `info` : l'avertissement du prêt le dit
+    /// (« votre session Windows », « du Mac », ou « votre session »).
+    system: &'static str,
     /// La largeur de la zone cliente de la session, en points (bornée par la
     /// fenêtre de la barre) : au-delà, la barre se fait étroite.
     room: f64,
@@ -2221,6 +2238,7 @@ fn console_bar_shown(id: &str, name: &str, pinned: bool, sessions: usize, route:
         mouse: "auto".to_string(),
         clipboard: false,
         mac: false,
+        system: "other",
         room: BAR_WINDOW_WIDTH,
         stats: false,
         pinned,
@@ -4085,7 +4103,9 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
             .with_store(|s| s.get(id).map(|c| (c.settings.mouse.clone(), c.settings.clipboard)))
             .unwrap_or_else(|| ("auto".to_string(), false)),
     };
-    let mac = host_session && kybernow_core::input::keymap::station_is_mac(&computer_os(&state, id));
+    let os = computer_os(&state, id);
+    let mac = host_session && kybernow_core::input::keymap::station_is_mac(&os);
+    let system = station_system(&os);
     let before = state.bar_session.locked().replace(id.to_string());
     // La barre servait une partie sur console : la console reçoit de nouveau la manette.
     if let Some(prev) = before.filter(|p| p != id && crate::consoles::host_of(p).is_some()) {
@@ -4136,6 +4156,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         mouse,
         clipboard,
         mac,
+        system,
         room,
         stats: panel == Some("stats"),
         pinned,
