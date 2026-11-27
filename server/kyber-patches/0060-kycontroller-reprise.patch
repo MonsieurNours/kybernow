@@ -1,8 +1,8 @@
 diff --git a/kycontroller/src/avservice.rs b/kycontroller/src/avservice.rs
-index b5a5940..01148a4 100644
+index 1726929..7b2cfed 100644
 --- a/kycontroller/src/avservice.rs
 +++ b/kycontroller/src/avservice.rs
-@@ -320,11 +320,27 @@ impl Handler {
+@@ -326,11 +326,27 @@ impl Handler {
  
          Ok(())
      }
@@ -30,7 +30,7 @@ index b5a5940..01148a4 100644
      VideoSetBitrate(i32),
      Stop(oneshot::Sender<()>),
  }
-@@ -390,6 +406,13 @@ impl SharedHandler {
+@@ -396,6 +412,13 @@ impl SharedHandler {
              .map_err(|_| Error::StreamerStopped)
      }
  
@@ -44,7 +44,7 @@ index b5a5940..01148a4 100644
      pub(crate) async fn stop(mut self) {
          let (tx, rx) = oneshot::channel();
          if self.cmd_tx.send(SharedCmd::Stop(tx)).is_err() {
-@@ -427,6 +450,9 @@ impl SharedHandler {
+@@ -433,6 +456,9 @@ impl SharedHandler {
              // `CMD_ACK_TIMEOUT`, so without draining the actor would otherwise
              // fall behind one queued command per timeout under sustained lag.
              let mut want_idr = false;
@@ -54,7 +54,7 @@ index b5a5940..01148a4 100644
              let mut bitrate = None;
              let mut stop_ack = None;
  
-@@ -441,6 +467,9 @@ impl SharedHandler {
+@@ -447,6 +473,9 @@ impl SharedHandler {
                  };
                  match cmd {
                      SharedCmd::VideoForceIdr => want_idr = true,
@@ -64,7 +64,7 @@ index b5a5940..01148a4 100644
                      SharedCmd::VideoSetBitrate(b) => bitrate = Some(b),
                      SharedCmd::Stop(ack) => stop_ack = Some(ack),
                  }
-@@ -461,6 +490,12 @@ impl SharedHandler {
+@@ -467,6 +496,12 @@ impl SharedHandler {
              if want_idr && let Err(e) = handler.video_force_idr().await {
                  warn!("Force IDR failed: {e:?}");
              }
@@ -78,10 +78,10 @@ index b5a5940..01148a4 100644
      }
  }
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index 09d7726..65d3dbf 100644
+index 7618b43..9614942 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
-@@ -1061,6 +1061,83 @@ pub(crate) async fn guest_force_idr(ctrl: Arc<Controller>, uid: Uuid) {
+@@ -1082,6 +1082,83 @@ pub(crate) async fn guest_force_idr(ctrl: Arc<Controller>, uid: Uuid) {
      }
  }
  
@@ -166,11 +166,37 @@ index 09d7726..65d3dbf 100644
  /// "as the host" alone): what a 4K stream ever needs.
  const GUEST_WITHOUT_HOST_MAX_BITRATE: u32 = 150_000_000;
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
-index 0b0e019..7ee2888 100644
+index 2528e7d..06ed3f9 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
-@@ -763,6 +763,84 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
-     HttpResponse::Ok().finish()
+@@ -751,6 +751,9 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
+ enum StreamRequest {
+     /// A keyframe (`/force_idr`).
+     Keyframe,
++    /// KyberNow (0060): an image that depends on nothing newer than this
++    /// pts (`/recover`, `repair`).
++    Recover(u64),
+ }
+ 
+ /// KyberNow: `request` to each of a session's video streams: the shared
+@@ -769,6 +772,7 @@ async fn to_video_streams(
+             };
+             let sent = match request {
+                 StreamRequest::Keyframe => stream.avservice.video_force_idr(),
++                StreamRequest::Recover(last_pts) => stream.avservice.video_recover(last_pts),
+             };
+             if let Err(err) = sent {
+                 warn!("Failed to ask {request:?} of the video stream: {err:?}");
+@@ -778,6 +782,7 @@ async fn to_video_streams(
+         for avserver in &mut services.video {
+             let sent = match request {
+                 StreamRequest::Keyframe => avserver.video_force_idr().await,
++                StreamRequest::Recover(last_pts) => avserver.video_recover(last_pts).await,
+             };
+             if let Err(err) = sent {
+                 warn!("Failed to ask {request:?} of the video stream: {err:?}");
+@@ -786,6 +791,67 @@ async fn to_video_streams(
+     }
  }
  
 +/// KyberNow (0060): body of `POST /recover`.
@@ -230,31 +256,14 @@ index 0b0e019..7ee2888 100644
 +        return true;
 +    }
 +    debug!("Repair up to {last_pts}");
-+
-+    if !services.video_subscriptions.is_empty() {
-+        let av_services_manager = ctrl.av_services_manager.lock().await;
-+        for sub in &services.video_subscriptions {
-+            let Some(stream) = av_services_manager.video_streams.get(sub.key()) else {
-+                continue;
-+            };
-+            if let Err(err) = stream.avservice.video_recover(last_pts) {
-+                warn!("Failed to repair: {err:?}");
-+            }
-+        }
-+    } else {
-+        for avserver in &mut services.video {
-+            if let Err(err) = avserver.video_recover(last_pts).await {
-+                warn!("Failed to repair: {err:?}");
-+            }
-+        }
-+    }
++    to_video_streams(ctrl, &mut services, StreamRequest::Recover(last_pts)).await;
 +    true
 +}
 +
  fn create_listening_socket(config: &config::Config) -> std::io::Result<std::net::TcpListener> {
      use socket2::{Domain, Protocol, Socket, Type};
      use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-@@ -964,7 +1042,8 @@ async fn real_main(config: config::Config) -> Result<()> {
+@@ -987,7 +1053,8 @@ async fn real_main(config: config::Config) -> Result<()> {
                  .service(enumerate_displays)
                  .service(stop_streaming)
                  .service(set_bitrate)

@@ -5990,7 +5990,7 @@ index a6b1f9a..f69df02 100644
              info!("Stream start rejected: {:?}", err);
              HttpResponse::Forbidden().finish()
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
-index 2a0cb53..30f232d 100644
+index 3f1b603..f757a80 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
 @@ -45,6 +45,7 @@ mod cli;
@@ -6057,21 +6057,7 @@ index 2a0cb53..30f232d 100644
          }
      } else if !services.video.is_empty() {
          let per_stream = split_bitrate(services.video.len());
-@@ -682,13 +701,6 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
-         return HttpResponse::Unauthorized().finish();
-     };
- 
--    // KyberNow: a share guest's keyframes would weigh on every viewer of the
--    // shared image; it gets one when it joins and when it lags (kydup).
--    if kybernow::is_guest(&ctrl, &uid) {
--        debug!("Keyframe request from a share guest ignored");
--        return HttpResponse::Ok().finish();
--    }
--
-     // Checked and recorded under the sessions lock: of two concurrent
-     // requests, only one gets through.
-     let now = Instant::now();
-@@ -715,6 +727,16 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
+@@ -708,6 +727,16 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
          }
      };
  
@@ -6087,8 +6073,8 @@ index 2a0cb53..30f232d 100644
 +
      let mut services = services.lock().await;
      debug!("Keyframe requested by the client");
- 
-@@ -932,6 +954,7 @@ async fn real_main(config: config::Config) -> Result<()> {
+     to_video_streams(&ctrl, &mut services, StreamRequest::Keyframe).await;
+@@ -948,6 +977,7 @@ async fn real_main(config: config::Config) -> Result<()> {
                      web::scope("/kybernow")
                          .service(kybernow::get_sessions)
                          .service(kybernow::post_role)

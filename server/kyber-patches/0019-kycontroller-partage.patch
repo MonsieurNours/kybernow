@@ -1147,7 +1147,7 @@ index 5abb6d8..a6b1f9a 100644
              HttpResponse::Ok().json(StartSessionResponse {
                  session_id: Some(numeric_session_id),
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
-index f5df758..2a0cb53 100644
+index 0bc12f7..3f1b603 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
 @@ -49,6 +49,7 @@ mod host_events;
@@ -1321,21 +1321,7 @@ index f5df758..2a0cb53 100644
      // Split the global bitrate evenly across `count` streams and cast to the
      // signed type the encoder expects. `count` is assumed non-zero; the call
      // sites guard against an empty stream set first.
-@@ -611,6 +682,13 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
-         return HttpResponse::Unauthorized().finish();
-     };
- 
-+    // KyberNow: a share guest's keyframes would weigh on every viewer of the
-+    // shared image; it gets one when it joins and when it lags (kydup).
-+    if kybernow::is_guest(&ctrl, &uid) {
-+        debug!("Keyframe request from a share guest ignored");
-+        return HttpResponse::Ok().finish();
-+    }
-+
-     // Checked and recorded under the sessions lock: of two concurrent
-     // requests, only one gets through.
-     let now = Instant::now();
-@@ -849,6 +927,13 @@ async fn real_main(config: config::Config) -> Result<()> {
+@@ -872,6 +943,13 @@ async fn real_main(config: config::Config) -> Result<()> {
                          .service(renew)
                          .service(logout),
                  )

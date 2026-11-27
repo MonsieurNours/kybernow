@@ -1,6 +1,8 @@
+diff --git a/kycontroller/src/controller.rs b/kycontroller/src/controller.rs
+index ccf490e..ef07f3d 100644
 --- a/kycontroller/src/controller.rs
 +++ b/kycontroller/src/controller.rs
-@@ -104,6 +104,8 @@
+@@ -104,6 +104,8 @@ pub(crate) struct ClientSession {
  
      pub session: Option<StreamingSession>,
      pub services: Arc<AsyncMutex<StreamingServices>>,
@@ -9,7 +11,7 @@
  }
  
  impl ClientSession {
-@@ -140,6 +142,7 @@
+@@ -140,6 +142,7 @@ impl ClientSession {
              auth_tokens: ClientAuthTokens::generate(),
              session: None,
              services: Default::default(),
@@ -17,9 +19,11 @@
          }
      }
  }
+diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
+index 9a65dad..171a594 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
-@@ -24,6 +24,7 @@
+@@ -24,6 +24,7 @@ use std::net::SocketAddr;
  use std::path::PathBuf;
  use std::process::ExitCode;
  use std::sync::Arc;
@@ -27,7 +31,7 @@
  
  use actix_session::SessionMiddleware;
  use actix_session::storage::CookieSessionStore;
-@@ -31,7 +32,7 @@
+@@ -31,7 +32,7 @@ use actix_web::{
      App, HttpMessage, HttpRequest, HttpResponse, HttpServer, cookie, get, middleware, post, web,
  };
  use clap::Parser;
@@ -36,11 +40,10 @@
  use log4ky::notice;
  use serde::Deserialize;
  use session::identity::Identity;
-@@ -580,7 +581,74 @@
- 
+@@ -581,6 +582,96 @@ pub(crate) async fn set_bitrate(
      HttpResponse::Ok().finish()
  }
-+
+ 
 +/// KyberNow: shortest time between two keyframes forced for one session. A
 +/// client that keeps losing packets would otherwise get an IDR per round trip,
 +/// and on a shared stream every other client would pay for them too.
@@ -57,7 +60,7 @@
 +    let Ok(uid) = user.uid() else {
 +        return HttpResponse::Unauthorized().finish();
 +    };
- 
++
 +    // Checked and recorded under the sessions lock: of two concurrent
 +    // requests, only one gets through.
 +    let now = Instant::now();
@@ -86,32 +89,55 @@
 +
 +    let mut services = services.lock().await;
 +    debug!("Keyframe requested by the client");
++    to_video_streams(&ctrl, &mut services, StreamRequest::Keyframe).await;
 +
++    HttpResponse::Ok().finish()
++}
++
++/// KyberNow: what a session asks of each of its video streams.
++#[derive(Clone, Copy, Debug)]
++enum StreamRequest {
++    /// A keyframe (`/force_idr`).
++    Keyframe,
++}
++
++/// KyberNow: `request` to each of a session's video streams: the shared
++/// avservices it subscribes to (Kymux), else its own (RTP). Scoped to the
++/// session: a client never reaches another client's avservice.
++async fn to_video_streams(
++    ctrl: &Controller,
++    services: &mut crate::controller::StreamingServices,
++    request: StreamRequest,
++) {
 +    if !services.video_subscriptions.is_empty() {
 +        let av_services_manager = ctrl.av_services_manager.lock().await;
 +        for sub in &services.video_subscriptions {
 +            let Some(stream) = av_services_manager.video_streams.get(sub.key()) else {
 +                continue;
 +            };
-+            if let Err(err) = stream.avservice.video_force_idr() {
-+                warn!("Failed to force IDR: {err:?}");
++            let sent = match request {
++                StreamRequest::Keyframe => stream.avservice.video_force_idr(),
++            };
++            if let Err(err) = sent {
++                warn!("Failed to ask {request:?} of the video stream: {err:?}");
 +            }
 +        }
 +    } else {
 +        for avserver in &mut services.video {
-+            if let Err(err) = avserver.video_force_idr().await {
-+                warn!("Failed to force IDR: {err:?}");
++            let sent = match request {
++                StreamRequest::Keyframe => avserver.video_force_idr().await,
++            };
++            if let Err(err) = sent {
++                warn!("Failed to ask {request:?} of the video stream: {err:?}");
 +            }
 +        }
 +    }
-+
-+    HttpResponse::Ok().finish()
 +}
 +
  fn create_listening_socket(config: &config::Config) -> std::io::Result<std::net::TcpListener> {
      use socket2::{Domain, Protocol, Socket, Type};
      use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-@@ -773,7 +841,8 @@
+@@ -773,7 +864,8 @@ async fn real_main(config: config::Config) -> Result<()> {
                  .service(websocket_service)
                  .service(enumerate_displays)
                  .service(stop_streaming)
