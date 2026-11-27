@@ -196,7 +196,7 @@ cargo install cargo-c --version 0.10.15 --locked
 apps/android/scripts/build-native.sh                     # les trois ABI
 apps/android/scripts/build-native.sh --target aarch64-linux-android
 apps/android/scripts/build-native.sh --check             # cargo check seul ; --debug : sans optimisation (CARGO_TARGET_DIR respecté)
-# --no-pyrowave : sans PyroWave ; --kyber-pyrowave : pose le correctif kyclient 0025 et allume PyroWave dans le cœur
+# PyroWave par défaut (correctif kyclient 0025 et PyroWave dans le cœur) ; --sans-pyrowave : décodé mais jamais demandé à Kyber ; --no-pyrowave : sans PyroWave du tout
 # PyroWave sur l'appareil branché (sonde, encodage par l'amont, décodage et affichage) :
 apps/android/tests/pyrowave/run.sh
 

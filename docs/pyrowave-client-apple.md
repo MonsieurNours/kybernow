@@ -23,7 +23,7 @@ Déduit de la famille du GPU ; seule la réponse du simulateur est vue.
 ## Construction
 
 - **Décodeur** : les projets Apple TV et iPhone/iPad compilent le port Metal dans KyberKit (`pyrowave_common.mm`, `pyrowave_decoder.mm`, `pyrowave_bitstream.cpp`, ARC, C++17, module `CPyroWave`) et `KyberKit/PyroWaveDecoder.swift`, comme le Mac. Aucun réglage propre à tvOS ou iOS n'a été nécessaire : vérifié le 25/11/2026 pour l'appareil et le simulateur (`appletvos`, `appletvsimulator`, `iphoneos`, `iphonesimulator`, Xcode 26). Le port n'emploie que du stockage partagé et des textures `r8Unorm`/`r16Unorm`, que les GPU Apple des Apple TV et iPhone prennent.
-- **Kyber** : le correctif kyclient 0025 (`VideoCodec::PyroWave`, `fallback_codec`) et la fonctionnalité `pyrowave` du cœur ne sont posés qu'avec un drapeau explicite, éteint par défaut, comme `build-native.sh --kyber-pyrowave` d'Android : `apps/tvos/scripts/build-kyber-tvos.sh --kyber-pyrowave`, `apps/apple/scripts/build-apple-mobile.sh tvos|ios --kyber-pyrowave` (fonctionnalité `kyber-pyrowave` de `kybernow-apple`, qui allume `kybernow-core/pyrowave`), `apps/core/scripts/build-apple.sh --kyber-pyrowave`. Sans eux, l'app décode PyroWave et l'annonce au cœur, mais le cœur ne le demande jamais à Kyber. `third_party/` étant partagé par tous les worktrees, le correctif n'y est posé qu'à la demande.
+- **Kyber** : le correctif kyclient 0025 (`VideoCodec::PyroWave`, `fallback_codec`) et la fonctionnalité `pyrowave` du cœur sont posés par défaut depuis la 0.11.1, comme pour toutes les apps sauf celle des téléviseurs LG (`KYBER_PYROWAVE=1`, posé par `scripts/kyber-client-patches.sh`) : `apps/tvos/scripts/build-kyber-tvos.sh`, `apps/apple/scripts/build-apple-mobile.sh tvos|ios` (fonctionnalité `kyber-pyrowave` de `kybernow-apple`, qui allume `kybernow-core/pyrowave`), `apps/core/scripts/build-apple.sh`, `apps/macos/scripts/build-kyclient.sh`. `--sans-pyrowave` (ou `KYBER_PYROWAVE=0`) les écarte ensemble : l'app décode alors PyroWave et l'annonce au cœur, mais le cœur ne le demande jamais à Kyber. `--kyber-pyrowave` reste accepté (c'est le défaut).
 
 ## La sonde et le câble
 
@@ -66,7 +66,7 @@ Sur le Mac, dans le worktree de la branche (ou après fusion), Xcode 26, `xcodeg
 2. **Apple TV de l'atelier** (A12, 2021) : `run.sh tv "Apple TV de l'atelier"` (signature automatique : le profil générique ne la couvre pas). Attendu : « Apple7 : non », « Sonde : PyroWave indisponible », « ÉCHEC » (code 1), rien de plus.
 3. **iPhone 18 Pro Max** déverrouillé : `run.sh ios "iPhone 18 Pro Max de Matthieu"` (la première fois, Xcode enregistre `fr.leslignesclaires.kybernow.pyrowavebench` sur l'équipe ; l'iPhone peut demander de faire confiance au développeur dans Réglages › Général › VPN et gestion de l'appareil). Attendu comme l'Apple TV, avec 2560x1440 en plus.
 4. **Les apps** (installation : `apps/tvos/SIDELOAD.md`, `apps/ios/SIDELOAD.md`, ou Xcode) : ouvrir l'app, puis Réglages de l'app : la ligne des décodeurs dit « …, PyroWave » sur l'Apple TV du salon et l'iPhone, pas sur l'Apple TV de l'atelier. Journal : `log stream --device … --predicate 'subsystem == "fr.leslignesclaires.kybernow"'` (ou Console.app) : « PyroWave prêt en … ms (…) » ou « PyroWave : GPU non pris en charge », et « lien réseau : Ethernet » ou « sans câble ».
-5. **Une session réelle**, une fois la Station en PyroWave et le SDK construit avec `--kyber-pyrowave` (`build-kyber-tvos.sh --kyber-pyrowave`, `build-apple-mobile.sh tvos|ios --kyber-pyrowave`) : Apple TV en Ethernet sur « Auto » (profil Jeu) : l'image arrive en PyroWave (Statistiques du menu : « PyroWave 4:2:0 », « Images perdues »). Puis en Wi-Fi, PyroWave choisi à la main : l'avertissement des réglages, le bandeau du début, la tuile du menu ; « Passer en HEVC » : l'image repart en HEVC. Même chose sur l'iPhone (adaptateur Ethernet USB-C pour « Auto »), avec la puce de la barre.
+5. **Une session réelle**, une fois la Station en PyroWave et le SDK construit avec PyroWave (le défaut de `build-kyber-tvos.sh` et `build-apple-mobile.sh tvos|ios`) : Apple TV en Ethernet sur « Auto » (profil Jeu) : l'image arrive en PyroWave (Statistiques du menu : « PyroWave 4:2:0 », « Images perdues »). Puis en Wi-Fi, PyroWave choisi à la main : l'avertissement des réglages, le bandeau du début, la tuile du menu ; « Passer en HEVC » : l'image repart en HEVC. Même chose sur l'iPhone (adaptateur Ethernet USB-C pour « Auto »), avec la puce de la barre.
 
 ## État des essais
 
@@ -79,10 +79,9 @@ Sur le Mac, dans le worktree de la branche (ou après fusion), Xcode 26, `xcodeg
 | Apple TV de 2021 : sonde indisponible | déduit, à confirmer |
 | `wired` par un vrai câble (Apple TV en Ethernet, adaptateur USB-C) | à essayer (le simulateur prend le lien du Mac) |
 | Définition ramenée : bandeau et Statistiques | vus en démonstration sur les simulateurs Apple TV 4K et iPhone 16 Pro (25/11/2026) ; jamais avec un vrai avis du cœur |
-| Session complète vers la Station | à essayer (correctif 0025 et `--kyber-pyrowave`) |
+| Session complète vers la Station | à essayer (correctif 0025, posé par défaut) |
 
 ## Ce qui attend
 
-- Le correctif kyclient de la Station et la fonctionnalité `pyrowave` du cœur allumés pour toutes les apps : alors, retirer le drapeau `--kyber-pyrowave`.
 - Le débit du lien en Wi-Fi (Apple TV, iPhone, iPad) et par un adaptateur Ethernet : aucune API publique ne le donne ; un débit mesuré par le cœur pourrait le remplacer.
 - L'Apple TV 4K de 2022 n'a qu'un Ethernet Gigabit (et seulement le modèle de 128 Go) : PyroWave en 4K60 (800 Mbit/s par défaut) y est près de la limite ; à surveiller dans les « Images perdues ».

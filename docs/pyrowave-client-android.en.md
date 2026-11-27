@@ -11,7 +11,7 @@ Client section of [pyrowave.en.md](pyrowave.en.md) (the contract and the Station
 - **ABIs**: arm64-v8a and x86_64. armeabi-v7a stays without PyroWave (its probe answers “unavailable”). 32-bit Android devices (Chromecast with Google TV, entry-level TVs) have no Vulkan 1.3 anyway.
 - **Patches reapplied**: `build-native.sh` resets its patches' files to the original and reapplies them all (`scripts/kyber-client-patches.sh`, docs/build-notes.en.md); a patch covered by another build no longer stops it.
 - **Separate rootfs**: `KYBERNOW_ANDROID_ROOTFS=<folder>` builds libkynput (and takes libopus, `libvlc.pc`) in `<folder>/rootfs-<target>` instead of `third_party/kyber-desktop/rootfs-<target>`, to build against the current kynput sources without touching the shared rootfs.
-- **What Kyber requests**: the kyclient patch 0025 (`VideoCodec::PyroWave`, `fallback_codec`) and the core's `pyrowave` feature go together; `third_party/kyber-desktop` is shared by every app. They are only applied with `build-native.sh --kyber-pyrowave` (the `kyber-pyrowave` feature of `kybernow-android`), until they are turned on for every app. Without them the app decodes PyroWave and reports `pyrowave` to the core, but the core never asks Kyber for it.
+- **What Kyber requests**: the kyclient patch 0025 (`VideoCodec::PyroWave`, `fallback_codec`) and the core's `pyrowave` feature go together; `third_party/kyber-desktop` is shared by every app. `build-native.sh` applies them by default since 0.11.1 (the `kyber-pyrowave` feature of `kybernow-android`; `--kyber-pyrowave` is still accepted). `--sans-pyrowave` leaves them out: the app decodes PyroWave and reports `pyrowave` to the core, but the core never asks Kyber for it. `--no-pyrowave` also removes the decoder.
 
 ## The launch probe
 
@@ -40,7 +40,7 @@ The result (`PyroWave.decodes`) goes to the core in the capabilities (`pyrowave`
 - The Station's announcement (`pyrowave.available` of `GET /api/stream/info`) is kept with the computer (`Host.pyrowave`, null for a Station from before PyroWave).
 - **Link bitrate** (`PyroWave.linkMbps`, `Native.sessionSetLinkMbps`): given to the core when the session starts and whenever the network changes (`registerDefaultNetworkCallback`), for the lowered resolution (`pyrowave::ceiling`). On Wi-Fi, the negotiated receive rate (`WifiInfo.getRxLinkSpeedMbps`, else `getLinkSpeed`); on Ethernet, 0 (unknown): Android only gives a fixed estimate (`getLinkDownstreamBandwidthKbps`), not the port's speed. The Station's ceiling (Admin's “Maximum bitrate”) and a bitrate set by hand count too.
 
-## Interface (link-ui texts, `scripts/strings.py`)
+## Interface (link-ui texts, `apps/android/scripts/strings.py`)
 
 - **Settings › Picture › Video format**: “PyroWave” after AV1, only when the Station announces it; inactive with its reason in the help (“{name} doesn't offer PyroWave.”, “This device can't decode PyroWave.”). Help texts: PyroWave chosen, Auto by cable, Auto without cable. Chosen on Wi-Fi or away from home (computer reached through the relay): the amber warning under the choice. “Sharp text (4:4:4)”: “With PyroWave, almost free: only the bitrate goes up.” when PyroWave is chosen or taken by “Auto”. On TV, the same rows with focus.
 - **Session**: chosen by hand, on Wi-Fi or through the relay, the start banner (“PyroWave on Wi-Fi” or “PyroWave away from home”, “The picture may stutter.”, “Switch to HEVC”, the close button; gone after 8 s). “Switch to HEVC” restarts the picture in HEVC for this session only (`Native.sessionSetSettings`). The amber chip in the bar (a tile in the TV menu), which opens the statistics.
@@ -68,7 +68,7 @@ On the Mac, in the branch's worktree (or after merging):
 2. Redmi A5 connected over USB (USB debugging): `apps/android/tests/pyrowave/run.sh` (1080p) then `apps/android/tests/pyrowave/run.sh 1280x720`. Expected: “Sonde : PyroWave disponible (Mali-G57…, fragment)”, “Encodé : 120 images …”, “PyroWave (Vulkan, …, fragment), 1920x1080 4:2:0”, “Première image : PSNR … dB” (at least 30 dB), “Image tronquée au tiers : sautée”, the mean time, then “OK”, for 4:2:0, 4:4:4 and HDR10. Note the whole output.
 3. The app: `cd apps/android && ./gradlew assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk`, open it, then `adb logcat -d -s KyberNow | grep PyroWave`: the probe line (“PyroWave : disponible (…)” or the reason).
 4. Shield connected over the network (`adb connect <address>:5555`): `ANDROID_SERIAL=<address>:5555 apps/android/tests/pyrowave/run.sh`; expected: “Sonde : PyroWave indisponible (Vulkan loader 1.1, 1.3 needed)” (or another reason), nothing more. Then the installed app: the same log line, and no “PyroWave” in Settings › Picture › Video format… unless the Station announces it: it is then inactive, “This device can't decode PyroWave.”.
-5. A real session, once the Station does PyroWave and the core is built with `--kyber-pyrowave`: Redmi on Wi-Fi, PyroWave chosen in Video format: banner, amber chip, “Switch to HEVC”; Statistics: “Decoding” and “Lost frames”; the decoder name.
+5. A real session, once the Station does PyroWave and the core is built with PyroWave (the default): Redmi on Wi-Fi, PyroWave chosen in Video format: banner, amber chip, “Switch to HEVC”; Statistics: “Decoding” and “Lost frames”; the decoder name.
 
 ## Test status
 
@@ -79,4 +79,4 @@ On the Mac, in the branch's worktree (or after merging):
 | Decoding, display, HDR10 on a real GPU | **to try** (Redmi A5: steps above) |
 | Shield: probe unavailable | to confirm |
 | Interface | `PyroWaveUiTest` Compose tests pass; not seen on a device |
-| Full session to the Station | to try (patch 0025 and `--kyber-pyrowave`) |
+| Full session to the Station | to try (patch 0025, applied by default) |
