@@ -777,11 +777,29 @@ fn main() -> Result<()> {
         None => {
             init_logging(None);
             let runtime = tokio::runtime::Runtime::new()?;
-            runtime.block_on(run(cli.run, async {
-                let _ = tokio::signal::ctrl_c().await;
-            }))
+            runtime.block_on(run(cli.run, shutdown_signal()))
         }
     }
+}
+
+/// Arrêt demandé : Ctrl+C, et sur Mac et Linux SIGTERM (launchd et systemd
+/// arrêtent Admin ainsi) ou SIGHUP. Admin rend alors les écrans, le son et
+/// le prêt avant de s'arrêter, comme le service Windows.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let (term, hup) = (signal(SignalKind::terminate()), signal(SignalKind::hangup()));
+        if let (Ok(mut term), Ok(mut hup)) = (term, hup) {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = term.recv() => tracing::info!("SIGTERM : arrêt de KyberNow Admin"),
+                _ = hup.recv() => tracing::info!("SIGHUP : arrêt de KyberNow Admin"),
+            }
+            return;
+        }
+    }
+    let _ = tokio::signal::ctrl_c().await;
 }
 
 fn init(

@@ -309,24 +309,59 @@ pub trait Host {
 pub struct Checks<'a> {
     pub public_key: &'a str,
     pub package: &'a str,
+    /// Compte du demandeur : ses fichiers sont ouverts avec ses droits
+    /// (`setfsuid`), jamais avec ceux de root (un lien vers `/etc/shadow`
+    /// échoue comme pour lui). `None` dans les essais.
+    pub reader: Option<u32>,
 }
 
-/// Copie `name` de `from` dans `to`, sans suivre de lien, au plus `limit` octets.
-fn copy_limited(from: &Path, to: &Path, limit: u64) -> Result<()> {
-    let meta = fs::symlink_metadata(from).with_context(|| format!("{} introuvable", from.display()))?;
+/// Ouvre `from` sans suivre de lien ni attendre (une FIFO ne bloque pas),
+/// avec les droits de `reader` s'il est donné (Linux).
+fn open_plain(from: &Path, reader: Option<u32>) -> std::io::Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let open = || fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(from);
+    #[cfg(target_os = "linux")]
+    if let Some(uid) = reader {
+        // Les droits de fichiers du demandeur pour cette ouverture seulement
+        // (setfsuid ne vaut que pour ce fil), puis ceux de root.
+        let before = unsafe { libc::setfsuid(uid) };
+        let file = open();
+        unsafe { libc::setfsuid(before as libc::uid_t) };
+        return file;
+    }
+    let _ = reader;
+    open()
+}
+
+/// Copie `from` dans `to` (réservé à root : 0600), sans suivre de lien, au
+/// plus `limit` octets. Le type et la taille sont lus sur le fichier ouvert
+/// (`fstat`), pas sur le chemin, qui peut changer entre-temps.
+fn copy_limited(from: &Path, to: &Path, limit: u64, reader: Option<u32>) -> Result<()> {
+    let mut src = open_plain(from, reader).with_context(|| format!("{} introuvable, ou pas un fichier ordinaire", from.display()))?;
+    let meta = src.metadata().with_context(|| format!("lecture de {}", from.display()))?;
     if !meta.file_type().is_file() {
         bail!("{} n'est pas un fichier ordinaire", from.display());
     }
     if meta.len() > limit {
         bail!("{} : {} octets, {limit} attendus au plus", from.display(), meta.len());
     }
-    let mut src = fs::File::open(from).with_context(|| format!("lecture de {}", from.display()))?;
     let mut bytes = Vec::with_capacity(meta.len() as usize);
     Read::take(&mut src, limit + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > limit {
         bail!("{} grossit pendant la copie", from.display());
     }
-    crate::durable::write(to, bytes).with_context(|| format!("écriture de {}", to.display()))
+    crate::durable::try_write_then(to, bytes, |tmp| {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(tmp, fs::Permissions::from_mode(0o600))
+    })
+    .with_context(|| format!("écriture de {}", to.display()))
+}
+
+/// Dossier du service root : réservé à root (0700).
+fn private_dir(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::create_dir_all(dir).with_context(|| format!("création de {}", dir.display()))?;
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).with_context(|| format!("droits de {}", dir.display()))
 }
 
 /// Prend une version dans `source` (dossier d'Admin) : manifeste, signature
@@ -335,23 +370,32 @@ pub fn stage(store: &Store, source: &Path, version: &str, checks: &Checks) -> Re
     if !valid_version(version) {
         bail!("version inattendue : {version}");
     }
+    private_dir(&store.root)?;
     let dir = store.dir(version);
-    fs::create_dir_all(&dir).with_context(|| format!("création de {}", dir.display()))?;
+    private_dir(&dir)?;
+    let files = [manifest::MANIFEST, manifest::SIGNATURE, checks.package];
     // Rien d'une demande précédente (le journal reste).
-    for f in [manifest::MANIFEST, manifest::SIGNATURE, checks.package] {
+    for f in files {
         let _ = fs::remove_file(dir.join(f));
     }
     let limit = 256 * 1024;
-    copy_limited(&source.join(manifest::MANIFEST), &dir.join(manifest::MANIFEST), limit)?;
-    copy_limited(&source.join(manifest::SIGNATURE), &dir.join(manifest::SIGNATURE), limit)?;
-    let m = verify_kept(&dir, version, checks.public_key)?;
-    let expected = m.file(checks.package)?;
-    copy_limited(&source.join(checks.package), &dir.join(checks.package), expected.size)?;
-    if let Err(e) = m.check_file(checks.package, &dir.join(checks.package)) {
-        let _ = fs::remove_file(dir.join(checks.package));
-        return Err(e);
+    let staged = (|| -> Result<Manifest> {
+        copy_limited(&source.join(manifest::MANIFEST), &dir.join(manifest::MANIFEST), limit, checks.reader)?;
+        copy_limited(&source.join(manifest::SIGNATURE), &dir.join(manifest::SIGNATURE), limit, checks.reader)?;
+        let m = verify_kept(&dir, version, checks.public_key)?;
+        let expected = m.file(checks.package)?;
+        copy_limited(&source.join(checks.package), &dir.join(checks.package), expected.size, checks.reader)?;
+        m.check_file(checks.package, &dir.join(checks.package))?;
+        Ok(m)
+    })();
+    if staged.is_err() {
+        // Refusé : rien de ce qui a été recopié ne reste (manifeste et
+        // signature compris), même réservé à root.
+        for f in files {
+            let _ = fs::remove_file(dir.join(f));
+        }
     }
-    Ok(m)
+    staged
 }
 
 /// Relit et revérifie le manifeste gardé d'une version.
@@ -602,6 +646,46 @@ mod system {
     }
 }
 
+/// Fichier du service root qui garde le compte propriétaire de la Station.
+const OWNER_FILE: &str = "proprietaire";
+
+/// Seul le compte de la Station (le premier à avoir demandé une mise à jour,
+/// noté par root) pilote le service root : un autre compte de l'ordinateur
+/// ne lance ni mise à jour, ni retour arrière, ni version bêta pour tous.
+/// root est toujours accepté.
+pub fn check_owner(store: &Store, uid: u32) -> Result<()> {
+    if uid == 0 {
+        return Ok(());
+    }
+    let path = store.root.join(OWNER_FILE);
+    match fs::read_to_string(&path) {
+        Ok(text) => match text.trim().parse::<u32>() {
+            Ok(owner) if owner == uid => Ok(()),
+            Ok(owner) => bail!("seul le compte qui utilise KyberNow Station sur cet ordinateur (uid {owner}) peut la mettre à jour"),
+            Err(_) => bail!("{} illisible : supprimez-le (root) pour le recréer", path.display()),
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            private_dir(&store.root)?;
+            crate::durable::try_write_then(&path, uid.to_string(), |tmp| {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(tmp, fs::Permissions::from_mode(0o600))
+            })
+            .with_context(|| format!("écriture de {}", path.display()))
+        }
+        Err(e) => Err(e).with_context(|| format!("lecture de {}", path.display())),
+    }
+}
+
+/// Une demande à la fois : verrou (`flock`) sur `<dossier>/.lock`, gardé
+/// jusqu'à la fin de la bascule. `None` si une autre demande le tient.
+pub fn lock_store(store: &Store) -> Result<Option<fs::File>> {
+    use std::os::fd::AsRawFd;
+    private_dir(&store.root)?;
+    let file = fs::OpenOptions::new().create(true).truncate(false).write(true).open(store.root.join(".lock"))?;
+    let taken = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
+    Ok(taken.then_some(file))
+}
+
 /// Le service root (`kyber-admin update serve`), lancé par systemd pour une
 /// connexion sur le socket (`Accept=yes` : la connexion est l'entrée standard).
 #[cfg(target_os = "linux")]
@@ -611,13 +695,19 @@ pub fn serve() -> Result<()> {
 
     let mut stream = unsafe { UnixStream::from_raw_fd(0) };
     let uid = system::peer_uid(&stream)?;
+    // Une connexion muette ne garde pas le service (le socket n'en accepte que quelques-unes).
+    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     let mut line = String::new();
     std::io::BufReader::new(Read::take(&stream, 4096)).read_line(&mut line)?;
     let store = Store::system();
-    fs::create_dir_all(&store.root)?;
+    private_dir(&store.root)?;
+    let Some(_lock) = lock_store(&store)? else {
+        let _ = writeln!(stream, "erreur : une mise à jour de KyberNow Station est déjà en cours");
+        bail!("une mise à jour est déjà en cours");
+    };
     let mut host = system::LinuxHost;
     let package = package();
-    let checks = Checks { public_key: manifest::RELEASE_KEY, package };
+    let checks = Checks { public_key: manifest::RELEASE_KEY, package, reader: Some(uid) };
     let answer = |stream: &mut UnixStream, r: &Result<()>| {
         let text = match r {
             Ok(()) => ACCEPTED.to_string(),
@@ -627,6 +717,7 @@ pub fn serve() -> Result<()> {
         let _ = stream.flush();
     };
     let prepared = (|| -> Result<(User, Request, Prepared, Option<Prepared>, Journal)> {
+        check_owner(&store, uid)?;
         let user = system::user(uid)?;
         let req: Request = serde_json::from_str(line.trim()).context("demande illisible")?;
         let (target, fallback, log) = match &req {
@@ -665,6 +756,49 @@ pub fn serve() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Un lien ou une FIFO à la place du manifeste : refusés sans les suivre
+    /// ni bloquer, et rien ne reste dans le dossier du service root.
+    #[test]
+    fn links_and_fifos_are_never_copied() {
+        let root = std::env::temp_dir().join(format!("kybernow-linux-links-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (source, out) = (root.join("source"), root.join("store"));
+        fs::create_dir_all(&source).unwrap();
+        fs::write(root.join("secret"), "root:x:0:0").unwrap();
+        std::os::unix::fs::symlink(root.join("secret"), source.join("lien")).unwrap();
+        assert!(copy_limited(&source.join("lien"), &out.join("copie"), 1024, None).is_err());
+        let fifo = source.join("fifo");
+        let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        assert!(copy_limited(&fifo, &out.join("copie"), 1024, None).is_err());
+        fs::write(source.join("vrai"), "{}").unwrap();
+        private_dir(&out).unwrap();
+        copy_limited(&source.join("vrai"), &out.join("copie"), 1024, None).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(fs::metadata(out.join("copie")).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(fs::metadata(&out).unwrap().permissions().mode() & 0o777, 0o700);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Le premier compte qui demande est noté ; un autre est refusé, root non.
+    #[test]
+    fn only_the_station_account_drives_the_root_service() {
+        let root = std::env::temp_dir().join(format!("kybernow-linux-owner-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let store = Store { root: root.clone() };
+        check_owner(&store, 1000).unwrap();
+        check_owner(&store, 1000).unwrap();
+        assert!(check_owner(&store, 1001).is_err());
+        check_owner(&store, 0).unwrap();
+        // Une demande à la fois.
+        let first = lock_store(&store).unwrap();
+        assert!(first.is_some());
+        assert!(lock_store(&store).unwrap().is_none());
+        drop(first);
+        assert!(lock_store(&store).unwrap().is_some());
+        let _ = fs::remove_dir_all(&root);
+    }
     use std::collections::BTreeMap;
 
     use super::*;
@@ -857,7 +991,7 @@ mod tests {
         b.publish("0.12.0", Channel::Stable);
         b.publish("0.11.0", Channel::Stable);
         let (pk, package) = b.checks();
-        let checks = Checks { public_key: &pk, package };
+        let checks = Checks { public_key: &pk, package, reader: None };
         let mut host = fake("0.11.0");
         let mut log = b.log();
         let (target, fallback) = prepare_apply(&b.store, &mut host, &b.user, "0.12.0", Channel::Stable, &checks, &mut log).unwrap();
@@ -881,7 +1015,7 @@ mod tests {
         b.publish("0.12.0", Channel::Stable);
         b.publish("0.11.0", Channel::Stable);
         let (pk, package) = b.checks();
-        let checks = Checks { public_key: &pk, package };
+        let checks = Checks { public_key: &pk, package, reader: None };
         let mut host = fake("0.11.0");
         host.broken = Some("0.12.0".into());
         let mut log = b.log();
@@ -906,7 +1040,7 @@ mod tests {
         let b = Bench::new("sans-retour");
         b.publish("0.12.0", Channel::Stable);
         let (pk, package) = b.checks();
-        let checks = Checks { public_key: &pk, package };
+        let checks = Checks { public_key: &pk, package, reader: None };
         let mut host = fake("0.11.0");
         host.broken = Some("0.12.0".into());
         let mut log = b.log();
@@ -922,7 +1056,7 @@ mod tests {
     fn the_service_refuses_what_admin_cannot_vouch_for() {
         let b = Bench::new("refus");
         let (pk, package) = b.checks();
-        let checks = Checks { public_key: &pk, package };
+        let checks = Checks { public_key: &pk, package, reader: None };
         let mut log = b.log();
         // Pas plus récente que l'installée.
         b.publish("0.11.0", Channel::Stable);
@@ -941,7 +1075,7 @@ mod tests {
         // Signé par une autre clé.
         let other = TestKey::new();
         let opk = other.public();
-        let e = prepare_apply(&b.store, &mut fake("0.11.0"), &b.user, "0.12.0", Channel::Beta, &Checks { public_key: &opk, package }, &mut log);
+        let e = prepare_apply(&b.store, &mut fake("0.11.0"), &b.user, "0.12.0", Channel::Beta, &Checks { public_key: &opk, package, reader: None }, &mut log);
         assert!(e.is_err());
         // Un lien à la place du paquet n'est pas suivi.
         b.publish("0.14.0", Channel::Stable);

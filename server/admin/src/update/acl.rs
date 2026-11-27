@@ -62,10 +62,22 @@ pub fn secure_dir(dir: &Path) -> Result<usize> {
     Ok(removed)
 }
 
-/// Hors Windows : rien à faire (simulation, développement).
+/// Mac et Linux : le dossier réservé à son compte (0700) ; un lien à sa
+/// place est refusé, jamais suivi. Ce qu'il contient n'est plus lisible
+/// par les autres comptes, quels que soient ses propres droits.
 #[cfg(not(windows))]
 pub fn secure_dir(dir: &Path) -> Result<usize> {
+    use std::os::unix::fs::PermissionsExt;
+
+    use anyhow::{Context, bail};
     std::fs::create_dir_all(dir)?;
+    let meta = std::fs::symlink_metadata(dir).with_context(|| format!("lecture de {}", dir.display()))?;
+    if !meta.is_dir() {
+        bail!("{} est un lien ou pas un dossier : droits non posés", dir.display());
+    }
+    if meta.permissions().mode() & 0o077 != 0 {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).with_context(|| format!("droits de {}", dir.display()))?;
+    }
     Ok(0)
 }
 
@@ -87,11 +99,18 @@ pub fn secure_file(path: &Path) -> Result<()> {
     imp::apply(path, &imp::Descriptor::parse(SECRET_FILE_SDDL)?)
 }
 
-/// Hors Windows : rien à faire (simulation, développement).
+/// Mac et Linux : le fichier réservé à son compte (0600) ; un lien à sa
+/// place est refusé, jamais suivi.
 #[cfg(not(windows))]
 pub fn secure_file(path: &Path) -> Result<()> {
-    let _ = path;
-    Ok(())
+    use std::os::unix::fs::PermissionsExt;
+
+    use anyhow::{Context, bail};
+    let meta = std::fs::symlink_metadata(path).with_context(|| format!("lecture de {}", path.display()))?;
+    if !meta.is_file() {
+        bail!("{} est un lien ou pas un fichier : droits non posés", path.display());
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).with_context(|| format!("droits de {}", path.display()))
 }
 
 #[cfg(windows)]
@@ -263,5 +282,32 @@ mod imp {
             }
             CloseHandle(token);
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod unix_tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::*;
+
+    /// Mac et Linux : dossier 0700, fichier 0600, lien refusé sans être suivi.
+    #[test]
+    fn secrets_are_kept_to_the_account() {
+        let dir = std::env::temp_dir().join(format!("kybernow-acl-unix-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        secure_dir(&dir).unwrap();
+        assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+        let key = dir.join("key.pem");
+        std::fs::write(&key, "clé").unwrap();
+        secure_file(&key).unwrap();
+        assert_eq!(std::fs::metadata(&key).unwrap().permissions().mode() & 0o777, 0o600);
+        let other = dir.join("ailleurs");
+        std::fs::write(&other, "x").unwrap();
+        std::fs::set_permissions(&other, std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::os::unix::fs::symlink(&other, dir.join("lien")).unwrap();
+        assert!(secure_file(&dir.join("lien")).is_err());
+        assert_eq!(std::fs::metadata(&other).unwrap().permissions().mode() & 0o777, 0o644);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

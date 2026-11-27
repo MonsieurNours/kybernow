@@ -422,9 +422,17 @@ mod station {
     }
 
     pub fn read_catalogue() -> Result<AgentCatalogue> {
-        let out_dir = std::env::temp_dir().join(format!("kybernow-apps-linux-{}", std::process::id()));
+        // Dossier propre au compte ($XDG_RUNTIME_DIR, 0700), jamais un nom
+        // prévisible dans /tmp, qu'un autre compte pourrait créer avant Admin
+        // (ou remplacer par un lien) pour fournir ses icônes.
+        let base = env("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).filter(|d| d.is_dir()).unwrap_or_else(std::env::temp_dir);
+        let out_dir = base.join(format!("kybernow-apps-{}-{}", std::process::id(), hex::encode(rand::random::<[u8; 8]>())));
         let _ = std::fs::remove_dir_all(&out_dir);
-        std::fs::create_dir_all(&out_dir)?;
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            // Création exclusive (échoue si le nom existe déjà), réservée au compte.
+            std::fs::DirBuilder::new().mode(0o700).create(&out_dir)?;
+        }
         let dirs = dirs();
         let found = visible_apps();
         if found.is_empty() {
