@@ -39,7 +39,7 @@ mod imp {
         RegisterClipboardFormatW, SetClipboardData,
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-    use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
+    use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock};
     use windows::Win32::System::Ole::CF_UNICODETEXT;
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, HWND_MESSAGE, MSG, PostMessageW, RegisterClassExW, TranslateMessage,
@@ -216,11 +216,12 @@ mod imp {
             if p.is_null() {
                 return None;
             }
-            let mut len = 0;
-            while *p.add(len) != 0 {
-                len += 1;
-            }
-            let text = String::from_utf16_lossy(std::slice::from_raw_parts(p, len));
+            // Borné par la taille du bloc : une autre app peut poser un texte
+            // sans nul final.
+            let units = GlobalSize(global) / 2;
+            let all = std::slice::from_raw_parts(p, units);
+            let len = all.iter().position(|&c| c == 0).unwrap_or(units);
+            let text = String::from_utf16_lossy(&all[..len]);
             let _ = GlobalUnlock(global);
             Some(text)
         }

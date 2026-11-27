@@ -221,6 +221,29 @@ mod sc {
     pub const PRINT: u16 = 0xE037;
 }
 
+/// Modificateurs (Ctrl, Alt, Maj, ⊞, gauche et droite) tels que partis à l'ordinateur.
+const MODIFIERS: [u16; 8] = [0x1D, 0xE01D, 0x38, 0xE038, 0x2A, 0x36, 0xE05B, 0xE05C];
+
+/// Retour sur la session (après Ctrl+Alt+Suppr, Win+L, le bureau sécurisé,
+/// qui gardent pour eux les relâchements) : un modificateur tenu sur
+/// l'ordinateur alors qu'aucun n'est enfoncé sur ce PC est relâché, sinon
+/// chaque touche arriverait avec Ctrl+Alt.
+fn release_stale_modifiers(app: &App) {
+    let Some(input) = app.input() else { return };
+    let down = [VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN].iter().any(|vk| unsafe { GetAsyncKeyState(vk.0 as i32) } < 0);
+    if down {
+        return;
+    }
+    let stale: Vec<u16> = {
+        let held = input.held().lock().unwrap();
+        MODIFIERS.iter().copied().filter(|sc| held.is_held(*sc)).collect()
+    };
+    for sc in stale {
+        log::info!("[{}] modificateur {sc:#x} resté tenu sur l'ordinateur, relâché", app.host_name);
+        input.key(sc, false);
+    }
+}
+
 /// Envoie une combinaison : touches enfoncées dans l'ordre, relâchées à l'envers.
 /// Une combinaison du menu Touches : ses touches partent telles quelles
 /// (« ⌘ ⇥ » reste ⌘ ⇥, sans l'échange de « Ctrl agit comme ⌘ »).
@@ -1344,6 +1367,10 @@ pub fn create_screen(app: &Arc<App>, key: &str, primary: bool, at: Option<(i32, 
     if RAW_TARGET.load(Ordering::Relaxed) == 0 {
         register_raw_input(hwnd);
     }
+    // Verrouillage de la session de Windows (`WM_WTSSESSION_CHANGE`).
+    unsafe {
+        let _ = windows::Win32::System::RemoteDesktop::WTSRegisterSessionNotification(hwnd, windows::Win32::System::RemoteDesktop::NOTIFY_FOR_THIS_SESSION);
+    }
     let pointer = Arc::new(PointerLayer::new(app.clock.clone(), false));
     let weak_hwnd = hwnd.0 as isize;
     pointer.set_on_changed(move |_, _| unsafe {
@@ -2241,6 +2268,7 @@ fn close_window(win: &Arc<ScreenWin>) {
     // pendant ce temps) : il s'arrête de lui-même et lâche sa chaîne d'échange.
     win.video.stop();
     unsafe {
+        let _ = windows::Win32::System::RemoteDesktop::WTSUnRegisterSessionNotification(win.hwnd());
         let _ = DestroyWindow(win.hwnd());
     }
     let mut cur = win.cursor.lock().unwrap();
@@ -2628,6 +2656,22 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 app.post(WM_APP_DISPLAYS);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
+            // Fenêtre glissée vers un écran d'une autre échelle : la zone cliente
+            // garde sa taille en pixels (celle de l'image de l'ordinateur), à la
+            // place proposée par Windows. En plein écran, la fenêtre suit déjà
+            // son écran.
+            WM_DPICHANGED if !win.fullscreen_now.load(Ordering::Relaxed) => {
+                let dpi = (wparam.0 & 0xFFFF) as u32;
+                let suggested = *(lparam.0 as *const RECT);
+                let mut r = RECT::default();
+                let _ = GetClientRect(hwnd, &mut r);
+                let style = WINDOW_STYLE(GetWindowLongW(hwnd, GWL_STYLE) as u32);
+                let ex = WINDOW_EX_STYLE(GetWindowLongW(hwnd, GWL_EXSTYLE) as u32);
+                if windows::Win32::UI::HiDpi::AdjustWindowRectExForDpi(&mut r, style, false, ex, dpi).is_ok() {
+                    let _ = SetWindowPos(hwnd, None, suggested.left, suggested.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
+                }
+                LRESULT(0)
+            }
             // HDR : la fenêtre a pu passer sur un autre écran (glissée, Win+Maj+flèche).
             WM_WINDOWPOSCHANGED => {
                 follow_monitor(&app, &win, false);
@@ -2705,6 +2749,11 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 let sc = ((lparam.0 >> 16) & 0xFF) as u16;
                 let extended = (lparam.0 >> 24) & 1 == 1;
                 let code = if extended { 0xE000 | sc } else { sc };
+                // Impr. écran : Windows n'envoie que le relâchement ; l'appui
+                // part avec lui.
+                if sc != 0 && !pressed && wparam.0 as u16 == VK_SNAPSHOT.0 && !key_held(&app, code) {
+                    send_key(&app, code, true);
+                }
                 if sc != 0 {
                     send_key(&app, code, pressed);
                 }
@@ -2746,6 +2795,7 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 win.active.store(active, Ordering::Relaxed);
                 if active {
                     app.last_active.store(win.hwnd, Ordering::Relaxed);
+                    release_stale_modifiers(&app);
                     // Plusieurs ordinateurs : cette session devient la session
                     // active du registre du cœur (clavier, souris, manettes,
                     // presse-papiers, son) ; les déplacements bruts de la
@@ -2824,6 +2874,14 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                     return LRESULT(1);
                 }
                 DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+            // Session de Windows verrouillée (Win+L, Ctrl+Alt+Suppr › Verrouiller) :
+            // rien ne reste enfoncé sur l'ordinateur.
+            WM_WTSSESSION_CHANGE if wparam.0 as u32 == WTS_SESSION_LOCK => {
+                if let Some(input) = app.input() {
+                    input.release_all();
+                }
+                LRESULT(0)
             }
             WM_KILLFOCUS => {
                 // Rien ne reste enfoncé sur l'ordinateur quand on change d'app

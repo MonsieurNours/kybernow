@@ -68,6 +68,10 @@ pub fn init_logging(name: &str) {
     let path = dir.join(format!("{name}.log"));
     let _ = fs::rename(&path, dir.join(format!("{name}.prev.log")));
     let file = OpenOptions::new().create(true).write(true).truncate(true).open(&path).ok();
+    if let Some(f) = &file {
+        use std::os::windows::io::AsRawHandle;
+        CRASH_LOG.store(f.as_raw_handle() as isize, std::sync::atomic::Ordering::Relaxed);
+    }
     let logger = Box::leak(Box::new(Logger { file: Mutex::new(file) }));
     let _ = log::set_logger(logger);
     log::set_max_level(log::LevelFilter::Info);
@@ -220,8 +224,10 @@ pub fn emulated() -> bool {
     unsafe { IsWow64Process2(GetCurrentProcess(), &mut process, Some(&mut native)) }.is_ok() && native == IMAGE_FILE_MACHINE_ARM64
 }
 
-/// Module (exécutable ou DLL) qui contient une adresse, et l'écart depuis son début.
-fn module_of(addr: usize) -> String {
+/// Module (exécutable ou DLL) qui contient une adresse, et l'écart depuis son
+/// début, écrits sans allocation.
+fn module_of(addr: usize, out: &mut StackText) {
+    use std::fmt::Write;
     use windows::Win32::Foundation::HMODULE;
     use windows::Win32::System::LibraryLoader::{
         GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, GetModuleFileNameW,
@@ -231,27 +237,63 @@ fn module_of(addr: usize) -> String {
     let flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
     unsafe {
         if GetModuleHandleExW(flags, PCWSTR(addr as *const u16), &mut module).is_err() {
-            return "?".into();
+            let _ = out.write_str("?");
+            return;
         }
         let mut buf = [0u16; 260];
         let n = GetModuleFileNameW(Some(module), &mut buf) as usize;
-        let name = String::from_utf16_lossy(&buf[..n]);
-        let short = name.rsplit('\\').next().unwrap_or(&name).to_string();
-        format!("{short}+{:#x}", addr - module.0 as usize)
+        let start = buf[..n].iter().rposition(|&c| c == u16::from(b'\\')).map_or(0, |i| i + 1);
+        for c in char::decode_utf16(buf[start..n].iter().copied()) {
+            let _ = out.write_char(c.unwrap_or('?'));
+        }
+        let _ = write!(out, "+{:#x}", addr - module.0 as usize);
     }
 }
 
+/// Le fichier du journal, pour `on_crash` (gardé ouvert par le journal, qui
+/// n'est jamais libéré).
+static CRASH_LOG: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+/// Texte dans un tampon fixe, sans allocation (au-delà, coupé).
+struct StackText {
+    buf: [u8; 512],
+    len: usize,
+}
+
+impl std::fmt::Write for StackText {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        let n = s.len().min(self.buf.len() - self.len);
+        self.buf[self.len..self.len + n].copy_from_slice(&s.as_bytes()[..n]);
+        self.len += n;
+        Ok(())
+    }
+}
+
+/// Plantage : une ligne écrite directement dans le fichier du journal, sans
+/// verrou ni allocation (le plantage a pu arriver pendant une écriture du
+/// journal, ou dans l'allocateur, sur ce même fil). Rien pour un débordement
+/// de pile (plus de place pour rien faire).
 unsafe extern "system" fn on_crash(info: *const windows::Win32::System::Diagnostics::Debug::EXCEPTION_POINTERS) -> i32 {
+    use std::fmt::Write;
+    const STACK_OVERFLOW: u32 = 0xC000_00FD;
     unsafe {
-        if let Some(rec) = info.as_ref().and_then(|i| i.ExceptionRecord.as_ref()) {
-            let addr = rec.ExceptionAddress as usize;
-            log::error!(
-                "plantage : exception {:#010x} à {addr:#x} ({}), fil « {} »",
-                rec.ExceptionCode.0 as u32,
-                module_of(addr),
-                std::thread::current().name().unwrap_or("?")
-            );
+        let Some(rec) = info.as_ref().and_then(|i| i.ExceptionRecord.as_ref()) else { return 0 };
+        let handle = CRASH_LOG.load(std::sync::atomic::Ordering::Relaxed);
+        if rec.ExceptionCode.0 as u32 == STACK_OVERFLOW || handle == 0 {
+            return 0;
         }
+        let addr = rec.ExceptionAddress as usize;
+        let mut line = StackText { buf: [0; 512], len: 0 };
+        let _ = write!(line, "[ERROR] plantage : exception {:#010x} à {addr:#x} (", rec.ExceptionCode.0 as u32);
+        module_of(addr, &mut line);
+        let _ = writeln!(line, "), fil {}", windows::Win32::System::Threading::GetCurrentThreadId());
+        let mut written = 0u32;
+        let _ = windows::Win32::Storage::FileSystem::WriteFile(
+            windows::Win32::Foundation::HANDLE(handle as *mut _),
+            Some(&line.buf[..line.len]),
+            Some(&mut written),
+            None,
+        );
     }
     0 // EXCEPTION_CONTINUE_SEARCH : Windows termine comme d'habitude.
 }
