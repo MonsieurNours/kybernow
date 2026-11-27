@@ -50,7 +50,9 @@ impl OutputOrder {
 /// Une image audio du flux (`src.len()` voies, ordre Opus) vers la sortie
 /// (`dst.len()` voies, ordre Opus), au volume donné. Moins de voies :
 /// G + 0,7 C + 0,7 surrounds, D + 0,7 C + 0,7 surrounds, LFE ignoré ;
-/// mono = moyenne ; plus de voies : les voies du flux, le reste à zéro.
+/// mono = moyenne ; plus de voies : chaque voie du flux à sa place (mono en
+/// G et D, stéréo en G et D, 5.1 vers 7.1 avec le LFE en dernier), le reste
+/// à zéro.
 #[inline]
 pub fn mix_frame(src: &[f32], dst: &mut [f32], volume: f32) {
     let (ch, out) = (src.len(), dst.len());
@@ -88,6 +90,26 @@ pub fn mix_frame(src: &[f32], dst: &mut [f32], volume: f32) {
             }
             dst[0] = clamp((left + right) / 2.0);
         }
+        // Plus de voies : chaque voie du flux à sa place dans l'ordre Opus
+        // (G, C, D, …). Recopier par indice mettait la droite au centre
+        // (COEUR-16).
+        (1, n) => {
+            dst.fill(0.0);
+            dst[0] = src[0] * volume;
+            dst[if n >= 3 { 2 } else { 1 }] = src[0] * volume;
+        }
+        (2, n) if n >= 3 => {
+            dst.fill(0.0);
+            dst[0] = src[0] * volume;
+            dst[2] = src[1] * volume;
+        }
+        (6, 8) => {
+            dst.fill(0.0);
+            for (d, s) in dst[..5].iter_mut().zip(&src[..5]) {
+                *d = s * volume;
+            }
+            dst[7] = src[5] * volume;
+        }
         _ => {
             for (c, d) in dst.iter_mut().enumerate() {
                 *d = if c < ch { src[c] * volume } else { 0.0 };
@@ -120,7 +142,15 @@ mod tests {
         assert_eq!(same, [0.25, -0.25], "mêmes voies : volume seulement");
         let mut more = [1.0; 6];
         mix_frame(&[0.5, -0.5], &mut more, 1.0);
-        assert_eq!(more, [0.5, -0.5, 0.0, 0.0, 0.0, 0.0], "plus de voies : le reste à zéro");
+        assert_eq!(more, [0.5, 0.0, -0.5, 0.0, 0.0, 0.0], "stéréo vers 5.1 : G et D à leur place, pas au centre");
+        mix_frame(&[0.3], &mut more, 1.0);
+        assert_eq!(more, [0.3, 0.0, 0.3, 0.0, 0.0, 0.0], "mono vers 5.1 : G et D");
+        let mut two = [0.0; 2];
+        mix_frame(&[0.3], &mut two, 1.0);
+        assert_eq!(two, [0.3, 0.3], "mono vers stéréo : les deux côtés");
+        let mut eight = [1.0; 8];
+        mix_frame(&[0.1, 0.2, 0.3, 0.4, 0.5, 0.6], &mut eight, 1.0);
+        assert_eq!(eight, [0.1, 0.2, 0.3, 0.4, 0.5, 0.0, 0.0, 0.6], "5.1 vers 7.1 : LFE en dernier");
         mix_frame(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0], &mut out, 1.0);
         assert_eq!(out, [1.0, 1.0], "somme bornée");
     }

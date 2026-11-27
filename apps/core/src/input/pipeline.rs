@@ -44,7 +44,6 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::thread::JoinHandle;
@@ -78,6 +77,11 @@ pub struct GamepadRumble {
 
 /// Rappels vers l'interface de l'app. Les fils sont dits à chaque méthode :
 /// la plateforme repasse sur son fil principal si elle en a besoin.
+///
+/// Règle (interblocage de 26b937ac) : aucun rappel du cœur (`InputPlatform`,
+/// `OnChanged`, `AppFeedback`) ne doit envoyer d'entrée de façon synchrone ;
+/// il peut être appelé sous le verrou de la file d'envoi et du routeur de
+/// kynput. Repasser par un autre fil ou une file de l'app.
 pub trait InputPlatform: Send + Sync {
     /// Vibration des manettes produites par l'app (kynput ne les joue pas
     /// lui-même). Sur le fil réseau de kynput.
@@ -91,8 +95,10 @@ pub trait InputPlatform: Send + Sync {
     /// `network_connected`.
     fn connected(&self) {}
     /// Touche de navigation d'une manette SDL prise par l'app (barre ouverte,
-    /// voir [`InputPipeline::install_gamepad_gate`]). Sur le fil de kynput,
-    /// sous le verrou de son routeur : ne rien y envoyer.
+    /// voir [`InputPipeline::install_gamepad_gate`]). Sur le fil qui envoie
+    /// la manette (kynput, ou `kybernow-manettes` quand le cœur lit les
+    /// manettes), sous le verrou de la file d'envoi et du routeur : ne rien y
+    /// envoyer.
     fn navigate(&self, _key: PadKey) {}
 }
 
@@ -263,6 +269,7 @@ impl InputPipeline {
     }
 
     fn build(kynput: Pipeline, sink: Arc<dyn PacketSink>, options: Options, pointer: Arc<PointerLayer>, platform: Arc<dyn InputPlatform>, clock: Arc<dyn Clock>) -> Arc<Self> {
+        crate::ffi::install_panic_hook();
         // Créée sur le fil de session (`Platform::input_pipeline`) : ses lignes
         // portent le nom de l'ordinateur de la session.
         let label = journal::current().unwrap_or_default();
@@ -272,7 +279,7 @@ impl InputPipeline {
             on_first: Some(Box::new(move |kind, sent| log::info!("{}entrées : premier envoi {kind} ({})", l1.prefix(), if sent { "parti" } else { "refusé" }))),
             on_dropped: Some(Box::new(move |kind, final_, total| {
                 if final_ {
-                    log::error!("{}entrées : {kind} perdu après 200 ms de réessais ({total} perdus)", l2.prefix());
+                    log::error!("{}entrées : {kind} perdu après les réessais ({total} perdus en tout ; une ligne par rafale)", l2.prefix());
                 } else {
                     log::info!("{}entrées : {kind} refusé par la file d'envoi ({total} perdus)", l2.prefix());
                 }
@@ -538,16 +545,52 @@ impl InputPipeline {
     /// pas l'état des axes. Sans effet sans [`Self::install_gamepad_gate`].
     pub fn set_gamepad_captured(&self, captured: bool) {
         let Some(gate) = self.gate.get() else { return };
+        let was = gate.captured();
         if !gate.set_captured(captured) {
+            if was && !captured {
+                self.gamepads_given_back();
+            }
             return;
         }
         for id in self.combo.pads() {
             for button in self.combo.pressed(id) {
                 self.reliably(Self::button_packet(id, button, false), "manette");
             }
+            {
+                // L'ordinateur a ses axes au repos : la file des axes le sait
+                // aussi (sinon un stick tenu jusqu'à la fermeture de la barre
+                // ne repartait pas, COEUR-11).
+                let mut axes = self.axes.lock().unwrap();
+                axes.pending.remove(&id);
+                let last = axes.last.entry(id).or_default();
+                for axis in PadAxis::ALL {
+                    last.insert(axis, 0);
+                }
+            }
             for axis in PadAxis::ALL {
                 gate.note_axis(id, axis.to_u32(), 0);
                 self.reliably(Self::axis_packet(id, axis, 0), "axe de manette");
+            }
+        }
+    }
+
+    /// La barre se ferme : les axes tenus pendant la prise repartent tels que
+    /// le lecteur de manettes du cœur les connaît (SDL n'émet rien pour un
+    /// stick immobile).
+    fn gamepads_given_back(&self) {
+        for id in self.combo.pads() {
+            {
+                let mut axes = self.axes.lock().unwrap();
+                let last = axes.last.entry(id).or_default();
+                for axis in PadAxis::ALL {
+                    last.insert(axis, 0);
+                }
+            }
+            let held = crate::gamepads::global().axes(id);
+            for (axis, value) in PadAxis::ALL.into_iter().zip(held) {
+                if value != 0 {
+                    self.gamepad_axis(id, axis, value);
+                }
             }
         }
     }
@@ -727,11 +770,6 @@ impl InputPipeline {
 
     pub(crate) fn reader_attached(&self) -> bool {
         self.reader_attached.load(Ordering::Relaxed)
-    }
-
-    /// Manettes lues par le fil SDL du cœur pour cette chaîne (Mac, Windows).
-    pub fn core_reads_gamepads(&self) -> bool {
-        self.core_pads
     }
 
     /// Le nom de l'ordinateur au début des lignes du journal de cette chaîne.
@@ -1013,9 +1051,20 @@ impl InputPipeline {
         if !self.kbm_ok() {
             return;
         }
-        for character in text.chars() {
-            let packet = Unicode { character }.to_packet(InputTarget::Host).and_then(OwnedPacket::from_packet);
-            self.reliably(packet, "texte");
+        // Un caractère par paquet ; ils attendent leur tour tant que la file
+        // avance (COEUR-18), au plus TEXT_MAX par appel.
+        let count = text.chars().count();
+        if count > TEXT_MAX {
+            log::warn!("{}entrées : texte de {count} caractères, coupé à {TEXT_MAX}", self.label.prefix());
+        }
+        for character in text.chars().take(TEXT_MAX) {
+            let packet = (Unicode { character }).to_packet(InputTarget::Host).and_then(OwnedPacket::from_packet);
+            if let Some(p) = packet {
+                self.packets.send_text(p, "texte");
+            }
+        }
+        if self.packets.has_backlog() {
+            self.wake();
         }
     }
 
@@ -1269,11 +1318,13 @@ impl HandlerInterface for Producer {
 
 struct CursorHandler {
     pipeline: Weak<InputPipeline>,
-    /// Empreinte de la dernière forme reçue, par écran de l'ordinateur : un
-    /// simple déplacement renvoie la même image (kyber-patches serveur 0006),
-    /// inutile de la refaire ; un pointeur qui passe sur un autre écran y
-    /// arrive avec sa forme, que la couche de cet écran n'a pas encore.
-    last_shapes: Mutex<HashMap<u32, Option<u64>>>,
+    /// Dernière forme partie, par couche de l'appareil (adresse de la
+    /// couche) : un simple déplacement renvoie la même image (kyber-patches
+    /// serveur 0006), inutile de la refaire ; un pointeur qui passe sur un
+    /// autre écran y arrive avec sa forme, que la couche de cet écran n'a pas
+    /// encore. Par couche et non par écran de l'ordinateur : à un écran,
+    /// tous les écrans du PC vont à la même couche (COEUR-17).
+    last_shapes: Mutex<HashMap<usize, ShapeMemo>>,
 }
 
 impl HandlerInterface for CursorHandler {
@@ -1292,7 +1343,7 @@ impl ConsumerInterface for CursorHandler {
         let Some(layer) = pipeline.pointer_for(display_id) else { return };
         let remote = {
             let mut shapes = self.last_shapes.lock().unwrap();
-            decode_cursor(cursor, shapes.entry(display_id).or_default())
+            decode_cursor(cursor, shapes.entry(Arc::as_ptr(&layer) as usize).or_default())
         };
         layer.remote_cursor_changed(remote);
     }
@@ -1304,30 +1355,50 @@ impl HandlerConsumerInterface for CursorHandler {
     }
 }
 
+/// Caractères au plus d'un texte tapé ou collé d'un coup.
+pub const TEXT_MAX: usize = 4096;
+
+/// Côté le plus grand d'une forme de pointeur acceptée.
+const CURSOR_MAX: u32 = 1024;
+
+/// La dernière forme partie vers une couche : largeur, hauteur, pixels.
+pub(crate) type ShapeMemo = Option<(u32, u32, Vec<u32>)>;
+
 /// Forme ARGB du pointeur (32 bits, non prémultipliée) telle que kynput la
 /// livre, dédoublonnée : `None` quand elle n'a pas changé, ou qu'elle est
 /// entièrement transparente (lecteurs vidéo, certains jeux : le Mac
-/// garderait un pointeur invisible ; on garde la forme précédente).
-pub(crate) fn decode_cursor(c: Cursor, last_shape: &mut Option<u64>) -> RemoteCursor {
+/// garderait un pointeur invisible ; on garde la forme précédente). La
+/// comparaison est une simple comparaison de mémoire (plus d'empreinte
+/// SipHash de tous les pixels sous le verrou du routeur, COEUR-36).
+pub(crate) fn decode_cursor(c: Cursor, last_shape: &mut ShapeMemo) -> RemoteCursor {
     let position = (c.x, c.y);
     let visible = c.visible;
     let (width, height) = (c.width, c.height);
     let CursorData::Raw(raw) = c.data else {
         return RemoteCursor { visible, image: None, position };
     };
-    if width == 0 || height == 0 || raw.len() < (width * height) as usize {
+    // Taille contrôlée sans débordement (65537 × 65537 rebouclait à 131 073
+    // et passait le contrôle, COEUR-08), et plafonnée : aucun pointeur ne
+    // dépasse 1024 × 1024, même agrandi.
+    let count = match width.checked_mul(height) {
+        Some(n) if width > 0 && height > 0 && width <= CURSOR_MAX && height <= CURSOR_MAX => n as usize,
+        _ => return RemoteCursor { visible, image: None, position },
+    };
+    if raw.len() < count {
         return RemoteCursor { visible, image: None, position };
     }
-    let pixels = &raw[..(width * height) as usize];
-    let mut hasher = DefaultHasher::new();
-    width.hash(&mut hasher);
-    height.hash(&mut hasher);
-    pixels.hash(&mut hasher);
-    let shape = hasher.finish();
-    if *last_shape == Some(shape) {
+    let pixels = &raw[..count];
+    if last_shape.as_ref().is_some_and(|(w, h, p)| (*w, *h) == (width, height) && p.as_slice() == pixels) {
         return RemoteCursor { visible, image: None, position };
     }
-    *last_shape = Some(shape);
+    match last_shape {
+        Some((w, h, p)) => {
+            (*w, *h) = (width, height);
+            p.clear();
+            p.extend_from_slice(pixels);
+        }
+        None => *last_shape = Some((width, height, pixels.to_vec())),
+    }
     if pixels.iter().all(|p| p >> 24 == 0) {
         return RemoteCursor { visible, image: None, position };
     }
@@ -1337,8 +1408,8 @@ pub(crate) fn decode_cursor(c: Cursor, last_shape: &mut Option<u64>) -> RemoteCu
             width,
             height,
             argb: pixels.into(),
-            hot_x: c.xhot,
-            hot_y: c.yhot,
+            hot_x: c.xhot.min(width - 1),
+            hot_y: c.yhot.min(height - 1),
         }),
         position,
     }
@@ -1664,6 +1735,29 @@ mod tests {
         assert_eq!(b.host.received(), [axis(PadAxis::RightX, 5000)], "représenté à la tranche suivante");
     }
 
+    /// COEUR-11 : un stick tenu pendant que la barre est ouverte repart à sa
+    /// fermeture, à la valeur que connaît le lecteur de manettes.
+    #[test]
+    fn stick_tenu_pendant_la_barre() {
+        let b = Bench::new();
+        b.pipeline.install_gamepad_gate();
+        let id: PadId = 91_234;
+        crate::gamepads::global().plug(id, None, None);
+        b.pipeline.combo.note(id);
+        crate::gamepads::global().axis(id, PadAxis::LeftX, 20_000);
+        b.pipeline.gamepad_axis(id, PadAxis::LeftX, 20_000);
+        b.elapse(4);
+        b.pipeline.set_gamepad_captured(true);
+        // Pendant la prise, le stick reste à fond (la barrière de kynput jette
+        // ces paquets ; ici, rien ne bouge plus).
+        b.host.clear();
+        b.pipeline.set_gamepad_captured(false);
+        b.elapse(4);
+        let axis = format!("axe {id} {} 20000", PadAxis::LeftX.to_u32());
+        assert_eq!(b.host.received(), [axis], "valeur tenue renvoyée à la fermeture");
+        crate::gamepads::global().unplug(id);
+    }
+
     #[test]
     fn remise_au_repos_et_touches() {
         let b = Bench::new();
@@ -1864,5 +1958,36 @@ mod tests {
         assert!(r.image.is_none(), "forme entièrement transparente : gardée");
         let r = decode_cursor(cursor(vec![0, 0xFF00_0000], 4), &mut last);
         assert_eq!(r.image.map(|s| (s.hot_x, s.width)), Some((1, 2)));
+        // COEUR-17 : une seule couche pour deux écrans du PC (session à un
+        // écran) : flèche, texte (annoncé sur l'autre écran), flèche de
+        // nouveau : la flèche repart, la couche n'a plus qu'elle de connue.
+        let mut layer = None;
+        let arrow = || cursor(vec![0xFF00_0000, 0], 1);
+        let text = || cursor(vec![0xFF00_0000, 0xFF00_0000], 1);
+        assert!(decode_cursor(arrow(), &mut layer).image.is_some());
+        assert!(decode_cursor(text(), &mut layer).image.is_some());
+        assert!(decode_cursor(arrow(), &mut layer).image.is_some(), "retour à la flèche : forme renvoyée");
+    }
+
+    /// COEUR-08 : une taille qui déborderait est refusée, pas reprise à
+    /// moitié ; le point actif reste dans la forme.
+    #[test]
+    fn pointeur_trop_grand_refuse() {
+        let cursor = |width: u32, height: u32, n: usize| Cursor {
+            display_id: 1,
+            visible: true,
+            x: 0,
+            y: 0,
+            xhot: 900,
+            yhot: 900,
+            width,
+            height,
+            data: CursorData::Raw(vec![0xFF00_0000; n]),
+        };
+        let mut last = None;
+        assert!(decode_cursor(cursor(65537, 65537, 131_073), &mut last).image.is_none());
+        assert!(decode_cursor(cursor(2048, 1, 2048), &mut last).image.is_none());
+        let s = decode_cursor(cursor(32, 32, 1024), &mut last).image.unwrap();
+        assert_eq!((s.hot_x, s.hot_y, s.argb.len()), (31, 31, 1024));
     }
 }

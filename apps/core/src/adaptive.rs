@@ -166,7 +166,9 @@ impl TargetBitrate {
 
     /// Mbit/s arrondis, comme les Statistiques les montrent.
     pub fn mbps(bitrate: u32) -> u32 {
-        (bitrate + 500_000) / 1_000_000
+        // En u64 : un débit à `u32::MAX` (plafond multi-écrans saturé) ne
+        // déborde plus (COEUR-28).
+        ((u64::from(bitrate) + 500_000) / 1_000_000) as u32
     }
 
     /// La ligne « Débit visé » des Statistiques : « 42 / 60 Mbit/s · baissé,
@@ -392,6 +394,13 @@ mod tests {
         for _ in 0..n {
             a.second(s, NEED);
         }
+    }
+
+    /// COEUR-28 : pas de débordement près de `u32::MAX`.
+    #[test]
+    fn mbps_sans_debordement() {
+        assert_eq!(TargetBitrate::mbps(u32::MAX), 4295);
+        assert_eq!(TargetBitrate::mbps(59_600_000), 60);
     }
 
     #[test]

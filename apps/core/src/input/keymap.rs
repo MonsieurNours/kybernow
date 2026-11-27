@@ -57,6 +57,7 @@ pub const NUM_LOCK: u16 = 0x53;
 pub const GRAVE: u16 = 0x35;
 pub const ISO_SECTION: u16 = 0x64;
 
+#[cfg(test)]
 pub fn is_modifier(usage: u16) -> bool {
     MODIFIER_USAGES.contains(&usage)
 }

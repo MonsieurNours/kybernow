@@ -68,23 +68,7 @@ pub fn code_from_redirect(url: &str) -> Option<String> {
     })
 }
 
-fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(b) = u8::from_str_radix(&text[i + 1..i + 3], 16) {
-                out.push(b);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(if bytes[i] == b'+' { b' ' } else { bytes[i] });
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
+use crate::url::percent_decode;
 
 fn basic_auth() -> String {
     let raw = format!("{CLIENT_ID}:{CLIENT_SECRET}");
@@ -142,6 +126,16 @@ pub fn account(code: &str) -> Result<Account, PsnError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// COEUR-07 : texte non ASCII sans panique ; `%xx` final décodé.
+    #[test]
+    fn decodage_sans_panique() {
+        assert_eq!(percent_decode("%aé"), "%aé");
+        assert_eq!(percent_decode("é%41"), "éA");
+        assert_eq!(percent_decode("a%2F"), "a/");
+        assert_eq!(percent_decode("a%2"), "a%2");
+        assert_eq!(percent_decode("a+b"), "a b");
+    }
 
     #[test]
     fn code_from_redirect_url() {

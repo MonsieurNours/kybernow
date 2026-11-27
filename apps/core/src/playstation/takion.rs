@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -277,7 +277,10 @@ impl Takion {
             received: AtomicU64::new(0),
             lost: AtomicU64::new(0),
         });
-        let (tx, rx) = mpsc::channel();
+        // Borné (COEUR-33) : un décodeur qui prend du retard ne fait plus
+        // grossir la file sans fin ; les paquets d'image en trop sont jetés,
+        // comptés perdus, et l'assemblage le signale à la console.
+        let (tx, rx) = mpsc::sync_channel(AV_QUEUE_MAX);
         let thread = {
             let shared = shared.clone();
             std::thread::Builder::new()
@@ -501,10 +504,12 @@ fn check_mac(shared: &Shared, key_state: &mut KeyState, buf: &mut [u8]) -> bool 
     }
     let low = u32::from_be_bytes([buf[ko], buf[ko + 1], buf[ko + 2], buf[ko + 3]]);
     let key_pos = key_state.request(low, false);
-    let mut copy = buf.to_vec();
-    let Some(received) = packet_mac(Some(crypt), &mut copy, key_pos) else { return false };
+    // Sur place, sans copie du paquet (COEUR-32) : `packet_mac` remet la
+    // position de clé et écrit le GMAC calculé à la place de celui reçu ; un
+    // paquet bon en ressort donc identique, un mauvais est jeté.
+    let Some(received) = packet_mac(Some(crypt), buf, key_pos) else { return false };
     let mo = mac_offset(kind).unwrap_or(0);
-    if copy[mo..mo + GMAC_SIZE] != received {
+    if buf[mo..mo + GMAC_SIZE] != received {
         log::warn!("PlayStation : GMAC faux (paquet de type {kind:#x}, position {key_pos:#x})");
         return false;
     }
@@ -512,7 +517,10 @@ fn check_mac(shared: &Shared, key_state: &mut KeyState, buf: &mut [u8]) -> bool 
     true
 }
 
-fn receive_loop(shared: Arc<Shared>, tag_local: u32, tag_remote: u32, v12: bool, tx: Sender<TakionEvent>) {
+/// Paquets d'image et de son en attente du flux au plus (≈ 0,4 s à 100 Mbit/s).
+const AV_QUEUE_MAX: usize = 4096;
+
+fn receive_loop(shared: Arc<Shared>, tag_local: u32, tag_remote: u32, v12: bool, tx: SyncSender<TakionEvent>) {
     let mut key_state = KeyState::default();
     // Messages DATA : le prochain attendu, et ceux arrivés en avance.
     let mut next_seq = tag_remote;
@@ -578,7 +586,7 @@ fn receive_loop(shared: Arc<Shared>, tag_local: u32, tag_remote: u32, v12: bool,
     let _ = tx.send(TakionEvent::Closed(reason));
 }
 
-fn handle_av(shared: &Shared, key_state: &mut KeyState, packet: &mut [u8], v12: bool, last_video: &mut Option<u16>, tx: &Sender<TakionEvent>) {
+fn handle_av(shared: &Shared, key_state: &mut KeyState, packet: &mut [u8], v12: bool, last_video: &mut Option<u16>, tx: &SyncSender<TakionEvent>) {
     if !check_mac(shared, key_state, packet) {
         shared.lost.fetch_add(1, Ordering::Relaxed);
         return;
@@ -599,7 +607,12 @@ fn handle_av(shared: &Shared, key_state: &mut KeyState, packet: &mut [u8], v12: 
         *last_video = Some(av.packet_index);
     }
     shared.received.fetch_add(1, Ordering::Relaxed);
-    let _ = tx.send(TakionEvent::Av(av));
+    match tx.try_send(TakionEvent::Av(av)) {
+        Err(TrySendError::Full(_)) => {
+            shared.lost.fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(()) | Err(TrySendError::Disconnected(_)) => {}
+    }
 }
 
 #[cfg(test)]

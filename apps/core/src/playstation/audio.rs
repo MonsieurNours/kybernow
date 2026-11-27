@@ -35,18 +35,22 @@ pub fn opus_head(channels: u8, rate: u32) -> Vec<u8> {
     head
 }
 
-fn seq16_lt(a: u16, b: u16) -> bool {
-    a != b && ((a < b && b - a < 0x8000) || (a > b && a - b > 0x8000))
-}
-
 /// Remet les trames dans l'ordre.
+///
+/// Les index des trames (16 bits) reviennent à zéro toutes les 65 536 trames
+/// (≈ 11 min) : ils sont déroulés sur 64 bits autour d'une référence (la
+/// prochaine trame attendue, ou la première reçue avant le départ), pour que
+/// la clé d'une trame ne change jamais, même rangée juste avant le passage
+/// par zéro.
 #[derive(Default)]
 pub struct AudioReceiver {
-    buffer: BTreeMap<u32, Vec<u8>>,
-    /// Prochaine trame à sortir ; `None` tant que l'avance n'est pas faite.
-    next: Option<u16>,
+    buffer: BTreeMap<u64, Vec<u8>>,
+    /// Prochaine trame à sortir (index déroulé) ; `None` tant que l'avance
+    /// n'est pas faite.
+    next: Option<u64>,
+    /// Référence du déroulement avant le départ.
+    anchor: Option<u64>,
     startup: bool,
-    started: bool,
 }
 
 impl AudioReceiver {
@@ -86,21 +90,26 @@ impl AudioReceiver {
         out
     }
 
-    /// Clé de tri : index déroulé autour de la prochaine trame attendue.
-    fn key(&self, index: u16) -> u32 {
-        match self.next {
-            Some(n) => (n as u32).wrapping_add(index.wrapping_sub(n) as i16 as i32 as u32) ^ 0x8000_0000,
-            None => index as u32 ^ 0x8000_0000,
-        }
+    /// Index déroulé : le plus proche de la référence (à ± 32 768 trames).
+    fn key(&mut self, index: u16) -> u64 {
+        let base = match self.next.or(self.anchor) {
+            Some(b) => b,
+            None => {
+                // Loin de zéro : on peut reculer sans jamais passer sous zéro.
+                let b = (1u64 << 32) + u64::from(index);
+                self.anchor = Some(b);
+                b
+            }
+        };
+        let delta = index.wrapping_sub(base as u16) as i16;
+        base.wrapping_add_signed(i64::from(delta))
     }
 
     fn store(&mut self, index: u16, data: &[u8]) {
-        if let Some(n) = self.next {
-            if seq16_lt(index, n) {
-                return; // déjà sortie ou masquée
-            }
-        }
         let k = self.key(index);
+        if self.next.is_some_and(|n| k < n) {
+            return; // déjà sortie ou masquée
+        }
         self.buffer.entry(k).or_insert_with(|| data.to_vec());
         while self.buffer.len() > BUFFER_MAX {
             self.buffer.pop_first();
@@ -108,40 +117,43 @@ impl AudioReceiver {
     }
 
     fn drain(&mut self, out: &mut Vec<AudioOut>) {
-        if !self.started {
+        if self.next.is_none() {
             if self.buffer.len() < PREFILL {
                 return;
             }
-            let (&k, _) = self.buffer.iter().next().unwrap();
-            self.next = Some((k ^ 0x8000_0000) as u16);
-            self.started = true;
-            // Clés recalculées autour du départ.
-            let old = std::mem::take(&mut self.buffer);
-            for (k, v) in old {
-                let idx = (k ^ 0x8000_0000) as u16;
-                let nk = self.key(idx);
-                self.buffer.insert(nk, v);
-            }
+            self.next = self.buffer.keys().next().copied();
+        }
+        let Some(mut n) = self.next else { return };
+        // Trames trop vieilles (ne devrait pas arriver : `store` les écarte).
+        while self.buffer.first_key_value().is_some_and(|(&k, _)| k < n) {
+            self.buffer.pop_first();
+        }
+        // Saut de plus que la mémoire : on reprend à la plus ancienne trame
+        // gardée, avec un seul trou, au lieu de masquer des milliers de trames.
+        if let Some(&first) = self.buffer.keys().next()
+            && first > n + BUFFER_MAX as u64
+        {
+            out.push(AudioOut::Hole);
+            n = first;
         }
         loop {
-            let Some(n) = self.next else { return };
-            let k = self.key(n);
-            if let Some(data) = self.buffer.remove(&k) {
+            if let Some(data) = self.buffer.remove(&n) {
                 out.push(AudioOut::Frame(data));
-                self.next = Some(n.wrapping_add(1));
+                n += 1;
                 continue;
             }
             // Trame manquante : masquée quand assez de trames suivantes sont
             // là pour ne plus l'attendre.
-            let ahead = self.buffer.keys().filter(|&&b| b > k).count();
+            let ahead = self.buffer.range(n + 1..).count();
             let newest = self.buffer.keys().next_back().copied();
-            if ahead > 0 && newest.is_some_and(|nk| nk >= k + PREFILL as u32 - 1 || self.buffer.len() < PREFILL) {
+            if ahead > 0 && newest.is_some_and(|nk| nk >= n + PREFILL as u64 - 1 || self.buffer.len() < PREFILL) {
                 out.push(AudioOut::Hole);
-                self.next = Some(n.wrapping_add(1));
+                n += 1;
                 continue;
             }
-            return;
+            break;
         }
+        self.next = Some(n);
     }
 }
 
@@ -225,6 +237,44 @@ mod tests {
             out.extend(r.push(&packet(idx, &[i as u8 + 1], &[], 2)));
         }
         assert_eq!(frames(&out), vec![1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    /// COEUR-01 : la trame 0 rangée (en avance) pendant que la prochaine
+    /// attendue est 0xffff ne doit pas faire tourner `drain` sans fin.
+    #[test]
+    fn perte_sur_0xffff() {
+        let mut r = AudioReceiver::new();
+        let mut out = Vec::new();
+        for i in 0..6u16 {
+            let idx = 0xfff9_u16.wrapping_add(i); // 0xfff9..0xfffe
+            out.extend(r.push(&packet(idx, &[i as u8 + 1], &[], 2)));
+        }
+        // 0xffff perdue, 0 et 1 arrivent : 0xffff masquée, puis 0 et 1.
+        out.extend(r.push(&packet(0, &[7], &[], 2)));
+        out.extend(r.push(&packet(1, &[8], &[], 2)));
+        out.extend(r.push(&packet(2, &[9], &[], 2)));
+        assert_eq!(frames(&out), vec![1, 2, 3, 4, 5, 6, 0, 7, 8, 9]);
+        // Et la suite continue normalement, plusieurs tours d'index plus loin.
+        let mut n = 0u32;
+        for i in 3..200_000u32 {
+            let o = r.push(&packet(i as u16, &[1], &[], 2));
+            n += o.len() as u32;
+        }
+        assert_eq!(n, 200_000 - 3);
+    }
+
+    #[test]
+    fn saut_d_index_borne() {
+        let mut r = AudioReceiver::new();
+        let mut out = Vec::new();
+        for i in 10u16..14 {
+            out.extend(r.push(&packet(i, &[1], &[], 2)));
+        }
+        let before = out.len();
+        for i in 10_000u16..10_004 {
+            out.extend(r.push(&packet(i, &[2], &[], 2)));
+        }
+        assert!(out.len() - before <= 6, "{}", out.len() - before);
     }
 
     #[test]

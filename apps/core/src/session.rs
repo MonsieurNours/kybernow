@@ -1404,6 +1404,7 @@ impl Session {
     }
 
     fn launch(params: SessionParams, screens: Option<Screens>, platform: Arc<dyn Platform>) -> Arc<Session> {
+        crate::ffi::install_panic_hook();
         let (tx, rx) = mpsc::channel();
         let latency = Arc::new(LatencyTracker::new());
         let has_image = Arc::new(AtomicBool::new(false));
@@ -1514,13 +1515,6 @@ impl Session {
         self.focus.attach_audio(engine);
     }
 
-    /// Le nom de l'ordinateur, au début des lignes du journal de la session
-    /// (« [PC-ATELIER] … ») ; vide : rien, comme avant. [`crate::focus`] le
-    /// donne à l'inscription.
-    pub fn set_name(&self, name: &str) {
-        self.focus.label().set(name);
-    }
-
     pub fn name(&self) -> String {
         self.focus.label().name()
     }
@@ -1530,22 +1524,32 @@ impl Session {
     }
 
     fn send(&self, msg: Msg) {
-        let _ = self.tx.lock().unwrap().send(msg);
+        let _ = self.tx.lock().unwrap_or_else(|e| e.into_inner()).send(msg);
     }
 
     /// Demande la fin de la session (sans attendre).
     pub fn stop(&self) {
         self.send(Msg::Stop);
     }
+}
+
+/// Le dernier `Arc<Session>` lâché sans `stop()` : la session s'arrête quand
+/// même (le fil de session tient son propre émetteur du canal, il ne voyait
+/// jamais la fin du canal, COEUR-29). Un second `Stop` après `stop()` est
+/// sans effet.
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.send(Msg::Stop);
+    }
+}
+
+impl Session {
 
     /// Une image clé est demandée une fois (plateforme qui tient sa propre veille).
     pub fn request_keyframe(&self) {
         self.send(Msg::KeyframeNeeded);
     }
 
-    /// Le décodeur a perdu une image de référence : le cœur demande une image
-    /// clé toutes les 300 ms jusqu'à [`Self::keyframe_recovered`], et relance
-    /// le flux au bout de 1,5 s (ordinateur sans le correctif d'image clé).
     /// KyberNow Share, session d'invité : la « Qualité de l'image » changée
     /// (`POST /api/share/quality`, sur un fil d'appel ; avec « Auto », le
     /// `auto` mesuré à `join`, gardé dans `joined.auto`) ; Kyber relance
@@ -1585,6 +1589,9 @@ impl Session {
         self.send(Msg::GiveBack);
     }
 
+    /// Le décodeur a perdu une image de référence : le cœur demande une image
+    /// clé toutes les 300 ms jusqu'à [`Self::keyframe_recovered`], et relance
+    /// le flux au bout de 1,5 s (ordinateur sans le correctif d'image clé).
     pub fn keyframe_lost(&self) {
         self.send(Msg::KeyframeLost);
     }
@@ -1741,7 +1748,8 @@ struct Worker {
     /// Démarrage de l'image prévu (relance).
     start_at: Option<Instant>,
     retries: u32,
-    /// Relances faute d'image (jamais remis à zéro dans la session).
+    /// Relances faute d'image d'affilée (une image montrée remet le compte à
+    /// zéro, `watch_image`).
     no_image: u32,
     /// Dernier écran redemandé parce que la console le disait parti.
     last_restore: Option<Instant>,
@@ -1925,6 +1933,9 @@ struct Worker {
     /// L'appel de la mise en route abandonné (annulé, ou sans réponse dans son
     /// délai), qui finit seul : la fin dite à Admin l'attend, sur un fil à part.
     inflight: Option<JoinHandle<()>>,
+    /// Préparations lancées en cours de session (adaptation, écrans, retour
+    /// du mode) : la fin dite à Admin les attend aussi (COEUR-13).
+    prepares: Vec<JoinHandle<()>>,
     /// Numéro de la dernière préparation de cette session ([`prepare_started`]) ;
     /// 0 avant la première.
     prepare_no: u64,
@@ -1956,6 +1967,33 @@ fn t(key: &str, params: &[(&str, &str)]) -> String {
 
 fn usable(d: &Display) -> bool {
     d.width > 0 && d.height > 0
+}
+
+/// Le fil de session a paniqué (COEUR-12) : `run` ne finit pas, mais le
+/// `Worker` est lâché pendant le déroulement. Les fils de fond (signal de vie,
+/// premier plan) s'arrêtent, et la fin est dite à Admin sur un fil à part,
+/// pour que le PC ne garde pas son écran virtuel jusqu'à l'expiration du
+/// signal de vie. Une fin normale (`finish`, `release`) a déjà tout fait.
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.alive.store(false, Ordering::Relaxed);
+        if !std::thread::panicking() || self.ending || self.visitor() {
+            return;
+        }
+        let Some(console) = self.console.clone() else { return };
+        let device_id = self.device_id.clone();
+        let label = self.focus.label().clone();
+        let spawned = std::thread::Builder::new().name("kybernow-end".into()).spawn(move || {
+            journal::enter(label);
+            match console.end(&device_id, None) {
+                Ok(_) => info!("fin dite à Admin après une erreur interne de la session"),
+                Err(e) => warn!("fin de session, après une erreur interne : {}", e.text(Lang::Fr)),
+            }
+        });
+        if let Err(e) = spawned {
+            warn!("fin de session : fil refusé ({e})");
+        }
+    }
 }
 
 impl Worker {
@@ -2111,6 +2149,7 @@ impl Worker {
             cancelled: false,
             step_seq: 0,
             inflight: None,
+            prepares: Vec::new(),
             prepare_no: 0,
         }
     }
@@ -2365,8 +2404,8 @@ impl Worker {
 
     /// Attend au plus `wait` une demande de fin pendant le dernier recours
     /// (`Duration::ZERO` : seulement ce qui est déjà arrivé). Le reste de la
-    /// tentative close est écarté ; les réglages changés entre-temps sont
-    /// gardés pour la suivante.
+    /// tentative close est écarté ; les réglages, le HDR, les écrans et le
+    /// mode changés entre-temps sont gardés pour la suivante.
     fn stop_requested(&mut self, wait: Duration) -> bool {
         let until = Instant::now() + wait;
         loop {
@@ -2378,6 +2417,24 @@ impl Worker {
                 }
                 Ok(Msg::Settings(s)) => self.params.settings = s,
                 Ok(Msg::BitrateCap(cap)) => self.bitrate_cap = cap,
+                // L'état que reprend la tentative suivante (`renew` clone
+                // `params` et `screens`) : HDR, écrans, mode (COEUR-14). Un
+                // écran de Kyber choisi ne vaut que pour la connexion close.
+                Ok(Msg::SetHdr(hdr)) if self.guest.is_none() => self.params.settings.hdr = hdr,
+                Ok(Msg::ScreenHdr(screen, hdr, luminance)) => match self.screens.as_mut() {
+                    Some(list) => {
+                        if let Some(d) = list.list.get_mut(screen) {
+                            d.hdr = hdr;
+                            d.luminance = luminance;
+                        }
+                    }
+                    None => {
+                        self.params.screen_hdr = hdr;
+                        self.params.screen_luminance = luminance;
+                    }
+                },
+                Ok(Msg::SetScreens(screens)) if self.multi() => self.screens = Some(screens),
+                Ok(Msg::SetMode(mode)) if self.plan.is_empty() => self.params.mode = mode,
                 Ok(_) => {}
                 Err(RecvTimeoutError::Timeout) => return false,
             }
@@ -2388,6 +2445,13 @@ impl Worker {
     /// à la précédente repart de zéro (mêmes paramètres, plateforme, canal,
     /// mesures ; plafond de débit de la fenêtre gardé).
     fn renew(&mut self) {
+        // Le micro et la caméra sont ceux que tient `Session` (et l'app) :
+        // gardés d'une tentative à l'autre (COEUR-04), leur flux montant
+        // retiré (la nouvelle image en donnera un neuf).
+        self.camera_offer(None);
+        self.microphone.set_uplink(None, false);
+        // La tentative close a déjà tout rendu (`release`).
+        self.ending = true;
         let rx = std::mem::replace(&mut self.rx, mpsc::channel().1);
         let mut next = Worker::new(
             self.params.clone(),
@@ -2410,6 +2474,8 @@ impl Worker {
         next.link_mbps = self.link_mbps.clone();
         next.watch_display = self.watch_display.clone();
         next.lowered = self.lowered;
+        next.microphone = self.microphone.clone();
+        next.camera = self.camera.clone();
         *self = next;
     }
 
@@ -3255,12 +3321,10 @@ impl Worker {
         Ok(())
     }
 
-    /// Où kyclient joint Kyber : l'adresse de l'ordinateur et le port donné
-    /// par Admin, ou, par le relais, le point d'écoute du tunnel sur la
-    /// boucle locale (TCP et UDP, même numéro).
-    /// Adresse et port de Kyber : par le relais s'il y en a un ; sinon
-    /// l'adresse préférée de la Station (`kyber_host` de `prepare`), ou celle
-    /// d'Admin.
+    /// Où kyclient joint Kyber : par le relais, le point d'écoute du tunnel
+    /// sur la boucle locale (TCP et UDP, même numéro) ; sinon l'adresse
+    /// préférée de la Station (`kyber_host` de `prepare`), ou celle d'Admin,
+    /// avec le port donné par Admin.
     fn kyber_endpoint(&self, console: &Console, preferred: Option<&str>, port: u16) -> Result<(String, u16), Failure> {
         match &self.relay_tunnel {
             None => match preferred {
@@ -3616,7 +3680,13 @@ impl Worker {
                     if !alive.load(Ordering::Relaxed) {
                         return;
                     }
-                    if let Ok(f) = console.foreground() {
+                    let answer = console.foreground();
+                    // L'appel a pu durer (jeton renouvelé) : pas de rappel à
+                    // l'app après la fin de la session (COEUR-22).
+                    if !alive.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    if let Ok(f) = answer {
                         let game = f.known && f.game;
                         if last != Some(game) {
                             info!(
@@ -4118,7 +4188,9 @@ impl Worker {
                 self.platform.on_microphone(state);
             }
             if now >= next_second {
-                next_second += Duration::from_secs(1);
+                // Après un appel bloquant (retour du mode, jusqu'à 45 s) : une
+                // seule « seconde », pas une rafale pour le temps perdu (COEUR-23).
+                next_second = (next_second + Duration::from_secs(1)).max(now);
                 let mut second = self.latency.drain();
                 second.hdr = self.streaming.is_some() && self.stream_hdr.iter().any(|h| *h);
                 second.lowered = self.lowered;
@@ -4311,10 +4383,8 @@ impl Worker {
         if r.end {
             info!("la console met fin à la session");
             self.end_requested = true;
-            return None.or_else(|| {
-                let _ = self.tx.send(Msg::Stop);
-                None
-            });
+            let _ = self.tx.send(Msg::Stop);
+            return None;
         }
         if r.active == Some(false) {
             // Redemandé, au plus une fois toutes les 30 s.
@@ -4553,13 +4623,30 @@ impl Worker {
         self.last_restore = Some(Instant::now());
         let req = self.prepare_request(mode, None);
         let tx = self.tx.clone();
-        std::thread::Builder::new()
-            .name("kybernow-prepare".into())
-            .spawn(move || {
-                let r = console.prepare(&req).map_err(|e| e.to_string());
-                let _ = tx.send(Msg::Adapted(mode, None, r));
-            })
-            .expect("fil de préparation");
+        self.spawn_prepare(move || {
+            let r = console.prepare(&req).map_err(|e| e.to_string());
+            let _ = tx.send(Msg::Adapted(mode, None, r));
+        });
+    }
+
+    /// Une préparation en cours de session, sur un fil à part (le journal au
+    /// nom de la session), suivie par [`Self::release`] : la fin dite à Admin
+    /// ne la précède jamais (sinon Admin recréerait l'écran virtuel après la
+    /// fin, COEUR-13).
+    fn spawn_prepare(&mut self, call: impl FnOnce() + Send + 'static) {
+        self.prepares.retain(|h| !h.is_finished());
+        let label = self.focus.label().clone();
+        let spawned = std::thread::Builder::new().name("kybernow-prepare".into()).spawn(move || {
+            journal::enter(label);
+            call();
+        });
+        match spawned {
+            Ok(handle) => self.prepares.push(handle),
+            Err(e) => {
+                warn!("préparation : fil refusé ({e})");
+                let _ = self.tx.send(Msg::Fail(t("session.internal", &[]).into()));
+            }
+        }
     }
 
     /// Multi-écrans : les écrans de l'appareil ont changé. La console refait
@@ -4644,13 +4731,10 @@ impl Worker {
         self.last_restore = Some(Instant::now());
         let req = self.prepare_request_with(mode, None, &plan);
         let tx = self.tx.clone();
-        std::thread::Builder::new()
-            .name("kybernow-prepare".into())
-            .spawn(move || {
-                let r = console.prepare(&req).map_err(|e| e.to_string());
-                let _ = tx.send(Msg::Adapted(mode, Some((screens, plan)), r));
-            })
-            .expect("fil de préparation");
+        self.spawn_prepare(move || {
+            let r = console.prepare(&req).map_err(|e| e.to_string());
+            let _ = tx.send(Msg::Adapted(mode, Some((screens, plan)), r));
+        });
     }
 
     fn adapted(&mut self, mode: Mode, screens: Option<(Screens, Vec<PlannedScreen>)>, result: Result<Prepared, String>) {
@@ -4733,17 +4817,12 @@ impl Worker {
         info!("mode de l'ordinateur : retour à {}×{} demandé", r.width, r.height);
         let req = self.prepare_request(r, Some("restore"));
         let tx = self.tx.clone();
-        let label = journal::current();
-        std::thread::Builder::new()
-            .name("kybernow-prepare".into())
-            .spawn(move || {
-                journal::resume(label);
-                if let Err(e) = console.prepare(&req) {
-                    warn!("mode de l'ordinateur pas remis : {}", e.text(Lang::Fr));
-                }
-                let _ = tx.send(Msg::ModeRestored);
-            })
-            .expect("fil de préparation");
+        self.spawn_prepare(move || {
+            if let Err(e) = console.prepare(&req) {
+                warn!("mode de l'ordinateur pas remis : {}", e.text(Lang::Fr));
+            }
+            let _ = tx.send(Msg::ModeRestored);
+        });
     }
 
     /// Profil Bureau avec l'écran virtuel : remettre la taille de l'appareil.
@@ -5280,21 +5359,24 @@ impl Worker {
         self.pipeline = None;
         self.streaming = None;
         let console = self.console.clone()?;
-        // Un appel de la mise en route abandonné (« Annuler », Admin muet) :
-        // la fin est dite à Admin après lui, sur un fil à part (sinon Admin
+        // Un appel de la mise en route abandonné (« Annuler », Admin muet), ou
+        // une préparation lancée en cours de session encore en vol :
+        // la fin est dite à Admin après eux, sur un fil à part (sinon Admin
         // finirait la préparation après la fin). La session finit tout de
         // suite, sans rapport ; une Station muette rend de toute façon ses
         // écrans d'elle-même, faute de signal de vie.
-        if !self.visitor()
-            && let Some(call) = self.inflight.take()
-        {
+        let mut calls: Vec<JoinHandle<()>> = self.inflight.take().into_iter().collect();
+        calls.extend(self.prepares.drain(..).filter(|h| !h.is_finished()));
+        if !self.visitor() && !calls.is_empty() {
             let device_id = self.device_id.clone();
             let label = self.focus.label().clone();
             let admin = self.admin_key();
             let seen = last_prepare(&admin);
             let spawned = std::thread::Builder::new().name("kybernow-end".into()).spawn(move || {
                 journal::enter(label);
-                let _ = call.join();
+                for call in calls {
+                    let _ = call.join();
+                }
                 // Une nouvelle connexion de cet appareil a été préparée depuis : elle seule compte.
                 if last_prepare(&admin) != seen {
                     info!("fin non dite à Admin : une connexion plus récente de cet appareil a été préparée depuis");
@@ -5327,7 +5409,7 @@ impl Worker {
                         Err(e) => warn!("ordinateur pas rendu : {}", e.text(Lang::Fr)),
                     }
                 } else if self.lend_end.is_none() {
-                    info!("emprunt fermé sans rendre l'ordinateur : retour possible pendant 15 min");
+                    info!("emprunt fermé sans rendre l'ordinateur : retour possible pendant {} min", crate::lend::COME_BACK.as_secs() / 60);
                 }
             }
             return None;
@@ -5854,6 +5936,85 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let w = Worker::new(params, Some(screens), recorder.clone(), tx, rx, Arc::new(LatencyTracker::new()), Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)), FocusState::new());
         (w, recorder)
+    }
+
+    /// COEUR-29 : lâcher la session sans `stop()` l'arrête quand même.
+    #[test]
+    fn session_lachee_s_arrete() {
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = silent.local_addr().unwrap().port();
+        let held = Arc::new(Mutex::new(Vec::new()));
+        let h = held.clone();
+        std::thread::spawn(move || {
+            for c in silent.incoming().flatten() {
+                h.lock().unwrap().push(c);
+            }
+        });
+        let (w, rec) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        let mut params = w.params.clone();
+        drop(w);
+        params.console_host = "127.0.0.1".into();
+        params.console_port = port;
+        let session = Session::start(params, rec.clone());
+        std::thread::sleep(Duration::from_millis(200));
+        drop(session);
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_secs(5) {
+            if rec.events.lock().unwrap().iter().any(|e| e.starts_with("terminée")) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        panic!("pas de fin : {:?}", rec.events.lock().unwrap());
+    }
+
+    /// COEUR-14 : HDR, écrans et mode changés pendant l'attente de la
+    /// Station repartent avec la tentative suivante.
+    #[test]
+    fn reglages_gardes_pendant_l_attente_de_la_station() {
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        let hdr = !w.params.settings.hdr;
+        let _ = w.tx.send(Msg::SetHdr(hdr));
+        let _ = w.tx.send(Msg::ScreenHdr(1, true, None));
+        assert!(!w.stop_requested(Duration::from_millis(20)));
+        assert_eq!(w.params.settings.hdr, hdr);
+        assert!(w.screens.as_ref().unwrap().list[1].hdr);
+        let mut fewer = two_screens(0);
+        fewer.list.truncate(1);
+        let _ = w.tx.send(Msg::SetScreens(fewer));
+        assert!(!w.stop_requested(Duration::from_millis(20)));
+        w.renew();
+        assert_eq!(w.screens.as_ref().unwrap().list.len(), 1, "la tentative suivante part avec les écrans à jour");
+        assert_eq!(w.params.settings.hdr, hdr);
+    }
+
+    /// COEUR-12 : une panique du fil de session arrête les fils de fond.
+    #[test]
+    fn panique_du_fil_arrete_les_fils_de_fond() {
+        let (w, _) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        let alive = w.alive.clone();
+        assert!(alive.load(Ordering::Relaxed));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _w = w;
+            panic!("essai");
+        }));
+        assert!(r.is_err());
+        assert!(!alive.load(Ordering::Relaxed));
+    }
+
+    /// COEUR-04 : après le redémarrage de la Station, la nouvelle tentative
+    /// garde le micro et la caméra que tient `Session` (et l'app), avec le
+    /// choix de l'utilisateur.
+    #[test]
+    fn micro_et_camera_gardes_apres_le_redemarrage() {
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        let (mic, cam) = (w.microphone.clone(), w.camera.clone());
+        mic.set_enabled(true);
+        w.renew();
+        assert!(Arc::ptr_eq(&mic, &w.microphone));
+        assert!(Arc::ptr_eq(&cam, &w.camera));
+        assert!(w.microphone.enabled());
+        assert!(w.station_restarted);
     }
 
     /// Session d'hôte en Bureau sur deux écrans, le principal HDR, l'autre
@@ -7185,6 +7346,35 @@ mod tests {
         assert_eq!(w.step("essai", Duration::from_secs(5), || 7), Ok(7));
         assert!(matches!(w.rx.try_recv(), Ok(Msg::BitrateCap(Some(5)))), "rendu au canal après l'appel");
         assert!(w.rx.try_recv().is_err());
+    }
+
+    /// COEUR-13 : une préparation lancée en session (adaptation, écrans,
+    /// retour du mode) encore en vol : la fin dite à Admin l'attend, sur un
+    /// fil à part, au lieu de la précéder.
+    #[test]
+    fn fin_apres_les_preparations_en_vol() {
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        // Port fermé : l'appel de fin échoue vite, s'il est fait.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        w.console = Some(Arc::new(Console::new("127.0.0.1", closed, "u", "p", None)));
+        let done = Arc::new(AtomicBool::new(false));
+        let d = done.clone();
+        w.spawn_prepare(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            d.store(true, Ordering::SeqCst);
+        });
+        assert_eq!(w.prepares.len(), 1);
+        let started = Instant::now();
+        assert!(w.release(false).is_none(), "fin différée, sans rapport");
+        assert!(started.elapsed() < Duration::from_millis(250), "la session n'attend pas la préparation");
+        assert!(!done.load(Ordering::SeqCst));
+        assert!(w.prepares.is_empty());
+        // Préparation finie : la fin est dite tout de suite (échec de réseau ici).
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        w.console = Some(Arc::new(Console::new("127.0.0.1", closed, "u", "p", None)));
+        w.spawn_prepare(|| {});
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(w.release(false).is_some(), "rien en vol : la fin est dite par la session");
     }
 
     /// Admin accepte la connexion et ne répond jamais : « Annuler » finit la

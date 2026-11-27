@@ -302,8 +302,7 @@ pub struct UreqHttp;
 
 impl RelayHttp for UreqHttp {
     fn call(&self, relay: &RelayAddr, method: &str, path: &str, bearer: Option<&str>, body: Option<&Value>) -> Result<Reply, String> {
-        let tls = kybernow_tunnel::tls::client_config(relay, None, b"http/1.1", None).map_err(|e| e.to_string())?;
-        let agent = ureq::AgentBuilder::new().tls_config(Arc::new(tls)).timeout_connect(Duration::from_secs(5)).timeout(CALL_TIMEOUT).build();
+        let agent = crate::relay::relay_agent(relay, Duration::from_secs(5), CALL_TIMEOUT)?;
         let url = format!("https://{}{path}", relay.web_authority());
         let mut req = agent.request(method, &url).set("Accept-Language", i18n::current().code()).set("Accept", "application/json");
         if let Some(b) = bearer {
@@ -393,6 +392,13 @@ pub struct SignIn {
     pub state: String,
     /// `kybernow` : le schéma du retour (`ASWebAuthenticationSession`).
     pub callback_scheme: String,
+    /// PKCE (RFC 7636) : le vérificateur, gardé par l'app avec le reste et
+    /// rendu à l'échange du code ; seul son défi (SHA-256) part dans
+    /// l'adresse. Une autre app qui intercepterait le retour
+    /// `kybernow://compte?code=…` ne peut pas échanger le code. Absent (un
+    /// `SignIn` gardé par une app d'avant) : rien n'est envoyé.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub verifier: String,
 }
 
 /// L'adresse de la page de connexion du relais pour cet appareil
@@ -401,13 +407,16 @@ pub struct SignIn {
 pub fn sign_in(relay: &str, device_name: &str) -> Result<SignIn, AccountError> {
     let addr = relay_addr(relay)?;
     let state = new_state();
+    let verifier = new_verifier();
+    // Un relais d'avant PKCE ignore `code_challenge` et `code_verifier`.
     let url = format!(
-        "https://{}/compte/connexion?appareil={}&retour={}&etat={state}",
+        "https://{}/compte/connexion?appareil={}&retour={}&etat={state}&code_challenge={}&code_challenge_method=S256",
         addr.web_authority(),
         encode(&self::device_name(device_name)),
         encode(RETURN_URI),
+        pkce_challenge(&verifier),
     );
-    Ok(SignIn { relay: addr.to_string(), url, state, callback_scheme: RETURN_SCHEME.to_string() })
+    Ok(SignIn { relay: addr.to_string(), url, state, callback_scheme: RETURN_SCHEME.to_string(), verifier })
 }
 
 /// Le retour de la fenêtre du système (`kybernow://compte?code=…&etat=…`, ou
@@ -429,7 +438,11 @@ fn finish_sign_in_with(http: &dyn RelayHttp, sign_in: &SignIn, callback: &str) -
     }
     let code = get("code").filter(|c| !c.is_empty() && c.len() <= 128).ok_or(AccountError::BadCode)?;
     let addr = relay_addr(&sign_in.relay)?;
-    let r = call(http, &addr, "POST", "/v1/devices/token", None, Some(&json!({ "code": code })))?;
+    let mut body = json!({ "code": code });
+    if !sign_in.verifier.is_empty() {
+        body["code_verifier"] = json!(sign_in.verifier);
+    }
+    let r = call(http, &addr, "POST", "/v1/devices/token", None, Some(&body))?;
     match r.status {
         200 => opened(&addr, &r.body),
         _ => Err(refusal(&r, false)),
@@ -451,16 +464,7 @@ fn callback_query(url: &str) -> Option<Vec<(String, String)>> {
         return None;
     }
     let query = query.split('#').next().unwrap_or_default();
-    Some(
-        query
-            .split('&')
-            .filter(|kv| !kv.is_empty())
-            .map(|kv| {
-                let (k, v) = kv.split_once('=').unwrap_or((kv, ""));
-                (decode(k), decode(v))
-            })
-            .collect(),
-    )
+    Some(crate::url::query_pairs(query))
 }
 
 /// `etat` : 16 octets au hasard, en hexadécimal (le relais garde 128 signes
@@ -475,6 +479,26 @@ fn new_state() -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
+/// Vérificateur PKCE : 32 octets au hasard en base64url sans remplissage
+/// (43 signes, RFC 7636).
+fn new_verifier() -> String {
+    use base64::Engine;
+    let mut b = [0u8; 32];
+    if getrandom::getrandom(&mut b).is_err() {
+        // Sans hasard du système : l'heure et l'état, encore uniques.
+        let n = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+        b[..16].copy_from_slice(&n.to_le_bytes());
+    }
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b)
+}
+
+/// Défi PKCE (`S256`) : base64url sans remplissage du SHA-256 du vérificateur.
+fn pkce_challenge(verifier: &str) -> String {
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
+}
+
 /// Encodage d'un paramètre d'adresse (RFC 3986, caractères non réservés gardés).
 fn encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -486,28 +510,6 @@ fn encode(s: &str) -> String {
         }
     }
     out
-}
-
-fn decode(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'%' if i + 2 < bytes.len() => match std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
-                Some(v) => {
-                    out.push(v);
-                    i += 3;
-                    continue;
-                }
-                None => out.push(b'%'),
-            },
-            b'+' => out.push(b' '),
-            c => out.push(c),
-        }
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 // MARK: - Code de téléviseur
@@ -892,6 +894,12 @@ pub struct StationAccess {
     http: Arc<dyn RelayHttp>,
     renew: Duration,
     cache: Mutex<Option<Cached>>,
+    /// Une demande de jeton à la fois (jamais sous le verrou `cache` : les
+    /// autres appels continuent avec le jeton en cours, COEUR-34).
+    fetching: Mutex<()>,
+    /// Un renouvellement en avance tourne sur un fil à part.
+    refreshing: std::sync::atomic::AtomicBool,
+    me: std::sync::Weak<StationAccess>,
 }
 
 impl fmt::Debug for StationAccess {
@@ -906,7 +914,16 @@ impl StationAccess {
     }
 
     pub fn with_http(params: AccessParams, http: Arc<dyn RelayHttp>, renew: Duration) -> Arc<Self> {
-        Arc::new(Self { account: params.account, station: params.station, http, renew, cache: Mutex::new(None) })
+        Arc::new_cyclic(|me| Self {
+            account: params.account,
+            station: params.station,
+            http,
+            renew,
+            cache: Mutex::new(None),
+            fetching: Mutex::new(()),
+            refreshing: std::sync::atomic::AtomicBool::new(false),
+            me: me.clone(),
+        })
     }
 
     pub fn account(&self) -> &Account {
@@ -917,21 +934,60 @@ impl StationAccess {
         &self.station
     }
 
-    /// Le jeton en cours, ou un nouveau passé son délai de renouvellement (ou
-    /// à 30 secondes de son échéance : l'appareil a pu dormir). Bloquant au
-    /// renouvellement.
+    /// Le jeton en cours. Passé son délai de renouvellement, il sert encore
+    /// (il vaut au moins 30 secondes de plus) pendant qu'un neuf est demandé
+    /// sur un fil à part : aucun appel n'attend le relais (COEUR-34). Sans
+    /// jeton valable (premier appel, appareil qui a dormi), bloquant, une
+    /// demande à la fois.
     pub fn token(&self) -> Result<String, AccountError> {
-        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(c) = cache.as_ref()
-            && c.at.elapsed() < c.renew
-            && now_secs() + EXPIRY_MARGIN < c.expires
-        {
-            return Ok(c.token.clone());
+        if let Some(t) = self.cached_token() {
+            return Ok(t);
+        }
+        let _one = self.fetching.lock().unwrap_or_else(|e| e.into_inner());
+        // Un autre appel vient peut-être d'en obtenir un.
+        if let Some(t) = self.cached_token() {
+            return Ok(t);
         }
         let fresh = self.fetch()?;
         let token = fresh.token.clone();
-        *cache = Some(fresh);
+        *self.cache.lock().unwrap_or_else(|e| e.into_inner()) = Some(fresh);
         Ok(token)
+    }
+
+    /// Le jeton gardé s'il vaut encore ; renouvelé en avance s'il le faut.
+    fn cached_token(&self) -> Option<String> {
+        let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        let c = cache.as_ref().filter(|c| now_secs() + EXPIRY_MARGIN < c.expires)?;
+        let token = c.token.clone();
+        let stale = c.at.elapsed() >= c.renew;
+        drop(cache);
+        if stale {
+            self.refresh_in_background();
+        }
+        Some(token)
+    }
+
+    fn refresh_in_background(&self) {
+        if self.refreshing.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let Some(me) = self.me.upgrade() else {
+            self.refreshing.store(false, std::sync::atomic::Ordering::SeqCst);
+            return;
+        };
+        let spawned = std::thread::Builder::new().name("kybernow-jeton".into()).spawn(move || {
+            {
+                let _one = me.fetching.lock().unwrap_or_else(|e| e.into_inner());
+                match me.fetch() {
+                    Ok(fresh) => *me.cache.lock().unwrap_or_else(|e| e.into_inner()) = Some(fresh),
+                    Err(e) => log::warn!("comptes : jeton d'accès pas renouvelé en avance ({})", e.kind()),
+                }
+            }
+            me.refreshing.store(false, std::sync::atomic::Ordering::SeqCst);
+        });
+        if spawned.is_err() {
+            self.refreshing.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
     }
 
     /// Un jeton neuf, pas gardé : Admin consomme celui qui redémarre ou met à

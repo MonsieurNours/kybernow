@@ -101,8 +101,9 @@ impl WelcomeState {
 /// l'appareil (l'app ne crée pas de compte : règle 5.1.1(v) de l'App Store).
 /// `relay` vide : le relais public.
 pub fn sign_up_url(relay: &str, lang: crate::i18n::Lang) -> String {
+    // Sous la forme du relais (sans empreinte épinglée ni port 443, COEUR-40).
     let host = relay.trim().trim_start_matches("https://").trim_end_matches('/');
-    let host = if host.is_empty() { "share.kybernow.app" } else { host };
+    let host = if host.is_empty() { "share.kybernow.app".to_string() } else { crate::account::relay_label(host) };
     format!("https://{host}/compte/inscription?lang={}", lang.code())
 }
 
@@ -162,5 +163,7 @@ mod tests {
     fn adresse_de_l_inscription() {
         assert_eq!(sign_up_url("", Lang::Fr), "https://share.kybernow.app/compte/inscription?lang=fr");
         assert_eq!(sign_up_url("https://relais.exemple.org:9443/", Lang::En), "https://relais.exemple.org:9443/compte/inscription?lang=en");
+        // Relais épinglé : l'empreinte n'entre pas dans l'adresse (COEUR-40).
+        assert_eq!(sign_up_url("relais.exemple.org:9443#sha256:abcd", Lang::Fr), "https://relais.exemple.org:9443/compte/inscription?lang=fr");
     }
 }

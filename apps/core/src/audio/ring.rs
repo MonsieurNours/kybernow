@@ -27,10 +27,6 @@ impl Ring {
         }
     }
 
-    pub fn capacity(&self) -> usize {
-        self.buf.len()
-    }
-
     /// Échantillons en attente (lisible des deux côtés).
     pub fn len(&self) -> usize {
         self.write.load(Ordering::Acquire).wrapping_sub(self.read.load(Ordering::Acquire))

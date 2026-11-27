@@ -10,7 +10,7 @@
 #   apps/core/scripts/build-apple.sh                      toutes les cibles
 #   apps/core/scripts/build-apple.sh --target <cible>     une seule
 #   apps/core/scripts/build-apple.sh --check              cargo check seul
-#   apps/core/scripts/build-apple.sh --kyber-pyrowave     Kyber demande PyroWave
+#   apps/core/scripts/build-apple.sh --sans-pyrowave      sans PyroWave (allumé par défaut)
 #
 #   aarch64-apple-darwin      Rust stable (référence : le Mac qui compile)
 #   aarch64-apple-ios         Rust stable, rang 2 (rustup target add)
@@ -27,8 +27,8 @@
 #
 # Le correctif kyclient de PyroWave (0025, `VideoCodec::PyroWave`,
 # `fallback_codec`) et la fonctionnalité `pyrowave` du cœur vont ensemble
-# (apps/core/README.md, « PyroWave ») : seulement avec --kyber-pyrowave, tant
-# qu'ils ne sont pas allumés pour toutes les apps (third_party/ est partagé).
+# (apps/core/README.md, « PyroWave ») : allumés par défaut depuis la 0.11.1
+# (KYBER_PYROWAVE=1) ; --sans-pyrowave les écarte ensemble.
 #
 # S'arrête à la première erreur (correctif inapplicable, compilation ratée).
 # Versions vérifiées : scripts/kyber-toolchain.sh (une autre est signalée).
@@ -93,13 +93,21 @@ rootfs_of() {
 }
 
 kyber_toolchain_check rustc
+# Le nightly épinglé (TRANS-04) : `nightly-$KYBER_NIGHTLY`, ou le `nightly`
+# installé s'il est exactement de cette date (même compilateur). Jamais un
+# autre nightly : les empreintes de release.sh ne verraient pas le changement.
+NIGHTLY="nightly-$KYBER_NIGHTLY"
 for target in "${TARGETS[@]}"; do
     if needs_nightly "$target"; then
-        rustup run nightly rustc --version >/dev/null 2>&1 || {
-            echo "Rust nightly manquant : rustup toolchain install nightly --profile minimal --component rust-src" >&2
-            exit 1
-        }
-        kyber_toolchain_check nightly
+        if ! rustup run "$NIGHTLY" rustc --version >/dev/null 2>&1; then
+            if rustup run nightly rustc --version 2>/dev/null | grep -q " $KYBER_NIGHTLY)$"; then
+                NIGHTLY=nightly
+            else
+                echo "Rust $NIGHTLY manquant : rustup toolchain install $NIGHTLY --profile minimal --component rust-src" >&2
+                exit 1
+            fi
+        fi
+        echo "==> Rust nightly : $(rustup run "$NIGHTLY" rustc --version)"
         break
     fi
 done
@@ -140,7 +148,7 @@ ensure_kynput() {
         aarch64-apple-tvos*) export TVOS_DEPLOYMENT_TARGET=$DEPLOYMENT ;;
     esac
     if needs_nightly "$target"; then
-        (cd "$KYSDK/kynput" && cargo_quiet cargo +nightly cinstall -p kynput --target="$target" -Zbuild-std=std,panic_abort \
+        (cd "$KYSDK/kynput" && cargo_quiet cargo "+$NIGHTLY" cinstall -p kynput --target="$target" -Zbuild-std=std,panic_abort \
             --release --library-type=staticlib --prefix="$prefix")
     else
         (cd "$KYSDK/kynput" && cargo_quiet cargo cinstall -p kynput --target="$target" \
@@ -172,7 +180,7 @@ build_target() {
 
     local cargo=(cargo "$COMMAND" -p kybernow-core --release --target "$target")
     # shellcheck disable=SC2054  # la virgule est celle de -Zbuild-std=std,panic_abort
-    needs_nightly "$target" && cargo=(cargo +nightly "$COMMAND" -p kybernow-core --release --target "$target" -Zbuild-std=std,panic_abort)
+    needs_nightly "$target" && cargo=(cargo "+$NIGHTLY" "$COMMAND" -p kybernow-core --release --target "$target" -Zbuild-std=std,panic_abort)
     [ "$KYBER_PYROWAVE" = 1 ] && cargo+=(--features pyrowave)
     echo "==> cargo $COMMAND ($target)"
     started=$(date +%s)

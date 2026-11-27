@@ -1,5 +1,6 @@
-//! libopus, décodeur multistream (stéréo, 5.1, 7.1) : liaisons C minimales.
-//! L'encodeur ne sert qu'aux tests.
+//! libopus, décodeur multistream (stéréo, 5.1, 7.1) : liaisons C minimales,
+//! les seules du cœur (l'encodeur de voix du micro, [`crate::micro`], y prend
+//! les siennes). L'encodeur multistream ne sert qu'aux tests.
 
 use std::ffi::c_void;
 
@@ -25,6 +26,11 @@ unsafe extern "C" {
     fn opus_multistream_encode_float(st: *mut c_void, pcm: *const f32, frame_size: i32, data: *mut u8, max_bytes: i32) -> i32;
     #[cfg(test)]
     fn opus_multistream_encoder_destroy(st: *mut c_void);
+    // Encodeur mono de la voix (micro de l'appareil).
+    pub(crate) fn opus_encoder_create(fs: i32, channels: i32, application: i32, error: *mut i32) -> *mut c_void;
+    pub(crate) fn opus_encode_float(st: *mut c_void, pcm: *const f32, frame_size: i32, data: *mut u8, max_bytes: i32) -> i32;
+    pub(crate) fn opus_encoder_ctl(st: *mut c_void, request: i32, ...) -> i32;
+    pub(crate) fn opus_encoder_destroy(st: *mut c_void);
 }
 
 /// Décodeur multistream pour un flux donné par son en-tête.

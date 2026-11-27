@@ -138,55 +138,6 @@ impl RecordingState {
     pub fn clock(&self) -> String {
         clock(self.elapsed_secs())
     }
-
-    /// Le bouton de l'hôte : « Enregistrer », ou la pastille « Enregistrement · 02:14 ».
-    pub fn label(&self, lang: Lang) -> String {
-        if self.active {
-            tr(lang, "recording.pill", &[("time", &self.clock())])
-        } else {
-            tr(lang, "recording.record", &[])
-        }
-    }
-
-    /// L'infobulle du bouton de l'hôte (`shortcut` : « ⌃⌥⌘R »,
-    /// « Ctrl+Alt+Maj+R ») ; coupé dans Admin : la raison.
-    pub fn tooltip(&self, lang: Lang, shortcut: &str) -> String {
-        if !self.allowed && !self.active {
-            tr(lang, "recording.disabled", &[])
-        } else if self.active {
-            tr(lang, "recording.stop_tooltip", &[("shortcut", shortcut)])
-        } else {
-            tr(lang, "recording.record_tooltip", &[("shortcut", shortcut)])
-        }
-    }
-
-    /// Menus à tuiles : (titre, sous-titre).
-    pub fn tile(&self, lang: Lang) -> (String, String) {
-        if self.active {
-            (tr(lang, "recording.stop", &[]), self.clock())
-        } else {
-            (tr(lang, "recording.record", &[]), tr(lang, "recording.on_computer", &[]))
-        }
-    }
-
-    /// Menu de l'icône : « Enregistrer la session », « Arrêter l'enregistrement (02:14) ».
-    pub fn menu_item(&self, lang: Lang) -> String {
-        if self.active {
-            tr(lang, "recording.stop_menu", &[("time", &self.clock())])
-        } else {
-            tr(lang, "recording.record_menu", &[])
-        }
-    }
-
-    /// La pastille d'un invité : « Enregistrement ».
-    pub fn guest_label(lang: Lang) -> String {
-        tr(lang, "recording.guest_pill", &[])
-    }
-
-    /// L'infobulle de la pastille d'un invité : « {nom} enregistre la session. »
-    pub fn guest_tooltip(lang: Lang, computer: &str) -> String {
-        tr(lang, "recording.guest_notice", &[("name", computer)])
-    }
 }
 
 impl RecordingState {
@@ -367,16 +318,19 @@ mod tests {
         let s = state(r#"{"recording": {"allowed": true, "active": true, "elapsed": 134, "started_at": 1764166325000, "last_end": null}}"#);
         assert!(s.available && s.allowed && s.active);
         assert!(s.elapsed_secs() >= 134);
-        assert_eq!(s.label(Lang::Fr), "Enregistrement · 02:14");
-        assert_eq!(s.label(Lang::En), "Recording · 02:14");
-        assert_eq!(s.menu_item(Lang::Fr), "Arrêter l'enregistrement (02:14)");
-        assert_eq!(s.tile(Lang::Fr), ("Arrêter l'enregistrement".into(), "02:14".into()));
+        // Les textes viennent de `ui_json`, la seule source des apps (COEUR-43).
+        let texts = |lang| s.ui_json(lang, Some("Atelier"))["texts"].clone();
+        assert_eq!(texts(Lang::Fr)["pill"], "Enregistrement · {time}");
+        assert_eq!(texts(Lang::En)["pill"], "Recording · {time}");
+        assert_eq!(texts(Lang::Fr)["stop_menu"], "Arrêter l'enregistrement ({time})");
+        assert_eq!(texts(Lang::Fr)["stop"], "Arrêter l'enregistrement");
+        assert_eq!(texts(Lang::Fr)["record"], "Enregistrer");
+        assert_eq!(texts(Lang::Fr)["record_tooltip"], "Enregistrer la session sur l'ordinateur ({shortcut})");
+        assert_eq!(texts(Lang::En)["disabled"], "Recording is turned off on this computer (Admin › Recordings).");
+        assert_eq!(texts(Lang::Fr)["guest_tooltip"], "Atelier enregistre la session.");
+        assert_eq!(s.clock(), "02:14");
         let idle = state(r#"{"recording": {"allowed": true, "active": false, "last_end": {"reason": "disk_full", "at": 1}}}"#);
-        assert_eq!(idle.label(Lang::Fr), "Enregistrer");
         assert_eq!(idle.last_end, Some(EndReason::DiskFull));
-        assert_eq!(idle.tooltip(Lang::Fr, "⌃⌥⌘R"), "Enregistrer la session sur l'ordinateur (⌃⌥⌘R)");
-        let off = state(r#"{"recording": {"allowed": false, "active": false}}"#);
-        assert_eq!(off.tooltip(Lang::En, "x"), "Recording is turned off on this computer (Admin › Recordings).");
     }
 
     #[test]

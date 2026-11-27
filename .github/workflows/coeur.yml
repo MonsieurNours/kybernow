@@ -1,0 +1,117 @@
+# Essais du cœur Rust des apps KyberNow Link (apps/core), à chaque push et
+# pull request vers main qui le touche (COEUR-49, audit du 27/11/2026).
+#
+# Le cœur compile contre les sources de Kyber 0.29, avec les correctifs
+# KyberNow des apps : apps/core/scripts/ci-essais.sh les clone depuis
+# gitlab.com/kyber, pose les correctifs, construit libkynput et une libvlc
+# factice (kyvlcplayer lie la libvlc 4 de Kyber, que les essais n'appellent
+# jamais), puis lance cargo test -p kybernow-core --features pyrowave --lib.
+#
+# Ce que ce job ne couvre pas : les ponts (apps/apple, apps/android/jni), les
+# apps elles-mêmes et le lecteur SDL (--features sdl), qui demandent les
+# rootfs de Kyber construits sur le Mac de l'auteur.
+name: Cœur
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/core/**
+      - apps/Cargo.toml
+      - apps/Cargo.lock
+      - apps/macos/kyber-patches/**
+      - server/kyber-patches/**
+      - server/relay/tunnel/**
+      - scripts/kyber-client-patches.sh
+      - .github/workflows/coeur.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - apps/core/**
+      - apps/Cargo.toml
+      - apps/Cargo.lock
+      - apps/macos/kyber-patches/**
+      - server/kyber-patches/**
+      - server/relay/tunnel/**
+      - scripts/kyber-client-patches.sh
+      - .github/workflows/coeur.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coeur-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  essais:
+    name: Essais du cœur
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.89.0
+      - name: Paquets du système
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang libclang-dev libopus-dev libudev-dev libevdev-dev
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-c
+      # Sources de Kyber : la même étiquette tant que les correctifs ne
+      # changent pas d'origine ; le cache évite de recloner à chaque fois.
+      - uses: actions/cache@v4
+        with:
+          path: third_party/kyber-desktop
+          key: kyber-desktop-0.29.0-v1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps
+          cache-directories: third_party/ci-rootfs
+      - name: Essais
+        run: apps/core/scripts/ci-essais.sh
+
+  # Les mêmes essais en 32 bits (`long` et `time_t` de 32 bits, comme webOS
+  # armv7 et Android armeabi-v7a : COEUR-02), lancés pour de vrai sur le
+  # runner x86_64 avec les bibliothèques i386. Écrit sans avoir pu tourner
+  # (pas de Linux x86_64 sur le Mac de l'auteur) : il ne bloque pas la CI tant
+  # qu'un premier passage ne l'a pas confirmé. La compilation du cœur pour
+  # armv7, elle, est vérifiée sur le Mac avec la chaîne de webOS.
+  essais-32-bits:
+    name: Essais du cœur (32 bits)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.89.0
+        with:
+          targets: i686-unknown-linux-gnu
+      - name: Paquets du système (i386)
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang libclang-dev gcc-multilib \
+            libopus-dev:i386 libudev-dev:i386 libevdev-dev:i386
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-c
+      - uses: actions/cache@v4
+        with:
+          path: third_party/kyber-desktop
+          key: kyber-desktop-0.29.0-v1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps
+          key: i686
+          cache-directories: third_party/ci-rootfs-i686-unknown-linux-gnu
+      - name: Essais (i686)
+        env:
+          CI_TARGET: i686-unknown-linux-gnu
+        run: apps/core/scripts/ci-essais.sh

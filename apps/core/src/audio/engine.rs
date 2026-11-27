@@ -96,10 +96,18 @@ struct Consumer {
     gain: f32,
 }
 
+/// Voies au plus d'un flux (`OpusHead` le borne) : les tampons du fil temps
+/// réel sont faits pour elles une fois pour toutes.
+const MAX_CHANNELS: usize = 8;
+/// Flux remplacés gardés au plus en attendant d'être libérés.
+const RETIRED_MAX: usize = 4;
+
 impl Consumer {
-    fn reset(&mut self, stream: Option<Arc<Stream>>) {
+    /// Rend l'ancien flux : il ne doit pas être libéré sur le fil temps réel
+    /// (anneau d'une seconde, jusqu'à 1,5 Mo).
+    fn reset(&mut self, stream: Option<Arc<Stream>>) -> Option<Arc<Stream>> {
         let channels = stream.as_ref().map_or(0, |s| s.channels);
-        self.stream = stream;
+        let old = std::mem::replace(&mut self.stream, stream);
         self.margin = ms(8);
         self.playing = false;
         self.started = false;
@@ -111,10 +119,14 @@ impl Consumer {
         self.stretch = 0;
         self.stretch_counter = 0;
         self.stretch_period = STRETCH_PERIOD;
-        self.plc = vec![0.0; MAX_FRAMES * channels];
+        // Dans la place déjà réservée : aucune allocation (COEUR-30).
+        self.plc.clear();
+        self.plc.resize(MAX_FRAMES * channels, 0.0);
         self.plc_read = 0;
         self.plc_count = 0;
-        self.frame = vec![0.0; channels];
+        self.frame.clear();
+        self.frame.resize(channels, 0.0);
+        old
     }
 }
 
@@ -132,6 +144,9 @@ pub struct AudioEngine {
     gaps: AtomicUsize,
     output_latency_ms: AtomicU64,
     order: Mutex<OutputOrder>,
+    /// Flux remplacés, rendus par le fil temps réel et libérés par le
+    /// producteur (place réservée : jamais d'allocation en les y mettant).
+    retired: Mutex<Vec<Arc<Stream>>>,
     stats: Mutex<Option<AudioStats>>,
     /// Son coupé (session pas active, plusieurs ordinateurs).
     muted: AtomicBool,
@@ -139,6 +154,7 @@ pub struct AudioEngine {
 
 impl AudioEngine {
     pub fn new(clock: Arc<dyn Clock>) -> Self {
+        crate::ffi::install_panic_hook();
         Self::with_order(clock, OutputOrder::Opus)
     }
 
@@ -169,11 +185,11 @@ impl AudioEngine {
                 stretch: 0,
                 stretch_counter: 0,
                 stretch_period: STRETCH_PERIOD,
-                plc: Vec::new(),
+                plc: Vec::with_capacity(MAX_FRAMES * MAX_CHANNELS),
                 plc_read: 0,
                 plc_count: 0,
-                frame: Vec::new(),
-                mixed: vec![0.0; 8],
+                frame: Vec::with_capacity(MAX_CHANNELS),
+                mixed: Vec::with_capacity(16),
                 gain: 1.0,
             }),
             current: Mutex::new(None),
@@ -183,6 +199,7 @@ impl AudioEngine {
             gaps: AtomicUsize::new(0),
             output_latency_ms: AtomicU64::new(0f64.to_bits()),
             order: Mutex::new(order),
+            retired: Mutex::new(Vec::with_capacity(RETIRED_MAX)),
             stats: Mutex::new(None),
             muted: AtomicBool::new(false),
         }
@@ -217,14 +234,6 @@ impl AudioEngine {
         f64::from_bits(self.output_latency_ms.load(Ordering::Relaxed))
     }
 
-    /// L'ordre des voies qu'attend la sortie (une sortie changée en cours de session).
-    pub fn set_order(&self, order: OutputOrder) {
-        *self.order.lock().unwrap() = order;
-        if let Ok(mut c) = self.consumer.try_lock() {
-            c.output_channels = 0;
-        }
-    }
-
     /// Voies du flux en cours (0 : pas de flux).
     pub fn channels(&self) -> usize {
         self.current.lock().unwrap().as_ref().map_or(0, |s| s.channels)
@@ -251,7 +260,28 @@ impl AudioEngine {
         self.open(&mut p, &head);
     }
 
+    /// Un flux remplacé, rendu par le fil temps réel : gardé pour être libéré
+    /// par le producteur. Sans place (ou verrou pris), libéré ici, en dernier
+    /// recours.
+    fn retire(&self, old: Arc<Stream>) {
+        if let Ok(mut retired) = self.retired.try_lock()
+            && retired.len() < RETIRED_MAX
+        {
+            retired.push(old);
+        }
+    }
+
+    /// Libère les flux rendus par le fil temps réel (hors de celui-ci).
+    fn free_retired(&self) {
+        let freed: Vec<Arc<Stream>> = {
+            let mut retired = self.retired.lock().unwrap_or_else(|e| e.into_inner());
+            retired.drain(..).collect()
+        };
+        drop(freed);
+    }
+
     fn open(&self, p: &mut Producer, head: &OpusHead) {
+        self.free_retired();
         let channels = usize::from(head.channels);
         match Decoder::new(head) {
             Ok(decoder) => p.decoder = Some(decoder),
@@ -323,6 +353,7 @@ impl AudioEngine {
 
     /// Fin de session : décodeur fermé, tampon rendu.
     pub fn stop(&self) {
+        self.free_retired();
         let mut p = self.producer.lock().unwrap();
         p.decoder = None;
         p.stream = None;
@@ -348,9 +379,20 @@ impl AudioEngine {
         let out_ch = out.len() / frames;
         let generation = self.generation.load(Ordering::Acquire);
         if c.generation != generation {
-            let stream = self.current.lock().unwrap().clone();
+            // Jamais de verrou bloquant ici (COEUR-30) : le producteur tient
+            // `current` un instant ; silence, et nouvel essai au rappel suivant.
+            let stream = match self.current.try_lock() {
+                Ok(cur) => cur.clone(),
+                Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner().clone(),
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    out.fill(0.0);
+                    return;
+                }
+            };
             c.generation = generation;
-            c.reset(stream);
+            if let Some(old) = c.reset(stream) {
+                self.retire(old);
+            }
         }
         let Some(stream) = c.stream.clone() else {
             out.fill(0.0);
@@ -360,9 +402,18 @@ impl AudioEngine {
         };
         let ch = stream.channels;
         if c.output_channels != out_ch {
+            let order = match self.order.try_lock() {
+                Ok(o) => o.permutation(out_ch),
+                Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner().permutation(out_ch),
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    out.fill(0.0);
+                    return;
+                }
+            };
             c.output_channels = out_ch;
-            c.order = self.order.lock().map(|o| o.permutation(out_ch)).unwrap_or_else(|_| (0..out_ch).collect());
-            c.mixed = vec![0.0; out_ch];
+            c.order = order;
+            c.mixed.clear();
+            c.mixed.resize(out_ch, 0.0);
         }
         let volume = self.volume();
         let packet_frames = self.packet_frames.load(Ordering::Relaxed);
@@ -678,6 +729,34 @@ mod tests {
             report.final_ms = self.engine.current.lock().unwrap().as_ref().map_or(0.0, |s| s.ring.len() as f64 / self.channels as f64 * 1000.0 / SAMPLE_RATE as f64);
             report
         }
+    }
+
+    /// COEUR-30 : changement de flux vu par le fil de la sortie sans verrou
+    /// bloquant ; l'ancien flux n'y est pas libéré mais rendu au producteur.
+    #[test]
+    fn flux_remplace_libere_hors_du_fil_temps_reel() {
+        let clock = Arc::new(ManualClock::new());
+        let engine = AudioEngine::new(clock);
+        engine.configure(&crate::media::tests_head(2));
+        let mut out = vec![0.0; 240 * 2];
+        engine.fill(&mut out, 240);
+        // `current` tenu par un autre fil : silence, sans attendre.
+        engine.configure(&crate::media::tests_head(1));
+        {
+            let _held = engine.current.lock().unwrap();
+            let mut out = vec![1.0; 240];
+            engine.fill(&mut out, 240);
+            assert!(out.iter().all(|&v| v == 0.0));
+        }
+        let mut out = vec![0.0; 240];
+        engine.fill(&mut out, 240);
+        assert_eq!(engine.consumer.lock().unwrap().stream.as_ref().map(|s| s.channels), Some(1));
+        let retired = engine.retired.lock().unwrap().len();
+        assert_eq!(retired, 1, "l'ancien flux attend le producteur");
+        engine.stop();
+        assert!(engine.retired.lock().unwrap().is_empty());
+        let c = engine.consumer.lock().unwrap();
+        assert!(c.plc.capacity() >= MAX_FRAMES * MAX_CHANNELS && c.frame.capacity() >= MAX_CHANNELS);
     }
 
     #[test]

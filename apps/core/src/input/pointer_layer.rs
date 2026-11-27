@@ -317,7 +317,7 @@ impl PointerLayer {
         let (state, pending) = {
             let mut inner = self.inner.lock().unwrap();
             let (w, h) = inner.host_size;
-            if !self.holds_position || w <= 0.0 || h <= 0.0 {
+            if !self.holds_position || !usable((w, h)) {
                 return;
             }
             let (x, y) = inner.state.position().unwrap_or((w / 2.0, h / 2.0));
@@ -333,7 +333,13 @@ impl PointerLayer {
     /// L'écran de l'ordinateur a changé de taille en cours de session : la
     /// position tenue garde sa place relative (le centre reste au centre), et
     /// l'ordinateur l'apprend tout de suite.
+    /// Une taille inférieure à 1 (ou NaN) est ignorée : `clamp(0, taille - 1)`
+    /// paniquerait sous le verrou (COEUR-09).
     pub fn set_host_size(&self, size: (f64, f64)) {
+        if !usable(size) {
+            log::warn!("taille d'écran de l'ordinateur ignorée : {size:?}");
+            return;
+        }
         let (state, pending) = {
             let mut inner = self.inner.lock().unwrap();
             let (ow, oh) = inner.host_size;
@@ -418,6 +424,11 @@ impl PointerLayer {
             None => Frame { x, y: top, width, height },
         }
     }
+}
+
+/// Taille d'écran utilisable (au moins un pixel de côté, jamais NaN).
+fn usable(size: (f64, f64)) -> bool {
+    size.0 >= 1.0 && size.1 >= 1.0
 }
 
 fn clamp_i16(v: f64) -> i16 {
@@ -519,6 +530,24 @@ mod tests {
         layer.set_host_size((200.0, 100.0));
         layer.resend_held();
         assert_eq!(*sent.lock().unwrap(), 3);
+    }
+
+    /// COEUR-09 : une taille annoncée à 0 (ou NaN) est ignorée, sans panique
+    /// ni verrou empoisonné.
+    #[test]
+    fn taille_nulle_ignoree() {
+        let clock = Arc::new(ManualClock::new());
+        let layer = PointerLayer::with_host_size(clock, true, (100.0, 50.0));
+        layer.attach((100.0, 50.0), |_, _| {});
+        layer.move_by(1.0, 1.0);
+        layer.set_host_size((0.0, 0.0));
+        layer.set_host_size((0.5, 100.0));
+        layer.set_host_size((f64::NAN, 100.0));
+        assert_eq!(layer.host_size(), (100.0, 50.0));
+        layer.attach((0.0, 0.0), |_, _| {});
+        layer.move_by(1.0, 1.0);
+        layer.remote_cursor_changed(RemoteCursor { visible: true, image: None, position: (3, 3) });
+        assert!(layer.state().held.is_some());
     }
 
     #[test]

@@ -29,7 +29,7 @@
 //! 4), comme sous Linux ; une cinquième est ignorée.
 
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, mpsc};
 use std::time::{Duration, Instant};
 
@@ -145,6 +145,11 @@ static START: Mutex<()> = Mutex::new(());
 /// se ferme et le suivant qui démarre).
 static SDL_LIFE: Mutex<()> = Mutex::new(());
 static RUNNING: AtomicBool = AtomicBool::new(false);
+/// Numéro du dernier fil démarré (sous `SDL_LIFE`) : un fil qui se ferme
+/// alors qu'un suivant a déjà démarré ne touche pas à l'état commun
+/// (vibrations, manettes connues, `RUNNING`), qui est celui du suivant
+/// (COEUR-26).
+static GENERATION: AtomicU64 = AtomicU64::new(0);
 /// Vibrations à jouer, posées par le fil réseau de kynput ; réveillent le fil.
 static RUMBLES: Mutex<Option<mpsc::Sender<GamepadRumble>>> = Mutex::new(None);
 /// Effets propres à une manette (`SDL_GameControllerSendEffect` : rapport
@@ -224,7 +229,7 @@ struct Open {
 }
 
 fn run(ready: mpsc::Sender<bool>, rumbles: mpsc::Receiver<GamepadRumble>, effects: mpsc::Receiver<(PadId, Vec<u8>)>) {
-    {
+    let generation = {
         let _sdl = SDL_LIFE.lock().unwrap();
         // Pas de gestionnaires de signaux de SDL ; les manettes même quand une
         // fenêtre d'une autre app a le clavier (aucune fenêtre SDL ici).
@@ -243,7 +248,8 @@ fn run(ready: mpsc::Sender<bool>, rumbles: mpsc::Receiver<GamepadRumble>, effect
         }
         LIFE.lock().unwrap().alive = true;
         RUNNING.store(true, Ordering::Relaxed);
-    }
+        GENERATION.fetch_add(1, Ordering::SeqCst) + 1
+    };
     let _ = ready.send(true);
     log::info!("manettes : lues par le cœur (SDL), pour toutes les sessions");
     let mut open: Vec<Open> = Vec::new();
@@ -278,15 +284,25 @@ fn run(ready: mpsc::Sender<bool>, rumbles: mpsc::Receiver<GamepadRumble>, effect
     }
     // Plus aucune chaîne : manettes fermées (diodes, HIDAPI rendus), SDL fermé.
     let _sdl = SDL_LIFE.lock().unwrap();
-    *RUMBLES.lock().unwrap() = None;
-    *EFFECTS.lock().unwrap() = None;
+    let latest = GENERATION.load(Ordering::SeqCst) == generation;
+    if latest {
+        *RUMBLES.lock().unwrap() = None;
+        *EFFECTS.lock().unwrap() = None;
+    }
     for pad in open.drain(..) {
         unsafe { SDL_GameControllerClose(pad.ctrl) };
     }
-    global().forget_all();
+    if latest {
+        global().forget_all();
+    }
+    // Compté par SDL : l'ouverture du fil suivant reste valable.
     unsafe { SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER) };
-    RUNNING.store(false, Ordering::Relaxed);
-    log::info!("manettes : plus de session, lecteur SDL fermé");
+    if latest {
+        RUNNING.store(false, Ordering::Relaxed);
+        log::info!("manettes : plus de session, lecteur SDL fermé");
+    } else {
+        log::info!("manettes : ancien lecteur SDL fermé, le suivant tourne déjà");
+    }
 }
 
 /// Plus de chaîne depuis assez longtemps (et pas gardé pour toute l'app) :

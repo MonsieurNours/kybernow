@@ -171,14 +171,6 @@
     "target_encoder": "{target} Mbit/s · encoder ceiling"
   },
   "autotest": {
-    "title": "Auto profile",
-    "subtitle": "KyberNow measures your network and this device, then suggests the best settings.",
-    "phrase": "The best settings for this network and this device.",
-    "summary": "Suggested settings",
-    "apply": "Apply",
-    "cancel": "Cancel",
-    "again": "Run the test again",
-    "retry": "Try again",
     "step": {
       "link": "Connection",
       "latency": "Latency at rest",
@@ -239,12 +231,8 @@
       "adaptive": "follows the network during the session",
       "encoder_limited": "{name} encodes up to {n} Mbit/s"
     },
-    "chosen_by": "Chosen by the test of {date} ({network}).",
     "other_network": "Different network from the test",
-    "other_network_text": "Adaptive bitrate will handle it.",
-    "adaptive": "Adaptive bitrate",
-    "adaptive_help": "Lowers the bitrate when the network is saturated, then raises it again. Off, the bitrate never moves.",
-    "adaptive_pyrowave": "With PyroWave it pauses: the resolution goes down instead."
+    "other_network_text": "Adaptive bitrate will handle it."
   },
   "recording": {
     "record": "Record",
@@ -275,30 +263,15 @@
     "unsupported": "This computer can't receive the microphone.",
     "old_station": "Update the Station to send your microphone.",
     "sent": "Microphone sent to {name}.",
-    "permission": "KyberNow Link can't access the microphone. Allow it in Settings.",
-    "permission_mac": "KyberNow Link can't access the microphone. Allow it in System Settings.",
-    "permission_windows": "KyberNow Link can't access the microphone. Allow it in Windows privacy settings.",
-    "permission_web": "KyberNow Link can't access the microphone. Allow it in your browser.",
-    "label": "Microphone",
-    "label_off": "Microphone off",
-    "tooltip_on": "Microphone: sent to the computer ({shortcut})",
-    "tooltip_off": "Microphone off ({shortcut})",
-    "tile_on": "On",
-    "tile_off": "Off",
-    "tile_waiting": "Connecting…",
-    "setting_help": "Sends this device's microphone to the computer during the session, to talk in a game, a call or a video meeting.",
-    "app_setting": "Microphone",
-    "system_default": "System default",
-    "echo": "Reduce echo and noise",
-    "echo_help": "The device's voice processing removes the computer's sound and the noise around you. Turn it off for a studio microphone.",
-    "guests": "Let guests speak",
-    "guests_help": "Their microphone reaches the computer, for a game or a call."
+    "permission_windows": "KyberNow Link can't access the microphone. Allow it in Windows privacy settings."
   },
   "camera": {
     "paused": "Paused",
     "busy": "{device} is already sending its camera to {name}.",
     "busy_unnamed": "Another device is already sending its camera to {name}.",
     "failed": "{name} could not open its virtual camera.",
+    "not_installed": "{name}'s virtual camera isn't installed. Update the Station, or reinstall it.",
+    "extension_off": "{name}'s virtual camera isn't turned on. On that Mac, turn on KyberNow Station in System Settings › General › Login Items & Extensions.",
     "denied": "Camera access is denied. Allow it in the device's Settings.",
     "in_use": "The camera is being used by another app.",
     "unplugged": "{camera} is no longer connected.",

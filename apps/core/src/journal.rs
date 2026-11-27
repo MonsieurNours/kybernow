@@ -5,7 +5,7 @@
 //! Le nom vit dans une étiquette ([`Label`]) partagée par les fils de la
 //! session : son fil, ceux du signal de vie et des appels à Admin, le fil des
 //! entrées. Chaque fil dit pour quelle session il écrit ([`enter`]) ; les
-//! macros `jinfo!`, `jwarn!` et `jerror!` du cœur ajoutent le nom. Une
+//! macros `jinfo!` et `jwarn!` du cœur ajoutent le nom. Une
 //! session qui n'a pas de nom (une app à un ordinateur, qui ne l'inscrit pas
 //! dans [`crate::focus`]) écrit ses lignes comme avant, sans rien devant.
 
@@ -78,16 +78,8 @@ macro_rules! jwarn {
     };
 }
 
-/// `log::error!` avec le nom de l'ordinateur de la session de ce fil.
-#[allow(unused_macros)]
-macro_rules! jerror {
-    ($($arg:tt)+) => {
-        ::log::error!("{}{}", $crate::journal::prefix(), format_args!($($arg)+))
-    };
-}
-
 #[allow(unused_imports)]
-pub(crate) use {jerror, jinfo, jwarn};
+pub(crate) use {jinfo, jwarn};
 
 #[cfg(test)]
 mod tests {

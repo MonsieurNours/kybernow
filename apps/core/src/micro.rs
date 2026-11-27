@@ -113,12 +113,7 @@ impl MicState {
 // ---------------------------------------------------------------------------
 // libopus
 
-unsafe extern "C" {
-    fn opus_encoder_create(fs: i32, channels: i32, application: i32, error: *mut i32) -> *mut c_void;
-    fn opus_encode_float(st: *mut c_void, pcm: *const f32, frame_size: i32, data: *mut u8, max_bytes: i32) -> i32;
-    fn opus_encoder_ctl(st: *mut c_void, request: i32, ...) -> i32;
-    fn opus_encoder_destroy(st: *mut c_void);
-}
+use crate::audio::opus::{opus_encode_float, opus_encoder_create, opus_encoder_ctl, opus_encoder_destroy};
 
 const OPUS_APPLICATION_VOIP: i32 = 2048;
 const OPUS_SET_BITRATE_REQUEST: i32 = 4002;
@@ -128,6 +123,9 @@ const OPUS_SET_DTX_REQUEST: i32 = 4016;
 const OPUS_SET_SIGNAL_REQUEST: i32 = 4024;
 const OPUS_SIGNAL_VOICE: i32 = 3001;
 const OPUS_SET_COMPLEXITY_REQUEST: i32 = 4010;
+
+/// Taille au plus d'un paquet Opus (RFC 6716).
+pub const OPUS_PACKET_MAX: usize = 1275;
 
 /// Encodeur Opus mono, 48 kHz, voix.
 pub struct Encoder {
@@ -156,14 +154,21 @@ impl Encoder {
 
     /// Une trame de [`FRAME`] échantillons ; `None` : erreur de libopus.
     pub fn encode(&mut self, frame: &[f32]) -> Option<Vec<u8>> {
-        debug_assert_eq!(frame.len(), FRAME);
-        let mut packet = vec![0u8; 1500];
-        let len = unsafe { opus_encode_float(self.st, frame.as_ptr(), FRAME as i32, packet.as_mut_ptr(), packet.len() as i32) };
-        if len <= 0 {
+        let mut packet = vec![0u8; OPUS_PACKET_MAX];
+        let len = self.encode_into(frame, &mut packet)?;
+        packet.truncate(len);
+        Some(packet)
+    }
+
+    /// Une trame encodée dans `out` (au moins [`OPUS_PACKET_MAX`] octets
+    /// pour ne jamais être trop court) ; la longueur écrite.
+    pub fn encode_into(&mut self, frame: &[f32], out: &mut [u8]) -> Option<usize> {
+        if frame.len() != FRAME {
             return None;
         }
-        packet.truncate(len as usize);
-        Some(packet)
+        let room = out.len().min(i32::MAX as usize) as i32;
+        let len = unsafe { opus_encode_float(self.st, frame.as_ptr(), FRAME as i32, out.as_mut_ptr(), room) };
+        (len > 0).then_some(len as usize)
     }
 }
 
@@ -185,6 +190,8 @@ pub struct Resampler {
     /// Position du prochain échantillon de sortie, en échantillons d'entrée.
     pos: f64,
     last: f32,
+    /// Moyenne glissante au-dessus de 48 kHz, réutilisée d'un appel à l'autre.
+    smoothed: Vec<f32>,
 }
 
 impl Resampler {
@@ -193,7 +200,8 @@ impl Resampler {
             return;
         }
         if rate != self.rate {
-            *self = Self { rate, ..Default::default() };
+            let smoothed = std::mem::take(&mut self.smoothed);
+            *self = Self { rate, smoothed, ..Default::default() };
         }
         if rate == SAMPLE_RATE {
             out.extend_from_slice(input);
@@ -202,16 +210,13 @@ impl Resampler {
         let step = f64::from(rate) / f64::from(SAMPLE_RATE);
         // Au-dessus de 48 kHz : moyenne de `ratio` échantillons d'abord.
         let ratio = (step.floor() as usize).max(1);
-        let smoothed: Vec<f32>;
+        let mut smoothed = std::mem::take(&mut self.smoothed);
         let input = if ratio > 1 {
-            smoothed = input
-                .iter()
-                .enumerate()
-                .map(|(i, _)| {
-                    let from = i.saturating_sub(ratio - 1);
-                    input[from..=i].iter().sum::<f32>() / (i - from + 1) as f32
-                })
-                .collect();
+            smoothed.clear();
+            smoothed.extend((0..input.len()).map(|i| {
+                let from = i.saturating_sub(ratio - 1);
+                input[from..=i].iter().sum::<f32>() / (i - from + 1) as f32
+            }));
             &smoothed[..]
         } else {
             input
@@ -232,6 +237,7 @@ impl Resampler {
             self.last = l;
         }
         self.pos -= input.len() as f64;
+        self.smoothed = smoothed;
     }
 }
 
@@ -241,11 +247,9 @@ impl Resampler {
 /// Le type du flux montant du micro (kyclient `Client::uplink`).
 pub const KIND: &str = "microphone";
 
-/// Paquets du flux montant (correctif 0085, docs/webcam.md « Le flux montant »).
-const START: u8 = 0x01;
-const MEDIA: u8 = 0x02;
-const PAUSE: u8 = 0x04;
-const STATUS: u8 = 0x10;
+// Paquets du flux montant (correctif 0085, docs/webcam.md « Le flux montant ») :
+// les mêmes que la caméra, un seul protocole.
+use crate::camera::{MEDIA, PAUSE, START, STATUS};
 
 struct Pipe {
     encoder: Option<Encoder>,
@@ -347,6 +351,14 @@ impl Microphone {
         }
     }
 
+    /// Envoi depuis le fil de capture : jeté si le flux est pris.
+    fn try_send(&self, packet: Vec<u8>) -> bool {
+        match self.uplink.try_lock() {
+            Ok(u) => matches!(u.as_ref().map(|u| u.try_send(packet)), Some(kyclient::uplink::UplinkSend::Sent)),
+            Err(_) => false,
+        }
+    }
+
     fn send(&self, packet: Vec<u8>) -> bool {
         match self.uplink.lock().unwrap().as_ref() {
             Some(u) => matches!(u.try_send(packet), kyclient::uplink::UplinkSend::Sent),
@@ -359,7 +371,17 @@ impl Microphone {
             return;
         }
         log::info!("micro {}", if enabled { "allumé" } else { "coupé" });
-        self.pipe.lock().unwrap().pending.clear();
+        {
+            let mut pipe = self.pipe.lock().unwrap();
+            pipe.pending.clear();
+            // L'encodeur est créé ici, jamais sur le fil de capture (COEUR-31).
+            if enabled && pipe.encoder.is_none() {
+                match Encoder::new() {
+                    Ok(e) => pipe.encoder = Some(e),
+                    Err(code) => log::warn!("micro : encodeur Opus refusé ({code})"),
+                }
+            }
+        }
         if enabled {
             if self.uplink.lock().unwrap().is_some() {
                 self.send_start();
@@ -394,6 +416,13 @@ impl Microphone {
             let packet = self.uplink.lock().unwrap().as_ref().and_then(|u| u.try_recv());
             let Some(packet) = packet else { break };
             if let Some(link) = parse_status(&packet) {
+                // La raison donnée par l'ordinateur, au journal de l'appareil.
+                if let Link::Failed(r) = link {
+                    let raw = serde_json::from_slice::<serde_json::Value>(&packet[1..]).ok();
+                    let reason = raw.as_ref().and_then(|v| v.get("reason")).and_then(|r| r.as_str()).unwrap_or("?");
+                    let state = raw.as_ref().and_then(|v| v.get("state")).and_then(|r| r.as_str()).unwrap_or("?");
+                    log::info!("micro : refusé par l'ordinateur ({state}, {reason} : {r:?})");
+                }
                 *self.link.lock().unwrap() = link;
             }
         }
@@ -407,20 +436,24 @@ impl Microphone {
 
     /// Des échantillons mono captés à `rate` Hz. Jetés micro coupé ou tant
     /// que l'ordinateur ne l'a pas pris.
+    ///
+    /// Appelé depuis le fil temps réel de la capture (Mac) : aucun verrou
+    /// bloquant (un verrou pris par un autre fil, le temps d'un réglage :
+    /// ces échantillons sont jetés), aucun encodeur créé, aucun journal, une
+    /// seule allocation par trame de 10 ms (le paquet, que garde le flux
+    /// montant) une fois les tampons à leur taille (COEUR-31).
     pub fn push(&self, samples: &[f32], rate: u32) {
-        if !self.enabled() || *self.link.lock().unwrap() != Link::Started {
+        if !self.enabled() {
             return;
         }
-        let mut pipe = self.pipe.lock().unwrap();
+        match self.link.try_lock() {
+            Ok(link) if *link == Link::Started => {}
+            _ => return,
+        }
+        let Ok(mut pipe) = self.pipe.try_lock() else { return };
         let pipe = &mut *pipe;
         if pipe.encoder.is_none() {
-            match Encoder::new() {
-                Ok(e) => pipe.encoder = Some(e),
-                Err(code) => {
-                    log::warn!("micro : encodeur Opus refusé ({code})");
-                    return;
-                }
-            }
+            return;
         }
         if pipe.silent {
             pipe.silent = false;
@@ -431,14 +464,17 @@ impl Microphone {
         while pipe.pending.len() - offset >= FRAME {
             let frame = &pipe.pending[offset..offset + FRAME];
             offset += FRAME;
-            if let Some(opus) = pipe.encoder.as_mut().and_then(|e| e.encode(frame)) {
-                let mut packet = Vec::with_capacity(10 + opus.len());
-                packet.push(MEDIA);
-                packet.push(0);
-                packet.extend_from_slice(&pipe.next_pts.to_be_bytes());
-                packet.extend_from_slice(&opus);
-                // File pleine : la trame est perdue, l'ordinateur la masque.
-                let _ = self.send(packet);
+            // En-tête puis trame encodée en place, dans le paquet même.
+            let mut packet = Vec::with_capacity(10 + OPUS_PACKET_MAX);
+            packet.push(MEDIA);
+            packet.push(0);
+            packet.extend_from_slice(&pipe.next_pts.to_be_bytes());
+            packet.resize(10 + OPUS_PACKET_MAX, 0);
+            if let Some(len) = pipe.encoder.as_mut().and_then(|e| e.encode_into(frame, &mut packet[10..])) {
+                packet.truncate(10 + len);
+                // File pleine (ou flux pris par un réglage) : la trame est
+                // perdue, l'ordinateur la masque.
+                let _ = self.try_send(packet);
             }
             pipe.next_pts += 10_000;
         }
@@ -496,6 +532,35 @@ mod tests {
         mic.set_enabled(false);
         assert_eq!(peer.sent.try_recv().unwrap(), vec![PAUSE]);
         assert_eq!(mic.changed(), Some(MicState::Off));
+    }
+
+    /// COEUR-31 : l'encodeur est prêt dès le micro allumé, et `push` ne
+    /// bloque jamais sur un verrou pris par un autre fil.
+    #[test]
+    fn capture_sans_verrou_bloquant() {
+        let mic = Microphone::new();
+        let (uplink, mut peer) = Uplink::pair(KIND, 24);
+        mic.set_uplink(Some(uplink), true);
+        mic.set_enabled(true);
+        assert!(mic.pipe.lock().unwrap().encoder.is_some(), "encodeur créé à l'allumage");
+        let _ = peer.sent.try_recv();
+        peer.answer.send(status(r#"{"state":"started"}"#)).unwrap();
+        mic.changed();
+        {
+            let _held = mic.pipe.lock().unwrap();
+            let started = Instant::now();
+            mic.push(&[0.1; 480], 48_000);
+            assert!(started.elapsed() < std::time::Duration::from_millis(50));
+        }
+        assert!(peer.sent.try_recv().is_err(), "échantillons jetés pendant le réglage");
+        {
+            let _held = mic.uplink.lock().unwrap();
+            mic.push(&[0.1; 480], 48_000);
+        }
+        mic.push(&[0.1; 480], 48_000);
+        let packet = peer.sent.try_recv().unwrap();
+        assert_eq!(packet[0], MEDIA);
+        assert!(packet.len() > 10 && packet.len() < 10 + OPUS_PACKET_MAX);
     }
 
     #[test]

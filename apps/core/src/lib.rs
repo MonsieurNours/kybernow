@@ -13,6 +13,7 @@ pub mod autotest;
 pub mod audio;
 pub mod camera;
 pub mod console;
+pub mod ffi;
 pub mod focus;
 pub mod gamepads;
 pub mod i18n;
@@ -33,6 +34,7 @@ pub mod share;
 pub mod station_offer;
 pub mod session;
 pub mod update;
+mod url;
 pub mod wake;
 pub mod welcome;
 

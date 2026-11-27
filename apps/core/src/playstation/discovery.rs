@@ -310,6 +310,12 @@ pub fn search_at(wait: Duration, broadcast: bool, targets: &[Endpoint]) -> io::R
             }
             Ok(_) => {}
             Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {}
+            // Windows : un ICMP « port injoignable » reçu pour une des adresses
+            // essayées remonte ici (WSAECONNRESET) ; il ne dit rien des autres
+            // consoles, la recherche continue (COEUR-27).
+            Err(e) if matches!(e.kind(), io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionRefused) => {
+                log::debug!("PlayStation : réponse ICMP pendant la recherche ({e}), ignorée");
+            }
             Err(e) => return Err(e),
         }
     }

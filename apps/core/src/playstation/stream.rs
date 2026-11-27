@@ -13,7 +13,7 @@
 
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -119,6 +119,21 @@ pub enum StreamEvent {
     Ended(String),
 }
 
+/// Événements du flux en attente de la partie au plus (≈ 2 s d'images).
+const EVENT_QUEUE_MAX: usize = 256;
+
+/// Une image vers la partie, sans attendre : si la partie a pris du retard
+/// (décodeur occupé, app en arrière-plan), l'image est jetée et une image
+/// clé demandée, plutôt que d'accumuler des secondes de retard (COEUR-33).
+fn send_video(tx: &SyncSender<StreamEvent>, frame: Frame, want_key: &AtomicBool) {
+    if let Err(TrySendError::Full(_)) = tx.try_send(StreamEvent::Video(frame))
+        && !want_key.swap(true, Ordering::Relaxed)
+    {
+        log::warn!("PlayStation : la partie prend du retard, image jetée et image clé demandée");
+        let _ = tx.send(StreamEvent::VideoLost);
+    }
+}
+
 /// « Launch spec » de la console (`chiaki_launchspec_format`).
 pub(crate) fn launch_spec(target: Target, profile: &Profile, handshake_key: &[u8; HANDSHAKE_KEY_SIZE]) -> String {
     let ps5 = rpcrypt::is_ps5(target);
@@ -177,19 +192,32 @@ pub(crate) fn big_message(
 
 /// Envoie un message découpé selon la MTU, comme `stream_connection_send_big`.
 fn send_split(takion: &Takion, msg: &[u8], mtu: u32) -> io::Result<()> {
-    let mtu = mtu.saturating_sub(50).max(64) as usize;
-    let mut rest = msg;
-    let mut first = true;
-    while mtu < rest.len() + 26 || (mtu < rest.len() + 25 && !first) {
-        let n = if first { mtu - 26 } else { mtu - 25 };
-        takion.send_data(0, 1, &rest[..n], first)?;
-        rest = &rest[n..];
-        first = false;
-    }
-    if !rest.is_empty() {
-        takion.send_data(1, 1, rest, first)?;
+    for (range, last, first) in split_big(msg.len(), mtu) {
+        takion.send_data(u8::from(last), 1, &msg[range], first)?;
     }
     Ok(())
+}
+
+/// Les morceaux d'un message : (octets, dernier, premier). Le premier
+/// morceau a 26 octets d'en-tête, les suivants 25 ; le dernier (drapeau de
+/// fin) part toujours, sinon la console attend la suite sans fin (COEUR-06 :
+/// un reste d'exactement `mtu - 25` octets partait en entier sans ce
+/// drapeau).
+fn split_big(len: usize, mtu: u32) -> Vec<(std::ops::Range<usize>, bool, bool)> {
+    let mtu = mtu.saturating_sub(50).max(64) as usize;
+    let mut out = Vec::new();
+    let mut at = 0;
+    let mut first = true;
+    loop {
+        let room = mtu - if first { 26 } else { 25 };
+        if len - at <= room {
+            out.push((at..len, true, first));
+            return out;
+        }
+        out.push((at..at + room, false, first));
+        at += room;
+        first = false;
+    }
 }
 
 /// STREAMINFO du micro (`stream_connection_enable_microphone`) : l'en-tête
@@ -274,7 +302,8 @@ impl Stream {
         want_key: Arc<AtomicBool>,
     ) -> io::Result<(Self, Receiver<StreamEvent>)> {
         let (takion, events) = Takion::connect(at.ip, at.ports.takion, rpcrypt::is_ps5(target))?;
-        let (tx, rx) = mpsc::channel();
+        // Borné (COEUR-33) : voir `send_video`.
+        let (tx, rx) = mpsc::sync_channel(EVENT_QUEUE_MAX);
         let stop = Arc::new(AtomicBool::new(false));
         let thread = {
             let stop = stop.clone();
@@ -366,7 +395,7 @@ fn run(
     mut controller: Option<ControllerSource>,
     want_key: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
-    tx: Sender<StreamEvent>,
+    tx: SyncSender<StreamEvent>,
 ) {
     // Demande d'image clé (IDRREQUEST) répétée tant qu'il en faut une.
     let mut last_idr: Option<Instant> = None;
@@ -448,7 +477,7 @@ fn run(
                 if drop_frames.contains(&av.frame_index) {
                     continue;
                 }
-                let out = a.push(&av);
+                let out = a.push(av);
                 if let Some((start, end)) = out.missing {
                     log::info!("PlayStation : images {start} à {end} perdues, signalées à la console");
                     let _ = takion.send_data(1, 2, &corrupt_frame(start, end), true);
@@ -468,7 +497,7 @@ fn run(
                             if let Some(since) = repairing.take() {
                                 log::info!("PlayStation : image reprise sans image clé en {} ms (n° {})", since.elapsed().as_millis(), frame.index);
                             }
-                            let _ = tx.send(StreamEvent::Video(frame));
+                            send_video(&tx, frame, &want_key);
                         }
                         Some(Verdict::Broken) => {
                             // S'appuie sur une image perdue : écartée. Sans
@@ -488,7 +517,7 @@ fn run(
                                 want_key.store(true, Ordering::Relaxed);
                                 let _ = tx.send(StreamEvent::VideoLost);
                             }
-                            let _ = tx.send(StreamEvent::Video(frame));
+                            send_video(&tx, frame, &want_key);
                         }
                     }
                 }
@@ -564,6 +593,28 @@ fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// COEUR-06 : toujours un dernier morceau avec le drapeau de fin, et
+    /// tout le message couvert dans l'ordre.
+    #[test]
+    fn big_toujours_termine() {
+        let mtu = 1454; // MTU de secours : morceaux de 1 378 puis 1 379.
+        for len in [0, 1, 1377, 1378, 1379, 1378 + 1379, 1378 + 1379 + 1, 1378 + 2 * 1379, 10_000] {
+            let parts = split_big(len, mtu);
+            let last = parts.last().unwrap();
+            assert!(last.1, "{len} : pas de fin");
+            assert!(parts[..parts.len() - 1].iter().all(|p| !p.1));
+            assert!(parts[0].2 && parts[1..].iter().all(|p| !p.2));
+            let mut at = 0;
+            for (r, _, first) in &parts {
+                assert_eq!(r.start, at);
+                assert!(r.len() <= if *first { 1378 } else { 1379 });
+                at = r.end;
+            }
+            assert_eq!(at, len);
+        }
+        assert_eq!(split_big(1378 + 1379, mtu).len(), 2);
+    }
 
     #[test]
     fn launch_spec_ps5() {

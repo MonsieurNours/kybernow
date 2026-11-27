@@ -20,7 +20,7 @@
 //! hook avant que la file d'envoi se prononce, les perdrait).
 //!
 //! Hors prise : un axe qui n'a pas bougé (au 1/512 de la course) ne repart
-//! pas. Une manette Bluetooth bavarde remplirait sinon la file d'envoi de
+//! pas, sauf le repos et la valeur déjà partie (réessai de la file). Une manette Bluetooth bavarde remplirait sinon la file d'envoi de
 //! kynput (64 paquets, jetés sans retour), et avec elle les relâchements ;
 //! les paquets SDL ne passent pas par la file de l'app, seul le hook peut en
 //! réduire le débit.
@@ -57,6 +57,11 @@ impl GamepadGate {
     }
 
     /// Un axe envoyé par l'app hors du hook (remise au repos à la prise).
+    /// Manette prise par l'app en ce moment.
+    pub(crate) fn captured(&self) -> bool {
+        self.state.lock().unwrap().captured
+    }
+
     pub(crate) fn note_axis(&self, id: PadId, axis: u32, value: i16) {
         self.state.lock().unwrap().last_axis.entry(id).or_default().insert(axis, value);
     }
@@ -105,7 +110,12 @@ impl GamepadGate {
                     return Filtered::pass();
                 }
                 let last = state.last_axis.get(&a.id).and_then(|m| m.get(&axis)).copied();
-                if !InputPipeline::axis_moved(last, a.value) {
+                // Le repos passe toujours, et la valeur déjà partie aussi :
+                // c'est un réessai de la file de secours (le routeur appelle
+                // le hook avant d'envoyer ; un envoi raté puis réessayé était
+                // avalé ici, le stick restait poussé, COEUR-10). SDL n'émet
+                // jamais deux fois la même valeur de suite.
+                if a.value != 0 && last != Some(a.value) && !InputPipeline::axis_moved(last, a.value) {
                     return Filtered::verdict(false);
                 }
                 state.last_axis.entry(a.id).or_default().insert(axis, a.value);
@@ -231,6 +241,10 @@ mod tests {
         assert!(gate.filter(axis(0, PadAxis::LeftX, 10_000).0, &combo, false).pass);
         // Même valeur au 1/512 près : écartée.
         assert!(!gate.filter(axis(0, PadAxis::LeftX, 10_010).0, &combo, false).pass);
+        // COEUR-10 : la valeur déjà partie repasse (réessai de la file).
+        assert!(gate.filter(axis(0, PadAxis::LeftX, 10_000).0, &combo, false).pass);
+        assert!(gate.filter(axis(0, PadAxis::LeftX, 0).0, &combo, false).pass);
+        // Et le repos réessayé aussi.
         assert!(gate.filter(axis(0, PadAxis::LeftX, 0).0, &combo, false).pass);
     }
 

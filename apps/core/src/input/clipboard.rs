@@ -223,7 +223,13 @@ impl ClipboardBridge {
     fn answer(&self) {
         match self.board.text() {
             Some(string) => {
-                let bytes = string.as_bytes();
+                // Au plus ce que kynput garde, coupé entre deux caractères
+                // (kynput coupe à l'octet, au milieu d'un caractère).
+                let mut end = string.len().min(MAX_TEXT);
+                while !string.is_char_boundary(end) {
+                    end -= 1;
+                }
+                let bytes = &string.as_bytes()[..end];
                 self.send(unsafe { sys::kynput_clipboard_text_data_to_packet(HOST, bytes.as_ptr(), bytes.len()) });
             }
             None => self.send(unsafe { sys::kynput_clipboard_text_unavailable_to_packet(HOST) }),
@@ -340,6 +346,21 @@ mod tests {
         assert_eq!(b.sent().len(), 2, "rien de nouveau : rien d'annoncé");
         b.bridge.stop();
         assert_eq!(b.bridge.next_deadline(), None);
+    }
+
+    /// Un texte plus long que ce que kynput garde est coupé entre deux
+    /// caractères (COEUR-43 : `MAX_TEXT` enfin employé).
+    #[test]
+    fn texte_trop_long_coupe_proprement() {
+        let b = Bench::new();
+        b.bridge.start();
+        // « é » fait deux octets : la limite tombe au milieu d'un caractère.
+        let long = format!("a{}", "é".repeat(MAX_TEXT));
+        b.board.set_text(&long);
+        b.bridge.received(&b.packet(unsafe { sys::kynput_clipboard_text_request_to_packet(sys::kynput_InputTarget_KYNPUT_INPUT_TARGET_CLIENT) }));
+        let sent = b.sent.lock().unwrap().last().map(describe).unwrap();
+        let text = sent.strip_prefix("texte ").unwrap();
+        assert!(text.len() <= MAX_TEXT && text.len() >= MAX_TEXT - 1 && long.starts_with(text));
     }
 
     #[test]

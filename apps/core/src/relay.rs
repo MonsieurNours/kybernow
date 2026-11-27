@@ -496,10 +496,22 @@ pub(crate) fn open_with(route: &RelayRoute, roots: Option<Arc<rustls::RootCertSt
                 let admin = tunnel.listen_admin().await.map_err(|e| TunnelError::Io(e.to_string()))?;
                 Ok::<_, TunnelError>((tunnel, admin))
             })?;
-            log::info!("relais {relay} : tunnel vers {station} ({}), Admin sur {}", tunnel.client_id(), admin.addr());
             let entry = Arc::new(Entry { tunnel, admin, kyber: Mutex::new(None), consoles: Mutex::new(HashMap::new()), route: route.clone() });
-            cache().lock().unwrap().insert(key, Cached { entry: entry.clone(), idle_since: None });
-            entry
+            // Un autre fil a pu ouvrir le même tunnel pendant ce temps : le
+            // sien est gardé, celui-ci fermé (un seul tunnel par Station et
+            // par relais, COEUR-25).
+            let mut cache = cache().lock().unwrap();
+            match cache.get(&key) {
+                Some(c) if c.entry.route.admin_fp == route.admin_fp => {
+                    log::info!("relais {relay} : tunnel vers {station} déjà ouvert par un autre appel, le doublon est fermé");
+                    c.entry.clone()
+                }
+                _ => {
+                    log::info!("relais {relay} : tunnel vers {station} ({}), Admin sur {}", entry.tunnel.client_id(), entry.admin.addr());
+                    cache.insert(key, Cached { entry: entry.clone(), idle_since: None });
+                    entry
+                }
+            }
         }
     };
     let handle = RelayTunnel(entry);
@@ -512,12 +524,24 @@ pub(crate) fn open_with(route: &RelayRoute, roots: Option<Arc<rustls::RootCertSt
     Ok(handle)
 }
 
-/// Tunnels ouverts en ce moment (journaux, essais).
-pub fn open_tunnels() -> usize {
-    cache().lock().unwrap().len()
-}
-
 // MARK: - Recherche d'un code, présence
+
+/// Un agent HTTPS par relais (et par délais), gardé : la connexion TLS au
+/// relais resservie d'un appel à l'autre (jeton, liste des ordinateurs,
+/// attente du code TV toutes les 5 s) au lieu d'être refaite à chaque fois,
+/// racines comprises (COEUR-35).
+pub(crate) fn relay_agent(relay: &RelayAddr, connect: Duration, timeout: Duration) -> Result<ureq::Agent, String> {
+    static AGENTS: std::sync::OnceLock<Mutex<HashMap<String, ureq::Agent>>> = std::sync::OnceLock::new();
+    let key = format!("{relay}|{}|{}", connect.as_millis(), timeout.as_millis());
+    let agents = AGENTS.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(a) = agents.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return Ok(a.clone());
+    }
+    let tls = kybernow_tunnel::tls::client_config(relay, None, b"http/1.1", None).map_err(|e| e.to_string())?;
+    let agent = ureq::AgentBuilder::new().tls_config(Arc::new(tls)).timeout_connect(connect).timeout(timeout).build();
+    agents.lock().unwrap_or_else(|e| e.into_inner()).insert(key, agent.clone());
+    Ok(agent)
+}
 
 /// La Station d'un code de partage chez ce relais (`GET /v1/codes/{code}`) :
 /// `None` si le relais ne le connaît pas. La réponse est vérifiée
@@ -531,8 +555,15 @@ pub(crate) fn lookup_with(relay: &RelayAddr, code: &str, roots: Option<Arc<rustl
     if !kybernow_tunnel::lookup::is_code(code) {
         return Ok(None);
     }
-    let tls = kybernow_tunnel::tls::client_config(relay, roots, b"http/1.1", None).map_err(|e| RelayError::Bad(e.to_string()))?;
-    let agent = ureq::AgentBuilder::new().tls_config(Arc::new(tls)).timeout_connect(Duration::from_secs(4)).timeout(Duration::from_secs(6)).build();
+    let (connect, timeout) = (Duration::from_secs(4), Duration::from_secs(6));
+    let agent = match roots {
+        // Autorités des essais : un agent à part, pas gardé.
+        Some(roots) => {
+            let tls = kybernow_tunnel::tls::client_config(relay, Some(roots), b"http/1.1", None).map_err(|e| RelayError::Bad(e.to_string()))?;
+            ureq::AgentBuilder::new().tls_config(Arc::new(tls)).timeout_connect(connect).timeout(timeout).build()
+        }
+        None => relay_agent(relay, connect, timeout).map_err(RelayError::Bad)?,
+    };
     // `https://share.kybernow.app/v1/codes/…` : sans « :443 ».
     let url = format!("https://{}{}", relay.web_authority(), kybernow_tunnel::lookup::lookup_path(code));
     let r = agent.get(&url).set("Accept-Language", i18n::current().code()).call();

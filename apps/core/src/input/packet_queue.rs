@@ -25,6 +25,11 @@ use super::packet::{OwnedPacket, PacketSink};
 pub const RETRY_WINDOW: Duration = Duration::from_millis(200);
 /// Pas des réessais.
 pub const RETRY_STEP: Duration = Duration::from_millis(3);
+/// Texte tapé ou collé : ses caractères attendent leur tour tant que la file
+/// avance ; perdus seulement si rien n'est accepté pendant ce temps (COEUR-18).
+pub const TEXT_STALL: Duration = Duration::from_secs(2);
+/// Caractères de texte en attente au plus dans la file de secours.
+pub const TEXT_BACKLOG_MAX: usize = 8192;
 
 /// Premier envoi d'une sorte (`"touche"`, `"clic"`…) et s'il est parti.
 pub type FirstHook = Box<dyn Fn(&'static str, bool) + Send + Sync>;
@@ -41,6 +46,8 @@ struct Pending {
     kind: &'static str,
     packet: OwnedPacket,
     deadline: Duration,
+    /// Texte : attend tant que la file avance (voir [`TEXT_STALL`]).
+    patient: bool,
 }
 
 struct Inner {
@@ -50,6 +57,13 @@ struct Inner {
     dropped: usize,
     logged: HashSet<&'static str>,
     stopped: bool,
+    /// Dernier paquet accepté par kynput depuis la file de secours.
+    progress_at: Duration,
+    /// Pertes définitives d'affilée : une seule ligne de journal par rafale
+    /// (plus une ligne par caractère d'un long texte perdu).
+    final_burst: usize,
+    /// Caractères de texte dans la file de secours.
+    text_pending: usize,
 }
 
 pub struct PacketQueue {
@@ -70,6 +84,9 @@ impl PacketQueue {
                 dropped: 0,
                 logged: HashSet::new(),
                 stopped: false,
+                progress_at: Duration::ZERO,
+                final_burst: 0,
+                text_pending: 0,
             }),
             hooks: Mutex::new(Hooks {
                 on_first: None,
@@ -88,6 +105,7 @@ impl PacketQueue {
         let mut inner = self.inner.lock().unwrap();
         inner.stopped = true;
         inner.backlog.clear();
+        inner.text_pending = 0;
         inner.retry_at = None;
         inner.dropped
     }
@@ -134,22 +152,46 @@ impl PacketQueue {
     /// l'ordre, jusqu'à succès ou 200 ms. Tant que la file de secours n'est
     /// pas vide, tout y passe : un relâchement ne doit pas doubler son appui.
     pub fn send_reliably(&self, packet: OwnedPacket, kind: &'static str) {
+        self.enqueue(packet, kind, false);
+    }
+
+    /// Un caractère de texte tapé ou collé : comme [`Self::send_reliably`],
+    /// mais il attend son tour tant que la file avance, au lieu d'être perdu
+    /// au bout de 200 ms (un long collage dépasse de loin les 64 places de
+    /// kynput). Au-delà de [`TEXT_BACKLOG_MAX`] caractères en attente, perdu.
+    pub fn send_text(&self, packet: OwnedPacket, kind: &'static str) {
+        self.enqueue(packet, kind, true);
+    }
+
+    fn enqueue(&self, packet: OwnedPacket, kind: &'static str, patient: bool) {
         let mut inner = self.inner.lock().unwrap();
         if inner.stopped {
+            return;
+        }
+        if patient && inner.text_pending >= TEXT_BACKLOG_MAX {
+            self.count_dropped(&mut inner, kind, true);
             return;
         }
         if inner.backlog.is_empty() {
             let sent = self.sink.consume(packet.clone_ref());
             self.log_first(&mut inner, kind, sent);
             if sent {
+                inner.final_burst = 0;
                 return;
             }
         }
-        let deadline = self.clock.now() + RETRY_WINDOW;
+        let now = self.clock.now();
+        if inner.backlog.is_empty() {
+            inner.progress_at = now;
+        }
+        if patient {
+            inner.text_pending += 1;
+        }
         inner.backlog.push_back(Pending {
             kind,
             packet,
-            deadline,
+            deadline: now + RETRY_WINDOW,
+            patient,
         });
         self.schedule_retry(&mut inner);
     }
@@ -168,13 +210,23 @@ impl PacketQueue {
             return;
         }
         while let Some(next) = inner.backlog.front() {
+            let patient = next.patient;
             if self.sink.consume(next.packet.clone_ref()) {
                 inner.backlog.pop_front();
+                inner.progress_at = now;
+                inner.final_burst = 0;
+                if patient {
+                    inner.text_pending -= 1;
+                }
                 continue;
             }
-            if now > next.deadline {
+            let expired = if patient { now > next.deadline && now > inner.progress_at + TEXT_STALL } else { now > next.deadline };
+            if expired {
                 let kind = next.kind;
                 inner.backlog.pop_front();
+                if patient {
+                    inner.text_pending -= 1;
+                }
                 self.count_dropped(&mut inner, kind, true);
                 continue;
             }
@@ -202,7 +254,11 @@ impl PacketQueue {
     // Sous le verrou.
     fn count_dropped(&self, inner: &mut Inner, kind: &'static str, final_: bool) {
         inner.dropped += 1;
-        if (final_ || inner.dropped == 1 || inner.dropped.is_multiple_of(100))
+        if final_ {
+            inner.final_burst += 1;
+        }
+        let first_final = final_ && inner.final_burst == 1;
+        if (first_final || inner.dropped == 1 || inner.dropped.is_multiple_of(100))
             && let Some(hook) = &self.hooks.lock().unwrap().on_dropped
         {
             hook(kind, final_, inner.dropped);
@@ -413,6 +469,38 @@ pub(crate) mod tests {
         assert_eq!(*b.finals.lock().unwrap(), ["touche"], "journalisé comme perdu");
         assert_eq!(b.queue.dropped(), 1);
         assert_eq!(b.queue.next_deadline(), None);
+        b.host.refuse_all(false);
+    }
+
+    fn text(c: char) -> OwnedPacket {
+        kynput_rs::Unicode { character: c }.to_packet(InputTarget::Host).and_then(OwnedPacket::from_packet).unwrap()
+    }
+
+    /// COEUR-18 : un long texte attend son tour tant que la file avance,
+    /// et une rafale de pertes ne fait qu'une ligne de journal.
+    #[test]
+    fn long_texte_attend_son_tour() {
+        let b = Bench::new();
+        b.host.refuse_all(true);
+        for _ in 0..300 {
+            b.queue.send_text(text('a'), "texte");
+        }
+        b.elapse(1000);
+        assert!(b.queue.has_backlog() && b.finals.lock().unwrap().is_empty(), "rien de perdu après 1 s sans avancer");
+        b.host.refuse_all(false);
+        b.elapse(5);
+        assert_eq!(b.host.received().len(), 300);
+        assert_eq!(b.queue.dropped(), 0);
+        // Plus rien n'avance pendant plus de 2 s : perdu, une seule ligne.
+        b.host.clear();
+        b.host.refuse_all(true);
+        for _ in 0..50 {
+            b.queue.send_text(text('b'), "texte");
+        }
+        b.elapse(2100);
+        assert!(!b.queue.has_backlog());
+        assert_eq!(b.queue.dropped(), 50);
+        assert_eq!(b.finals.lock().unwrap().len(), 1, "une ligne pour la rafale");
         b.host.refuse_all(false);
     }
 

@@ -20,7 +20,8 @@
 //! temps réel, sans verrou bloquant (anneau sans verrou, essais de verrou
 //! pour le reste) ; si elle a moins de voies que le flux (5.1 ou 7.1 vers un
 //! casque), le son est mixé vers le bas (G + 0,7 C + 0,7 surrounds, idem à
-//! droite, LFE ignoré) au lieu d'être coupé par index, et les voies sont
+//! droite, LFE ignoré) au lieu d'être coupé par index ; si elle en a plus,
+//! chaque voie du flux va à sa place (mono et stéréo en G et D), et les voies sont
 //! remises dans l'ordre qu'elle demande (`OutputOrder`). Elle donne la
 //! latence de sa sortie pour l'écart son-image.
 //!

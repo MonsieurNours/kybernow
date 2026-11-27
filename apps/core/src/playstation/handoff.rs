@@ -43,6 +43,15 @@ const ID_RECEIVER: &[u8] = b"kn-handoff receiver";
 pub const LIFETIME: Duration = Duration::from_secs(5 * 60);
 /// Codes faux avant un nouveau code.
 pub const TRIES: u32 = 3;
+/// Codes faux au total avant d'arrêter l'écoute (COEUR-20) : avec l'attente
+/// après chaque échec, un appareil du réseau ne peut plus essayer les codes
+/// à la chaîne pendant les 5 minutes d'écoute.
+pub const FAILURES_MAX: u32 = 10;
+/// Attente après un code faux.
+#[cfg(not(test))]
+const FAILURE_DELAY: Duration = Duration::from_secs(1);
+#[cfg(test)]
+const FAILURE_DELAY: Duration = Duration::from_millis(20);
 /// Taille maximale d'une trame (le paquet tient en quelques Ko).
 const FRAME_MAX: usize = 1 << 20;
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
@@ -62,7 +71,7 @@ pub enum Event {
     Received(String),
     /// Trois codes faux : voici le nouveau.
     NewCode(String),
-    /// Cinq minutes passées : plus d'écoute.
+    /// Cinq minutes passées, ou trop de codes faux : plus d'écoute.
     Expired,
 }
 
@@ -187,6 +196,7 @@ fn answer_searches(udp: UdpSocket, answer: String, stop: Arc<AtomicBool>) {
 fn accept_loop(listener: TcpListener, code: Arc<Mutex<String>>, stop: Arc<AtomicBool>, tx: Sender<Event>) {
     let started = Instant::now();
     let mut failures = 0;
+    let mut total = 0;
     loop {
         if stop.load(Ordering::SeqCst) {
             return;
@@ -206,7 +216,15 @@ fn accept_loop(listener: TcpListener, code: Arc<Mutex<String>>, stop: Arc<Atomic
                     }
                     Ok(None) => {
                         failures += 1;
-                        log::info!("PlayStation : code faux depuis {} ({failures}/{TRIES})", from.ip());
+                        total += 1;
+                        log::info!("PlayStation : code faux depuis {} ({failures}/{TRIES}, {total}/{FAILURES_MAX})", from.ip());
+                        if total >= FAILURES_MAX {
+                            log::warn!("PlayStation : trop de codes faux, écoute de l'envoi arrêtée");
+                            stop.store(true, Ordering::SeqCst);
+                            let _ = tx.send(Event::Expired);
+                            return;
+                        }
+                        std::thread::sleep(FAILURE_DELAY);
                         if failures >= TRIES {
                             failures = 0;
                             let next = new_code();
@@ -250,6 +268,13 @@ fn confirm(key: &[u8], label: &[u8]) -> Vec<u8> {
     mac.finalize().into_bytes().to_vec()
 }
 
+/// La confirmation reçue est la bonne (comparaison en temps constant).
+fn confirmed(key: &[u8], label: &[u8], theirs: &[u8]) -> bool {
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key).expect("clé HMAC");
+    mac.update(label);
+    mac.verify_slice(theirs).is_ok()
+}
+
 fn cipher(key: &[u8]) -> Aes256Gcm {
     // La clé de SPAKE2 (32 octets) passée par SHA-256 avec une étiquette.
     let mut h = Sha256::new();
@@ -268,7 +293,7 @@ fn receive_one(mut s: TcpStream, code: &str) -> io::Result<Option<String>> {
     write_frame(&mut s, &b)?;
     let Ok(key) = state.finish(&a) else { return Ok(None) };
     let their = read_frame(&mut s)?;
-    if their != confirm(&key, ID_SENDER) {
+    if !confirmed(&key, ID_SENDER, &their) {
         let _ = write_frame(&mut s, &[]);
         return Ok(None);
     }
@@ -299,7 +324,7 @@ pub fn send(to: SocketAddr, code: &str, bundle: &str) -> Result<(), SendError> {
     let key = state.finish(&b).map_err(|_| SendError::Refused)?;
     write_frame(&mut s, &confirm(&key, ID_SENDER)).map_err(net)?;
     let theirs = read_frame(&mut s).map_err(net)?;
-    if theirs != confirm(&key, ID_RECEIVER) {
+    if !confirmed(&key, ID_RECEIVER, &theirs) {
         return Err(SendError::Refused);
     }
     let mut nonce = [0u8; 12];
@@ -399,6 +424,25 @@ mod tests {
                 other => panic!("attendu le paquet, reçu {other:?}"),
             }
         }
+    }
+
+    /// COEUR-20 : après `FAILURES_MAX` codes faux, l'écoute s'arrête.
+    #[test]
+    fn trop_de_codes_faux_arretent_l_ecoute() {
+        let r = Receiver::start_on("Salon", "tvos", 0).unwrap();
+        let mut expired = false;
+        for _ in 0..FAILURES_MAX {
+            let wrong = if r.code() == "000000" { "111111" } else { "000000" };
+            assert_eq!(send(local(&r), wrong, "{}"), Err(SendError::Refused));
+        }
+        while let Some(e) = r.next(Duration::from_secs(2)) {
+            if e == Event::Expired {
+                expired = true;
+                break;
+            }
+        }
+        assert!(expired, "écoute arrêtée");
+        assert!(send(local(&r), &r.code(), "{}").is_err(), "plus rien n'est reçu");
     }
 
     #[test]
