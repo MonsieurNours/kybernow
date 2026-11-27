@@ -12,6 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 serde_json = "1"
+# Signaux d'arrêt (sigwait) : déjà dans l'arbre des dépendances.
+libc = "0.2"
 zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
 wayland-client = "0.31"
 wayland-scanner = "0.31"

@@ -754,7 +754,35 @@ fn uint(v: &Value, key: &str) -> Result<u32> {
     v[key].as_u64().map(|n| n as u32).ok_or_else(|| format!("« {key} » manquant"))
 }
 
+/// SIGTERM, SIGINT et SIGHUP bloqués dans tous les fils (à appeler avant le
+/// premier fil, connexions D-Bus comprises) puis attendus par un fil dédié :
+/// `systemctl --user stop` (mise à jour, désinstallation, déconnexion) arrête
+/// tout le groupe d'Admin, et l'agent doit rendre les écrans avant de partir
+/// (sous Sway/Hyprland, sinon, les écrans de l'ordinateur restent éteints :
+/// STLIN-04). Les programmes lancés par `Command` repartent avec un masque vide.
+fn block_stop_signals() -> libc::sigset_t {
+    // SAFETY: sigset_t initialisé par sigemptyset avant tout usage ; appels POSIX simples.
+    unsafe {
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        for sig in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+            libc::sigaddset(&mut set, sig);
+        }
+        libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+        set
+    }
+}
+
+/// Attend l'un des signaux d'arrêt (bloqués par `block_stop_signals`).
+fn wait_stop_signal(set: &libc::sigset_t) -> i32 {
+    let mut sig = 0;
+    // SAFETY: `set` vient de block_stop_signals ; sigwait ne fait qu'attendre.
+    unsafe { libc::sigwait(set, &mut sig) };
+    sig
+}
+
 fn main() {
+    let stop_signals = block_stop_signals();
     let mut agent = match Agent::new() {
         Ok(a) => a,
         Err(e) => {
@@ -777,10 +805,37 @@ fn main() {
         agent.desk.name(),
         agent.file.display()
     ));
-    let stdin = std::io::stdin();
+    // L'agent reste sur ce fil (le bureau n'est pas `Send`) : les lignes de
+    // l'entrée et les signaux d'arrêt arrivent par le même canal.
+    enum Event {
+        Line(String),
+        Stop(i32),
+    }
+    let (tx, rx) = std::sync::mpsc::channel::<Event>();
+    {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(Event::Stop(wait_stop_signal(&stop_signals)));
+        });
+    }
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            if tx.send(Event::Line(line)).is_err() {
+                break;
+            }
+        }
+        // Fin de l'entrée (Admin arrêté) : le canal se ferme.
+    });
     let mut stdout = std::io::stdout();
-    for line in stdin.lock().lines() {
-        let Ok(line) = line else { break };
+    while let Ok(event) = rx.recv() {
+        let line = match event {
+            Event::Line(line) => line,
+            Event::Stop(sig) => {
+                log(&format!("signal {sig} : écrans rendus avant l'arrêt"));
+                break;
+            }
+        };
         if line.trim().is_empty() {
             continue;
         }
@@ -801,6 +856,19 @@ fn main() {
         let _ = stdout.flush();
     }
     agent.shutdown();
+    std::process::exit(0);
+}
+
+#[cfg(test)]
+mod signal_tests {
+    /// Un SIGHUP bloqué est rendu par `wait_stop_signal` (et ne tue pas).
+    #[test]
+    fn signal_d_arret_attendu() {
+        let set = super::block_stop_signals();
+        // SAFETY: raise vise ce fil, où le signal est bloqué.
+        unsafe { libc::raise(libc::SIGHUP) };
+        assert_eq!(super::wait_stop_signal(&set), libc::SIGHUP);
+    }
 }
 
 #[cfg(test)]
