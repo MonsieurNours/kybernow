@@ -1,0 +1,18 @@
+# Étapes de construction de scripts/release.sh, dans l'ordre de l'affichage,
+# et leur libellé (séparés par une tabulation) : lus par scripts/release.sh
+# (scripts/release-entrees.sh) et scripts/release-suivi.py.
+surcouche	Surcouche Kyber (Windows)
+station	Station Windows
+windows	App Windows x64+ARM64
+android	App Android
+webos	App webOS
+app_mac	App Mac
+notarisation	Notarisation app Mac
+tvos	App Apple TV + SDK
+ios	App iPhone/iPad + SDK
+station_mac	Station Mac
+flatpak_aarch64	Flatpak aarch64 (VM)
+flatpak_x86_64	Flatpak x86_64 (VM)
+deb_pi	.deb Raspberry Pi (VM)
+link_os	KyberNow Link OS (VM)
+station_linux	Station Linux (VM)

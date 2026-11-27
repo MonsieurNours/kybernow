@@ -5,6 +5,7 @@
     release-verifie.py manifeste DOSSIER VERSION CANAL   SHA256SUMS et kybernow-release.json cohérents
     release-verifie.py pe OBJDUMP DOSSIER [AUTRE...]     dépendances DLL des .exe/.dll de DOSSIER :
                                                          DLL de Windows, ou livrées (DOSSIER, AUTRE…)
+    release-verifie.py liste GROUPE...                   noms de scripts/release-fichiers.txt
 
 Chaque problème est écrit sur une ligne « NON  … » ; le code de sortie est le
 nombre de problèmes (0 : tout va bien). Rien n'est modifié.
@@ -150,6 +151,25 @@ def sha256(p):
     return h.hexdigest()
 
 
+LISTE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "release-fichiers.txt")
+
+
+def publies(*groupes):
+    """Noms de scripts/release-fichiers.txt des groupes donnés."""
+    out = []
+    with open(LISTE, encoding="utf-8") as f:
+        for ligne in f:
+            c = ligne.split()
+            if len(c) >= 2 and not c[0].startswith("#") and c[1] in groupes:
+                out.append(c[0])
+    return out
+
+
+def publies_signes():
+    """Ce que SHA256SUMS et le manifeste doivent décrire quand c'est publié."""
+    return publies("construit", "copie", "flux", "station-linux")
+
+
 def cmd_manifeste(dossier, version, canal):
     sums = {}
     for line in open(os.path.join(dossier, "SHA256SUMS")):
@@ -181,9 +201,19 @@ def cmd_manifeste(dossier, version, canal):
             non(f"manifeste : empreinte de {n} fausse")
         if n not in sums:
             non(f"manifeste : {n} absent de SHA256SUMS")
+    # Les fichiers publiés (scripts/release-fichiers.txt) présents dans le
+    # dossier : tous dans SHA256SUMS et dans le manifeste (Admin et les apps ne
+    # prennent que ce que le manifeste signé décrit).
+    for n in publies_signes():
+        if not os.path.isfile(os.path.join(dossier, n)):
+            continue
+        if n not in sums:
+            non(f"SHA256SUMS : {n} manque")
+        if n not in m.get("files", {}):
+            non(f"manifeste : {n} manque")
     for n in sums:
-        if n not in m.get("files", {}) and n not in ("appcast.xml", "KyberSDK-tvOS.zip", "KyberSDK-iOS.zip"):
-            pass  # SHA256SUMS peut lister plus que le manifeste (flux, SDK) : sans gravité
+        if n not in m.get("files", {}):
+            non(f"manifeste : {n} manque (il est dans SHA256SUMS)")
     ok(f"manifeste : {len(m.get('files', {}))} fichiers, version {m.get('version')}, canal {m.get('channel')}")
 
 
@@ -252,6 +282,8 @@ def main():
         cmd_manifeste(a[0], a[1], a[2])
     elif c == "pe":
         cmd_pe(a[0], a[1:])
+    elif c == "liste":
+        print("\n".join(publies(*a)))
     else:
         print(__doc__)
         return 2

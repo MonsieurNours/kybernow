@@ -1,0 +1,4 @@
+# Chemins cités par les scripts des recettes sans y être lus (scripts/tests/entrees-couvertes.py).
+# étape	chemin	raison
+*	server/installer/build.sh	cité dans un message d'erreur de server/kyber-patches/build.sh
+station_mac	apps/macos	motif de comparaison (case) dans server/kyber-patches/apply.sh ; ses correctifs sont dans l'empreinte
