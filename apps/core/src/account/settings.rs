@@ -365,6 +365,18 @@ impl AccountSync {
         self.pending.insert(station.to_string(), waiting.overlay(values));
     }
 
+    /// Refusé pour de bon (relais d'avant les réglages synchronisés, trop
+    /// gros, valeurs refusées) : ces clés ne repartiront pas ; ce qui a changé
+    /// depuis l'envoi attend encore.
+    pub fn refused(&mut self, station: &str, values: &SyncedValues) {
+        if let Some(p) = self.pending.get_mut(station) {
+            p.remove_sent(values);
+            if p.is_empty() {
+                self.pending.remove(station);
+            }
+        }
+    }
+
     /// L'ordinateur n'est plus dans le compte (`AccountError::UnknownComputer`).
     pub fn forget(&mut self, station: &str) {
         self.list.retain(|s| s.station != station);

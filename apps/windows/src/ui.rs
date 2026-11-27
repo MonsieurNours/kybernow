@@ -3067,6 +3067,7 @@ fn session_plan(
         auto: c.auto.clone(),
         fixed: !s.adaptive,
         encoder_max: c.encoder_max,
+        hevc_instead: false,
     };
     let (mut settings, mode) = plan(&choices, capabilities(pc), window.unwrap_or_else(system::screen_mode));
     // Le choix « HDR » de cet ordinateur (hors du profil) : la session ne s'en sert que si c'est possible.

@@ -587,12 +587,7 @@ pub fn handle(e: AccountEvent, app: &mut App, actions: &mut Vec<crate::app::Acti
                     // Relais d'avant les réglages synchronisés (sans rien dire), trop gros, refusé : pas d'autre essai.
                     Err(e) => {
                         log::info!("comptes : réglages de {} pas gardés par le relais ({})", s.station, e.kind());
-                        if let Some(p) = sync.pending.get_mut(&s.station) {
-                            p.remove_sent(&s.values);
-                            if p.is_empty() {
-                                sync.pending.remove(&s.station);
-                            }
-                        }
+                        sync.refused(&s.station, &s.values);
                     }
                 }
                 keep(app, &key, &sync);
