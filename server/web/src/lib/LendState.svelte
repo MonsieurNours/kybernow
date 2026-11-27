@@ -10,10 +10,9 @@
 <script lang="ts">
   import { adminLend, type LendFriend, type LendSteam, type LendView } from './api'
   import { errorText, notify, refreshStatus, setLend } from './store.svelte'
-  import { ago, sinceText } from './format'
+  import { ago, copyText, sinceText } from './format'
   import {
     askingRequests,
-    copyText,
     countdown,
     dayName,
     durationName,

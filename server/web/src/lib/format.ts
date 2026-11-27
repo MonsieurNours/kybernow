@@ -105,3 +105,13 @@ export function screenLine(d: { label: string; width: number; height: number }):
 export function deviceIcon(kind: string): string {
   return ['mac', 'tv', 'phone', 'tablet', 'browser'].includes(kind) ? kind : 'other'
 }
+
+/** Écrit un texte dans le presse-papiers ; vrai s'il y est. */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    return false
+  }
+}

@@ -8,7 +8,8 @@
 <script lang="ts">
   import { api, type LendFriend, type LendFriendInput, type LendSlot, type LendSteam } from './api'
   import { errorText, notify } from './store.svelte'
-  import { avatarColor, copyText, dayName, initial, steamName } from './lend'
+  import { avatarColor, dayName, initial, steamName } from './lend'
+  import { copyText } from './format'
   import Icon from './Icon.svelte'
   import Qr from './Qr.svelte'
   import Segmented from './Segmented.svelte'

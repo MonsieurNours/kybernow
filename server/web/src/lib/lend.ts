@@ -145,13 +145,3 @@ export function nextSlot(
 export function dayDate(seconds: number): string {
   return new Date(seconds * 1000).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })
 }
-
-/** Écrit un texte dans le presse-papiers ; vrai s'il y est. */
-export async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    return false
-  }
-}

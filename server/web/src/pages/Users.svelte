@@ -9,7 +9,7 @@
   import { errorText, markRestartPending, notify } from '../lib/store.svelte'
   import { deviceIcon } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
-  import { t, tn } from '../lib/i18n/index.svelte'
+  import { list, t, tn } from '../lib/i18n/index.svelte'
 
   let users = $state<User[]>([])
   let devices = $state<Device[]>([])
@@ -32,8 +32,7 @@
   function usedBy(u: User): string {
     const names = devices.filter((d) => d.user === u.username && !d.own_account).map((d) => d.name)
     if (!names.length) return t('users.accounts.unused')
-    const list = names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + t('users.accounts.and') + names[names.length - 1]
-    return t('users.accounts.usedBy', { devices: list })
+    return t('users.accounts.usedBy', { devices: list(names) })
   }
 
   function kindOf(u: User): string {

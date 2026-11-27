@@ -7,7 +7,8 @@
 <script lang="ts">
   import { adminLend, type LendDuration, type LendSteam, type LendView } from './api'
   import { errorText, notify, setLend } from './store.svelte'
-  import { copyText, durationName, LEND_DURATIONS, steamName } from './lend'
+  import { durationName, LEND_DURATIONS, steamName } from './lend'
+  import { copyText } from './format'
   import Icon from './Icon.svelte'
   import Qr from './Qr.svelte'
   import Segmented from './Segmented.svelte'

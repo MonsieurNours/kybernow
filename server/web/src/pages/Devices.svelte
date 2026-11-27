@@ -10,7 +10,7 @@
 <script lang="ts">
   import { api, canCloseLaunch, joinedGuests, type Device, type Invite, type InvitesView, type InviteShown, type Launch, type PairRequest, type Pairing, type RelayStatus } from '../lib/api'
   import { app, errorText, field, kyber, loadKyber, markRestartPending, notify, refreshStatus, setValues, value } from '../lib/store.svelte'
-  import { ago, capital, dateAt, deviceIcon, duration, mode, ms, when } from '../lib/format'
+  import { ago, capital, copyText, dateAt, deviceIcon, duration, mode, ms, when } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
   import InviteDialog from '../lib/InviteDialog.svelte'
   import LaunchPicker from '../lib/LaunchPicker.svelte'
@@ -211,12 +211,8 @@
 
   async function copy() {
     if (!pairing) return
-    try {
-      await navigator.clipboard.writeText(pairing.link)
-      notify('ok', t('devices.linkCopied'))
-    } catch {
-      notify('error', t('devices.copyFailed'))
-    }
+    if (await copyText(pairing.link)) notify('ok', t('devices.linkCopied'))
+    else notify('error', t('devices.copyFailed'))
   }
 
   function toggle(d: Device) {
