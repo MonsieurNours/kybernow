@@ -717,17 +717,28 @@
     await closeMenu()
     afterMenu()
     // Même profil : remis tel quel (utile après des réglages personnalisés).
-    const chosen = await invoke<Chosen>('session_profile', { id, profile: p })
-    // Auto sans test gardé : le panneau du test attend la fin de la session, l'avis le dit.
-    if (chosen === 'later') showNotice(t('autotest.later'))
+    try {
+      const chosen = await invoke<Chosen>('session_profile', { id, profile: p })
+      // Auto sans test gardé : le panneau du test attend la fin de la session, l'avis le dit.
+      if (chosen === 'later') showNotice(t('autotest.later'))
+    } catch (e) {
+      showNotice(String(e))
+    }
   }
 
   /** Le menu Souris : appliqué tout de suite et gardé pour l'ordinateur, comme le menu de l'icône. */
   async function pickMouse(m: 'auto' | 'bureau' | 'jeu') {
     await closeMenu()
     afterMenu()
+    // Coché tout de suite ; refusé (session pas prête), l'ancien choix revient et l'avis le dit.
+    const before = mouseSetting
     mouseSetting = m
-    await invoke('session_mouse', { id, mode: m })
+    try {
+      await invoke('session_mouse', { id, mode: m })
+    } catch (e) {
+      mouseSetting = before
+      showNotice(String(e))
+    }
   }
 
   async function pickKeys(k: string) {
@@ -812,8 +823,14 @@
   }
 
   async function toggleKeepSound() {
+    const before = keepSound
     keepSound = !keepSound
-    await invoke('session_keep_sound', { id, on: keepSound })
+    try {
+      await invoke('session_keep_sound', { id, on: keepSound })
+    } catch (e) {
+      keepSound = before
+      showNotice(String(e))
+    }
   }
 
   const command = (c: string) => invoke('session_command', { id, command: c })
