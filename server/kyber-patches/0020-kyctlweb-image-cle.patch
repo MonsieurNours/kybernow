@@ -131,7 +131,7 @@ index a69a6e4..0f95097 100644
                  self.send(Message::VideoDecodeError);
              }
 diff --git a/kywebplayer/src/video/decoder.rs b/kywebplayer/src/video/decoder.rs
-index 94e1884..c1d830d 100644
+index 94e1884..9b03b13 100644
 --- a/kywebplayer/src/video/decoder.rs
 +++ b/kywebplayer/src/video/decoder.rs
 @@ -32,8 +32,15 @@ use kywasmtime::Instant;
@@ -152,30 +152,41 @@ index 94e1884..c1d830d 100644
  
  pub struct VideoDecoder {
      listener: Rc<dyn VideoPlayerListener>,
-@@ -52,6 +59,8 @@ pub struct VideoDecoder {
+@@ -50,8 +57,16 @@ pub struct VideoDecoder {
+     waiting_keyframe: bool,
+     /// Set by the error callback: the browser has closed the decoder.
      failed: Rc<Cell<bool>>,
-     /// When the decoder was reset after an error, until the next keyframe.
+-    /// When the decoder was reset after an error, until the next keyframe.
++    /// When the decoder was first reset after an error, until a frame after
++    /// the next keyframe decodes: a keyframe that fails too (profile badly
++    /// announced) does not start the 3 s again, so the session ends instead
++    /// of looping on keyframes forced on the Station.
      recovering_since: Option<u64>,
++    /// A keyframe was sent while recovering: the next frame sent without a
++    /// reset in between ends the recovery.
++    keyframe_since_reset: bool,
 +    /// When a keyframe was last asked for, until the next keyframe.
 +    keyframe_requested_at: Option<u64>,
      /// Reception dates of the frames handed to the decoder, read back by the
      /// output callback in the same order.
      recv_dates: Rc<RefCell<VecDeque<i64>>>,
-@@ -95,6 +104,7 @@ impl VideoDecoder {
+@@ -95,6 +110,8 @@ impl VideoDecoder {
              waiting_keyframe: true,
              failed: cbs.failed,
              recovering_since: None,
++            keyframe_since_reset: false,
 +            keyframe_requested_at: None,
              recv_dates: cbs.recv_dates,
              kymux_codec,
              force_software_decoding,
-@@ -131,11 +141,30 @@ impl VideoDecoder {
+@@ -131,11 +148,31 @@ impl VideoDecoder {
              self.pending_config = Some(data.clone());
          }
          self.waiting_keyframe = true;
 -        self.recovering_since = Some(Instant::now().raw_us());
 +        let now = Instant::now().raw_us();
-+        self.recovering_since = Some(now);
++        self.recovering_since.get_or_insert(now);
++        self.keyframe_since_reset = false;
 +        // Without intra refresh's help, only a keyframe restarts the image:
 +        // ask for one now rather than at the next delta frame.
 +        self.keyframe_requested_at = None;
@@ -201,7 +212,7 @@ index 94e1884..c1d830d 100644
      fn get_video_codec(kymux_codec: u32) -> Option<VideoCodec> {
          match kymux_codec {
              packet::CODEC_H264 => Some(VideoCodec::H264),
-@@ -205,15 +234,23 @@ impl VideoDecoder {
+@@ -205,15 +242,27 @@ impl VideoDecoder {
              let header = &packet.header;
              if self.waiting_keyframe {
                  if !header.is_key {
@@ -223,10 +234,14 @@ index 94e1884..c1d830d 100644
                  }
                  self.waiting_keyframe = false;
 +                self.keyframe_requested_at = None;
++                self.keyframe_since_reset = self.recovering_since.is_some();
++            } else if self.keyframe_since_reset {
++                // The keyframe went through the decoder without a reset.
++                self.keyframe_since_reset = false;
                  if self.recovering_since.take().is_some() {
                      info!("Video decoder restarted");
                  }
-@@ -249,6 +286,10 @@ impl VideoDecoder {
+@@ -249,6 +298,10 @@ impl VideoDecoder {
              let ret = self.video_decoder.decode(&chunk);
              if let Err(err) = &ret {
                  error!("decode() error: {err:?}");

@@ -1,6 +1,8 @@
---- a/subprojects/txproto/src/dxgi_cursor.c	2026-10-19 20:17:12
-+++ b/subprojects/txproto/src/dxgi_cursor.c	2026-10-19 20:17:12
-@@ -80,8 +80,17 @@
+diff --git a/subprojects/txproto/src/dxgi_cursor.c b/subprojects/txproto/src/dxgi_cursor.c
+index 213770c..049eeca 100644
+--- a/subprojects/txproto/src/dxgi_cursor.c
++++ b/subprojects/txproto/src/dxgi_cursor.c
+@@ -80,8 +80,17 @@ struct DxgiCursorHandler {
      int first_frame;
      uint8_t visible;
      ArgbCursor cursor;
@@ -18,7 +20,7 @@
  static void dxgi_cursor_free(void *opaque, uint8_t *data)
  {
      DxgiCursor *cursor = (DxgiCursor *)data;
-@@ -472,19 +481,40 @@
+@@ -472,17 +481,38 @@ static int process_pending_cursors(DxgiCursorHandler *ctx)
      return updated;
  }
  
@@ -51,8 +53,8 @@
 -    return 0;
 +    ctx->hide_deadline = 0;
 +    return send_cursor_state(ctx);
- }
- 
++}
++
 +/* Milliseconds to wait for the next cursor update. */
 +static DWORD next_wait_ms(DxgiCursorHandler *ctx)
 +{
@@ -60,12 +62,10 @@
 +        return INFINITE;
 +    int64_t left = ctx->hide_deadline - av_gettime_relative();
 +    return left <= 0 ? 0 : (DWORD)((left + 999) / 1000);
-+}
-+
+ }
+ 
  static int handle_connecting(DxgiCursorHandler *ctx)
- {
-     while (!atomic_load(&ctx->quit)) {
-@@ -514,13 +544,14 @@
+@@ -514,13 +544,14 @@ static int handle_connected(DxgiCursorHandler *ctx)
       * would not see the cursor bitmap until the next shape change (e.g.
       * Alt+Tab). */
      process_pending_cursors(ctx);
@@ -82,7 +82,7 @@
  
          switch (wait_err) {
              case WAIT_OBJECT_0:
-@@ -539,6 +570,17 @@
+@@ -539,9 +570,20 @@ static int handle_connected(DxgiCursorHandler *ctx)
                  return AVERROR_EXTERNAL;
  
              case WAIT_TIMEOUT:
@@ -99,8 +99,12 @@
 +                /* fall through */
              case WAIT_ABANDONED:
              default:
-                 sp_log(ctx, SP_LOG_ERROR, "WaitForSingleObject() returned an unexpected value: %d\n", err);
-@@ -658,12 +700,15 @@
+-                sp_log(ctx, SP_LOG_ERROR, "WaitForSingleObject() returned an unexpected value: %d\n", err);
++                sp_log(ctx, SP_LOG_ERROR, "WaitForSingleObject() returned an unexpected value: %lu\n", (unsigned long)wait_err);
+                 break;
+         }
+     }
+@@ -658,12 +700,15 @@ int sp_dxgi_cursor_handler_send(DxgiCursorHandler *ctx,
                  &required_size,
                  &dxgi_cursor->shape_info);
              if (FAILED(hr)) {

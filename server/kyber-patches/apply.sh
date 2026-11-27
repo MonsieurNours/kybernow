@@ -9,6 +9,11 @@
 # kyber_apply_server_patches.
 
 kyber_apply_server_patches() {
+    # L'ordre de pose est celui des noms, octet par octet, quelle que soit la
+    # langue du système : un même numéro est une famille (un correctif par
+    # dépôt ou par moteur), et 0085-kycontroller-micro-droits se pose sur
+    # 0085-kycontroller-flux-montant (« f » avant « m »).
+    local LC_ALL=C
     echo "==> Correctifs"
     # Les correctifs se suivent et touchent parfois les mêmes fichiers : on part
     # toujours des sources d'origine, puis on les applique tous, dans l'ordre.
@@ -79,12 +84,12 @@ kyber_apply_server_patches() {
         }
         printf '%s\n' "$out" | sed 's/^/        /'
         # Un morceau posé avec un décalage du contexte (« fuzz ») a pu
-        # tomber au mauvais endroit : signalé, et un échec avec
-        # KYBERNOW_PATCH_STRICT=1 (STCOM-05, comme les scripts des Stations).
-        # Tous les correctifs se posent sans au 27/11/2026.
+        # tomber au mauvais endroit : c'est un échec (STCOM-05), sauf avec
+        # KYBERNOW_PATCH_STRICT=0 (signalé seulement). Tous les correctifs se
+        # posent sans depuis le 27/11/2026.
         if grep -q 'with fuzz' <<< "$out"; then
             echo "Correctif $(basename "$p") posé avec un décalage du contexte (fuzz) : à régénérer" >&2
-            [ -z "${KYBERNOW_PATCH_STRICT:-}" ] || exit 1
+            [ "${KYBERNOW_PATCH_STRICT:-1}" = 0 ] || exit 1
         fi
     done
     # Puis ceux des apps : ceux qui étaient posés, et toujours ceux de

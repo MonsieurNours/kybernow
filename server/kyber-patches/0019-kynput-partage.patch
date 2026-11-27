@@ -160,10 +160,10 @@ index 1b7ac4e..2c8b5ed 100644
                  info!("Stop received. Reason: {reason}");
                  response.send(Ok(Response::None))?;
 diff --git a/kynputservice/src/pipeline_state.rs b/kynputservice/src/pipeline_state.rs
-index ec0db34..a40aa6a 100644
+index ec0db34..08e0c42 100644
 --- a/kynputservice/src/pipeline_state.rs
 +++ b/kynputservice/src/pipeline_state.rs
-@@ -20,25 +20,159 @@
+@@ -20,25 +20,166 @@
  
  use std::collections::{HashMap, HashSet};
  use std::mem;
@@ -178,6 +178,9 @@ index ec0db34..a40aa6a 100644
 +/// all of it plugged at once when given the gamepads.
 +const MAX_PLUGS: usize = 8;
 +
++/// KyberNow: how long a packet injected by `set_rights` waits for the hook.
++const INJECTED_FOR: std::time::Duration = std::time::Duration::from_secs(1);
++
  pub struct State {
      keys: HashSet<u16>,
      mouse_btns: HashSet<kynput_rs::MouseButtonType>,
@@ -189,8 +192,10 @@ index ec0db34..a40aa6a 100644
 +    /// on the computer or refused, to plug it again when gamepads are given.
 +    plugs: HashMap<kynput_rs::GamepadId, kynput_rs::Packet>,
 +    /// KyberNow: packets injected by `set_rights`, let through once whatever
-+    /// the rights (releases sent after a right was withdrawn).
-+    injected: Vec<kynput_rs::Packet>,
++    /// the rights (releases sent after a right was withdrawn), for
++    /// `INJECTED_FOR` at most: one dropped before the hook (router policy)
++    /// must not let an identical packet of the client through later.
++    injected: Vec<(kynput_rs::Packet, std::time::Instant)>,
 +    /// KyberNow: a share guest's displays (its own): pointer positions on
 +    /// another are refused, and the pointer there is not sent to it. `None`
 +    /// for the host (every display).
@@ -277,7 +282,8 @@ index ec0db34..a40aa6a 100644
 +
 +    /// KyberNow: `true` once for a packet injected by `set_rights`.
 +    fn take_injected(&mut self, pkt: &kynput_rs::Packet) -> bool {
-+        match self.injected.iter().position(|injected| injected == pkt) {
++        self.injected.retain(|(_, at)| at.elapsed() < INJECTED_FOR);
++        match self.injected.iter().position(|(injected, _)| injected == pkt) {
 +            Some(index) => {
 +                self.injected.remove(index);
 +                true
@@ -296,7 +302,7 @@ index ec0db34..a40aa6a 100644
 +
 +        if old.keyboard_mouse && !rights.keyboard_mouse {
 +            packets.append(&mut self.release_keys_and_buttons());
-+        }
+         }
 +
 +        if old.gamepads && !rights.gamepads {
 +            let ids: Vec<_> = self.gamepads.drain().collect();
@@ -305,7 +311,7 @@ index ec0db34..a40aa6a 100644
 +                let unplug = kynput_rs::GamepadControl::Unplug { id };
 +                packets.extend(unplug.to_packet(kynput_rs::InputTarget::Host));
 +            }
-         }
++        }
 +
 +        if !old.gamepads && rights.gamepads {
 +            packets.extend(
@@ -320,12 +326,13 @@ index ec0db34..a40aa6a 100644
 +            "Input rights {rights:?}: {} packets to inject",
 +            packets.len()
 +        );
-+        self.injected.extend(packets.iter().cloned());
++        let now = std::time::Instant::now();
++        self.injected.extend(packets.iter().map(|pkt| (pkt.clone(), now)));
 +        packets
      }
  
      fn on_keyboard_key(&mut self, key: &kynput_rs::KeyboardKey) {
-@@ -110,6 +244,26 @@ impl State {
+@@ -110,6 +251,26 @@ impl State {
      }
  
      fn on_packet(&mut self, pkt: &kynput_rs::Packet) -> kynput_rs::RouterHookPacketResult {
@@ -352,7 +359,7 @@ index ec0db34..a40aa6a 100644
          let ret: Result<(), ()> = match pkt.get_type() {
              kynput_rs::InputType::Keyboard => {
                  if let Some(key) = kynput_rs::KeyboardKey::from_packet(pkt) {
-@@ -174,10 +328,23 @@ impl State {
+@@ -174,10 +335,23 @@ impl State {
      }
  
      fn on_flush_keys(&mut self) -> Option<Vec<kynput_rs::Packet>> {
@@ -378,7 +385,7 @@ index ec0db34..a40aa6a 100644
          // Flush keyboard
          for scancode in self.get_keypresses() {
              let key = kynput_rs::KeyboardKey {
-@@ -198,8 +365,14 @@ impl State {
+@@ -198,8 +372,14 @@ impl State {
              generated_events.push(button.to_packet(kynput_rs::InputTarget::Host));
          }
  
@@ -395,7 +402,7 @@ index ec0db34..a40aa6a 100644
              for button in kynput_rs::GamepadButton::values() {
                  let button = kynput_rs::GamepadEvent::Button {
                      id: *id,
-@@ -221,11 +394,7 @@ impl State {
+@@ -221,11 +401,7 @@ impl State {
              }
          }
  
@@ -408,7 +415,7 @@ index ec0db34..a40aa6a 100644
      }
  
      fn on_ctrl_msg(
-@@ -242,14 +411,50 @@ impl State {
+@@ -242,14 +418,50 @@ impl State {
      }
  }
  
@@ -462,7 +469,7 @@ index ec0db34..a40aa6a 100644
          }
      }
  }
-@@ -298,15 +503,15 @@ impl kynput_rs::RouterHook for ServerPipelineState {
+@@ -298,15 +510,15 @@ impl kynput_rs::RouterHook for ServerPipelineState {
  mod tests {
      use kynput_rs::{
          CmpStruct, ControlEvent, Cursor, CursorData, GamepadAxis, GamepadButton, GamepadControl,
@@ -481,7 +488,7 @@ index ec0db34..a40aa6a 100644
  
          let ret_process_true = RouterHookPacketResult {
              process_event: true,
-@@ -401,7 +606,7 @@ mod tests {
+@@ -401,7 +613,7 @@ mod tests {
  
      #[test]
      fn cursor_sync() {
@@ -490,7 +497,7 @@ index ec0db34..a40aa6a 100644
  
          let ret_process_true = RouterHookPacketResult {
              process_event: true,
-@@ -430,7 +635,7 @@ mod tests {
+@@ -430,7 +642,7 @@ mod tests {
  
      #[test]
      fn cursor_sync_keeps_shape_on_move() {
@@ -499,7 +506,7 @@ index ec0db34..a40aa6a 100644
  
          let shape = Cursor {
              display_id: 43,
-@@ -465,4 +670,264 @@ mod tests {
+@@ -465,4 +677,264 @@ mod tests {
              Some(vec![expected.to_packet(InputTarget::Client)])
          );
      }

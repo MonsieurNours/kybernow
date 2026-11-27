@@ -354,10 +354,10 @@ index 799f1e3..0ef2469 100644
          if let Err(err) = ret {
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
 new file mode 100644
-index 0000000..9739b33
+index 0000000..d926ddc
 --- /dev/null
 +++ b/kycontroller/src/kybernow.rs
-@@ -0,0 +1,659 @@
+@@ -0,0 +1,671 @@
 +// KyberNow: KyberNow Share, local sharing. KyberNow Admin, which holds the
 +// JWT key, gives each guest a short token (`kn_role`, `kn_display`,
 +// `kn_rev`) renewed through `/session/renew`, and drives Kyber through the
@@ -542,6 +542,26 @@ index 0000000..9739b33
 +/// without touching the image. The role is read under the services lock, as
 +/// at the start of a session: of a start and a role change, the last one
 +/// applies the latest role.
++/// KyberNow: the session's user was closed by KyberNow Admin (banned).
++pub(crate) fn is_closed(ctrl: &Controller, uid: &Uuid) -> bool {
++    ctrl.with_session(uid, |s| Ok(s.username.clone()))
++        .is_ok_and(|user| ctrl.share_memory.lock().unwrap().is_banned(&user))
++}
++
++/// KyberNow: a session's input server releases everything (every right
++/// withdrawn, answered once done), then stops.
++pub(crate) async fn release_inputs(services: &tokio::sync::Mutex<crate::controller::StreamingServices>) {
++    let input = services.lock().await.input.take();
++    if let Some(mut input) = input {
++        if let Err(err) = input.set_rights(InputRights::NONE).await {
++            warn!("Failed to release the inputs: {err:?}");
++        }
++        if let Err(err) = input.stop().await {
++            warn!("Failed to stop the input server: {err:?}");
++        }
++    }
++}
++
 +pub(crate) async fn apply_input_rights(ctrl: &Controller, uid: &Uuid) {
 +    let Ok(services) = ctrl.session_services(uid) else {
 +        return;
@@ -773,15 +793,7 @@ index 0000000..9739b33
 +        .map(|s| s.services.clone())
 +        .collect();
 +    for services in services {
-+        let input = services.lock().await.input.take();
-+        if let Some(mut input) = input {
-+            if let Err(err) = input.set_rights(InputRights::NONE).await {
-+                warn!("Failed to release the inputs of \"{user}\": {err:?}");
-+            }
-+            if let Err(err) = input.stop().await {
-+                warn!("Failed to stop the input server of \"{user}\": {err:?}");
-+            }
-+        }
++        release_inputs(&services).await;
 +    }
 +
 +    // Then as an expired session: image and sound released (their encoder
@@ -1084,13 +1096,20 @@ index ecdf310..211f324 100644
      .await?;
  
 diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/kymux_controller/requests.rs
-index 5abb6d8..e67f890 100644
+index 5abb6d8..a6b1f9a 100644
 --- a/kycontroller/src/kymux_controller/requests.rs
 +++ b/kycontroller/src/kymux_controller/requests.rs
-@@ -83,6 +83,15 @@ pub(crate) async fn start_session(
+@@ -83,6 +83,22 @@ pub(crate) async fn start_session(
          }
      }
  
++    // KyberNow: a user closed by KyberNow Admin (`/kybernow/close`) starts
++    // nothing: its session is being removed.
++    if crate::kybernow::is_closed(&ctrl, &session_id) {
++        warn!("Start refused: session closed by KyberNow Admin");
++        return HttpResponse::Forbidden().finish();
++    }
++
 +    // KyberNow: a share guest only streams its display.
 +    if let Some(display) = crate::kybernow::guest_display(&ctrl, &session_id)
 +        && let Some(video_request) = request.video.as_ref()
@@ -1103,7 +1122,7 @@ index 5abb6d8..e67f890 100644
      // Start session
      let ret = super::start_session(&ctrl, session_id, request.into_inner()).await;
      match ret {
-@@ -128,6 +137,7 @@ pub(crate) async fn start_session(
+@@ -128,6 +144,7 @@ pub(crate) async fn start_session(
  
              let input = if let Some(input) = response.input {
                  services.input = Some(input.inputservice);
@@ -1111,10 +1130,17 @@ index 5abb6d8..e67f890 100644
  
                  Some(StartSessionInputResponse {
                      endpoint: input.endpoint,
-@@ -164,6 +174,8 @@ pub(crate) async fn start_session(
+@@ -164,6 +181,15 @@ pub(crate) async fn start_session(
                  return HttpResponse::InternalServerError().finish();
              };
              *session_services.lock().await = services;
++            // KyberNow: closed while it started: its input server lets go of
++            // what it holds before the session is removed (it would be
++            // killed without releasing).
++            if crate::kybernow::is_closed(&ctrl, &session_id) {
++                crate::kybernow::release_inputs(&session_services).await;
++                return HttpResponse::Forbidden().finish();
++            }
 +            // KyberNow: a role changed while the services started applies now.
 +            crate::kybernow::apply_input_rights(&ctrl, &session_id).await;
  

@@ -1,7 +1,8 @@
 diff --git a/subprojects/txproto/src/iosys_screencapturekit.m b/subprojects/txproto/src/iosys_screencapturekit.m
+index d01f081..051c361 100644
 --- a/subprojects/txproto/src/iosys_screencapturekit.m
 +++ b/subprojects/txproto/src/iosys_screencapturekit.m
-@@ -135,6 +135,13 @@
+@@ -135,8 +135,28 @@
      AudioObjectID kn_device;
      AudioDeviceIOProcID kn_proc;
      int kn_channels;
@@ -12,10 +13,33 @@ diff --git a/subprojects/txproto/src/iosys_screencapturekit.m b/subprojects/txpr
 +    float kn_acc[480 * 8];
 +    int kn_acc_n;
 +    int64_t kn_acc_pts;
++    /* KyberNow (0013): the 10 ms frames leave Core Audio's real-time thread
++     * through a ring without lock, to a thread of their own that makes the
++     * AVFrames, logs and pushes them: no allocation, lock or log in the
++     * callback (each could make the cycle late, and the sound crackle). */
++    float (*kn_ring)[480 * 8];
++    int64_t kn_ring_pts[32];
++    atomic_uint kn_ring_w, kn_ring_r, kn_ring_dropped;
++    atomic_int kn_ring_running;
++    dispatch_semaphore_t kn_ring_sem;
++    pthread_t kn_ring_thread;
  } SCKCapture;
  
++#define KN_RING 32
++static void kn_ring_stop(SCKCapture *capture);
++
  static inline int64_t sck_now() {
-@@ -1129,20 +1136,10 @@
+     CMTime now = CMClockGetTime(CMClockGetHostTimeClock());
+     return (int64_t)(CMTimeGetSeconds(now) * 1e6);
+@@ -879,6 +899,7 @@ static int sck_stopCapture(IOSysEntry *entry)
+         AudioDeviceDestroyIOProcID(capture->kn_device, capture->kn_proc);
+         capture->kn_proc = NULL;
+         capture->kn_device = kAudioObjectUnknown;
++        kn_ring_stop(capture);
+         sp_log(entry, SP_LOG_INFO, "KyberNow audio capture stopped\n");
+     }
+ 
+@@ -1135,20 +1156,10 @@ static int sck_startAudioCapture(IOSysEntry *entry)
  
  /* KyberNow (0006): one frame per Core Audio cycle of the loopback input,
   * interleaved floats, timed by the cycle's host time (same clock as SCK). */
@@ -37,7 +61,7 @@ diff --git a/subprojects/txproto/src/iosys_screencapturekit.m b/subprojects/txpr
      AVFrame *frame = av_frame_alloc();
      if (!frame)
          return;
-@@ -1154,11 +1151,8 @@
+@@ -1160,11 +1171,8 @@ static void kn_push_input(IOSysEntry *entry, const AudioBufferList *in,
          av_frame_free(&frame);
          return;
      }
@@ -51,10 +75,85 @@ diff --git a/subprojects/txproto/src/iosys_screencapturekit.m b/subprojects/txpr
      frame->duration = av_rescale_q(nb_samples, (AVRational){1, 48000}, AV_TIME_BASE_Q);
  
      frame->opaque_ref = av_buffer_allocz(sizeof(FormatExtraData));
-@@ -1179,6 +1173,43 @@
-         sp_log(entry, SP_LOG_ERROR, "Push audio frame failed: %s\n", av_err2str(err));
-     }
+@@ -1187,6 +1195,120 @@ static void kn_push_input(IOSysEntry *entry, const AudioBufferList *in,
      av_frame_free(&frame);
+ }
+ 
++/* KyberNow (0013): a full 10 ms frame into the ring (real-time thread: a
++ * copy, two atomics and a semaphore signal); a full ring loses the frame,
++ * counted, logged by the ring's thread. */
++static void kn_ring_put(SCKCapture *capture, int ch)
++{
++    unsigned w = atomic_load_explicit(&capture->kn_ring_w, memory_order_relaxed);
++    unsigned r = atomic_load_explicit(&capture->kn_ring_r, memory_order_acquire);
++    if (!capture->kn_ring || w - r >= KN_RING) {
++        atomic_fetch_add_explicit(&capture->kn_ring_dropped, 1, memory_order_relaxed);
++        return;
++    }
++    memcpy(capture->kn_ring[w % KN_RING], capture->kn_acc, (size_t)480 * ch * 4);
++    capture->kn_ring_pts[w % KN_RING] = capture->kn_acc_pts;
++    atomic_store_explicit(&capture->kn_ring_w, w + 1, memory_order_release);
++    dispatch_semaphore_signal(capture->kn_ring_sem);
++}
++
++/* KyberNow (0013): the ring's thread: frames to the encoder, losses logged
++ * (once per change, not per frame). */
++static void *kn_ring_loop(void *arg)
++{
++    IOSysEntry *entry = arg;
++    SCKCapture *capture = (SCKCapture *)entry->io_priv;
++    unsigned dropped_seen = 0;
++    for (;;) {
++        dispatch_semaphore_wait(capture->kn_ring_sem,
++                                dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC));
++        unsigned r = atomic_load_explicit(&capture->kn_ring_r, memory_order_relaxed);
++        unsigned w = atomic_load_explicit(&capture->kn_ring_w, memory_order_acquire);
++        while (r != w) {
++            kn_emit(entry, capture->kn_ring[r % KN_RING], 480, capture->kn_ring_pts[r % KN_RING]);
++            r++;
++            atomic_store_explicit(&capture->kn_ring_r, r, memory_order_release);
++        }
++        unsigned dropped = atomic_load_explicit(&capture->kn_ring_dropped, memory_order_relaxed);
++        if (dropped != dropped_seen) {
++            sp_log(entry, SP_LOG_WARN, "KyberNow audio: %u frames of 10 ms lost (encoder late)\n",
++                   dropped - dropped_seen);
++            dropped_seen = dropped;
++        }
++        if (!atomic_load(&capture->kn_ring_running))
++            return NULL;
++    }
++}
++
++static int kn_ring_start(IOSysEntry *entry)
++{
++    SCKCapture *capture = (SCKCapture *)entry->io_priv;
++    capture->kn_ring = av_malloc(KN_RING * sizeof(*capture->kn_ring));
++    if (!capture->kn_ring)
++        return AVERROR(ENOMEM);
++    atomic_store(&capture->kn_ring_w, 0);
++    atomic_store(&capture->kn_ring_r, 0);
++    atomic_store(&capture->kn_ring_dropped, 0);
++    atomic_store(&capture->kn_ring_running, 1);
++    capture->kn_ring_sem = dispatch_semaphore_create(0);
++    if (pthread_create(&capture->kn_ring_thread, NULL, kn_ring_loop, entry)) {
++        atomic_store(&capture->kn_ring_running, 0);
++        capture->kn_ring_sem = nil;
++        av_freep(&capture->kn_ring);
++        return AVERROR(EAGAIN);
++    }
++    return 0;
++}
++
++/* After the IOProc is gone: what is left is sent, then the thread ends. */
++static void kn_ring_stop(SCKCapture *capture)
++{
++    if (!capture->kn_ring)
++        return;
++    atomic_store(&capture->kn_ring_running, 0);
++    dispatch_semaphore_signal(capture->kn_ring_sem);
++    pthread_join(capture->kn_ring_thread, NULL);
++    capture->kn_ring_sem = nil;
++    av_freep(&capture->kn_ring);
 +}
 +
 +/* KyberNow (0006, 0013): the loopback input, interleaved floats, in 10 ms
@@ -88,18 +187,41 @@ diff --git a/subprojects/txproto/src/iosys_screencapturekit.m b/subprojects/txpr
 +        capture->kn_acc_n += take;
 +        done += take;
 +        if (capture->kn_acc_n == 480) {
-+            kn_emit(entry, capture->kn_acc, 480, capture->kn_acc_pts);
++            kn_ring_put(capture, ch);
 +            capture->kn_acc_n = 0;
 +        }
 +    }
- }
- 
- static int kn_startAudioCapture(IOSysEntry *entry, AudioObjectID dev, int channels)
-@@ -1198,6 +1229,7 @@
++}
++
+ /* KyberNow (0006): the channel count the entry announces, as captured now
+  * (the KyberNow output may have changed since the entry was made: Admin
+  * switches it to 5.1 after Kyber started). */
+@@ -1219,6 +1341,12 @@ static int kn_startAudioCapture(IOSysEntry *entry, AudioObjectID dev, int channe
  
      capture->kn_device = dev;
      capture->kn_channels = channels;
 +    capture->kn_acc_n = 0;
++    if (kn_ring_start(entry) < 0) {
++        sp_log(entry, SP_LOG_ERROR, "KyberNow audio: thread not started\n");
++        kn_set_channels(entry, 2); /* ScreenCaptureKit: stereo */
++        return sck_startAudioCapture(entry);
++    }
      OSStatus st = AudioDeviceCreateIOProcIDWithBlock(&capture->kn_proc, dev, NULL,
          ^(const AudioTimeStamp *now, const AudioBufferList *in, const AudioTimeStamp *in_time,
            AudioBufferList *out, const AudioTimeStamp *out_time) {
+@@ -1228,6 +1356,7 @@ static int kn_startAudioCapture(IOSysEntry *entry, AudioObjectID dev, int channe
+     if (st != noErr) {
+         sp_log(entry, SP_LOG_ERROR, "KyberNow audio: IOProc creation failed (%d)\n", (int)st);
+         capture->kn_proc = NULL;
++        kn_ring_stop(capture);
+         kn_set_channels(entry, 2); /* ScreenCaptureKit: stereo */
+         return sck_startAudioCapture(entry);
+     }
+@@ -1236,6 +1365,7 @@ static int kn_startAudioCapture(IOSysEntry *entry, AudioObjectID dev, int channe
+         sp_log(entry, SP_LOG_ERROR, "KyberNow audio: start failed (%d)\n", (int)st);
+         AudioDeviceDestroyIOProcID(dev, capture->kn_proc);
+         capture->kn_proc = NULL;
++        kn_ring_stop(capture);
+         kn_set_channels(entry, 2); /* ScreenCaptureKit: stereo */
+         return sck_startAudioCapture(entry);
+     }

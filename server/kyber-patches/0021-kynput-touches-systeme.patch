@@ -31,12 +31,12 @@ index 4d1362d..ec31aae 100644
  }
  
 diff --git a/kynputservice/src/pipeline_state.rs b/kynputservice/src/pipeline_state.rs
-index 232a3d3..81ecd1a 100644
+index 08e0c42..11e4aa6 100644
 --- a/kynputservice/src/pipeline_state.rs
 +++ b/kynputservice/src/pipeline_state.rs
-@@ -30,6 +30,16 @@ use log::{debug, error, info, warn};
- /// all of it plugged at once when given the gamepads.
- const MAX_PLUGS: usize = 8;
+@@ -33,6 +33,16 @@ const MAX_PLUGS: usize = 8;
+ /// KyberNow: how long a packet injected by `set_rights` waits for the hook.
+ const INJECTED_FOR: std::time::Duration = std::time::Duration::from_secs(1);
  
 +/// KyberNow: Windows scancodes (keycode's `win` column) of the shortcuts
 +/// Windows takes before any program, which kynput handles itself on the
@@ -51,7 +51,7 @@ index 232a3d3..81ecd1a 100644
  pub struct State {
      keys: HashSet<u16>,
      mouse_btns: HashSet<kynput_rs::MouseButtonType>,
-@@ -77,6 +87,15 @@ impl State {
+@@ -114,6 +124,15 @@ impl State {
          }
      }
  
@@ -67,7 +67,7 @@ index 232a3d3..81ecd1a 100644
      /// KyberNow: keeps the client's Plug packets (forgotten on Unplug).
      fn remember_plug(&mut self, pkt: &kynput_rs::Packet) {
          match kynput_rs::GamepadControl::from_packet(pkt) {
-@@ -224,6 +243,18 @@ impl State {
+@@ -269,6 +288,18 @@ impl State {
                      process_event: false,
                  };
              }
@@ -86,20 +86,20 @@ index 232a3d3..81ecd1a 100644
          }
  
          let ret: Result<(), ()> = match pkt.get_type() {
-@@ -622,8 +653,60 @@ mod tests {
+@@ -684,8 +715,60 @@ mod tests {
          keyboard_mouse: false,
          gamepads: true,
          clipboard: false,
 +        system_keys: false,
-+    };
-+
+     };
+ 
 +    const KEYBOARD: InputRights = InputRights {
 +        keyboard_mouse: true,
 +        gamepads: false,
 +        clipboard: false,
 +        system_keys: false,
-     };
- 
++    };
++
 +    fn key(scancode: u16, pressed: bool) -> Packet {
 +        KeyboardKey { scancode, pressed }.to_packet(InputTarget::Host)
 +    }

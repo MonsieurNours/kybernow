@@ -78,10 +78,10 @@ index b5a5940..01148a4 100644
      }
  }
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index bd78c1e..dcbabfa 100644
+index 09d7726..65d3dbf 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
-@@ -1037,6 +1037,83 @@ pub(crate) async fn guest_force_idr(ctrl: Arc<Controller>, uid: Uuid) {
+@@ -1061,6 +1061,83 @@ pub(crate) async fn guest_force_idr(ctrl: Arc<Controller>, uid: Uuid) {
      }
  }
  
@@ -162,11 +162,11 @@ index bd78c1e..dcbabfa 100644
 +    }
 +}
 +
- /// `/set_bitrate` from a share guest: only on images of its own that it
- /// is alone on, within its preset's ceiling and the host's bitrate.
- /// `false`: refused (403).
+ /// A guest's bitrate when the host streams nothing to bound it (a guest
+ /// "as the host" alone): what a 4K stream ever needs.
+ const GUEST_WITHOUT_HOST_MAX_BITRATE: u32 = 150_000_000;
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
-index d69a8ec..1cad313 100644
+index 0b0e019..7ee2888 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
 @@ -763,6 +763,84 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht

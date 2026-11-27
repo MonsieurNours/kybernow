@@ -1,7 +1,8 @@
 diff --git a/kyclient/src/kymux_backend/host_service.rs b/kyclient/src/kymux_backend/host_service.rs
+index 62a4fc7..173f0b9 100644
 --- a/kyclient/src/kymux_backend/host_service.rs
 +++ b/kyclient/src/kymux_backend/host_service.rs
-@@ -26,7 +26,7 @@
+@@ -26,7 +26,7 @@ use kyctl_common::kymux::{
  };
  
  use crate::CursorFormat;
@@ -10,7 +11,7 @@ diff --git a/kyclient/src/kymux_backend/host_service.rs b/kyclient/src/kymux_bac
  use crate::http::HttpClient;
  use crate::platform::get_cursor_format;
  
-@@ -58,7 +58,7 @@
+@@ -58,7 +58,7 @@ pub(crate) async fn start_kymux(
  pub(crate) async fn start_stream(
      backend_config: &KymuxBackendConfig<'_>,
      metrics: bool,
@@ -19,7 +20,7 @@ diff --git a/kyclient/src/kymux_backend/host_service.rs b/kyclient/src/kymux_bac
      let url = format!(
          "{base_url}/kymux/start_session",
          base_url = backend_config.http_client.base_url()
-@@ -114,16 +114,23 @@
+@@ -114,16 +114,25 @@ pub(crate) async fn start_stream(
          }),
      };
  
@@ -40,12 +41,14 @@ diff --git a/kyclient/src/kymux_backend/host_service.rs b/kyclient/src/kymux_bac
 -    let response = response.json::<StartSessionResponse>().await?;
 +    let response = response.json::<serde_json::Value>().await?;
 +    let uplink = crate::uplink::from_response(&response);
-+    let response = serde_json::from_value::<StartSessionResponse>(response)
-+        .map_err(|_| Error::InvalidState)?;
++    let response = serde_json::from_value::<StartSessionResponse>(response).map_err(|err| {
++        warn!("Start response not understood: {err}");
++        Error::InvalidState
++    })?;
      info!(
          "Session started. SessionId: {}",
          response
-@@ -142,5 +149,5 @@
+@@ -142,5 +151,5 @@ pub(crate) async fn start_stream(
          warn!("Requested clipboard forwarding but server did not enable it.");
      }
  
@@ -53,9 +56,10 @@ diff --git a/kyclient/src/kymux_backend/host_service.rs b/kyclient/src/kymux_bac
 +    Ok((response, uplink))
  }
 diff --git a/kyclient/src/kymux_backend/mod.rs b/kyclient/src/kymux_backend/mod.rs
+index 1903798..244d72d 100644
 --- a/kyclient/src/kymux_backend/mod.rs
 +++ b/kyclient/src/kymux_backend/mod.rs
-@@ -53,6 +53,8 @@
+@@ -53,6 +53,8 @@ pub(crate) struct KymuxBackendConfig<'a> {
      pub(crate) streaming_config: StreamingSessionConfig,
      pub(crate) kymux_config: KymuxConfig,
      pub(crate) msg_sender: MessageSender,
@@ -65,9 +69,10 @@ diff --git a/kyclient/src/kymux_backend/mod.rs b/kyclient/src/kymux_backend/mod.
  
  #[cfg(not(target_family = "wasm"))]
 diff --git a/kyclient/src/kymux_backend/net_kyproto.rs b/kyclient/src/kymux_backend/net_kyproto.rs
+index 5db67a6..1dc1806 100644
 --- a/kyclient/src/kymux_backend/net_kyproto.rs
 +++ b/kyclient/src/kymux_backend/net_kyproto.rs
-@@ -41,6 +41,9 @@
+@@ -41,6 +41,9 @@ pub(crate) struct KyProtoTransport {
      pub metrics_tasks: Vec<runtime::Task>,
      /// KyberNow (0051): the feedback channel, when the Station opened one.
      pub feedback: Option<kyproto::FeedbackClient>,
@@ -77,7 +82,7 @@ diff --git a/kyclient/src/kymux_backend/net_kyproto.rs b/kyclient/src/kymux_back
  }
  
  impl KyProtoTransport {
-@@ -54,7 +57,7 @@
+@@ -54,7 +57,7 @@ impl KyProtoTransport {
          let has_metrics = metrics.is_some();
  
          // Start stream
@@ -86,16 +91,15 @@ diff --git a/kyclient/src/kymux_backend/net_kyproto.rs b/kyclient/src/kymux_back
  
          let mut metrics_tasks = if let Some(metrics) = metrics {
              start_metrics(&connection, &host_config, metrics.clone()).await?
-@@ -89,12 +92,19 @@
-         let closed_task = kymux_closed_task(connection.clone(), msg_sender);
+@@ -96,11 +99,18 @@ impl KyProtoTransport {
  
          let endpoints = create_platform_endpoints(&connection, backend_config, &host_config)?;
-+
+ 
 +        // KyberNow (0085): the upstream streams the computer offered.
 +        let uplinks = backend_config.uplinks.clone();
 +        uplinks.clear();
 +        let uplink_tasks = uplinks.connect(&connection, &uplink);
- 
++
          let transport = Self {
              connection,
              closed_task: Some(closed_task),
@@ -106,7 +110,7 @@ diff --git a/kyclient/src/kymux_backend/net_kyproto.rs b/kyclient/src/kymux_back
          };
  
          Ok((transport, endpoints))
-@@ -106,6 +116,8 @@
+@@ -112,6 +122,8 @@ impl KyProtoTransport {
          self.metrics_tasks.clear();
          self.feedback = None;
          self.closed_task = None;
@@ -116,9 +120,10 @@ diff --git a/kyclient/src/kymux_backend/net_kyproto.rs b/kyclient/src/kymux_back
          self.connection.close();
      }
 diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
+index 0cb58d5..22eb683 100644
 --- a/kyclient/src/lib.rs
 +++ b/kyclient/src/lib.rs
-@@ -39,6 +39,10 @@
+@@ -39,6 +39,10 @@ pub mod capi;
  #[cfg(feature = "kymux")]
  mod kymux_backend;
  
@@ -129,7 +134,7 @@ diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
  #[cfg(feature = "rtp")]
  mod rtp_backend;
  
-@@ -206,6 +210,10 @@
+@@ -206,6 +210,10 @@ struct Handler {
      reconnection_state: ReconnectionState,
  
      connection: Option<Connection>,
@@ -140,7 +145,7 @@ diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
  }
  
  struct Connection {
-@@ -237,6 +245,7 @@
+@@ -237,6 +245,7 @@ impl Handler {
          message_sender: MessageSender,
          metrics: Option<MetricsProducer>,
          state: Arc<Mutex<State>>,
@@ -148,7 +153,7 @@ diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
      ) -> Result<Self> {
          let auto_reconnection = connect_config.auto_reconnection;
          let conn_params = ConnectionParams::new(connect_config)?;
-@@ -252,6 +261,9 @@
+@@ -252,6 +261,9 @@ impl Handler {
              reconnection_state: ReconnectionState::new(auto_reconnection),
  
              connection: None,
@@ -158,7 +163,7 @@ diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
          })
      }
  
-@@ -387,6 +399,7 @@
+@@ -387,6 +399,7 @@ impl Handler {
                      streaming_config,
                      kymux_config,
                      msg_sender,
@@ -166,7 +171,7 @@ diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
                  };
  
                  let backend = Box::new(
-@@ -1020,6 +1033,10 @@
+@@ -1020,6 +1033,10 @@ pub struct Client {
      state: Arc<Mutex<State>>,
  
      metrics_cb: KyArc<KyMutex<Option<Box<MetricsCallback>>>>,
@@ -177,7 +182,7 @@ diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
  }
  
  impl Client {
-@@ -1035,6 +1052,8 @@
+@@ -1035,6 +1052,8 @@ impl Client {
          let metrics_producer = metrics_collector.as_ref().map(|mc| mc.producer());
  
          let state = Arc::new(Mutex::new(State::default()));
@@ -186,7 +191,7 @@ diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
  
          let handler = Handler::new(
              connect_config,
-@@ -1042,6 +1061,8 @@
+@@ -1042,6 +1061,8 @@ impl Client {
              msg_sender.clone(),
              metrics_producer,
              state.clone(),
@@ -195,7 +200,7 @@ diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
          )?;
  
          let metrics_cb = KyArc::new(KyMutex::new(None));
-@@ -1055,6 +1076,8 @@
+@@ -1055,6 +1076,8 @@ impl Client {
              mainloop_engine,
              state,
              metrics_cb,
@@ -204,7 +209,7 @@ diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
          })
      }
  
-@@ -1184,6 +1207,20 @@
+@@ -1184,6 +1207,20 @@ impl Client {
          self.event_manager.clone()
      }
  
@@ -227,9 +232,10 @@ diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
          (*state).clone()
 diff --git a/kyclient/src/uplink.rs b/kyclient/src/uplink.rs
 new file mode 100644
+index 0000000..03a894c
 --- /dev/null
 +++ b/kyclient/src/uplink.rs
-@@ -0,0 +1,271 @@
+@@ -0,0 +1,281 @@
 +// KyberNow (0085): upstream streams, from the app to the computer (camera,
 +// microphone).
 +//
@@ -396,7 +402,10 @@ new file mode 100644
 +                }
 +            };
 +            let (tx, up) = mpsc::channel(QUEUE);
-+            let (down, rx) = std::sync::mpsc::channel();
++            // Bounded: an app that no longer reads its statuses does not
++            // make them pile up without end (the oldest are kept, the
++            // newest dropped).
++            let (down, rx) = std::sync::mpsc::sync_channel(STATUS_QUEUE);
 +            let closed = Arc::new(AtomicBool::new(false));
 +            inner.open.insert(
 +                kind.clone(),
@@ -420,11 +429,14 @@ new file mode 100644
 +    }
 +}
 +
++/// Statuses from the computer waiting for the app.
++const STATUS_QUEUE: usize = 64;
++
 +async fn pump(
 +    kind: String,
 +    endpoint: types::DataEndpoint,
 +    mut up: mpsc::Receiver<Vec<u8>>,
-+    down: std::sync::mpsc::Sender<Vec<u8>>,
++    down: std::sync::mpsc::SyncSender<Vec<u8>>,
 +    closed: Arc<AtomicBool>,
 +) {
 +    let (mut send, mut recv) = match endpoint.ready().await {
@@ -437,8 +449,12 @@ new file mode 100644
 +    };
 +    let receive = async {
 +        while let Ok(Some(packet)) = recv.recv().await {
-+            if down.send(packet.payload.to_vec()).is_err() {
-+                break;
++            match down.try_send(packet.payload.to_vec()) {
++                Ok(()) => {}
++                Err(std::sync::mpsc::TrySendError::Full(_)) => {
++                    warn!("Uplink \"{kind}\": status dropped, the app does not read them");
++                }
++                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
 +            }
 +        }
 +    };

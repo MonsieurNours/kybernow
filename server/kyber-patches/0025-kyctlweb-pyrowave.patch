@@ -108,21 +108,22 @@ index d32616d..1795183 100644
  pub const CODEC_OPUS: u32 = 0x6F707573;
  
 diff --git a/kywebplayer/src/video/decoder.rs b/kywebplayer/src/video/decoder.rs
-index c1d830d..3b8338e 100644
+index 9b03b13..a9c6dd5 100644
 --- a/kywebplayer/src/video/decoder.rs
 +++ b/kywebplayer/src/video/decoder.rs
-@@ -69,6 +69,10 @@ pub struct VideoDecoder {
+@@ -75,6 +75,11 @@ pub struct VideoDecoder {
      yuv444: bool,
      metrics: bool,
      supported_video_codecs: Vec<VideoDecoderConfig>,
 +    /// KyberNow (0025): with the PyroWave codec, the page's WebGPU decoder
 +    /// (`globalThis.__kybernowPyroWave.create(output)`, docs/pyrowave-client-web.md)
 +    /// instead of WebCodecs. It hands its frames to the same output callback.
-+    pyrowave: Option<JsValue>,
++    /// Its `push`, read once (not at each frame).
++    pyrowave: Option<(JsValue, js_sys::Function)>,
  }
  
  pub struct VideoDecoderCallbacks {
-@@ -92,6 +96,11 @@ impl VideoDecoder {
+@@ -98,6 +103,11 @@ impl VideoDecoder {
          let output_closure = Closure::wrap(cbs.output);
          let error_closure = Closure::wrap(cbs.error);
          let video_decoder = Self::create_web_decoder(&output_closure, &error_closure)?;
@@ -134,7 +135,7 @@ index c1d830d..3b8338e 100644
  
          Ok(Self {
              listener,
-@@ -111,9 +120,51 @@ impl VideoDecoder {
+@@ -118,9 +128,51 @@ impl VideoDecoder {
              yuv444,
              metrics,
              supported_video_codecs,
@@ -147,7 +148,7 @@ index c1d830d..3b8338e 100644
 +    /// didn't install one, no WebGPU): the stream cannot be played.
 +    fn create_pyrowave(
 +        output_closure: &Closure<dyn FnMut(web_sys::VideoFrame) -> Result<(), JsValue>>,
-+    ) -> Result<JsValue, JsValue> {
++    ) -> Result<(JsValue, js_sys::Function), JsValue> {
 +        let bridge = js_sys::Reflect::get(&js_sys::global(), &"__kybernowPyroWave".into())?;
 +        if bridge.is_undefined() || bridge.is_null() {
 +            return Err(JsError::new("No PyroWave decoder in this page").into());
@@ -157,14 +158,15 @@ index c1d830d..3b8338e 100644
 +        if decoder.is_undefined() || decoder.is_null() {
 +            return Err(JsError::new("PyroWave decoder refused").into());
 +        }
++        let push = js_sys::Reflect::get(&decoder, &"push".into())?.dyn_into::<js_sys::Function>()?;
 +        info!("Video decoder: PyroWave (WebGPU)");
-+        Ok(decoder)
++        Ok((decoder, push))
 +    }
 +
 +    /// KyberNow (0025): a PyroWave frame (always a whole image, marked key)
 +    /// or its configuration packet (`KNPW`). A lost or incomplete frame is
 +    /// only skipped by the page: never ask for a keyframe.
-+    fn send_pyrowave(&self, decoder: &JsValue, packet: MediaPacket) -> Result<bool, JsValue> {
++    fn send_pyrowave(&self, decoder: &JsValue, push: &js_sys::Function, packet: MediaPacket) -> Result<bool, JsValue> {
 +        let header = &packet.header;
 +        if !header.is_config && self.metrics {
 +            self.listener.on_event(VideoPlayerEvent::Metric {
@@ -173,7 +175,6 @@ index c1d830d..3b8338e 100644
 +                data: VideoPlayerMetric::FrameDecoding,
 +            });
 +        }
-+        let push = js_sys::Reflect::get(decoder, &"push".into())?.dyn_into::<js_sys::Function>()?;
 +        let submitted = push.call3(
 +            decoder,
 +            &packet.data,
@@ -186,7 +187,7 @@ index c1d830d..3b8338e 100644
      fn create_web_decoder(
          output_closure: &Closure<dyn FnMut(web_sys::VideoFrame) -> Result<(), JsValue>>,
          error_closure: &Closure<dyn FnMut(js_sys::Error) -> Result<(), JsValue>>,
-@@ -170,6 +221,7 @@ impl VideoDecoder {
+@@ -178,6 +230,7 @@ impl VideoDecoder {
              packet::CODEC_H264 => Some(VideoCodec::H264),
              packet::CODEC_H265 => Some(VideoCodec::HEVC),
              packet::CODEC_AV1 => Some(VideoCodec::AV1),
@@ -194,21 +195,21 @@ index c1d830d..3b8338e 100644
              _ => None,
          }
      }
-@@ -203,6 +255,9 @@ impl VideoDecoder {
+@@ -211,6 +264,9 @@ impl VideoDecoder {
      /// Hands a packet to the decoder. Returns whether a frame was submitted
      /// for decoding (it will come out of the output callback).
      pub fn send_packet(&mut self, packet: MediaPacket) -> Result<bool, JsValue> {
-+        if let Some(decoder) = &self.pyrowave {
-+            return self.send_pyrowave(decoder, packet);
++        if let Some((decoder, push)) = &self.pyrowave {
++            return self.send_pyrowave(decoder, push, packet);
 +        }
          if self.failed.replace(false) {
              self.reset()?;
          }
-@@ -308,6 +363,14 @@ impl Drop for VideoDecoder {
+@@ -320,6 +376,14 @@ impl Drop for VideoDecoder {
      fn drop(&mut self) {
          info!("Close video decoder");
  
-+        if let Some(decoder) = self.pyrowave.take() {
++        if let Some((decoder, _)) = self.pyrowave.take() {
 +            if let Ok(close) = js_sys::Reflect::get(&decoder, &"close".into())
 +                .and_then(|f| f.dyn_into::<js_sys::Function>())
 +            {

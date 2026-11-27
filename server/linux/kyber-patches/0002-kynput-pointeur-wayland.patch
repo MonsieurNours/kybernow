@@ -1,9 +1,9 @@
 diff --git a/kynput/src/linux/abs_pointer.rs b/kynput/src/linux/abs_pointer.rs
 new file mode 100644
-index 0000000..9a6bad8
+index 0000000..2db8fe0
 --- /dev/null
 +++ b/kynput/src/linux/abs_pointer.rs
-@@ -0,0 +1,160 @@
+@@ -0,0 +1,174 @@
 +// Project Kyber: abs_pointer.rs
 +// Copyright © 2022-2026 Kyber SAS
 +// SPDX-License-Identifier: LicenseRef-Kyber-Commercial OR AGPL-3.0-or-later
@@ -38,7 +38,8 @@ index 0000000..9a6bad8
 +//! jeux) rend la main à la souris relative.
 +
 +use std::sync::atomic::{AtomicBool, Ordering};
-+use std::sync::{Mutex, OnceLock};
++use std::sync::{Mutex, MutexGuard};
++use std::time::{Duration, Instant};
 +
 +use evdev_rs::{AbsInfo, InputEvent as EvdevEvent, TimeVal, UInputDevice, enums::*};
 +use log::{info, warn};
@@ -72,7 +73,12 @@ index 0000000..9a6bad8
 +    ..UINPUT_DEVICE_DESC_DEFAULT
 +};
 +
-+static DEVICE: OnceLock<Option<Mutex<UInputDevice>>> = OnceLock::new();
++/// Le périphérique, branché au premier besoin ; un échec (uinput pas encore
++/// ouvert au démarrage) est réessayé au plus toutes les `RETRY`, au lieu
++/// d'être gardé pour toute la vie de kynputserver.
++static DEVICE: Mutex<Option<UInputDevice>> = Mutex::new(None);
++static FAILED_AT: Mutex<Option<Instant>> = Mutex::new(None);
++const RETRY: Duration = Duration::from_secs(5);
 +static ACTIVE: AtomicBool = AtomicBool::new(false);
 +
 +/// Ce bureau ne laisse pas placer le pointeur par X11 (session Wayland, ou
@@ -84,16 +90,24 @@ index 0000000..9a6bad8
 +    wayland || !x11
 +}
 +
-+fn device() -> Option<&'static Mutex<UInputDevice>> {
-+    DEVICE
-+        .get_or_init(|| match plug_device(NAME, &DESC) {
-+            Ok(device) => Some(Mutex::new(device)),
-+            Err(err) => {
-+                warn!("'{NAME}' not plugged: {err:?}");
-+                None
++fn device() -> MutexGuard<'static, Option<UInputDevice>> {
++    let mut device = DEVICE.lock().unwrap_or_else(|e| e.into_inner());
++    if device.is_none() {
++        let mut failed = FAILED_AT.lock().unwrap_or_else(|e| e.into_inner());
++        if failed.is_none_or(|at| at.elapsed() >= RETRY) {
++            match plug_device(NAME, &DESC) {
++                Ok(plugged) => {
++                    *device = Some(plugged);
++                    *failed = None;
++                }
++                Err(err) => {
++                    warn!("'{NAME}' not plugged: {err:?}");
++                    *failed = Some(Instant::now());
++                }
 +            }
-+        })
-+        .as_ref()
++        }
++    }
++    device
 +}
 +
 +/// Le pointeur absolu tient le pointeur (dernier mouvement absolu).
@@ -117,7 +131,8 @@ index 0000000..9a6bad8
 +
 +/// Place le pointeur à (x, y) du bureau, dans la boîte des écrans `displays`.
 +pub(crate) fn move_to(displays: &[Display], x: i32, y: i32) -> Result<()> {
-+    let Some(device) = device() else { return Ok(()) };
++    let device = device();
++    let Some(device) = device.as_ref() else { return Ok(()) };
 +    let (Some(left), Some(top)) = (displays.iter().map(|d| d.x).min(), displays.iter().map(|d| d.y).min()) else {
 +        return Ok(());
 +    };
@@ -130,9 +145,8 @@ index 0000000..9a6bad8
 +    if !ACTIVE.swap(true, Ordering::Relaxed) {
 +        info!("'{NAME}' takes the pointer ({left},{top})-({right},{bottom})");
 +    }
-+    let device = device.lock().unwrap_or_else(|e| e.into_inner());
 +    write(
-+        &device,
++        device,
 +        &[
 +            (EventCode::EV_ABS(EV_ABS::ABS_X), scale(x, left, right)),
 +            (EventCode::EV_ABS(EV_ABS::ABS_Y), scale(y, top, bottom)),
@@ -144,16 +158,16 @@ index 0000000..9a6bad8
 +/// brancher) : il a pu recevoir l'appui avant qu'un mouvement relatif rende
 +/// la main à la souris relative.
 +pub(crate) fn release_button(code: EventCode) -> Result<()> {
-+    let Some(Some(device)) = DEVICE.get() else { return Ok(()) };
-+    let device = device.lock().unwrap_or_else(|e| e.into_inner());
-+    write(&device, &[(code, 0)])
++    let device = DEVICE.lock().unwrap_or_else(|e| e.into_inner());
++    let Some(device) = device.as_ref() else { return Ok(()) };
++    write(device, &[(code, 0)])
 +}
 +
 +/// Clic ou molette par le pointeur absolu (quand il tient le pointeur).
 +pub(crate) fn emit(events: &[(EventCode, i32)]) -> Result<()> {
-+    let Some(device) = device() else { return Ok(()) };
-+    let device = device.lock().unwrap_or_else(|e| e.into_inner());
-+    write(&device, events)
++    let device = device();
++    let Some(device) = device.as_ref() else { return Ok(()) };
++    write(device, events)
 +}
 +
 +#[cfg(test)]

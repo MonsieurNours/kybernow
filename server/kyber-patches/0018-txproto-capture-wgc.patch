@@ -1,21 +1,5 @@
---- a/subprojects/txproto/src/dxgi_cursor.h
-+++ b/subprojects/txproto/src/dxgi_cursor.h
-@@ -31,3 +31,15 @@
- int sp_dxgi_cursor_handler_send(DxgiCursorHandler *ctx,
-                                 IDXGIOutputDuplication *output_duplication,
-                                 const DXGI_OUTDUPL_FRAME_INFO *frame_info);
-+
-+/**
-+ * KyberNow: same as sp_dxgi_cursor_handler_send(), for a cursor read without
-+ * desktop duplication (displays captured through Windows Graphics Capture).
-+ * `position` is the top-left corner of the shape, relative to the output, as
-+ * in DXGI_OUTDUPL_POINTER_POSITION. `shape_info` and `data` (DXGI pointer
-+ * shape layout) may be NULL when only the position or visibility changed.
-+ */
-+int sp_dxgi_cursor_handler_send_shape(DxgiCursorHandler *ctx, int visible,
-+                                      POINT position,
-+                                      const DXGI_OUTDUPL_POINTER_SHAPE_INFO *shape_info,
-+                                      const uint8_t *data, uint32_t size);
+diff --git a/subprojects/txproto/src/dxgi_cursor.c b/subprojects/txproto/src/dxgi_cursor.c
+index ae7a7d6..ac1270c 100644
 --- a/subprojects/txproto/src/dxgi_cursor.c
 +++ b/subprojects/txproto/src/dxgi_cursor.c
 @@ -19,6 +19,7 @@
@@ -26,7 +10,7 @@
  #include <stdatomic.h>
  #include <pthread.h>
  
-@@ -779,4 +780,37 @@
+@@ -779,4 +780,37 @@ int sp_dxgi_cursor_handler_send(DxgiCursorHandler *ctx,
      ctx->first_frame = 0;
  
      return 0;
@@ -66,9 +50,31 @@
 +
 +    return 0;
 +}
+diff --git a/subprojects/txproto/src/dxgi_cursor.h b/subprojects/txproto/src/dxgi_cursor.h
+index 2fa072a..24509bf 100644
+--- a/subprojects/txproto/src/dxgi_cursor.h
++++ b/subprojects/txproto/src/dxgi_cursor.h
+@@ -31,3 +31,15 @@ void sp_dxgi_cursor_handler_uninit(DxgiCursorHandler **ctx);
+ int sp_dxgi_cursor_handler_send(DxgiCursorHandler *ctx,
+                                 IDXGIOutputDuplication *output_duplication,
+                                 const DXGI_OUTDUPL_FRAME_INFO *frame_info);
++
++/**
++ * KyberNow: same as sp_dxgi_cursor_handler_send(), for a cursor read without
++ * desktop duplication (displays captured through Windows Graphics Capture).
++ * `position` is the top-left corner of the shape, relative to the output, as
++ * in DXGI_OUTDUPL_POINTER_POSITION. `shape_info` and `data` (DXGI pointer
++ * shape layout) may be NULL when only the position or visibility changed.
++ */
++int sp_dxgi_cursor_handler_send_shape(DxgiCursorHandler *ctx, int visible,
++                                      POINT position,
++                                      const DXGI_OUTDUPL_POINTER_SHAPE_INFO *shape_info,
++                                      const uint8_t *data, uint32_t size);
+diff --git a/subprojects/txproto/src/iosys_dxgi.c b/subprojects/txproto/src/iosys_dxgi.c
+index 98d3d8f..add3e78 100644
 --- a/subprojects/txproto/src/iosys_dxgi.c
 +++ b/subprojects/txproto/src/iosys_dxgi.c
-@@ -131,6 +131,9 @@
+@@ -131,6 +131,9 @@ typedef struct DxgiCapture {
  
      int got_first_frame;
      int dropped_frames;
@@ -78,15 +84,10 @@
  } DxgiCapture;
  
  static uint32_t gen_identifier(const char *s)
-@@ -871,11 +874,687 @@
-             sp_log(ctx, SP_LOG_ERROR, "allocate_texture_pool() failed: %d\n", err);
-             return err;
-         }
-+    }
-+
-+    return 0;
-+}
-+
+@@ -876,6 +879,694 @@ static int check_resolution_change(DxgiCapture *priv,
+     return 0;
+ }
+ 
 +/* ------------------------------------------------------------------------
 + * KyberNow (0018): secondary displays captured through Windows Graphics
 + * Capture.
@@ -195,6 +196,7 @@
 +
 +    /* Pointer read with GetCursorInfo() */
 +    HCURSOR cursor;
++    HCURSOR cursor_failed; /* a shape that could not be read: not read again */
 +    int cursor_visible;
 +    POINT cursor_position;
 +    POINT cursor_hotspot;
@@ -278,10 +280,10 @@
 +            ID3D11Texture2D_Release(w->textures[i]);
 +        w->mutexes[i] = NULL;
 +        w->textures[i] = NULL;
-     }
++    }
 +    w->generation = 0;
 +}
- 
++
 +static void kn_wgc_close(DxgiCapture *priv)
 +{
 +    KnWgc *w = priv->wgc;
@@ -330,9 +332,9 @@
 +    }
 +    ID3D11Device1_Release(device1);
 +    w->generation = generation;
-     return 0;
- }
- 
++    return 0;
++}
++
 +/* Ring id ("<token>_<id>") of output `id` if the current session marker
 + * lists it; 0 otherwise. */
 +static int kn_wgc_session_ring(const char *id, char *ring, size_t size)
@@ -590,9 +592,16 @@
 +    uint8_t *data = NULL;
 +    uint32_t size = 0;
 +    const int new_shape = ci.hCursor != w->cursor;
-+    if (new_shape && kn_cursor_shape(ci.hCursor, &info, &data, &size) == 0) {
-+        w->cursor_hotspot = info.HotSpot;
-+        w->cursor = ci.hCursor;
++    if (new_shape && ci.hCursor != w->cursor_failed) {
++        if (kn_cursor_shape(ci.hCursor, &info, &data, &size) == 0) {
++            w->cursor_hotspot = info.HotSpot;
++            w->cursor = ci.hCursor;
++            w->cursor_failed = NULL;
++        } else {
++            /* Read again only when the pointer changes (GetIconInfo and
++             * GetDIBits at each wake-up otherwise). */
++            w->cursor_failed = ci.hCursor;
++        }
 +    }
 +
 +    POINT position = {
@@ -728,6 +737,10 @@
 +        int64_t ts = av_gettime_relative();
 +        frame->pts        = ts - priv->epoch;
 +        frame->opaque_ref = av_buffer_allocz(sizeof(FormatExtraData));
++        if (!frame->opaque_ref) {
++            av_frame_free(&frame);
++            continue;
++        }
 +
 +        FormatExtraData *fe = (FormatExtraData *)frame->opaque_ref->data;
 +        fe->time_base       = AV_TIME_BASE_Q;
@@ -766,7 +779,7 @@
  static void *dxgi_capture_thread(void *s)
  {
      IOSysEntry *entry = s;
-@@ -885,6 +1564,7 @@
+@@ -885,6 +1576,7 @@ static void *dxgi_capture_thread(void *s)
      AVFrame* frame = NULL;
      HRESULT hr;
      int err = 0;
@@ -774,7 +787,7 @@
  
      sp_set_thread_name_self(sp_class_get_name(entry));
      sp_eventlist_dispatch(entry, entry->events, SP_EVENT_ON_CONFIG | SP_EVENT_ON_INIT, NULL);
-@@ -903,6 +1583,24 @@
+@@ -903,6 +1595,24 @@ static void *dxgi_capture_thread(void *s)
          goto fail;
      }
  
@@ -799,7 +812,7 @@
      while (!atomic_load(&priv->quit)) {
          /* Capture may be restarted multiple time during a session in some cases:
           * - Fullscreen switch
-@@ -943,10 +1641,21 @@
+@@ -943,10 +1653,21 @@ static void *dxgi_capture_thread(void *s)
          }
  
          if (!priv->got_first_frame) {

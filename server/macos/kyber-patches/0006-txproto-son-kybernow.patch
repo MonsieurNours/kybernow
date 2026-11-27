@@ -1,3 +1,5 @@
+diff --git a/subprojects/txproto/src/iosys_screencapturekit.m b/subprojects/txproto/src/iosys_screencapturekit.m
+index 1f2c74d..3205553 100644
 --- a/subprojects/txproto/src/iosys_screencapturekit.m
 +++ b/subprojects/txproto/src/iosys_screencapturekit.m
 @@ -22,6 +22,7 @@
@@ -20,11 +22,10 @@
  } SCKCapture;
  
  static inline int64_t sck_now() {
-@@ -116,6 +122,58 @@
- 
+@@ -117,6 +123,58 @@ static inline int64_t sck_now() {
  static int sck_stopCapture(IOSysEntry *entry);
  static void destroy_entry(void *opaque, uint8_t *data);
-+
+ 
 +/*
 + * KyberNow (server/macos/kyber-patches/0006): during a session, Admin sends
 + * the Mac's sound to the KyberNow output (server/macos/audio-driver), set to
@@ -76,14 +77,14 @@
 +        *channels = f.mChannelsPerFrame;
 +    return dev;
 +}
- 
++
  static NSString *sck_display_name(CGDirectDisplayID displayID, NSString *uuid)
  {
-@@ -605,6 +663,15 @@
-     if (!capture) return 0;
+     NSString *localized = nil;
+@@ -606,6 +664,15 @@ static int sck_stopCapture(IOSysEntry *entry)
  
      atomic_store(&capture->quit, 1);
-+
+ 
 +    /* KyberNow (0006): loopback input of the KyberNow output. */
 +    if (capture->kn_proc) {
 +        AudioDeviceStop(capture->kn_device, capture->kn_proc);
@@ -92,15 +93,14 @@
 +        capture->kn_device = kAudioObjectUnknown;
 +        sp_log(entry, SP_LOG_INFO, "KyberNow audio capture stopped\n");
 +    }
- 
++
      dispatch_semaphore_t sem = dispatch_semaphore_create(0);
      __block NSError *stopErr = nil;
-@@ -830,8 +897,101 @@
  
-     sp_log(entry, SP_LOG_FATAL, "Audio capture requires macOS 13.0 or later\n");
+@@ -832,6 +899,116 @@ static int sck_startAudioCapture(IOSysEntry *entry)
      return -1;
-+}
-+
+ }
+ 
 +/* KyberNow (0006): one frame per Core Audio cycle of the loopback input,
 + * interleaved floats, timed by the cycle's host time (same clock as SCK). */
 +static void kn_push_input(IOSysEntry *entry, const AudioBufferList *in,
@@ -153,8 +153,21 @@
 +        sp_log(entry, SP_LOG_ERROR, "Push audio frame failed: %s\n", av_err2str(err));
 +    }
 +    av_frame_free(&frame);
- }
- 
++}
++
++/* KyberNow (0006): the channel count the entry announces, as captured now
++ * (the KyberNow output may have changed since the entry was made: Admin
++ * switches it to 5.1 after Kyber started). */
++static void kn_set_channels(IOSysEntry *entry, int channels)
++{
++    if (entry->channels == channels)
++        return;
++    sp_log(entry, SP_LOG_INFO, "Audio channels: %d (was %d)\n", channels, entry->channels);
++    entry->channels = channels;
++    av_channel_layout_uninit(&entry->ch_layout);
++    av_channel_layout_default(&entry->ch_layout, channels);
++}
++
 +static int kn_startAudioCapture(IOSysEntry *entry, AudioObjectID dev, int channels)
 +{
 +    SCKCapture *capture = (SCKCapture *)entry->io_priv;
@@ -168,7 +181,9 @@
 +                                     kAudioObjectPropertyScopeGlobal,
 +                                     kAudioObjectPropertyElementMain };
 +    Float64 rate = 48000.0;
-+    AudioObjectSetPropertyData(dev, &a, 0, NULL, sizeof(rate), &rate);
++    OSStatus rate_st = AudioObjectSetPropertyData(dev, &a, 0, NULL, sizeof(rate), &rate);
++    if (rate_st != noErr)
++        sp_log(entry, SP_LOG_WARN, "KyberNow audio: 48 kHz not set (%d)\n", (int)rate_st);
 +
 +    capture->kn_device = dev;
 +    capture->kn_channels = channels;
@@ -181,6 +196,7 @@
 +    if (st != noErr) {
 +        sp_log(entry, SP_LOG_ERROR, "KyberNow audio: IOProc creation failed (%d)\n", (int)st);
 +        capture->kn_proc = NULL;
++        kn_set_channels(entry, 2); /* ScreenCaptureKit: stereo */
 +        return sck_startAudioCapture(entry);
 +    }
 +    st = AudioDeviceStart(dev, capture->kn_proc);
@@ -188,6 +204,7 @@
 +        sp_log(entry, SP_LOG_ERROR, "KyberNow audio: start failed (%d)\n", (int)st);
 +        AudioDeviceDestroyIOProcID(dev, capture->kn_proc);
 +        capture->kn_proc = NULL;
++        kn_set_channels(entry, 2); /* ScreenCaptureKit: stereo */
 +        return sck_startAudioCapture(entry);
 +    }
 +    sp_log(entry, SP_LOG_INFO, "KyberNow audio capture started (%d channels)\n", channels);
@@ -197,7 +214,7 @@
  static int sck_ioctx_ctrl_cb(AVBufferRef *event_ref, void *callback_ctx,
                                void *ctx, void *dep_ctx, void *data)
  {
-@@ -844,8 +1004,13 @@
+@@ -844,8 +1021,16 @@ static int sck_ioctx_ctrl_cb(AVBufferRef *event_ref, void *callback_ctx,
          capture->epoch = sck_now();
          if (entry->type == SP_IO_TYPE_VIDEO_DISPLAY)
              return sck_startVideoCapture(entry);
@@ -205,14 +222,17 @@
 +        if (entry->type == SP_IO_TYPE_AUDIO_MONITOR) {
 +            int kn_ch = 0;
 +            AudioObjectID kn = kn_output_device(&kn_ch);
-+            if (kn != kAudioObjectUnknown)
++            if (kn != kAudioObjectUnknown) {
++                kn_set_channels(entry, kn_ch);
 +                return kn_startAudioCapture(entry, kn, kn_ch);
++            }
++            kn_set_channels(entry, 2); /* ScreenCaptureKit: stereo */
              return sck_startAudioCapture(entry);
 +        }
          return AVERROR(EINVAL);
      } else if (event->ctrl & SP_EVENT_CTRL_STOP) {
          return sck_stopCapture(entry);
-@@ -1099,8 +1264,11 @@
+@@ -1099,8 +1284,11 @@ static int update_entries_locked(SCKCtx *ctx)
                  entry->api_priv = ctx;
                  entry->sample_rate = 48000;
                  entry->sample_fmt = AV_SAMPLE_FMT_FLTP;
@@ -226,9 +246,22 @@
                  entry->is_default = CGDisplayIsMain(displayID);
  
                  AVBufferRef *buf = av_buffer_create((uint8_t *)entry, sizeof(*entry),
+@@ -1109,6 +1297,10 @@ static int update_entries_locked(SCKCtx *ctx)
+             } else {
+                 IOSysEntry *entry = (IOSysEntry *)ref->data;
+                 entry->is_default = CGDisplayIsMain(displayID);
++                /* KyberNow (0006): the KyberNow output's channels now. */
++                int kn_ch = 2;
++                kn_output_device(&kn_ch);
++                kn_set_channels(entry, kn_ch);
+                 av_buffer_unref(&ref);
+             }
+         }
+diff --git a/subprojects/txproto/src/meson.build b/subprojects/txproto/src/meson.build
+index c9837ab..5aeda63 100644
 --- a/subprojects/txproto/src/meson.build
 +++ b/subprojects/txproto/src/meson.build
-@@ -161,7 +161,7 @@
+@@ -161,7 +161,7 @@ have_screencapturekit = false
  
  # ScreenCaptureKit
  screencapturekit = dependency('appleframeworks',

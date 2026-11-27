@@ -1,8 +1,8 @@
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index 557b586..bfa8b68 100644
+index af9a756..26dfbfd 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
-@@ -1275,7 +1275,7 @@ fn from_loopback(req: &HttpRequest) -> bool {
+@@ -1303,7 +1303,7 @@ fn from_loopback(req: &HttpRequest) -> bool {
  }
  
  /// KyberNow Admin only: from this computer (403), with its own token (401).
@@ -11,7 +11,7 @@ index 557b586..bfa8b68 100644
      if !from_loopback(req) {
          warn!("/kybernow refused to {:?}: not local", req.peer_addr());
          return Some(HttpResponse::Forbidden().finish());
-@@ -1296,7 +1296,7 @@ fn admin_refusal(req: &HttpRequest) -> Option<HttpResponse> {
+@@ -1324,7 +1324,7 @@ fn admin_refusal(req: &HttpRequest) -> Option<HttpResponse> {
  }
  
  /// The body is only read once the caller is known to be KyberNow Admin.
@@ -56,7 +56,7 @@ index c010120..0bf09e3 100644
  #[derive(Default)]
  struct GuestQueue {
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
-index 1cad313..a8c4c5b 100644
+index 7ee2888..d723e2a 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
 @@ -54,7 +54,10 @@ mod kyber_agent;
@@ -92,10 +92,10 @@ index 1cad313..a8c4c5b 100644
      if let Some(agent_task) = agent_task {
 diff --git a/kycontroller/src/mp4.rs b/kycontroller/src/mp4.rs
 new file mode 100644
-index 0000000..94a4aad
+index 0000000..f499f1d
 --- /dev/null
 +++ b/kycontroller/src/mp4.rs
-@@ -0,0 +1,1216 @@
+@@ -0,0 +1,1233 @@
 +// KyberNow: a fragmented MP4 writer for session recordings (patch 0070).
 +//
 +// The packets are the encoder's own: H.264 or HEVC in Annex B (start codes),
@@ -311,8 +311,8 @@ index 0000000..94a4aad
 +        if chroma == 3 {
 +            b.bit()?; // separate_colour_plane_flag
 +        }
-+        depth_luma = b.ue()? + 8;
-+        depth_chroma = b.ue()? + 8;
++        depth_luma = b.ue()?.checked_add(8)?;
++        depth_chroma = b.ue()?.checked_add(8)?;
 +        b.bit()?; // qpprime_y_zero_transform_bypass_flag
 +        if b.bit()? == 1 {
 +            let lists = if chroma == 3 { 12 } else { 8 };
@@ -347,8 +347,9 @@ index 0000000..94a4aad
 +    }
 +    b.ue()?; // max_num_ref_frames
 +    b.bit()?; // gaps_in_frame_num_value_allowed_flag
-+    let width_mbs = b.ue()? + 1;
-+    let height_units = b.ue()? + 1;
++    // A damaged SPS (values up to 2^32) is refused, never an overflow.
++    let width_mbs = b.ue()?.checked_add(1)?;
++    let height_units = b.ue()?.checked_add(1)?;
 +    let frame_mbs_only = b.bit()?;
 +    if frame_mbs_only == 0 {
 +        b.bit()?;
@@ -361,10 +362,14 @@ index 0000000..94a4aad
 +        top = b.ue()?;
 +        bottom = b.ue()?;
 +    }
-+    let crop_x = if chroma == 1 || chroma == 2 { 2 } else { 1 };
++    let crop_x: u32 = if chroma == 1 || chroma == 2 { 2 } else { 1 };
 +    let crop_y = (if chroma == 1 { 2 } else { 1 }) * (2 - frame_mbs_only);
-+    let width = (width_mbs * 16).checked_sub(crop_x * (left + right))?;
-+    let height = ((2 - frame_mbs_only) * height_units * 16).checked_sub(crop_y * (top + bottom))?;
++    let width = width_mbs
++        .checked_mul(16)?
++        .checked_sub(crop_x.checked_mul(left.checked_add(right)?)?)?;
++    let height = ((2 - frame_mbs_only) * 16)
++        .checked_mul(height_units)?
++        .checked_sub(crop_y.checked_mul(top.checked_add(bottom)?)?)?;
 +    Some(H264Sps {
 +        profile,
 +        compat,
@@ -431,10 +436,10 @@ index 0000000..94a4aad
 +        top = b.ue()?;
 +        bottom = b.ue()?;
 +    }
-+    let depth_luma = b.ue()? + 8;
-+    let depth_chroma = b.ue()? + 8;
-+    let sub_w = if chroma == 1 || chroma == 2 { 2 } else { 1 };
-+    let sub_h = if chroma == 1 { 2 } else { 1 };
++    let depth_luma = b.ue()?.checked_add(8)?;
++    let depth_chroma = b.ue()?.checked_add(8)?;
++    let sub_w: u32 = if chroma == 1 || chroma == 2 { 2 } else { 1 };
++    let sub_h: u32 = if chroma == 1 { 2 } else { 1 };
 +    Some(HevcSps {
 +        ptl,
 +        sub_layers: max_sub_layers_minus1 + 1,
@@ -442,8 +447,8 @@ index 0000000..94a4aad
 +        chroma,
 +        depth_luma,
 +        depth_chroma,
-+        width: pic_width.checked_sub(sub_w * (left + right))?,
-+        height: pic_height.checked_sub(sub_h * (top + bottom))?,
++        width: pic_width.checked_sub(sub_w.checked_mul(left.checked_add(right)?)?)?,
++        height: pic_height.checked_sub(sub_h.checked_mul(top.checked_add(bottom)?)?)?,
 +    })
 +}
 +
@@ -1220,6 +1225,18 @@ index 0000000..94a4aad
 +        let data = w.finish().unwrap().into_inner();
 +        let moofs = top_boxes(&data).into_iter().filter(|(k, _)| k == "moof").count();
 +        assert!(moofs >= 3, "{moofs}");
++    }
++
++    #[test]
++    fn damaged_sps_is_refused() {
++        // profile 100, then ue() fields of 32 bits: chroma, depths…
++        let mut sps = vec![0x67, 100, 0, 40];
++        sps.extend_from_slice(&[0x80]); // seq_parameter_set_id = 0
++        sps.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x01, 0xff, 0xff, 0xff, 0xff]);
++        assert!(parse_h264_sps(&sps).is_none());
++        let mut short = h264_sps();
++        short.truncate(6);
++        assert!(parse_h264_sps(&short).is_none());
 +    }
 +
 +    #[test]

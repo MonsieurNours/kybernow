@@ -327,10 +327,18 @@ git -C "$KYCTL" archive HEAD | tar -x -C "$WEB_KYSDK/kyctl"
 for p in "$HERE"/*.patch; do
     case "$(basename "$p")" in *-kywebplayer-* | *-kyctlweb-*) ;; *) continue ;; esac
     echo "    $(basename "$p") (moteur web)"
-    (cd "$WEB_KYSDK/kyctl" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | sed 's/^/        /') || {
+    out="$(cd "$WEB_KYSDK/kyctl" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p")" || {
+        printf '%s\n' "$out" | sed 's/^/        /'
         echo "Correctif $(basename "$p") inapplicable au kyctl d'origine" >&2
         exit 1
     }
+    printf '%s\n' "$out" | sed 's/^/        /'
+    # Comme apply.sh : un décalage du contexte est un échec, sauf avec
+    # KYBERNOW_PATCH_STRICT=0.
+    if grep -q 'with fuzz' <<< "$out"; then
+        echo "Correctif $(basename "$p") posé avec un décalage du contexte (fuzz) : à régénérer" >&2
+        [ "${KYBERNOW_PATCH_STRICT:-1}" = 0 ] || exit 1
+    fi
 done
 for r in kymedia kymux kynput kyutil; do
     ln -sfn "$THIRD_PARTY/kyber-desktop/kysdk/$r" "$WEB_KYSDK/$r"

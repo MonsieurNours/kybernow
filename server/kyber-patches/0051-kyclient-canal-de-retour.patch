@@ -61,10 +61,10 @@ index e264c6b..d014dba 100644
  }
  
 diff --git a/kyclient/src/capi.rs b/kyclient/src/capi.rs
-index f2743a3..71dce19 100644
+index 0f0c6e5..e182c52 100644
 --- a/kyclient/src/capi.rs
 +++ b/kyclient/src/capi.rs
-@@ -1759,6 +1759,19 @@ impl From<metrics::Metric> for Metric {
+@@ -1716,6 +1716,19 @@ impl From<metrics::Metric> for Metric {
                      network_remote: network_stats.into(),
                  },
              },
@@ -84,7 +84,7 @@ index f2743a3..71dce19 100644
          }
      }
  }
-@@ -1775,6 +1788,10 @@ pub unsafe extern "C" fn kyclient_client_set_metrics_callback(
+@@ -1732,6 +1745,10 @@ pub unsafe extern "C" fn kyclient_client_set_metrics_callback(
          let metrics_cb = Arc::new(metrics_cb);
          let userdata = Arc::new(AtomicPtr::new(userdata));
          let cb = move |metric: metrics::Metric| unsafe {
@@ -180,7 +180,7 @@ index 8bb638a..6324a06 100644
      connection: &kyproto::Connection,
      metrics: MetricsProducer,
 diff --git a/kyclient/src/kymux_backend/net_kyproto.rs b/kyclient/src/kymux_backend/net_kyproto.rs
-index 84565ef..bbbd504 100644
+index 84565ef..5db67a6 100644
 --- a/kyclient/src/kymux_backend/net_kyproto.rs
 +++ b/kyclient/src/kymux_backend/net_kyproto.rs
 @@ -39,6 +39,8 @@ pub(crate) struct KyProtoTransport {
@@ -192,7 +192,7 @@ index 84565ef..bbbd504 100644
  }
  
  impl KyProtoTransport {
-@@ -54,12 +56,33 @@ impl KyProtoTransport {
+@@ -54,12 +56,39 @@ impl KyProtoTransport {
          // Start stream
          let host_config = host_service::start_stream(backend_config, has_metrics).await?;
  
@@ -206,6 +206,12 @@ index 84565ef..bbbd504 100644
 +        // KyberNow (0051): reports to the Station, and their summary to the
 +        // app once a second. An older Station answers no channel.
 +        let feedback = match &host_config.feedback {
++            // A Station that answers another version than the one asked:
++            // the channel stays off rather than being read wrongly.
++            Some(fb) if fb.v != kymux::kyproto::FEEDBACK_VERSION => {
++                warn!("Feedback channel version {} not understood: channel off", fb.v);
++                None
++            }
 +            Some(fb) => {
 +                info!(
 +                    "Feedback channel: endpoint {:X}, sound redundancy {}",
@@ -227,7 +233,7 @@ index 84565ef..bbbd504 100644
          let msg_sender = backend_config.msg_sender.clone();
  
          // Monitor connection closed
-@@ -71,6 +94,7 @@ impl KyProtoTransport {
+@@ -71,6 +100,7 @@ impl KyProtoTransport {
              connection,
              closed_task: Some(closed_task),
              metrics_tasks,
@@ -235,7 +241,7 @@ index 84565ef..bbbd504 100644
          };
  
          Ok((transport, endpoints))
-@@ -80,6 +104,7 @@ impl KyProtoTransport {
+@@ -80,6 +110,7 @@ impl KyProtoTransport {
          // Abort the metrics pollers before closing the connection so they stop
          // with the data plane instead of erroring against a dead connection.
          self.metrics_tasks.clear();
@@ -243,7 +249,7 @@ index 84565ef..bbbd504 100644
          self.closed_task = None;
  
          self.connection.close();
-@@ -314,15 +339,27 @@ fn create_audio_endpoint(
+@@ -314,15 +345,27 @@ fn create_audio_endpoint(
          return Ok(None);
      };
  

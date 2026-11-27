@@ -37,10 +37,10 @@ index c3c5cb3..af406ee 100644
    common_conf += [
 diff --git a/subprojects/packagefiles/ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch b/subprojects/packagefiles/ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch
 new file mode 100644
-index 0000000..1816804
+index 0000000..ab5e595
 --- /dev/null
 +++ b/subprojects/packagefiles/ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch
-@@ -0,0 +1,741 @@
+@@ -0,0 +1,748 @@
 +From: KyberNow
 +Subject: [PATCH] avcodec: PyroWave encoder for D3D11 frames (libpyrowave)
 +
@@ -146,7 +146,7 @@ index 0000000..1816804
 +index 0000000..801c184
 +--- /dev/null
 ++++ b/libavcodec/libpyrowave_enc.c
-+@@ -0,0 +1,635 @@
++@@ -0,0 +1,642 @@
 ++/*
 ++ * PyroWave encoder for D3D11 frames (KyberNow).
 ++ *
@@ -607,6 +607,13 @@ index 0000000..1816804
 ++
 ++    /* The shared texture follows the size and format of the capture. */
 ++    ID3D11Texture2D_GetDesc(src, &src_desc);
+++    /* The encoder was opened for SDR (BGRA) or HDR10 (P010): a frame of the
+++     * other kind would be encoded with the wrong colours. */
+++    if ((src_desc.Format == DXGI_FORMAT_P010) != !!s->hdr) {
+++        av_log(avctx, AV_LOG_ERROR, "Capture format (DXGI %d) is not the one the encoder was opened for\n",
+++               src_desc.Format);
+++        return AVERROR(EINVAL);
+++    }
 ++    if (!s->shared || s->shared_format != src_desc.Format ||
 ++        s->shared_width != frame->width || s->shared_height != frame->height) {
 ++        if (pw_vk_format(src_desc.Format) == VK_FORMAT_UNDEFINED) {

@@ -1,12 +1,13 @@
 diff --git a/kynput/src/capi/mod.rs b/kynput/src/capi/mod.rs
+index b74f753..21c6663 100644
 --- a/kynput/src/capi/mod.rs
 +++ b/kynput/src/capi/mod.rs
-@@ -825,8 +825,9 @@
+@@ -823,11 +823,12 @@ pub extern "C" fn kynput_mouse_position_y(position: &MousePosition) -> i16 {
+ }
  
--/// KyberNow: whether this build's host side injects pens (Windows: a
+ /// KyberNow: whether this build's host side injects pens (Windows: a
 -/// synthetic pen, see `windows/host_pen.rs`). A host that does tells each
 -/// client so (`PenAvailable`).
-+/// KyberNow: whether this build's host side injects pens (Windows: a
 +/// synthetic pen, see `windows/host_pen.rs`; macOS: tablet events, see
 +/// `macos/host_keyboard_mouse.rs`). A host that does tells each client so
 +/// (`PenAvailable`).
@@ -15,10 +16,13 @@ diff --git a/kynput/src/capi/mod.rs b/kynput/src/capi/mod.rs
 -    cfg!(target_os = "windows")
 +    cfg!(any(target_os = "windows", target_os = "macos"))
  }
+ 
+ #[unsafe(no_mangle)]
 diff --git a/kynput/src/macos/host_keyboard_mouse.rs b/kynput/src/macos/host_keyboard_mouse.rs
+index 6e98c9e..4bd8742 100644
 --- a/kynput/src/macos/host_keyboard_mouse.rs
 +++ b/kynput/src/macos/host_keyboard_mouse.rs
-@@ -2,12 +2,12 @@
+@@ -2,12 +2,12 @@ use std::collections::HashMap;
  use std::sync::Arc;
  
  use keycode::{KeyMap, KeyMapping};
@@ -33,7 +37,7 @@ diff --git a/kynput/src/macos/host_keyboard_mouse.rs b/kynput/src/macos/host_key
  };
  use crate::{Error, Result};
  use crate::{HostConfig, InputConsumer, InputPacket, InputType, Modifiers, Payload};
-@@ -69,6 +69,60 @@
+@@ -69,6 +69,60 @@ struct Backend {
      source: Option<CGEventSource>,
      last_click: Option<(MouseButtonType, std::time::Instant, CGPoint, i64)>,
      warned_access: bool,
@@ -44,7 +48,7 @@ diff --git a/kynput/src/macos/host_keyboard_mouse.rs b/kynput/src/macos/host_key
 +    posted: Vec<CGEvent>,
 +}
 +
-+// KyberNow (server/macos/kyber-patches/0016) : stylet (paquet `Pen`,
++// KyberNow (server/macos/kyber-patches/0020) : stylet (paquet `Pen`,
 +// docs/stylet.md).
 +//
 +// Comme une tablette sur le Mac : l'approche et le départ sont des événements
@@ -94,7 +98,7 @@ diff --git a/kynput/src/macos/host_keyboard_mouse.rs b/kynput/src/macos/host_key
  }
  
  use core_graphics::display::CGDisplay;
-@@ -211,6 +265,9 @@
+@@ -211,6 +265,9 @@ impl Backend {
              source,
              last_click: None,
              warned_access: false,
@@ -104,7 +108,7 @@ diff --git a/kynput/src/macos/host_keyboard_mouse.rs b/kynput/src/macos/host_key
          }))
      }
  
-@@ -243,6 +300,9 @@
+@@ -243,6 +300,9 @@ impl Backend {
              warn!("macOS refuse les événements de Kyber : autoriser « KyberNow Station » dans Réglages > Confidentialité et sécurité > Accessibilité");
              self.warned_access = true;
          }
@@ -114,7 +118,7 @@ diff --git a/kynput/src/macos/host_keyboard_mouse.rs b/kynput/src/macos/host_key
          event.post(CGEventTapLocation::HID);
      }
  
-@@ -299,12 +359,20 @@
+@@ -299,12 +359,20 @@ impl Backend {
              return Ok(());
          };
          cg.set_integer_value_field(EventField::MOUSE_EVENT_BUTTON_NUMBER, button_number(event.button));
@@ -138,7 +142,7 @@ diff --git a/kynput/src/macos/host_keyboard_mouse.rs b/kynput/src/macos/host_key
                          && now.duration_since(t) <= MULTI_CLICK_TIME
                          && (p.x - self.position.x).abs() <= MULTI_CLICK_DISTANCE
                          && (p.y - self.position.y).abs() <= MULTI_CLICK_DISTANCE =>
-@@ -313,14 +381,157 @@
+@@ -313,14 +381,157 @@ impl Backend {
                  }
                  _ => 1,
              };
@@ -300,7 +304,7 @@ diff --git a/kynput/src/macos/host_keyboard_mouse.rs b/kynput/src/macos/host_key
          Ok(())
      }
  
-@@ -379,6 +590,7 @@
+@@ -379,6 +590,7 @@ impl ThreadedConsumerBackend for Backend {
              Payload::MouseMove(ref event) => self.inject_move(event),
              Payload::MousePosition(ref position) => self.inject_position(position),
              Payload::MouseWheel(ref event) => self.inject_wheel(event),
@@ -308,7 +312,7 @@ diff --git a/kynput/src/macos/host_keyboard_mouse.rs b/kynput/src/macos/host_key
              _ => {
                  error!("Unexpected packet type {:?}", pkt.get_type());
                  Err(Error::InvalidType)
-@@ -439,7 +651,153 @@
+@@ -439,7 +651,153 @@ impl InputHandler for HostKeyboardMouseHandler {
                  InputType::MousePosition,
                  InputType::MouseMove,
                  InputType::MouseWheel,
