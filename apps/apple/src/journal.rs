@@ -69,10 +69,10 @@ fn compress(header: &str, body: &str, limit: usize) -> Vec<u8> {
         while !body.is_char_boundary(start) {
             start += 1;
         }
-        if let Some(nl) = body[start..].find('\n') {
-            if start > 0 {
-                start += nl + 1;
-            }
+        if start > 0
+            && let Some(nl) = body[start..].find('\n')
+        {
+            start += nl + 1;
         }
         let tail = &body[start..];
         let out = gzip(format!("{header}[… début du journal retiré : {start} octets]\n{tail}").as_bytes());

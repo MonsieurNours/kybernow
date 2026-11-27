@@ -1250,20 +1250,20 @@ impl Platform for ApplePlatform {
             report_error: report_error_c.as_ref().map(|c| c.as_ptr()).unwrap_or(std::ptr::null()),
         };
         unsafe { f(self.cb.userdata, &s) };
-        if matches!(status, Status::StationRestarting) {
-            if let Some(notice) = self.cb.on_notice {
-                let n = KnNotice {
-                    kind: KN_NOTICE_STATION_RESTARTING,
-                    width: 0,
-                    height: 0,
-                    back: false,
-                    level: 0,
-                    bitrate_mbps: 0,
-                    has_mode: false,
-                    error: std::ptr::null(),
-                };
-                unsafe { notice(self.cb.userdata, &n) };
-            }
+        if matches!(status, Status::StationRestarting)
+            && let Some(notice) = self.cb.on_notice
+        {
+            let n = KnNotice {
+                kind: KN_NOTICE_STATION_RESTARTING,
+                width: 0,
+                height: 0,
+                back: false,
+                level: 0,
+                bitrate_mbps: 0,
+                has_mode: false,
+                error: std::ptr::null(),
+            };
+            unsafe { notice(self.cb.userdata, &n) };
         }
     }
 
