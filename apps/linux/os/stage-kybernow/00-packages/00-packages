@@ -17,3 +17,5 @@ libgl1-mesa-dri
 libvulkan1
 mesa-vulkan-drivers
 vulkan-tools
+minisign
+python3

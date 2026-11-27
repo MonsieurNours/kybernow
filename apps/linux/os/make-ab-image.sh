@@ -40,19 +40,18 @@ trap cleanup EXIT
 LB="$(losetup --show --find --partscan "$BASE")"
 sleep 1
 [ -b "${LB}p1" ] && [ -b "${LB}p2" ] || { echo "la base n'a pas deux partitions ($LB)" >&2; exit 1; }
-# rootA et rootB : ce que la base occupe (pas sa partition, que pi-gen laisse
-# large), plus un gigaoctet ; le tout doit tenir sur une carte de 8 Go
-# (environ 7 580 Mio utilisables).
+# rootA et rootB : taille fixe, 3 200 Mo, pour qu'une version plus lourde
+# tienne toujours dans l'emplacement d'une carte flashée avec une plus ancienne
+# (la mise à jour refuse une image plus grande que l'emplacement). Le tout tient
+# sur une carte de 8 Go : deux fois 256 Mo de démarrage, deux fois 3 200 Mo,
+# 256 Mo de données, 32 Mo d'alignement, soit 7 200 Mo (certaines cartes
+# « 8 Go » n'offrent que 7 400 Mio).
+ROOT_MB=3200
 SRC="$(mktemp -d)"
 mount -o ro "${LB}p2" "$SRC"
 USED_MB=$(du -sm -x "$SRC" | cut -f1)
 umount "$SRC"; rmdir "$SRC"
-# Un gigaoctet libre pour apt et le journal, dans la limite d'une carte de 8 Go
-# (deux fois 256 Mo de démarrage, 256 Mo de données, 8 Mo d'alignement : 7 200 Mo
-# au plus, certaines cartes « 8 Go » n'offrant que 7 400 Mio).
-ROOT_MB=$(( USED_MB + 1024 ))
-[ "$ROOT_MB" -le 3200 ] || ROOT_MB=3200
-ROOT_MB=$(( (ROOT_MB + 7) / 8 * 8 ))
+[ "$USED_MB" -le $((ROOT_MB - 512)) ] || { echo "le système ($USED_MB Mo) ne laisse plus 512 Mo libres dans un emplacement de $ROOT_MB Mo" >&2; exit 1; }
 
 # La sortie : partitions alignées sur 8 Mo.
 p1s=8; p1e=$((p1s + BOOT_MB))
@@ -107,7 +106,7 @@ cat > "$MNT/etc/fstab" <<EOF
 proc                      /proc            proc    defaults          0  0
 PARTUUID=$DISK_ID-01  /boot/firmware   vfat    defaults          0  2
 PARTUUID=$DISK_ID-02  /                ext4    defaults,noatime  0  1
-PARTUUID=$DISK_ID-06  /var/lib/kybernow ext4   defaults,noatime,nofail,x-systemd.growfs  0  2
+PARTUUID=$DISK_ID-06  /var/lib/kybernow ext4   defaults,noatime,nofail  0  2
 EOF
 mkdir -p "$MNT/var/lib/kybernow"
 # autoboot.txt : A par défaut, B à l'essai.

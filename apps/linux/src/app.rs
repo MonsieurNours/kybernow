@@ -2816,6 +2816,8 @@ pub struct OsInfo {
     pub ab: bool,
     /// Un essai est en cours (version qui attend d'être inscrite).
     pub pending: String,
+    /// Une mise à jour essayée qui n'a pas démarré (version), l'appareil est revenu à la sienne.
+    pub failed: String,
     pub tryboot: bool,
     pub ssh: bool,
     pub built: String,
@@ -7152,6 +7154,10 @@ impl App {
                 return vec![Action::Os(OsAction::Standby(true))];
             }
             Setting::OsUpdateApply => {
+                // Une seule écriture à la fois (un double appui ne lance pas deux « apply »).
+                if self.os_update.applying {
+                    return Vec::new();
+                }
                 if self.os_update.ready.is_some() {
                     self.os_update.applying = true;
                     return vec![Action::Os(OsAction::UpdateApply)];
@@ -7168,7 +7174,13 @@ impl App {
                 self.toast(tr("La mise à jour attend ici : rien ne s'installe sans vous", "The update waits here: nothing installs without you"));
                 return Vec::new();
             }
-            Setting::OsRollback => return vec![Action::Os(OsAction::Rollback)],
+            Setting::OsRollback => {
+                if self.os_update.applying {
+                    return Vec::new();
+                }
+                self.os_update.applying = true;
+                return vec![Action::Os(OsAction::Rollback)];
+            }
             Setting::OsWifi => {
                 self.open_setup_step(SetupStep::Network);
                 self.setup.wifi_scanning = true;

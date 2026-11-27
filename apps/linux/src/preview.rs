@@ -1648,7 +1648,7 @@ fn os_shots(en: bool, dir: &Path) {
     use crate::app::{BtDevice, OsInfo, SetupStep, UpdateState, WifiNet, OS_SECTIONS};
     let mut app = demo(en, Layout::Tv);
     raspberry(&mut app);
-    app.os = Some(OsInfo { version: "0.6.0".into(), slot: "A".into(), other: "B".into(), other_version: String::new(), ab: true, pending: String::new(), tryboot: false, ssh: false, built: "2026-10-02".into() });
+    app.os = Some(OsInfo { version: "0.6.0".into(), slot: "A".into(), other: "B".into(), other_version: String::new(), ab: true, pending: String::new(), failed: String::new(), tryboot: false, ssh: false, built: "2026-10-02".into() });
     app.machine.display = (3840, 2160);
     app.machine.refresh = 60;
     app.machine.max_hz_1080p = 120;

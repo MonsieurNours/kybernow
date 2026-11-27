@@ -63,6 +63,9 @@ cp "$DEB" "$PIGEN/stage-kybernow/01-link/files/kybernow-link.deb"
 # La version de l'OS (celle du paquet), lue par 00-run.sh : pi-gen ne passe pas
 # les variables de config inconnues aux stages.
 echo "$VERSION" > "$PIGEN/stage-kybernow/01-link/files/version"
+# La clé publique de publication (celle des apps et de la Station) : la mise à
+# jour de l'OS vérifie le manifeste signé avec elle, côté root.
+cp "$APPS/../server/admin/src/update/kybernow-release.pub" "$PIGEN/stage-kybernow/01-link/files/release.pub"
 chmod +x "$PIGEN/stage-kybernow"/*/*.sh "$PIGEN/stage-kybernow/prerun.sh"
 # Les stages de bureau ne servent pas, et seul le nôtre exporte une image.
 touch "$PIGEN/stage3/SKIP" "$PIGEN/stage4/SKIP" "$PIGEN/stage5/SKIP" "$PIGEN/stage2/SKIP_IMAGES" "$PIGEN/stage4/SKIP_IMAGES" "$PIGEN/stage5/SKIP_IMAGES"

@@ -1,2 +1,21 @@
-# KyberNow Link OS : ce que l'app (compte kybernow) peut demander au système.
-kybernow ALL=(root) NOPASSWD: /usr/local/sbin/kybernow-os-update, /usr/local/sbin/kybernow-os-ctl
+# KyberNow Link OS : ce que l'app (compte kybernow) peut demander au système,
+# avec ces arguments exactement (sudo refuse tout autre argument). apply ne
+# prend pas de chemin : il lit le dossier des mises à jour et vérifie lui-même
+# la signature et l'empreinte de l'image (kybernow-os-update).
+Cmnd_Alias KYBERNOW_OS_UPDATE = /usr/local/sbin/kybernow-os-update status, \
+    /usr/local/sbin/kybernow-os-update apply, \
+    /usr/local/sbin/kybernow-os-update commit, \
+    /usr/local/sbin/kybernow-os-update rollback
+Cmnd_Alias KYBERNOW_OS_CTL = /usr/local/sbin/kybernow-os-ctl ssh on, \
+    /usr/local/sbin/kybernow-os-ctl ssh off, \
+    /usr/local/sbin/kybernow-os-ctl reboot, \
+    /usr/local/sbin/kybernow-os-ctl poweroff, \
+    /usr/local/sbin/kybernow-os-ctl standby on, \
+    /usr/local/sbin/kybernow-os-ctl standby off, \
+    /usr/local/sbin/kybernow-os-ctl cec-name, \
+    /usr/local/sbin/kybernow-os-ctl cec-off, \
+    /usr/local/sbin/kybernow-os-ctl hdmi auto, \
+    /usr/local/sbin/kybernow-os-ctl hdmi 2160p60, \
+    /usr/local/sbin/kybernow-os-ctl hdmi 1080p120, \
+    /usr/local/sbin/kybernow-os-ctl hdmi 1080p60
+kybernow ALL=(root) NOPASSWD: KYBERNOW_OS_UPDATE, KYBERNOW_OS_CTL

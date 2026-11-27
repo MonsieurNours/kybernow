@@ -10,9 +10,15 @@ install -m 644 "$F/kybernow-link.deb" "${ROOTFS_DIR}/tmp/kybernow-link.deb"
 install -m 644 "$F/systemd/kybernow-link.service" "${ROOTFS_DIR}/etc/systemd/system/kybernow-link.service"
 install -m 644 "$F/systemd/kybernow-os-firstboot.service" "${ROOTFS_DIR}/etc/systemd/system/kybernow-os-firstboot.service"
 install -m 644 "$F/systemd/kybernow-os-ssh.service" "${ROOTFS_DIR}/etc/systemd/system/kybernow-os-ssh.service"
+install -m 644 "$F/systemd/kybernow-os-trial.service" "${ROOTFS_DIR}/etc/systemd/system/kybernow-os-trial.service"
+install -m 644 "$F/systemd/kybernow-os-trial.timer" "${ROOTFS_DIR}/etc/systemd/system/kybernow-os-trial.timer"
 install -m 755 "$F/kybernow-os-firstboot" "${ROOTFS_DIR}/usr/local/sbin/kybernow-os-firstboot"
 install -m 755 "$F/kybernow-os-update" "${ROOTFS_DIR}/usr/local/sbin/kybernow-os-update"
+install -m 755 "$F/kybernow-os-image" "${ROOTFS_DIR}/usr/local/sbin/kybernow-os-image"
 install -m 755 "$F/kybernow-os-ctl" "${ROOTFS_DIR}/usr/local/sbin/kybernow-os-ctl"
+# Le chien de garde matériel (un système figé redémarre, un essai A/B raté revient au défaut).
+install -d -m 755 "${ROOTFS_DIR}/etc/systemd/system.conf.d"
+install -m 644 "$F/etc/watchdog-kybernow.conf" "${ROOTFS_DIR}/etc/systemd/system.conf.d/kybernow-watchdog.conf"
 
 # L'OS se reconnaît (l'app lit ce dossier : mode OS, version, disposition A/B).
 install -d -m 755 "${ROOTFS_DIR}/etc/kybernow-os"
@@ -22,6 +28,9 @@ VERSION="$(cat "$F/version" 2>/dev/null || echo 0)"
 BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 BASE="Raspberry Pi OS Lite (${RELEASE:-trixie}, arm64)"
 EOF
+# La clé publique de publication : kybernow-os-update vérifie avec elle le
+# manifeste signé de chaque mise à jour, en root (build-image.sh la copie ici).
+install -m 644 "$F/release.pub" "${ROOTFS_DIR}/etc/kybernow-os/release.pub"
 
 # Droits de l'app (mise à jour A/B, réseau, Bluetooth, SSH, redémarrage).
 install -m 440 "$F/etc/sudoers-kybernow" "${ROOTFS_DIR}/etc/sudoers.d/kybernow"

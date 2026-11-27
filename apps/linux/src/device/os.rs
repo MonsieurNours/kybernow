@@ -73,28 +73,46 @@ pub fn status(tx: Sender<Event>) {
     std::thread::spawn(move || {
         let mut info = info();
         match sudo(&["/usr/local/sbin/kybernow-os-update", "status"]) {
-            Ok(json) => {
-                let get = |k: &str| json.split(&format!("\"{k}\":")).nth(1).map(|r| r.trim_start().trim_start_matches('"').split(['"', ',', '}']).next().unwrap_or("").to_string()).unwrap_or_default();
-                info.slot = get("current");
-                info.other = get("other");
-                info.other_version = get("other_version");
-                info.ab = get("ab") == "1";
-                info.pending = get("pending");
-                info.tryboot = get("tryboot") == "1";
-                if !get("version").is_empty() {
-                    info.version = get("version");
-                }
-            }
+            Ok(json) => parse_status(&json, &mut info),
             Err(e) => log::warn!("kybernow-os-update status : {e}"),
         }
         let _ = tx.send(Event::OsStatus(info));
     });
 }
 
-/// L'image téléchargée s'écrit dans l'autre emplacement, puis redémarrage à l'essai.
-pub fn apply(image: PathBuf, tx: Sender<Event>) {
+/// La réponse de `kybernow-os-update status` (une ligne de JSON).
+fn parse_status(json: &str, info: &mut OsInfo) {
+    let v: serde_json::Value = match serde_json::from_str(json.trim()) {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("kybernow-os-update status illisible : {e}");
+            return;
+        }
+    };
+    let s = |k: &str| match &v[k] {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Number(n) => n.to_string(),
+        _ => String::new(),
+    };
+    info.slot = s("current");
+    info.other = s("other");
+    info.other_version = s("other_version");
+    info.ab = s("ab") == "1";
+    info.pending = s("pending");
+    info.failed = s("failed");
+    info.tryboot = s("tryboot") == "1";
+    if !s("version").is_empty() {
+        info.version = s("version");
+    }
+}
+
+/// L'image téléchargée (dans [`update_dir`], avec son manifeste signé)
+/// s'écrit dans l'autre emplacement, puis redémarrage à l'essai. Pas de
+/// chemin : sudoers n'autorise que `apply` seul, et root vérifie lui-même la
+/// signature et l'empreinte.
+pub fn apply(tx: Sender<Event>) {
     std::thread::spawn(move || {
-        let r = sudo(&["/usr/local/sbin/kybernow-os-update", "apply", &image.to_string_lossy()]).map(|_| ());
+        let r = sudo(&["/usr/local/sbin/kybernow-os-update", "apply"]).map(|_| ());
         let _ = tx.send(Event::OsApplied(r));
     });
 }
@@ -405,6 +423,18 @@ pub fn readiness(tx: Sender<Event>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn etat_ab() {
+        let mut i = OsInfo::default();
+        parse_status(r#"{"current":"A","version":"0.11.9","other":"B","other_version":"","tryboot":0,"booted_partition":1,"ab":1,"pending":"","failed":"0.12.0"}"#, &mut i);
+        assert_eq!((i.slot.as_str(), i.other.as_str(), i.version.as_str(), i.failed.as_str()), ("A", "B", "0.11.9", "0.12.0"));
+        assert!(i.ab && !i.tryboot && i.other_version.is_empty());
+        // Un script d'avant (sans « failed ») : rien de raté.
+        let mut i = OsInfo::default();
+        parse_status(r#"{"current":"B","version":"0.11.8","other":"A","other_version":"0.11.7","tryboot":1,"booted_partition":3,"ab":1,"pending":"0.11.8"}"#, &mut i);
+        assert!(i.failed.is_empty() && i.tryboot && i.pending == "0.11.8" && i.other_version == "0.11.7");
+    }
 
     #[test]
     fn manettes_seules() {

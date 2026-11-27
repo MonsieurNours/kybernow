@@ -1,0 +1,7 @@
+[Unit]
+Description=KyberNow Link OS : essai A/B pas inscrit à temps, retour à l'emplacement par défaut
+ConditionPathExists=/var/lib/kybernow/.os-state/pending
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/kybernow-os-update trial-guard

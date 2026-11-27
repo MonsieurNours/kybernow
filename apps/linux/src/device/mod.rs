@@ -3534,8 +3534,8 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             }
             OsAction::UpdateDownload => jobs::download_os(tx.clone()),
             OsAction::UpdateApply => {
-                if let Some(p) = app.os_update.ready.clone() {
-                    os::apply(p, tx.clone());
+                if app.os_update.ready.is_some() {
+                    os::apply(tx.clone());
                 }
             }
             OsAction::Rollback => os::rollback(tx.clone()),

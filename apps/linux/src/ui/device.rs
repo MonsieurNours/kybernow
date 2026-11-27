@@ -130,6 +130,8 @@ fn nav_value(app: &App, s: Section) -> (String, Rgba) {
                 (format!("{version} {}", tr("prête", "ready")), WARN)
             } else if !o.pending.is_empty() {
                 (format!("{} {}", tr("essai de la", "trying"), o.pending), WARN)
+            } else if !o.failed.is_empty() {
+                (format!("{} {}", o.failed, tr("n'a pas démarré", "did not start")), WARN)
             } else {
                 (tr("à jour", "up to date").into(), FAINT)
             }
@@ -181,6 +183,12 @@ fn update_panel(app: &App, cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f3
     };
     slot(cv, Rect::new(x + sw + 20.0, y, sw, sh), label, &value, &lines, on, if on { SPECTRE } else { FAINT });
     let mut by = y + sh + 28.0;
+    // Un essai qui n'a pas démarré : l'appareil l'a abandonné et le dit (pas de retour proposé vers lui).
+    if !o.failed.is_empty() && app.os_update.error.is_none() {
+        let msg = format!("{} {} {} {}", tr("La mise à jour", "The update"), o.failed, tr("n'a pas démarré ; retour à la", "did not start; back to"), o.version);
+        cv.text_fit(x, by + 6.0, Text::new(Font::Regular, 19.0, WARN), &msg, w);
+        by += 36.0;
+    }
     if let Some(e) = &app.os_update.error {
         cv.text_fit(x, by + 6.0, Text::new(Font::Regular, 19.0, WARN), e, w);
         by += 36.0;
