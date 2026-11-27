@@ -106,8 +106,10 @@ for arch in aarch64 x86_64; do
         remote "$host" "$build" \
             || { echo "échec ; journaux sur $host : ~/kn-station/release-$name*.log" >&2; remote "$host" "tail -20 ~/kn-station/release-$name.log" >&2 || true; exit 1; }
     fi
-    deb="$(remote "$host" "ls $dist/*.deb" | head -1)"
-    rpm="$(remote "$host" "ls $dist/*.rpm 2>/dev/null" | head -1)"
+    # « || true » : sous pipefail, un paquet absent arrêtait le script avant
+    # le message ci-dessous (STLIN-22).
+    deb="$(remote "$host" "ls $dist/*.deb 2>/dev/null" | head -1 || true)"
+    rpm="$(remote "$host" "ls $dist/*.rpm 2>/dev/null" | head -1 || true)"
     [ -n "$deb" ] && [ -n "$rpm" ] || { echo "$host : .deb ou .rpm absent de $dist (rpmbuild ?)" >&2; exit 1; }
     scp -q "$host:$deb" "$OUT/KyberNow-Station-Linux-$name.deb"
     scp -q "$host:$rpm" "$OUT/KyberNow-Station-Linux-$name.rpm"

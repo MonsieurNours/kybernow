@@ -51,6 +51,10 @@ stop() {
 build() {
     [ -f "$ROOT/server/web/dist/index.html" ] || { echo "Interface d'Admin absente : server/web, npm ci && npm run build" >&2; exit 1; }
     [ -x "$RT_SRC/bin/kycontroller" ] || { echo "Kyber absent : lancer d'abord server/linux/scripts/build-kyber.sh" >&2; exit 1; }
+    # Kyber construit avec les correctifs d'aujourd'hui (STLIN-23).
+    # shellcheck source=kyber-stamp.sh
+    . "$HERE/kyber-stamp.sh"
+    kyber_linux_check_stamp "$ROOT" "$RT_SRC" || exit 1
     echo "==> kyber-admin"
     (cd "$ROOT/server/admin" && touch src/assets.rs && CARGO_TARGET_DIR="$TARGET" cargo build --release --quiet)
     echo "==> Agent des écrans (kybernow-display)"

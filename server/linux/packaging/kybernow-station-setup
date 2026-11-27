@@ -16,12 +16,14 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-BASE="${STATION_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/kybernow/station}"
+# Chemin fixe, comme le service d'Admin (%h/.local/share/…) et le service
+# root des mises à jour : XDG_DATA_HOME n'est pas suivi (STLIN-19).
+BASE="${STATION_DIR:-$HOME/.local/share/kybernow/station}"
 DATA="$BASE/admin"
 KYBER="$BASE/kyber"
 TEMPLATE="${KYBER_TEMPLATE:-$HERE/../runtime/share/kyber_config.toml}"
 ADMIN="${KYBERNOW_ADMIN:-$HERE/kyber-admin}"
-SCREENS="${XDG_DATA_HOME:-$HOME/.local/share}/kybernow/station/kyber-screens.toml"
+SCREENS="$HOME/.local/share/kybernow/station/kyber-screens.toml"
 
 # Fiche de la Station, sans secret (comme sous Windows et sur Mac) : le port
 # d'Admin pour l'icône près de l'horloge ; Admin y note l'empreinte de son

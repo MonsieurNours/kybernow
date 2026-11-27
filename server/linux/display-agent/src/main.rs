@@ -367,12 +367,10 @@ fn screens_file() -> PathBuf {
     if let Some(p) = std::env::var_os("KYBERNOW_SCREENS_FILE").filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
     }
-    let data = std::env::var_os("XDG_DATA_HOME")
-        .filter(|p| !p.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
-    data.join("kybernow/station/kyber-screens.toml")
+    // Chemin fixe, celui que kybernow-station-setup écrit dans les réglages
+    // de Kyber : XDG_DATA_HOME n'est suivi nulle part (STLIN-19).
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"));
+    home.join(".local/share/kybernow/station/kyber-screens.toml")
 }
 
 struct Agent {
