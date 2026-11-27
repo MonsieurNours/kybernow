@@ -1,0 +1,495 @@
+diff --git a/subprojects/txproto/src/dxgi_cursor.c b/subprojects/txproto/src/dxgi_cursor.c
+--- a/subprojects/txproto/src/dxgi_cursor.c
++++ b/subprojects/txproto/src/dxgi_cursor.c
+@@ -45,6 +45,13 @@
+ 
+     uint8_t *data;
+     uint32_t size;
++
++    /* KyberNow (0029): order of what the update carries, given when it is
++     * queued; 0 = not carried. pos_seq for visible and position, shape_seq
++     * for the shape (data). has_position is set by whoever fills it. */
++    int has_position;
++    uint64_t pos_seq;
++    uint64_t shape_seq;
+ } DxgiCursor;
+ 
+ typedef struct ArgbCursor {
+@@ -96,6 +103,13 @@
+     uint8_t moved;
+     int64_t last_sent;
+     int64_t move_deadline; /* 0 = none pending */
++
++    /* KyberNow (0029): updates are numbered when queued; a full queue makes
++     * room by merging its oldest update into the new one, and what is older
++     * than what was already applied is left out. */
++    atomic_uint_fast64_t next_seq;
++    uint64_t pos_seq;   /* last visibility and position applied */
++    uint64_t shape_seq; /* last shape applied */
+ };
+ 
+ #define HIDE_DELAY_US 250000
+@@ -425,26 +439,32 @@
+ {
+     int updated = 0;
+ 
+-    if (!handle->visible) {
+-        sp_log(ctx, SP_LOG_TRACE, "Hide cursor\n");
++    /* KyberNow (0029): a shape is kept even when it comes with the pointer
++     * hidden. Windows hides the pointer for a few frames when it changes
++     * shape and while typing: the new shape was dropped, and the old one
++     * came back with the pointer (arrows left after a resize, a hand for
++     * minutes). Visibility, position and shape are applied each on its own,
++     * and only when newer than what was applied (see cursor_push()). */
++    const int new_shape = handle->data && handle->shape_seq > ctx->shape_seq;
++    const int new_position = handle->pos_seq > ctx->pos_seq;
+ 
+-        updated = 1;
+-
+-        /* Keep the previous cursor because it can be shown later */
+-        ctx->visible = 0;
+-    } else if (handle->data) {
++    if (new_shape) {
+         sp_log(ctx, SP_LOG_TRACE, "Update cursor shape\n");
+ 
+         updated = 1;
+-        ctx->visible = 1;
++        ctx->shape_seq = handle->shape_seq;
+ 
++        /* Without a position, the hotspot stays where it was. */
++        const int32_t hot_x = ctx->cursor.x + ctx->cursor.xhot;
++        const int32_t hot_y = ctx->cursor.y + ctx->cursor.yhot;
++
+         /* Get the properties of the new cursor */
+         argb_cursor_free(&ctx->cursor);
+         ctx->cursor.xhot = handle->shape_info.HotSpot.x;
+         ctx->cursor.yhot = handle->shape_info.HotSpot.y;
+ 
+-        ctx->cursor.x = handle->position.x;
+-        ctx->cursor.y = handle->position.y;
++        ctx->cursor.x = hot_x - ctx->cursor.xhot;
++        ctx->cursor.y = hot_y - ctx->cursor.yhot;
+ 
+         switch (handle->shape_info.Type) {
+         case DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR:
+@@ -463,6 +483,20 @@
+             sp_log(ctx, SP_LOG_WARN, "Unexpected shape type\n");
+             break;
+         }
++    }
++
++    if (!new_position)
++        return updated;
++    ctx->pos_seq = handle->pos_seq;
++
++    if (!handle->visible) {
++        if (ctx->visible) {
++            sp_log(ctx, SP_LOG_TRACE, "Hide cursor\n");
++            updated = 1;
++        }
++
++        /* Keep the previous cursor because it can be shown later */
++        ctx->visible = 0;
+     } else if (!ctx->visible) {
+         sp_log(ctx, SP_LOG_TRACE, "Show cursor\n");
+         updated = 1;
+@@ -472,10 +506,11 @@
+         ctx->cursor.x = handle->position.x;
+         ctx->cursor.y = handle->position.y;
+     } else if (ctx->cursor.x != handle->position.x || ctx->cursor.y != handle->position.y) {
+-        /* Same shape, new position. */
++        /* Same shape, new position (sent with the shape if there is one). */
+         ctx->cursor.x = handle->position.x;
+         ctx->cursor.y = handle->position.y;
+-        ctx->moved = 1;
++        if (!new_shape)
++            ctx->moved = 1;
+     }
+ 
+     return updated;
+@@ -556,6 +591,10 @@
+     }
+ 
+     ctx->hide_deadline = 0;
++    /* KyberNow (0029): a shape received while the client already knows the
++     * pointer hidden goes out when it shows again. */
++    if (!ctx->visible && !ctx->sent_visible)
++        return 0;
+     return send_cursor_state(ctx);
+ }
+ 
+@@ -687,6 +726,7 @@
+     ctx->pipe_handle = INVALID_HANDLE_VALUE;
+     ctx->quit = ATOMIC_VAR_INIT(0);
+     ctx->first_frame = 1;
++    atomic_init(&ctx->next_seq, 0);
+ 
+     int err = sp_class_alloc(ctx, "dxgi_cursor", SP_TYPE_SCRIPT, NULL);
+     if (err < 0)
+@@ -720,6 +760,80 @@
+ 
+     sp_class_free(ctx);
+     av_freep(ctx);
++}
++
++/* KyberNow (0029): queues an update, numbered (see handle_cursor()). The
++ * queue used to drop the newest update when full, shape included: the
++ * oldest one now makes room, and what it carries that the new one does not
++ * (position, shape) moves into the new one with its own number. */
++static void cursor_push(DxgiCursorHandler *ctx, AVBufferRef *ref)
++{
++    DxgiCursor *cursor = (DxgiCursor *)ref->data;
++    const uint64_t seq = atomic_fetch_add(&ctx->next_seq, 1) + 1;
++
++    cursor->pos_seq = cursor->has_position ? seq : 0;
++    cursor->shape_seq = cursor->data ? seq : 0;
++
++    int err = sp_bufferref_fifo_push(ctx->fifo, ref);
++    for (int tries = 0; err < 0 && tries < 4; tries++) {
++        AVBufferRef *oldest = sp_bufferref_fifo_pop(ctx->fifo);
++        if (oldest) {
++            DxgiCursor *old = (DxgiCursor *)oldest->data;
++            if (!cursor->pos_seq && old->pos_seq) {
++                cursor->visible = old->visible;
++                cursor->position = old->position;
++                cursor->pos_seq = old->pos_seq;
++            }
++            if (!cursor->shape_seq && old->shape_seq && old->data) {
++                cursor->data = old->data;
++                cursor->size = old->size;
++                cursor->shape_info = old->shape_info;
++                cursor->shape_seq = old->shape_seq;
++                old->data = NULL;
++            }
++            av_buffer_unref(&oldest);
++        }
++        err = sp_bufferref_fifo_push(ctx->fifo, ref);
++    }
++    if (err < 0)
++        sp_log(ctx, SP_LOG_WARN, "Cursor queue full, update dropped\n");
++    SetEvent(ctx->fifo_event);
++}
++
++/* KyberNow (0029): pointer shape of the frame, read again with the size
++ * DXGI asks for when the buffer was too small. */
++static void read_frame_shape(DxgiCursorHandler *ctx,
++                             IDXGIOutputDuplication *output_duplication,
++                             UINT size, DxgiCursor *dxgi_cursor)
++{
++    HRESULT hr = E_FAIL;
++
++    for (int tries = 0; tries < 2 && size; tries++) {
++        UINT required_size = 0;
++        uint8_t *data = av_mallocz(size);
++        if (!data)
++            return;
++
++        hr = IDXGIOutputDuplication_GetFramePointerShape(
++            output_duplication,
++            size,
++            data,
++            &required_size,
++            &dxgi_cursor->shape_info);
++        if (SUCCEEDED(hr)) {
++            dxgi_cursor->data = data;
++            dxgi_cursor->size = size;
++            return;
++        }
++        av_free(data);
++        if (hr != DXGI_ERROR_MORE_DATA || required_size <= size)
++            break;
++        size = required_size;
++    }
++
++    /* Keep position and visibility; the shape watch of the capture
++     * (iosys_dxgi.c) reads it from Windows. */
++    sp_log(ctx, SP_LOG_DEBUG, "GetFramePointerShape() failed: 0x%lX\n", hr);
+ }
+ 
+ int sp_dxgi_cursor_handler_send(DxgiCursorHandler *ctx,
+@@ -729,52 +843,39 @@
+     AVBufferRef *ref;
+     DxgiCursor *dxgi_cursor;
+ 
+-    if (!frame_info->LastMouseUpdateTime.QuadPart) {
+-        if (!ctx->first_frame) {
+-            return 0;
+-        }
++    /* KyberNow (0029): a new shape is read even when LastMouseUpdateTime is
++     * zero (pointer not moved): it was lost when the shape changed under a
++     * still mouse. */
++    if (!frame_info->LastMouseUpdateTime.QuadPart &&
++        !frame_info->PointerShapeBufferSize && !ctx->first_frame)
++        return 0;
+ 
++    ref = dxgi_cursor_alloc();
++    if (!ref)
++        return AVERROR(ENOMEM);
++    dxgi_cursor = (DxgiCursor *)ref->data;
++
++    if (frame_info->LastMouseUpdateTime.QuadPart) {
++        const DXGI_OUTDUPL_POINTER_POSITION *position = &frame_info->PointerPosition;
++        dxgi_cursor->has_position = 1;
++        dxgi_cursor->visible = position->Visible;
++        dxgi_cursor->position = position->Position;
++    } else if (ctx->first_frame) {
+         /* DXGI sends a zero LastMouseUpdateTime if there are no cursor when
+         * acquisition starts. Handle the first call in this case as an hidden
+         * cursor.
+         */
+-        ref = dxgi_cursor_alloc();
+-        dxgi_cursor = (DxgiCursor *)ref->data;
+-
++        dxgi_cursor->has_position = 1;
+         dxgi_cursor->visible = 0;
+-    } else {
+-        ref = dxgi_cursor_alloc();
+-        dxgi_cursor = (DxgiCursor *)ref->data;
+-
+-        const DXGI_OUTDUPL_POINTER_POSITION *position = &frame_info->PointerPosition;
+-        dxgi_cursor->visible = position->Visible;
+-        dxgi_cursor->position = position->Position;
+-
+-        if (frame_info->PointerShapeBufferSize) {
+-            dxgi_cursor->size = frame_info->PointerShapeBufferSize;
+-            dxgi_cursor->data = av_mallocz(dxgi_cursor->size);
+-
+-            UINT required_size;
+-            HRESULT hr;
+-
+-            hr = IDXGIOutputDuplication_GetFramePointerShape(
+-                output_duplication,
+-                frame_info->PointerShapeBufferSize,
+-                dxgi_cursor->data,
+-                &required_size,
+-                &dxgi_cursor->shape_info);
+-            if (FAILED(hr)) {
+-                /* Keep position and visibility, drop the unusable shape. */
+-                av_freep(&dxgi_cursor->data);
+-                dxgi_cursor->size = 0;
+-            }
+-        }
+     }
+ 
+-    if (sp_bufferref_fifo_push(ctx->fifo, ref) < 0)
+-        sp_log(ctx, SP_LOG_WARN, "Cursor queue full, update dropped\n");
+-    SetEvent(ctx->fifo_event);
++    if (frame_info->PointerShapeBufferSize)
++        read_frame_shape(ctx, output_duplication,
++                         frame_info->PointerShapeBufferSize, dxgi_cursor);
+ 
++    if (dxgi_cursor->has_position || dxgi_cursor->data)
++        cursor_push(ctx, ref);
++
+     av_buffer_unref(&ref);
+ 
+     ctx->first_frame = 0;
+@@ -792,10 +893,11 @@
+         return AVERROR(ENOMEM);
+ 
+     DxgiCursor *dxgi_cursor = (DxgiCursor *)ref->data;
++    dxgi_cursor->has_position = 1;
+     dxgi_cursor->visible = visible;
+     dxgi_cursor->position = position;
+ 
+-    if (visible && shape_info && data && size) {
++    if (shape_info && data && size) {
+         dxgi_cursor->data = av_malloc(size);
+         if (dxgi_cursor->data) {
+             memcpy(dxgi_cursor->data, data, size);
+@@ -804,9 +906,7 @@
+         }
+     }
+ 
+-    if (sp_bufferref_fifo_push(ctx->fifo, ref) < 0)
+-        sp_log(ctx, SP_LOG_WARN, "Cursor queue full, update dropped\n");
+-    SetEvent(ctx->fifo_event);
++    cursor_push(ctx, ref);
+ 
+     av_buffer_unref(&ref);
+ 
+@@ -814,3 +914,31 @@
+ 
+     return 0;
+ }
++
++int sp_dxgi_cursor_handler_set_shape(DxgiCursorHandler *ctx,
++                                     const DXGI_OUTDUPL_POINTER_SHAPE_INFO *shape_info,
++                                     const uint8_t *data, uint32_t size)
++{
++    if (!shape_info || !data || !size)
++        return AVERROR(EINVAL);
++
++    AVBufferRef *ref = dxgi_cursor_alloc();
++    if (!ref)
++        return AVERROR(ENOMEM);
++
++    DxgiCursor *dxgi_cursor = (DxgiCursor *)ref->data;
++    dxgi_cursor->data = av_malloc(size);
++    if (!dxgi_cursor->data) {
++        av_buffer_unref(&ref);
++        return AVERROR(ENOMEM);
++    }
++    memcpy(dxgi_cursor->data, data, size);
++    dxgi_cursor->size = size;
++    dxgi_cursor->shape_info = *shape_info;
++
++    cursor_push(ctx, ref);
++
++    av_buffer_unref(&ref);
++
++    return 0;
++}
+diff --git a/subprojects/txproto/src/dxgi_cursor.h b/subprojects/txproto/src/dxgi_cursor.h
+--- a/subprojects/txproto/src/dxgi_cursor.h
++++ b/subprojects/txproto/src/dxgi_cursor.h
+@@ -43,3 +43,13 @@
+                                       POINT position,
+                                       const DXGI_OUTDUPL_POINTER_SHAPE_INFO *shape_info,
+                                       const uint8_t *data, uint32_t size);
++
++/**
++ * KyberNow (0029): a pointer shape alone (DXGI pointer shape layout),
++ * position and visibility unchanged; kept while the pointer is hidden. Used
++ * by the shape watch of the capture when Windows changed the pointer
++ * without desktop duplication reporting it.
++ */
++int sp_dxgi_cursor_handler_set_shape(DxgiCursorHandler *ctx,
++                                     const DXGI_OUTDUPL_POINTER_SHAPE_INFO *shape_info,
++                                     const uint8_t *data, uint32_t size);
+diff --git a/subprojects/txproto/src/iosys_dxgi.c b/subprojects/txproto/src/iosys_dxgi.c
+--- a/subprojects/txproto/src/iosys_dxgi.c
++++ b/subprojects/txproto/src/iosys_dxgi.c
+@@ -146,6 +146,12 @@
+ 
+     /* KyberNow (0018): Windows Graphics Capture ring of this output, if any. */
+     struct KnWgc *wgc;
++
++    /* KyberNow (0029): pointer shape watch of desktop duplication,
++     * kn_cursor_watch(). */
++    HCURSOR kn_cursor_sent; /* Windows pointer of the last shape sent */
++    HCURSOR kn_cursor_odd;  /* a different one seen at the last check */
++    int64_t kn_cursor_check; /* next check, av_gettime_relative() */
+ } DxgiCapture;
+ 
+ static void kn_hdr_log(void *log_ctx, const KnHdrInfo *info, DXGI_FORMAT format);
+@@ -1127,6 +1133,10 @@
+  * to a minute) while WGC opens without giving a frame. */
+ #define KN_WGC_LOOK_US (1500LL * 1000LL)
+ #define KN_WGC_RETRY_US (3LL * 1000000LL)
++/* KyberNow (0029): pointer shape watch of desktop duplication, and new read
++ * of a WGC pointer shape that could not be read. */
++#define KN_CURSOR_WATCH_US 250000
++#define KN_CURSOR_RETRY_US 250000
+ #define KN_WGC_RETRY_MAX_US (60LL * 1000000LL)
+ /* Capture latency is logged over this period. */
+ #define KN_LATENCY_PERIOD_US (5LL * 1000000LL)
+@@ -1155,6 +1165,7 @@
+     /* Pointer read with GetCursorInfo() */
+     HCURSOR cursor;
+     HCURSOR cursor_failed; /* a shape that could not be read: not read again */
++    int64_t cursor_failed_at; /* KyberNow (0029): ... until KN_CURSOR_RETRY_US */
+     int cursor_visible;
+     POINT cursor_position;
+     POINT cursor_hotspot;
+@@ -1558,15 +1569,21 @@
+     uint8_t *data = NULL;
+     uint32_t size = 0;
+     const int new_shape = ci.hCursor != w->cursor;
+-    if (new_shape && ci.hCursor != w->cursor_failed) {
++    /* KyberNow (0029): a shape that could not be read is read again after
++     * KN_CURSOR_RETRY_US; it was never read again until the pointer changed
++     * (a failure while the desktop switches left the old shape for good). */
++    const int64_t now = av_gettime_relative();
++    if (new_shape && (ci.hCursor != w->cursor_failed ||
++                      now - w->cursor_failed_at >= KN_CURSOR_RETRY_US)) {
+         if (kn_cursor_shape(ci.hCursor, &info, &data, &size) == 0) {
+             w->cursor_hotspot = info.HotSpot;
+             w->cursor = ci.hCursor;
+             w->cursor_failed = NULL;
+         } else {
+-            /* Read again only when the pointer changes (GetIconInfo and
+-             * GetDIBits at each wake-up otherwise). */
++            /* Read again only when the pointer changes, or after a while
++             * (GetIconInfo and GetDIBits at each wake-up otherwise). */
+             w->cursor_failed = ci.hCursor;
++            w->cursor_failed_at = now;
+         }
+     }
+ 
+@@ -1581,6 +1598,54 @@
+     av_free(data);
+     w->cursor_visible = 1;
+     w->cursor_position = position;
++}
++
++/* KyberNow (0029): shape watch of desktop duplication. Desktop duplication
++ * does not always report a new pointer shape (shape changed under a still
++ * mouse, shape that could not be read, update lost): the pointer stayed as
++ * it was until the next change. Every KN_CURSOR_WATCH_US, the Windows
++ * pointer (GetCursorInfo) is compared with the one of the last shape sent;
++ * when it is still different at the next check, its shape is read from
++ * Windows (kn_cursor_shape()) and sent, position and visibility unchanged. */
++static void kn_cursor_seen(DxgiCapture *priv)
++{
++    CURSORINFO ci = { .cbSize = sizeof(ci) };
++    if (GetCursorInfo(&ci) && ci.hCursor) {
++        priv->kn_cursor_sent = ci.hCursor;
++        priv->kn_cursor_odd = NULL;
++    }
++}
++
++static void kn_cursor_watch(IOSysEntry *entry, DxgiCapture *priv)
++{
++    const int64_t now = av_gettime_relative();
++    if (!priv->cursor_sink || now < priv->kn_cursor_check)
++        return;
++    priv->kn_cursor_check = now + KN_CURSOR_WATCH_US;
++
++    CURSORINFO ci = { .cbSize = sizeof(ci) };
++    if (!GetCursorInfo(&ci) || !(ci.flags & CURSOR_SHOWING) || !ci.hCursor ||
++        ci.hCursor == priv->kn_cursor_sent) {
++        priv->kn_cursor_odd = NULL;
++        return;
++    }
++    /* First time seen: desktop duplication may still report it. */
++    if (ci.hCursor != priv->kn_cursor_odd) {
++        priv->kn_cursor_odd = ci.hCursor;
++        return;
++    }
++
++    DXGI_OUTDUPL_POINTER_SHAPE_INFO info;
++    uint8_t *data = NULL;
++    uint32_t size = 0;
++    if (kn_cursor_shape(ci.hCursor, &info, &data, &size) < 0)
++        return; /* read again at the next check */
++    sp_log(entry, SP_LOG_DEBUG, "Pointer shape changed without desktop duplication reporting it: read from Windows\n");
++    if (sp_dxgi_cursor_handler_set_shape(priv->cursor_sink, &info, data, size) >= 0) {
++        priv->kn_cursor_sent = ci.hCursor;
++        priv->kn_cursor_odd = NULL;
++    }
++    av_free(data);
+ }
+ 
+ /* Capture loop for an output with a WGC ring. Returns 0 on stop, an error
+@@ -1928,6 +1993,9 @@
+                 continue;
+             }
+         }
++
++        /* KyberNow (0029): a pointer shape desktop duplication did not report. */
++        kn_cursor_watch(entry, priv);
+ 
+         /* Frame acquisition */
+         sp_log(entry, SP_LOG_TRACE, "Request frame acquisition\n");
+@@ -1991,6 +2059,10 @@
+             sp_dxgi_cursor_handler_send(priv->cursor_sink,
+                                         priv->output_duplication,
+                                         &frame_info);
++            /* KyberNow (0029): the Windows pointer of this shape, for
++             * kn_cursor_watch(). */
++            if (frame_info.PointerShapeBufferSize)
++                kn_cursor_seen(priv);
+         }
+ 
+         ID3D11Resource *acquired_tex;

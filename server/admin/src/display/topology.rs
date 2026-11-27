@@ -60,10 +60,26 @@ fn all_paths() -> Result<Vec<DISPLAYCONFIG_PATH_INFO>> {
     query(QDC_ALL_PATHS).map(|(paths, _)| paths)
 }
 
+/// ERROR_NOT_SUPPORTED : Windows n'a pas de pilote graphique WDDM à ce
+/// moment-là. Vu sur un vrai PC le 27/11/2026 au départ d'une session : en
+/// passe le temps que le pilote revienne (réinitialisation, mise à jour,
+/// sortie de veille de l'écran) ; on réessaie donc quelques secondes avant
+/// d'abandonner.
+const ERROR_NOT_SUPPORTED: u32 = 50;
+const NOT_SUPPORTED_WAIT: Duration = Duration::from_secs(5);
+
 fn query(flags: QUERY_DISPLAY_CONFIG_FLAGS) -> Result<(Vec<DISPLAYCONFIG_PATH_INFO>, Vec<DISPLAYCONFIG_MODE_INFO>)> {
+    let started = Instant::now();
     for _ in 0..4 {
         let (mut np, mut nm) = (0u32, 0u32);
-        let err = unsafe { GetDisplayConfigBufferSizes(flags, &mut np, &mut nm) };
+        let mut err = unsafe { GetDisplayConfigBufferSizes(flags, &mut np, &mut nm) };
+        while err == ERROR_NOT_SUPPORTED && started.elapsed() < NOT_SUPPORTED_WAIT {
+            std::thread::sleep(Duration::from_millis(250));
+            err = unsafe { GetDisplayConfigBufferSizes(flags, &mut np, &mut nm) };
+        }
+        if err == ERROR_NOT_SUPPORTED {
+            bail!("lecture de la configuration d'affichage (code 50 : pas de pilote graphique prêt, après {NOT_SUPPORTED_WAIT:?})");
+        }
         if err != 0 {
             bail!("lecture de la configuration d'affichage (code {err})");
         }
