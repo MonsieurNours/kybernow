@@ -1,6 +1,6 @@
 # Corrections de l'audit du 27/11 : relais (`server/relay`)
 
-Vague 1, branche `claude/fix-relais-0a07e5`. Rapport d'origine : `docs/audit-2026-11-27/relais.md`. Tout est dans `server/relay` (et son crate `tunnel/`), plus `docs/comptes.md` et `docs/comptes.en.md`.
+Vague 1, branche `claude/fix-relais-0a07e5`. Rapport d'origine : `docs/audit-2026-11-27/relais.md`. Tout est dans `server/relay` (et son crate `tunnel/`), plus `docs/comptes.md` et `docs/comptes.en.md`. Les 42 constats sont traités : 39 en entier, 3 en partie (REL-09, REL-10 et REL-20 ont une moitié dans d'autres zones, voir plus bas).
 
 ## Constats corrigés
 
@@ -16,6 +16,7 @@ Vague 1, branche `claude/fix-relais-0a07e5`. Rapport d'origine : `docs/audit-202
 | REL-08 | Essais de mot de passe par (compte, réseau /24 ou /48) à 5, plafond de 30 par compte ; un navigateur de confiance du compte n'est pas compté. |
 | REL-09 | Partie relais : PKCE S256 facultatif (`code_challenge` à `/compte/connexion?appareil=…`, gardé dans `device_codes.challenge` ; `code_verifier` exigé par `/v1/devices/token` quand un défi a été donné). Les apps publiées, sans défi, passent comme avant. |
 | REL-10 | « Ouvrir Admin » : une adresse IP n'est acceptée que parmi les adresses d'Admin données par la Station (`admin_lan`), ou en boucle locale ; un nom du réseau seulement dans leur schéma. Adresses inconnues (Station hors ligne) : l'ancienne règle. |
+| REL-11 | Plus d'ajout direct d'un compte existant : une invitation qu'il accepte ou refuse dans son espace (page « Invitations », bandeau sur « Ordinateurs », e-mail « Voir l'invitation ») ; la réponse est toujours « Invitation envoyée », qu'un compte existe ou non. Une personne qui a déjà un accès voit ses droits changer comme avant. |
 | REL-12 | Déplacer ou détacher un ordinateur d'équipe : Propriétaire seulement (le bouton suit). |
 | REL-13 | 20 invitations par heure et 100 par jour par compte (équipes, ordinateurs, renvois), ligne `warn` au journal ; 20 familles ou équipes au plus par propriétaire. |
 | REL-14 | `kn-media/1` : plus de flux bidirectionnels (limite 0, et ceux déjà ouverts refusés) ; `kn-ctl/1` : plus de flux unidirectionnels ; l'ancienne connexion des paquets est fermée quand une nouvelle la remplace (`MediaSender::close`, ajout au crate du tunnel). |
@@ -33,24 +34,32 @@ Vague 1, branche `claude/fix-relais-0a07e5`. Rapport d'origine : `docs/audit-202
 | REL-26 | Enrôlement tout ou rien, rattachement compris (`atomic`, qui s'imbrique ; `attach_to` y passe aussi). |
 | REL-27 | Jetons d'enrôlement refusés pour une famille, même par un POST direct. |
 | REL-28 | Une image construite sur place (aucune empreinte de registre) n'est jamais remplacée par la mise à jour de la nuit ; le README conseille `RELAY_IMAGE=kybernow-relay:local`. |
+| REL-29 | « jusqu'au JJ/MM » finit à minuit dans le fuseau du navigateur : petit script `assets/tz.js` qui remplit un champ caché `tz` (décalage borné à ±12 h) ; sans lui, UTC comme avant. La date affichée (`end_date`) reste la bonne dans tous les cas. |
 | REL-30 | `claim_invitations` ajoute l'invitation aux droits déjà là (`add_person_rights`) au lieu de l'effacer. |
 | REL-31 | `Agent::reserve` retire sa demande après le délai. |
 | REL-32 | Nom d'inscription nettoyé (contrôle et bidi retirés) par le nettoyeur commun `clean_text`. |
-| REL-38 (en partie) | `clean_text` sert aux ordinateurs, appareils, équipes, passkeys et à l'inscription (les copies sont devenues des appels). |
+| REL-33 | `grants_of_many` : les droits de tous les ordinateurs d'une page en une requête (équipe, « Personnes », « Ordinateurs ») ; membres et groupes d'une équipe en deux requêtes au lieu de deux par membre ; le menu ne relit plus deux fois les ordinateurs visibles. Le HTML se construit après avoir relâché la base. |
+| REL-34 | Plus de verrou global par paquet : un drapeau « retiré » (`AtomicBool`) sur chaque pair, posé là où il quitte la table ; le plafond global en GCRA sans verrou (`AtomicRate`). |
+| REL-35 | Repli TCP : l'enregistrement n'est plus recopié (la longueur s'écrit dans le tampon d'écriture), et la lecture réutilise un tampon (`read_record_into`). |
+| REL-36 | `AttachRequest` hors de l'exécuteur (`spawn_blocking`), et 20 demandes aux comptes par minute et par Station. |
+| REL-37 | Un seul gabarit de document (`pages::document`) pour les pages seules, la console et le tour d'accueil : titre échappé, scripts choisis (`page_scripts`), rafraîchissement sans script (`refresh_to`). |
+| REL-38 | Un nettoyeur de noms commun (`clean_text`, contrôle et bidi retirés) ; le nom affiché (`Account::display_name`, `shown_name`) et « toute la famille / l'équipe » (`Org::everyone`) écrits une fois. |
+| REL-39 | Les fonctions réservées aux essais passent sous `#[cfg(test)]` (`is_ready`, `invite_expires_at`, `Store::memory`, `audit_of`, `Hasher::fast`, `Outbox::last_to`/`count_to`). |
+| REL-40 | L'avis « Admin ouvert à distance » passe par le `Limiter` commun (une fois par heure), plus de `static` à part. |
+| REL-41 | L'e-mail « Admin ouvert » dit pourquoi un gestionnaire d'équipe le reçoit ; la doc des comptes dit ce que l'e-mail dit (sans lieu : le relais ne situe pas les adresses). |
+| REL-42 | README FR et EN : toutes les pages en POST, les deux scripts, la mise à jour qui n'écrase plus une image construite sur place ; commentaire du fil SMTP corrigé ; version 0.11.8 dans `Cargo.toml` (celle de `/v1/health`). |
 
-## Constats laissés
+## Ce qui reste, hors de cette zone
 
-| Id | Raison |
+| Id | Ce qui manque, et où |
 |---|---|
-| REL-09 (apps) | Le cœur Rust et les apps doivent envoyer `code_challenge` puis `code_verifier` : hors de cette zone. Le relais est prêt et reste compatible. |
-| REL-10 (jeton en POST ou dans le fragment) | Admin (0.11.7) lit `?token=` : changer le transport du jeton demande Admin d'abord (`server/admin`, hors zone). |
-| REL-11 | Ajout direct sans consentement et réponse qui révèle un compte : changer l'ajout en invitation à accepter est un choix de produit (et touche les textes communs) ; effort M. À trancher par l'auteur. |
-| REL-20 (signature) | La signature des images (cosign, clé hors ligne) se fait à la publication (`scripts/release.sh`, hors zone) ; tant qu'elle n'existe pas, `RELAY_COSIGN_KEY` reste vide. Rien n'a été touché sur la machine réelle. |
-| REL-29 | Fin du jour dans le fuseau de la personne : demande le fuseau du navigateur (script, ou réglage du compte) ; bug sans enjeu de sécurité, laissé à la vague 2. |
-| REL-33 à REL-36 | Optimisations (verrou des pages, verrous par datagramme, copies par paquet, `AttachRequest` sur l'exécuteur) : hors du périmètre « sécurité puis bugs S ». |
-| REL-37, REL-39, REL-40 | Factorisation et code mort : vague 2. |
-| REL-41, REL-42 (en partie) | Doc de l'e-mail « Admin ouvert », version 0.8.0 du `Cargo.toml` : la version suit la publication (coordinatrice). Le README dit maintenant que la mise à jour n'écrase plus une image construite sur place. |
-| REL-16 (moins de flux avant `hello`) | yamux ne change pas sa limite de flux en cours de connexion ; la lecture au fil de l'arrivée et `tcp_total` bornent déjà la mémoire. |
+| REL-09 (apps) | Le cœur Rust et les apps doivent envoyer `code_challenge` (S256) puis `code_verifier` (`apps/core`, apps). Le relais est prêt et accepte toujours les apps sans défi. |
+| REL-10 (jeton en POST ou dans le fragment) | Admin 0.11.7 lit `?token=` : il faut d'abord changer la réception chez Admin (`server/admin`). Côté relais, le jeton ne part plus que vers les adresses que la Station a données. |
+| REL-20 (signature) | Signer les images (cosign, clé hors ligne) au moment de la publication (`scripts/release.sh`), puis mettre `RELAY_COSIGN_KEY` sur la machine réelle. `update.sh` vérifie déjà la signature quand la clé est donnée. |
+
+Deux points restent en partie, par choix et dans la zone :
+- REL-16 : yamux ne baisse pas sa limite de flux pendant une connexion (une Station en reçoit un par connexion relayée, jusqu'à 8 × 32). La lecture au fil de l'arrivée et `tcp_total` bornent déjà la mémoire.
+- REL-35 (QUIC) : le paquet reçu de quinn n'est pas à nous seuls (`Bytes` partagé), donc le nouveau numéro de flux demande une copie ; la tâche par paquet de secours ne sert qu'aux rares paquets trop grands pour un datagramme (64 en route au plus).
 
 ## Compatibilité avec les apps et les Stations publiées (0.11.7)
 
@@ -59,11 +68,13 @@ Vague 1, branche `claude/fix-relais-0a07e5`. Rapport d'origine : `docs/audit-202
 - API des appareils : `code_verifier` n'est exigé que si l'app a donné un défi.
 - Base : migration 10 (`grants.right_ends`, `device_codes.challenge`) ; une base migrée refuse un relais plus ancien, comme toujours.
 - Cookies d'attente de l'ancienne forme acceptés ; anciens codes de secours acceptés ; codes e-mail en clair encore en cours (24 h) acceptés.
+- Repli TCP : les enregistrements sur le fil sont les mêmes (`[longueur][datagramme]`).
+- Invitations d'avant ce changement : celles en attente pour une adresse avec compte apparaissent dans « Invitations » ; celles déjà reprises restent des droits.
 
 ## Ce qui est vérifié, et comment
 
-- `cargo test --workspace` dans `server/relay` : 230 essais passent (167 du relais, 23 d'intégration du tunnel, 33 + 7 du crate `tunnel`), contre 205 avant ; deux passes de suite sans échec. Une fois, en cours de travail, `un_bout_qui_ne_lit_pas_ses_reponses_est_coupe` a lu `Reset` au lieu de la fermeture attendue ; il est passé aux sept passes suivantes (seul et dans la suite) ; probablement instable sous charge, à surveiller.
-- Essais ajoutés : noms hostiles dans les pages (et vérifié qu'il échoue sans le correctif), échéances par droit, délégation bornée et cascade, départ d'une équipe, invitation fusionnée, mot de passe redemandé, passkeys retirées à la réinitialisation, TOTP illisible, refus de démarrer sans clé, inscription sur une adresse prise, limite d'invitations, plafond d'équipes, essais de connexion par réseau et navigateur de confiance, adresses d'Admin, PKCE (vecteur de la RFC 7636), connexion relayée muette, trame annoncée longue et coupée, HSTS, secrets en HMAC, Administrateur qui ne sort pas un PC, jetons d'une famille, `atomic` imbriqué, nettoyeur bidi.
+- `cargo test --workspace` dans `server/relay` : 233 essais passent (169 du relais, 23 d'intégration du tunnel, 34 + 7 du crate `tunnel`), contre 205 avant ; deux passes de suite sans échec à la fin ; `cargo build` sans avertissement. Une fois, en cours de travail, `un_bout_qui_ne_lit_pas_ses_reponses_est_coupe` a lu `Reset` au lieu de la fermeture attendue ; il est passé aux sept passes suivantes (seul et dans la suite) ; probablement instable sous charge, à surveiller.
+- Essais ajoutés : noms hostiles dans les pages (et vérifié qu'il échoue sans le correctif), échéances par droit, délégation bornée et cascade, départ d'une équipe, invitation fusionnée, mot de passe redemandé, passkeys retirées à la réinitialisation, TOTP illisible, refus de démarrer sans clé, inscription sur une adresse prise, limite d'invitations, plafond d'équipes, essais de connexion par réseau et navigateur de confiance, adresses d'Admin, PKCE (vecteur de la RFC 7636), connexion relayée muette, trame annoncée longue et coupée, HSTS, secrets en HMAC, Administrateur qui ne sort pas un PC, jetons d'une famille, `atomic` imbriqué, nettoyeur bidi ; puis invitations acceptées ou refusées et même réponse avec ou sans compte, fin de jour selon le fuseau (New York, Paris, bornes), débit GCRA à plusieurs fils, enregistrements dans un tampon réutilisé. Les essais qui supposaient l'ajout direct acceptent maintenant l'invitation (`World::accept_invites`).
 - `sh -n update.sh` ; `update.sh` n'a pas été exécuté (pas de Docker ni de machine réelle).
 - Rien n'a été déployé ni essayé sur `share.kybernow.app`.
 
@@ -77,6 +88,8 @@ FR :
 - Personne ne peut plus bloquer votre connexion en essayant de mauvais mots de passe depuis un autre réseau.
 - Les invitations sont limitées par compte, pour éviter les envois en masse.
 - « Ouvrir Admin » n'envoie votre accès qu'à l'adresse que votre ordinateur a donnée.
+- Quand on vous ouvre un ordinateur ou qu'on vous invite dans une famille ou une équipe, vous acceptez ou refusez l'invitation dans votre espace, page « Invitations » : rien ne vous est ouvert sans votre accord.
+- « Jusqu'au 15/12 » se termine à minuit chez vous, où que vous soyez.
 
 EN:
 - KyberNow Share is safer: a computer or team name can no longer change the pages, and someone you give “Administer” to can no longer give more than they have, or for longer. If you remove their access, what they shared goes with it.
@@ -86,3 +99,5 @@ EN:
 - Nobody can block your sign-in any more by trying wrong passwords from another network.
 - Invitations are limited per account, to prevent mass sending.
 - “Open Admin” only sends your access to the address your computer gave.
+- When someone opens a computer to you or invites you to a family or team, you accept or decline the invitation in your space, “Invitations” page: nothing is opened to you without your consent.
+- “Until 15/12” ends at midnight where you are.
