@@ -390,6 +390,7 @@
     "fps": "{fps} fps",
     "statistics_shortcut": " (Ctrl+Alt+Shift+S)",
     "record_shortcut": "Ctrl+Alt+Shift+R",
+    "pen_shortcut": "Ctrl+Alt+Shift+P",
     "close_statistics": "Close statistics",
     "mac_switch": "⌘ ⇥",
     "mac_switch_hint": "switch app",

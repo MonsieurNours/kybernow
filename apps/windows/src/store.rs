@@ -75,12 +75,23 @@ pub struct Settings {
     /// « Micro » pour cet ordinateur (docs/micro.md) : coupé à la première
     /// session, puis le dernier choix (barre, Ctrl+Alt+Maj+V, rubrique Son).
     pub microphone: bool,
+    /// « Stylet » pour cet ordinateur (docs/link-ui.md, « Stylet ») :
+    /// `pressure` (le vrai stylet, par défaut) ou `mouse` (le stylet en
+    /// souris absolue) ; le dernier choix de la barre, de Ctrl+Alt+Maj+P ou de
+    /// la rubrique Commandes. Une clé inconnue (version plus récente) vaut
+    /// « Pression » (`Settings::pen_mode`).
+    pub pen: String,
 }
 
 impl Settings {
     /// Le choix « HDR » (allumé tant qu'il n'a pas été changé).
     pub fn hdr_on(&self) -> bool {
         self.hdr.unwrap_or(true)
+    }
+
+    /// Le choix « Stylet » (« Pression » tant qu'il n'a pas été changé).
+    pub fn pen_mode(&self) -> kybernow_core::input::PenMode {
+        kybernow_core::input::PenMode::parse(&self.pen).unwrap_or_default()
     }
 }
 
@@ -110,6 +121,7 @@ impl Default for Settings {
             auto_reconnect: true,
             hdr: None,
             microphone: false,
+            pen: "pressure".into(),
         }
     }
 }

@@ -91,6 +91,9 @@ mod recording;
 // La caméra de ce PC vers l'ordinateur : la puce de la barre, Ctrl+Alt+Maj+C,
 // les réponses de l'ordinateur (docs/webcam.md).
 mod camera;
+// « Stylet : Pression / Souris » : la ligne du menu « Souris » de la barre,
+// Ctrl+Alt+Maj+P, le choix par ordinateur (docs/link-ui.md « Stylet »).
+mod pen;
 
 #[derive(Debug, Clone, Default)]
 struct Live {
@@ -1998,6 +2001,7 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
     let adaptive = settings.adaptive;
     let hdr = settings.hdr_on();
     let microphone = settings.microphone;
+    let pen_mode = settings.pen_mode();
     let before = state.with_store(|s| {
         let c = s.get_mut(&id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
         let before = std::mem::replace(&mut c.settings, settings);
@@ -2014,6 +2018,10 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
     // « Micro » de la rubrique Son pendant sa session : tout de suite.
     if microphone != before.microphone && state.in_session(&id) {
         let _ = micro::apply(&app, &id, microphone);
+    }
+    // « Stylet » de la rubrique Commandes pendant sa session : tout de suite.
+    if pen_mode != before.pen_mode() && state.in_session(&id) {
+        let _ = pen::apply(&app, &id, pen_mode);
     }
     // « Ctrl agit comme ⌘ » changé pendant sa session : tout de suite.
     let on = kybernow_core::input::keymap::control_as_command(ctrl_command, &computer_os(&state, &id));
@@ -2201,6 +2209,10 @@ struct BarShown {
     /// La puce « Micro » (docs/link-ui.md « Micro ») : `MicUi::ui_json` du cœur ;
     /// absente sans micro sur ce PC.
     mic: Option<serde_json::Value>,
+    /// La ligne « Stylet » du menu « Souris » (docs/link-ui.md « Stylet ») :
+    /// `PenChoice::ui_json` du cœur ; absente tant qu'elle ne se montre pas
+    /// (aucun stylet, ou ordinateur qui ne le reçoit pas).
+    pen: Option<serde_json::Value>,
     /// PyroWave (docs/link-ui.md) : ce PC rejoint l'ordinateur par câble ;
     /// la barre en tire la puce ambre « PyroWave en Wi-Fi » quand l'image est
     /// en PyroWave (format des mesures) sans câble.
@@ -2249,6 +2261,7 @@ fn console_bar_shown(id: &str, name: &str, pinned: bool, sessions: usize, route:
         route,
         hdr: None,
         mic: None,
+        pen: None,
         wired: None,
         notice_kind: None,
         console: Some(console),
@@ -2560,6 +2573,10 @@ impl HostEvents for UiEvents {
     }
     fn toggle_microphone(&self) {
         self.mic_toggle();
+    }
+    // Stylet (docs/link-ui.md « Stylet ») : ui/pen.rs.
+    fn toggle_pen(&self) {
+        self.pen_toggle();
     }
 
     fn camera_offer(&self, offered: bool) {
@@ -3672,6 +3689,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             control_as_command,
             immersive: s.immersive.clone(),
             microphone: s.microphone,
+            pen: s.pen_mode(),
         },
         events.clone(),
     ) {
@@ -4169,6 +4187,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         route,
         hdr: bar_hdr(&state, id),
         mic: state.with_session(id, |r| r.events.bar_mic()).flatten(),
+        pen: pen::bar_view(app, id),
         wired: state.with_session(id, |r| r.sent.locked().settings.wired),
         notice_kind: panel.and_then(|p| ["pyrowave_wifi", "pyrowave_relay", "pyrowave_strained", "auto_network"].into_iter().find(|k| *k == p)),
         console: None,
@@ -4641,6 +4660,9 @@ pub fn run(args: Vec<String>) {
             micro::mic_settings,
             micro::set_mic_device,
             micro::set_mic_voice,
+            pen::session_pen,
+            pen::session_pen_state,
+            pen::pen_texts,
             synced::set_sync_settings,
             autotest::autotest_run,
             autotest::autotest_cancel,

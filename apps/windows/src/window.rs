@@ -2097,7 +2097,16 @@ fn pen_message(app: &App, win: &Arc<ScreenWin>, msg: u32, wparam: WPARAM) -> boo
 
 fn pen_send(app: &App, win: &Arc<ScreenWin>, msg: u32, id: u32) -> bool {
     let Some(input) = app.input() else { return false };
-    if !app.keyboard_mouse() || !input.pen_available() {
+    if !app.keyboard_mouse() {
+        return false;
+    }
+    if !input.pen_available() {
+        // Le stylet part en souris (« Stylet : Souris », souris des jeux,
+        // Station d'avant) : le cœur note seulement qu'un stylet a servi, pour
+        // la ligne « Stylet » de la barre ; rien ne part (`pen_on` rend faux
+        // sans rien envoyer tant que le stylet n'est pas disponible).
+        let seen = PenInput { in_range: true, ..Default::default() };
+        let _ = input.pen_on(None, 0, 0, &seen);
         return false;
     }
     let mut info = POINTER_PEN_INFO::default();
@@ -2193,6 +2202,20 @@ fn quiet_pen_gestures(hwnd: HWND) {
             let _ = SetWindowFeedbackSetting(hwnd, feedback, 0, std::mem::size_of::<i32>() as u32, Some(&off as *const i32 as *const _));
         }
     }
+}
+
+/// Bits de `SM_DIGITIZER` (`NID_INTEGRATED_PEN`, `NID_EXTERNAL_PEN`) : un
+/// stylet intégré (Surface, écran à stylet) ou externe (tablette graphique
+/// dont le pilote passe par Windows Ink).
+const DIGITIZER_PENS: i32 = 0x04 | 0x08;
+
+/// Ce PC a un stylet, d'après Windows (`GetSystemMetrics(SM_DIGITIZER)`) :
+/// la ligne « Stylet » de la barre se montre alors dès le début de la session,
+/// pas seulement après un premier passage du stylet (docs/link-ui.md,
+/// « Stylet »). Une tablette dont le pilote a « Windows Ink » décoché n'y est
+/// pas : elle n'envoie que la souris.
+pub fn device_has_pen() -> bool {
+    unsafe { GetSystemMetrics(SM_DIGITIZER) & DIGITIZER_PENS != 0 }
 }
 
 /// Le stylet survole la zone du bord haut de cette fenêtre.
@@ -2809,6 +2832,13 @@ unsafe fn screen_proc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                         b'V' => {
                             if !repeat {
                                 app.events.toggle_microphone();
+                            }
+                            true
+                        }
+                        // « Stylet : Pression / Souris » (docs/link-ui.md, « Stylet ») : bascule.
+                        b'P' => {
+                            if !repeat {
+                                app.events.toggle_pen();
                             }
                             true
                         }

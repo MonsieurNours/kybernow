@@ -636,6 +636,8 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
             immersive: "fullscreen".into(),
             // Un invité : coupé au départ (l'hôte décide s'il peut parler).
             microphone: false,
+            // « Pression » au départ, choix gardé le temps de la session.
+            pen: Default::default(),
             layout,
         },
         events.clone(),

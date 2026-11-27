@@ -1,8 +1,9 @@
 //! Réglages synchronisés par le compte (docs/comptes.md, « Réglages
 //! synchronisés et déplacer un ordinateur » ; apps/core/README.md,
 //! « Réglages synchronisés ») : le profil, le format vidéo, le texte net
-//! (4:4:4), le débit, le HDR et le mode immersif de chaque ordinateur d'un
-//! compte suivent la personne d'un appareil à l'autre.
+//! (4:4:4), le débit, le HDR, le mode immersif et le choix « Stylet »
+//! (`pen` : Pression ou Souris) de chaque ordinateur d'un compte suivent la
+//! personne d'un appareil à l'autre.
 //!
 //! Ce qui se décide sans Windows, pour se tester sur le Mac :
 //!
@@ -11,7 +12,8 @@
 //!   est toujours `jeu`, `bureau` ou `max` ; « Personnalisé » vient des
 //!   retouches (`codec`, `yuv444`, `mbps`, `reliable` : `plan::plan`).
 //! - [`changed`] : les seules clés changées par la personne, à envoyer
-//!   (`settings::changed` du cœur, plus le HDR et le mode immersif) ;
+//!   (`settings::changed` du cœur, plus le HDR, le mode immersif et le
+//!   stylet) ;
 //!   [`everything`] la première fois (rien au relais pour cet ordinateur).
 //! - [`apply`] : ce qui arrive du relais, posé sur les réglages de ce PC par
 //!   `SyncedValues::apply_to` du cœur (ce que la carte graphique décode, le
@@ -28,6 +30,7 @@ use std::collections::HashMap;
 
 pub use kybernow_core::account::AccountSync;
 use kybernow_core::account::{SyncedValues, settings};
+use kybernow_core::input::PenMode;
 use kybernow_core::plan::Choices;
 use kybernow_core::profile::{Capabilities, Codec, Profile, StreamSettings};
 use serde::{Deserialize, Serialize};
@@ -48,6 +51,8 @@ pub struct Local {
     pub hdr: Option<bool>,
     /// `fullscreen`, `always` ou `never`.
     pub immersive: String,
+    /// « Stylet » : `pressure` ou `mouse` (vide ou inconnu : « Pression »).
+    pub pen: String,
 }
 
 impl Local {
@@ -57,6 +62,10 @@ impl Local {
 
     fn immersive(&self) -> &str {
         if settings::IMMERSIVE.contains(&self.immersive.as_str()) { &self.immersive } else { "fullscreen" }
+    }
+
+    fn pen(&self) -> PenMode {
+        PenMode::parse(&self.pen).unwrap_or_default()
     }
 
     /// Les choix de session de ces réglages, pour le cœur (`plan`,
@@ -75,17 +84,18 @@ impl Local {
 
 /// Tout, la première fois qu'un ordinateur part au relais : les réglages de
 /// la session tels que ce PC les demanderait (`effective`, `plan::plan`), le
-/// HDR et le mode immersif.
+/// HDR, le mode immersif et le stylet.
 pub fn everything(local: &Local, effective: &StreamSettings) -> SyncedValues {
     let s = StreamSettings { hdr: local.hdr_on(), ..effective.clone() };
-    SyncedValues::from_stream(&s).with_immersive(Some(local.immersive()))
+    SyncedValues::from_stream(&s).with_immersive(Some(local.immersive())).with_pen(local.pen())
 }
 
 /// Les clés que la personne vient de changer (docs/comptes.md, « Envoyer ») :
 /// celles de la session par le cœur (`settings::changed` : un profil →
 /// `{profile}` ; « Personnalisé » → `{profile: null, codec, yuv444, mbps}` ;
 /// un réglage déjà personnalisé → la clé changée et `profile: null`), puis
-/// le HDR → `{hdr}` et le mode immersif → `{immersive}`, que l'app ajoute.
+/// le HDR → `{hdr}`, le mode immersif → `{immersive}` et le stylet →
+/// `{pen}`, que l'app ajoute.
 /// Les valeurs sont celles que la session prendrait (`before_eff`,
 /// `after_eff` : `plan::plan`).
 pub fn changed(before: &Local, after: &Local, before_eff: &StreamSettings, after_eff: &StreamSettings) -> SyncedValues {
@@ -96,6 +106,9 @@ pub fn changed(before: &Local, after: &Local, before_eff: &StreamSettings, after
     if before.immersive() != after.immersive() {
         v.immersive = Some(after.immersive().to_string());
     }
+    if before.pen() != after.pen() {
+        v = v.with_pen(after.pen());
+    }
     v
 }
 
@@ -104,7 +117,8 @@ pub fn changed(before: &Local, after: &Local, before_eff: &StreamSettings, after
 /// d'aujourd'hui (`effective` : `plan::plan` de réglages donnés), puis remis
 /// dans le modèle de l'app — un profil efface les retouches ; « Personnalisé »
 /// devient des retouches (format, 4:4:4 et, s'il le faut pour rester
-/// personnalisé, le débit) ; le HDR ; le mode immersif.
+/// personnalisé, le débit) ; le HDR ; le mode immersif ; le stylet (une clé
+/// inconnue, d'une version plus récente, est ignorée).
 pub fn apply(local: &Local, values: &SyncedValues, caps: Capabilities, effective: impl Fn(&Local) -> StreamSettings) -> Local {
     let base = StreamSettings { hdr: local.hdr_on(), ..effective(local) };
     let r = values.apply_to(&base, caps);
@@ -146,6 +160,9 @@ pub fn apply(local: &Local, values: &SyncedValues, caps: Capabilities, effective
     }
     if let Some(i) = values.immersive.as_ref().filter(|i| settings::IMMERSIVE.contains(&i.as_str())) {
         out.immersive = i.clone();
+    }
+    if let Some(p) = values.pen_mode() {
+        out.pen = p.key().to_string();
     }
     out
 }
@@ -193,8 +210,9 @@ mod tests {
 
     #[test]
     fn premiere_fois_tout() {
-        let l = Local { hdr: Some(false), immersive: "always".into(), ..local("bureau") };
+        let l = Local { hdr: Some(false), immersive: "always".into(), pen: "mouse".into(), ..local("bureau") };
         let v = everything(&l, &eff(&l));
+        assert_eq!(v.pen.as_deref(), Some("mouse"));
         assert_eq!(v.profile, Some(Some("bureau".into())));
         assert_eq!(v.codec.as_deref(), Some("hevc"));
         assert_eq!(v.hdr, Some(false));
@@ -226,6 +244,11 @@ mod tests {
         assert_eq!(serde_json::to_value(changed(&jeu, &hdr, &eff(&jeu), &eff(&hdr))).unwrap(), json!({"hdr": false}));
         let imm = Local { immersive: "never".into(), ..jeu.clone() };
         assert_eq!(serde_json::to_value(changed(&jeu, &imm, &eff(&jeu), &eff(&imm))).unwrap(), json!({"immersive": "never"}));
+        // Le stylet ; « pressure » vaut le choix jamais changé.
+        let pen = Local { pen: "mouse".into(), ..jeu.clone() };
+        assert_eq!(serde_json::to_value(changed(&jeu, &pen, &eff(&jeu), &eff(&pen))).unwrap(), json!({"pen": "mouse"}));
+        let pressure = Local { pen: "pressure".into(), ..jeu.clone() };
+        assert!(changed(&jeu, &pressure, &eff(&jeu), &eff(&pressure)).is_empty());
         // Rien de synchronisé (le HDR jamais changé vaut allumé).
         let same = Local { hdr: Some(true), ..jeu.clone() };
         assert!(changed(&jeu, &same, &eff(&jeu), &eff(&same)).is_empty());
@@ -253,6 +276,10 @@ mod tests {
         assert_eq!((out.hdr, out.immersive.as_str()), (Some(false), "always"));
         let out = apply(&jeu, &values(json!({"immersive": "plus-tard"})), caps(), eff);
         assert_eq!(out, jeu);
+        // Le stylet ; une clé inconnue est ignorée.
+        let out = apply(&jeu, &values(json!({"pen": "mouse"})), caps(), eff);
+        assert_eq!(out.pen, "mouse");
+        assert_eq!(apply(&jeu, &values(json!({"pen": "gomme"})), caps(), eff), jeu);
         // Le débit seul sur un profil : rien (il suit le profil).
         assert_eq!(apply(&jeu, &values(json!({"mbps": 33})), caps(), eff), jeu);
         // Auto, choisi sur un autre appareil : ce PC garde ses réglages (le test est
