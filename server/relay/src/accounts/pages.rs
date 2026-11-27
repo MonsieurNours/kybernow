@@ -395,46 +395,65 @@ fn page(v: &View<'_>, title: &str, here: &str, wide: bool, card: &str) -> String
     page_with(v, title, here, if wide { " acct-wide" } else { "" }, card)
 }
 
-/// La page, avec la classe de largeur (`acct-wide`, `acct-console`).
-fn page_with(v: &View<'_>, title: &str, here: &str, wide: &str, card: &str) -> String {
-    let lang = v.lang;
-    let (other, other_name) = match lang {
-        Lang::Fr => (Lang::En, "English"),
-        Lang::En => (Lang::Fr, "Français"),
-    };
-    // Le seul script des pages, et seulement là où il y a une passkey (lot 1b).
-    let script = page_scripts(card);
+/// Le document d'une page des comptes (REL-37 : un seul gabarit, pour les pages seules, la
+/// console et le tour d'accueil). `title` est échappé ici, quoi qu'on lui passe (REL-01) ;
+/// `head_extra` : des balises de plus dans `<head>` (un rafraîchissement) ; les scripts suivent
+/// le contenu ([`page_scripts`]).
+pub fn document(lang: Lang, title: &str, head_extra: &str, body_class: &str, inner: &str) -> String {
     format!(
         r##"<!doctype html>
 <html lang="{lang}">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#05070A">
-<meta name="robots" content="noindex">
+<meta name="robots" content="noindex">{head_extra}
 <link rel="icon" type="image/svg+xml" href="{favicon}">
 <link rel="preload" href="{font}" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{css}">
 <title>{title} · KyberNow</title>{script}
 </head>
-<body class="solo">
-<main class="solo-in acct{wide}">
-<a class="acct-logo" href="/compte{q}" aria-label="{logo_label}"><img class="solo-logo" src="{logo}" alt="KyberNow Share" width="260" height="48"></a>
-<div class="acct-card">
-{card}
-</div>
-<nav class="solo-links"><a href="{here}{q_other}" hreflang="{other_code}" lang="{other_code}">{other_name}</a><a href="/conditions{q_lang}">{terms}</a><a href="/confidentialite{q_lang}">{privacy}</a></nav>
-</main>
+<body class="{body_class}">
+{inner}
 </body>
 </html>
 "##,
         lang = lang.code(),
         title = title_text(title),
-        here = esc(here),
         favicon = assets::url("kybernow-favicon.svg"),
         font = assets::url("archivo.woff2"),
         css = assets::url("share.css"),
+        script = page_scripts(inner),
+    )
+}
+
+/// Un rafraîchissement sans script vers `target` (le retour vers l'app, l'ouverture d'Admin).
+pub fn refresh_to(target: &str) -> String {
+    format!("\n<meta http-equiv=\"refresh\" content=\"0;url={}\">", esc(target))
+}
+
+/// La page, avec la classe de largeur (`acct-wide`, `acct-console`).
+fn page_with(v: &View<'_>, title: &str, here: &str, wide: &str, card: &str) -> String {
+    page_with_head(v, title, here, wide, card, "")
+}
+
+/// La même, avec des balises de plus dans `<head>`.
+fn page_with_head(v: &View<'_>, title: &str, here: &str, wide: &str, card: &str, head_extra: &str) -> String {
+    let lang = v.lang;
+    let (other, other_name) = match lang {
+        Lang::Fr => (Lang::En, "English"),
+        Lang::En => (Lang::Fr, "Français"),
+    };
+    let inner = format!(
+        r##"<main class="solo-in acct{wide}">
+<a class="acct-logo" href="/compte{q}" aria-label="{logo_label}"><img class="solo-logo" src="{logo}" alt="KyberNow Share" width="260" height="48"></a>
+<div class="acct-card">
+{card}
+</div>
+<nav class="solo-links"><a href="{here}{q_other}" hreflang="{other_code}" lang="{other_code}">{other_name}</a><a href="/conditions{q_lang}">{terms}</a><a href="/confidentialite{q_lang}">{privacy}</a></nav>
+</main>"##,
+        here = esc(here),
         logo = assets::url("kybernow-share-dark.svg"),
         q = v.q(),
         q_other = v.q_lang(other),
@@ -443,7 +462,8 @@ fn page_with(v: &View<'_>, title: &str, here: &str, wide: &str, card: &str) -> S
         privacy = v.tr("Confidentialité", "Privacy"),
         terms = v.tr("Conditions", "Terms"),
         q_lang = format!("?lang={}", lang.code()),
-    )
+    );
+    document(lang, title, head_extra, "solo", &inner)
 }
 
 fn email_input(id: &str, value: &str, autocomplete: &str) -> String {
@@ -1164,9 +1184,8 @@ pub fn device_return(v: &View<'_>, target: &str, connected: bool) -> String {
         target = esc(target),
         open = v.tr("Revenir à KyberNow Link", "Return to KyberNow Link"),
     );
-    let html = page(v, &title, "/compte/connecter-appareil", false, &card);
     // Sans script : un rafraîchissement vers le schéma de l'app.
-    html.replacen("<meta name=\"robots\" content=\"noindex\">", &format!("<meta name=\"robots\" content=\"noindex\">\n<meta http-equiv=\"refresh\" content=\"0;url={}\">", esc(target)), 1)
+    page_with_head(v, &title, "/compte/connecter-appareil", "", &card, &refresh_to(target))
 }
 
 /// `/tv` : le code affiché sur l'écran du téléviseur.

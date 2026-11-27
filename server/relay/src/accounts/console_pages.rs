@@ -232,23 +232,8 @@ pub fn frame(v: &View<'_>, shell: &Shell, here: Here, title: &str, here_path: &s
         Lang::Fr => (Lang::En, "English"),
         Lang::En => (Lang::Fr, "Français"),
     };
-    let script = super::page_scripts(&body);
-    format!(
-        r##"<!doctype html>
-<html lang="{lang}">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#05070A">
-<meta name="robots" content="noindex">
-<link rel="icon" type="image/svg+xml" href="{favicon}">
-<link rel="preload" href="{font}" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="{css}">
-<title>{title} · KyberNow</title>{script}
-</head>
-<body class="ka-body">
-{sprite}
+    let inner = format!(
+        r##"{sprite}
 <div class="ka-app">
 {side}
 <main class="ka-main">
@@ -258,23 +243,16 @@ pub fn frame(v: &View<'_>, shell: &Shell, here: Here, title: &str, here_path: &s
 <footer class="ka-foot"><a href="{here_path}{q_other}" hreflang="{other_code}" lang="{other_code}">{other_name}</a><a href="/conditions{q_lang}">{terms}</a><a href="/confidentialite{q_lang}">{privacy}</a></footer>
 </main>
 </div>
-{tabbar}
-</body>
-</html>
-"##,
-        lang = v.lang.code(),
-        title = super::title_text(title),
+{tabbar}"##,
         here_path = esc(here_path),
-        favicon = assets::url("kybernow-favicon.svg"),
-        font = assets::url("archivo.woff2"),
-        css = assets::url("share.css"),
         sprite = SPRITE,
         q_other = v.q_lang(other),
         other_code = other.code(),
         q_lang = format!("?lang={}", v.lang.code()),
         terms = v.tr("Conditions", "Terms"),
         privacy = v.tr("Confidentialité", "Privacy"),
-    )
+    );
+    super::document(v.lang, title, "", "ka-body", &inner)
 }
 
 /// Le titre d'une page : le surtitre, le titre, le chapeau, l'action à droite.
@@ -2379,36 +2357,8 @@ pub fn welcome(v: &View<'_>, step: u8, w: &Welcome) -> String {
         stage = stage(step),
     );
     let refresh = if step == 2 && w.computer.is_none() { "\n<meta http-equiv=\"refresh\" content=\"5\">" } else { "" };
-    let script = super::page_scripts(&body);
-    format!(
-        r##"<!doctype html>
-<html lang="{lang}">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#05070A">
-<meta name="robots" content="noindex">{refresh}
-<link rel="icon" type="image/svg+xml" href="{favicon}">
-<link rel="preload" href="{font}" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="{css}">
-<title>{title} · KyberNow</title>{script}
-</head>
-<body class="kt-page">
-{sprite}
-<main class="kt-tour">
-{body}
-</main>
-</body>
-</html>
-"##,
-        lang = v.lang.code(),
-        title = v.tr("Bienvenue", "Welcome"),
-        favicon = assets::url("kybernow-favicon.svg"),
-        font = assets::url("archivo.woff2"),
-        css = assets::url("share.css"),
-        sprite = SPRITE,
-    )
+    let inner = format!("{SPRITE}\n<main class=\"kt-tour\">\n{body}\n</main>");
+    super::document(v.lang, &v.tr("Bienvenue", "Welcome"), refresh, "kt-page", &inner)
 }
 
 // --- Admin sur le réseau ---------------------------------------------------------------
@@ -2503,8 +2453,7 @@ pub fn open_admin_go(v: &View<'_>, target: &str) -> String {
         target = esc(target),
         open = v.tr("Ouvrir Admin", "Open Admin"),
     );
-    let html = super::page_with(v, &title, "/compte/ouvrir-admin", "", &card);
-    html.replacen("<meta name=\"robots\" content=\"noindex\">", &format!("<meta name=\"robots\" content=\"noindex\">\n<meta http-equiv=\"refresh\" content=\"0;url={}\">", esc(target)), 1)
+    super::page_with_head(v, &title, "/compte/ouvrir-admin", "", &card, &super::refresh_to(target))
 }
 
 // --- Un lien d'accès ------------------------------------------------------------------
