@@ -17,6 +17,7 @@
 #                                        (service root des mises à jour, demandées par Admin)
 #   /usr/lib/udev/rules.d/               60-kybernow-uinput.rules (uinput, uhid, hidraw des DualSense)
 #   /usr/lib/modules-load.d/             kybernow-station.conf (uinput, uhid au démarrage)
+#   /usr/lib/sysusers.d/                 kybernow-station.conf (groupe qui a le droit de demander une mise à jour)
 #   /usr/share/applications/             fr.leslignesclaires.kybernow.station.display.desktop (KDE)
 #
 # Sortie : server/linux/dist/kybernow-station_<version>_<arch>.deb,
@@ -38,6 +39,11 @@ trap 'rm -rf "$WORK"' EXIT
 export PATH="$HOME/.cargo/bin:$PATH"
 
 [ -x "$RT_SRC/bin/kycontroller" ] || { echo "Kyber absent : lancer d'abord server/linux/scripts/build-kyber.sh" >&2; exit 1; }
+# Kyber construit avec les correctifs d'aujourd'hui (STLIN-23).
+# shellcheck source=kyber-stamp.sh
+. "$HERE/kyber-stamp.sh"
+kyber_linux_check_stamp "$ROOT" "$RT_SRC" || exit 1
+[ -f "$ROOT/LICENSE" ] || { echo "LICENSE absent à la racine du dépôt : les paquets doivent porter la licence" >&2; exit 1; }
 [ -f "$ROOT/server/web/dist/index.html" ] || { echo "Interface d'Admin absente : server/web, npm ci && npm run build" >&2; exit 1; }
 
 echo "==> kyber-admin, kybernow-display et kybernow-tray ($ARCH)"
@@ -48,7 +54,7 @@ echo "==> kyber-admin, kybernow-display et kybernow-tray ($ARCH)"
 echo "==> Assemblage"
 TREE="$WORK/tree"
 LIB="$TREE/usr/lib/kybernow-station"
-install -d "$LIB/bin" "$LIB/runtime/share" "$TREE/usr/lib/systemd/user" "$TREE/usr/lib/systemd/system" "$TREE/usr/lib/udev/rules.d" "$TREE/usr/lib/modules-load.d" \
+install -d "$LIB/bin" "$LIB/runtime/share" "$TREE/usr/lib/systemd/user" "$TREE/usr/lib/systemd/system" "$TREE/usr/lib/udev/rules.d" "$TREE/usr/lib/modules-load.d" "$TREE/usr/lib/sysusers.d" \
     "$TREE/usr/share/doc/kybernow-station" "$TREE/usr/share/applications"
 install -m 755 "$TARGET/release/kyber-admin" "$TARGET/release/kybernow-display" "$TARGET/release/kybernow-tray" \
     "$ROOT/server/linux/packaging/kybernow-station-setup" "$LIB/bin/"
@@ -74,6 +80,7 @@ install -m 644 "$ROOT/server/linux/packaging/kybernow-station-update.socket" "$R
     "$TREE/usr/lib/systemd/system/"
 install -m 644 "$ROOT/server/linux/packaging/60-kybernow-uinput.rules" "$TREE/usr/lib/udev/rules.d/"
 install -m 644 "$ROOT/server/linux/packaging/kybernow-station-modules.conf" "$TREE/usr/lib/modules-load.d/kybernow-station.conf"
+install -m 644 "$ROOT/server/linux/packaging/kybernow-station.sysusers" "$TREE/usr/lib/sysusers.d/kybernow-station.conf"
 # Caméra : v4l2loopback (s'il est installé) chargé au démarrage avec le nom
 # « KyberNow Camera », et ouvert à la session de l'utilisateur.
 install -d "$TREE/usr/lib/modprobe.d"
@@ -87,20 +94,42 @@ install -m 644 "$ROOT/server/linux/packaging/kybernow-station.firewalld.xml" "$T
 install -m 644 "$ROOT/server/linux/packaging/kybernow-station.ufw" "$TREE/etc/ufw/applications.d/kybernow-station"
 # KDE Plasma : le droit de l'agent au protocole d'écrans de KWin.
 install -m 644 "$ROOT/server/linux/packaging/fr.leslignesclaires.kybernow.station.display.desktop" "$TREE/usr/share/applications/"
-install -m 644 "$ROOT/LICENSE" "$TREE/usr/share/doc/kybernow-station/copyright" 2>/dev/null || true
+# Licence (AGPL-3.0, à la racine du dépôt) : toujours dans les paquets.
+install -m 644 "$ROOT/LICENSE" "$TREE/usr/share/doc/kybernow-station/copyright"
 SIZE_KB=$(du -sk "$TREE" | cut -f1)
 
 # Après une installation comme après une mise à jour (par Admin : le service
 # root relance ensuite les services de l'utilisateur lui-même).
 POSTINST='#!/bin/sh
 set -e
+# Le socket des mises à jour est réservé au groupe kybernow-station et au
+# propriétaire de la Station (STLIN-02) : le groupe d abord, puis le compte
+# qui installe (sudo, pkexec), noté une fois pour toutes. Une mise à jour
+# faite par Admin (service root, ni sudo ni pkexec) garde le propriétaire noté.
+systemd-sysusers kybernow-station.conf 2>/dev/null || getent group kybernow-station >/dev/null || groupadd --system kybernow-station
+owner="${SUDO_USER:-}"
+[ -z "$owner" ] && [ -n "${PKEXEC_UID:-}" ] && owner="$(id -nu "$PKEXEC_UID" 2>/dev/null || true)"
+dropin=/etc/systemd/system/kybernow-station-update.socket.d
+if [ -n "$owner" ] && [ "$owner" != root ] && id "$owner" >/dev/null 2>&1; then
+    usermod -a -G kybernow-station "$owner" 2>/dev/null || gpasswd -a "$owner" kybernow-station >/dev/null 2>&1 || true
+    if [ ! -f "$dropin/owner.conf" ]; then
+        mkdir -p "$dropin"
+        # echo plutôt que printf : rpm lirait « %s » comme une macro dans %post.
+        { echo "# Propriétaire de la Station (compte qui l a installée)."; echo "[Socket]"; echo "SocketUser=$owner"; } > "$dropin/owner.conf"
+    fi
+elif [ ! -f "$dropin/owner.conf" ]; then
+    echo "Mises à jour depuis Admin : ajoutez votre compte au groupe kybernow-station (sudo usermod -aG kybernow-station VOTRE_COMPTE), puis rouvrez la session."
+fi
 udevadm control --reload 2>/dev/null || true
 modprobe uinput 2>/dev/null || true
 modprobe uhid 2>/dev/null || true
 udevadm trigger --name-match=uinput 2>/dev/null || true
 udevadm trigger --name-match=uhid 2>/dev/null || true
 systemctl daemon-reload 2>/dev/null || true
-systemctl enable --now kybernow-station-update.socket 2>/dev/null || true
+systemctl enable kybernow-station-update.socket 2>/dev/null || true
+# Relancé pour prendre les droits du socket (0660, groupe, propriétaire) ;
+# une demande déjà acceptée garde sa connexion.
+systemctl restart kybernow-station-update.socket 2>/dev/null || true
 systemctl --global enable kybernow-admin.service kybernow-kyber.service kybernow-tray.service 2>/dev/null || true
 # Pare-feu actif : les ports de la Station ouverts (zone par défaut de
 # firewalld, ufw), comme sous Windows ; un pare-feu arrêté reste tel quel.
@@ -134,6 +163,25 @@ case "$1" in
         if command -v ufw >/dev/null 2>&1; then
             ufw delete allow "KyberNow Station" >/dev/null 2>&1 || true
         fi
+        ;;
+esac
+'
+# Après le retrait : rechargements, et à la purge (dpkg « purge », rpm « 0 »
+# en %postun) la réserve du service root (paquets gardés pour le retour
+# arrière, journaux) et le propriétaire noté (STLIN-16). Le groupe reste
+# (usage des groupes système).
+POSTRM='#!/bin/sh
+set -e
+case "$1" in
+    remove | purge | 0)
+        systemctl daemon-reload 2>/dev/null || true
+        udevadm control --reload 2>/dev/null || true
+        ;;
+esac
+case "$1" in
+    purge | 0)
+        rm -rf /var/lib/kybernow-station /etc/systemd/system/kybernow-station-update.socket.d
+        systemctl daemon-reload 2>/dev/null || true
         ;;
 esac
 '
@@ -180,7 +228,8 @@ EOF
 echo /etc/ufw/applications.d/kybernow-station > "$WORK/deb/DEBIAN/conffiles"
 printf '%s' "$POSTINST" > "$WORK/deb/DEBIAN/postinst"
 printf '%s' "$PRERM" > "$WORK/deb/DEBIAN/prerm"
-chmod 755 "$WORK/deb/DEBIAN/postinst" "$WORK/deb/DEBIAN/prerm"
+printf '%s' "$POSTRM" > "$WORK/deb/DEBIAN/postrm"
+chmod 755 "$WORK/deb/DEBIAN/postinst" "$WORK/deb/DEBIAN/prerm" "$WORK/deb/DEBIAN/postrm"
 DEB="$DIST/kybernow-station_${DEB_VERSION}_${DEB_ARCH}.deb"
 dpkg-deb --root-owner-group -Zxz --build "$WORK/deb" "$DEB" >/dev/null
 echo "    $DEB"
@@ -224,6 +273,9 @@ $(printf '%s' "$POSTINST" | sed 1d)
 %preun
 $(printf '%s' "$PRERM" | sed 1d)
 
+%postun
+$(printf '%s' "$POSTRM" | sed 1d)
+
 %files
 /usr/lib/kybernow-station
 /usr/lib/systemd/user/kybernow-admin.service
@@ -233,6 +285,7 @@ $(printf '%s' "$PRERM" | sed 1d)
 /usr/lib/systemd/system/kybernow-station-update@.service
 /usr/lib/udev/rules.d/60-kybernow-uinput.rules
 /usr/lib/modules-load.d/kybernow-station.conf
+/usr/lib/sysusers.d/kybernow-station.conf
 /usr/lib/modules-load.d/kybernow-camera.conf
 /usr/lib/modprobe.d/kybernow-camera.conf
 /usr/lib/udev/rules.d/70-kybernow-camera.rules

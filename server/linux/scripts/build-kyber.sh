@@ -14,11 +14,16 @@
 #
 # Sources : $KYBER_DIR (défaut : third_party/kyber-desktop-linux), une copie
 # de kyber-desktop à part, comme pour le Mac (docs/build-notes.md). Les
-# fichiers touchés par les correctifs sont remis à l'origine avant chaque
-# compilation.
+# fichiers touchés par les correctifs sont remis à l'origine, fichier par
+# fichier, avant chaque compilation ; une copie entière remise à l'origine
+# (git checkout -- .) reste à la charge de l'appelant (release-station.sh).
+# Une seule construction à la fois sur ces sources (scripts/verrou.sh).
+# Un morceau de correctif qui ne s'applique qu'avec un décalage du contexte
+# (« fuzz ») est signalé (STCOM-05 ; KYBERNOW_PATCH_STRICT=1 : un échec).
 #
 # Sortie : $KYBER_DIR/rootfs-<arch>-linux (bin/kycontroller, bin/kyavserver,
-# bin/kynputserver, lib/…).
+# bin/kynputserver, lib/…), et l'empreinte des correctifs dans
+# .kybernow-patches (kyber-stamp.sh), vérifiée par package.sh et run-station.sh.
 #
 # KYBER_PATCH_ONLY=1 : poser les correctifs, sans compiler.
 #
@@ -48,6 +53,13 @@ kyber_toolchain_check rustc meson
 
 STARTED=$(mktemp)
 trap 'rm -f "$STARTED"' EXIT
+# Une seule construction à la fois sur ces sources (STLIN-23).
+. "$ROOT/scripts/verrou.sh"
+kyber_verrou_sortie "$KYBER_DIR" "server/linux/scripts/build-kyber.sh" || exit 1
+# shellcheck source=kyber-stamp.sh
+. "$HERE/kyber-stamp.sh"
+# L'empreinte d'avant ne vaut plus pendant la construction.
+rm -f "$OUT/.kybernow-patches"
 
 # Correctifs communs (Windows, Mac et Linux).
 HERE_PATCHES="$ROOT/server/kyber-patches"
@@ -58,19 +70,24 @@ HERE_PATCHES="$ROOT/server/kyber-patches"
     kyber_apply_server_patches
 )
 
-# Protocole du stylet (apps/macos/kyber-patches/*-kynput-stylet.patch : types
-# communs aux apps et aux Stations), dont le correctif commun 0027 a besoin
-# pour compiler. Sous Windows et sur Mac, la copie de Kyber l'a déjà par les
-# scripts des apps ; ici, on le pose s'il manque.
-for p in "$ROOT"/apps/macos/kyber-patches/*-kynput-stylet.patch; do
-    [ -f "$p" ] || continue
-    git -C "$KYNPUT" apply --reverse --check "$p" 2>/dev/null && continue
-    for f in $(grep -h '^+++ b/' "$p" | sed 's|^+++ b/||; s|[[:space:]].*||'); do
-        git -C "$KYNPUT" cat-file -e "HEAD:$f" 2>/dev/null || rm -f "$KYNPUT/$f"
-    done
-    echo "    $(basename "$p") (protocole des apps)"
-    git -C "$KYNPUT" apply "$p" || { echo "Correctif $(basename "$p") inapplicable" >&2; exit 1; }
-done
+# Le protocole du stylet des apps (apps/macos/kyber-patches), dont le
+# correctif commun 0027 a besoin, est reposé par kyber_apply_server_patches
+# avec tous les correctifs des apps (STLIN-25 : l'ancienne boucle ne faisait
+# plus rien).
+
+# Un correctif qui ne se pose qu'avec un décalage du contexte (« fuzz »)
+# est signalé : il peut tomber au mauvais endroit sans échec
+# (STCOM-05). KYBERNOW_PATCH_STRICT=1 en fait un échec. Pas encore d'échec
+# par défaut : le correctif Mac 0009 n'a pas été rafraîchi (session des
+# correctifs Kyber).
+kyber_patch_fuzz_warn() {
+    # $1 : le correctif, $2 : le dossier. Essai à blanc sans décalage permis
+    # (-F0) : le patch d'Apple ne dit pas quand il en prend un.
+    local p=$1 dir=$2
+    (cd "$dir" && patch -p1 -F0 --forward --dry-run -s < "$p" >/dev/null 2>&1) && return 0
+    echo "    Attention : $(basename "$p") ne se pose qu'avec un décalage du contexte (fuzz) : à rafraîchir" >&2
+    [ -z "${KYBERNOW_PATCH_STRICT:-}" ]
+}
 
 # Correctifs propres à Linux : même nommage que les correctifs communs.
 LINUX_PATCHES="$ROOT/server/linux/kyber-patches"
@@ -105,6 +122,7 @@ done
 for p in "$LINUX_PATCHES"/*.patch; do
     repo="$(linux_repo "$p")"
     echo "    $(basename "$p") (Linux)"
+    kyber_patch_fuzz_warn "$p" "$repo" || exit 1
     (cd "$repo" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | sed 's/^/        /') || {
         echo "Correctif $(basename "$p") inapplicable (hunk en échec ci-dessus)" >&2
         exit 1
@@ -181,4 +199,6 @@ for f in bin/kycontroller bin/kyavserver bin/kynputserver; do
     [ -x "$OUT/$f" ] || { echo "$OUT/$f introuvable" >&2; exit 1; }
     [ "$OUT/$f" -nt "$STARTED" ] || { echo "$OUT/$f n'a pas été produit par ce build" >&2; exit 1; }
 done
+# Empreinte des correctifs de ce build (kyber-stamp.sh).
+kyber_linux_patches_hash "$ROOT" > "$OUT/.kybernow-patches"
 echo "==> Serveur Kyber pour Linux ($ARCH) : $OUT"

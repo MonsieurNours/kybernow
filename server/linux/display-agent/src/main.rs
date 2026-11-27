@@ -96,6 +96,7 @@ pub struct Place {
 
 /// Comment rendre une capture : session de Mutter, flux de KWin, ou sortie
 /// d'un bureau wlroots (que Kyber capture lui-même, par son nom).
+#[derive(PartialEq)]
 pub enum CastKey {
     Mutter(OwnedObjectPath),
     Kde(u32),
@@ -118,6 +119,10 @@ pub trait Recorder {
     fn stop(&mut self, cast: &Cast);
     /// Lit les événements en attente du compositeur.
     fn pump(&mut self) {}
+    /// Captures que le compositeur a fermées depuis le dernier appel (KDE).
+    fn lost(&mut self) -> Vec<CastKey> {
+        Vec::new()
+    }
     /// Change le mode d'un écran virtuel quand le compositeur le fait lui-même
     /// (wlroots) ; faux : c'est à la capture de le négocier (GNOME) ou à un
     /// nouvel écran (KDE).
@@ -202,6 +207,9 @@ struct LayoutScreen {
 struct Shared {
     /// Disposition à appliquer dès que les écrans virtuels sont là.
     pending: Option<Layout>,
+    /// Numéro de la disposition en attente, changé à chaque nouvelle : le fil
+    /// de la disposition n'efface que celle qu'il vient d'appliquer (STLIN-09).
+    generation: u64,
     /// Disposition des écrans de l'ordinateur d'avant la session.
     saved: Option<Vec<Place>>,
     /// Connecteur de chaque écran virtuel (« Meta-0 », « KyberNow-1 »).
@@ -210,6 +218,57 @@ struct Shared {
     places: [Option<(i32, i32)>; MAX_SCREENS],
     /// Le fichier des sources est à réécrire (places changées).
     dirty: bool,
+}
+
+impl Shared {
+    /// Pose (ou retire) la disposition en attente, sous un nouveau numéro.
+    fn set_pending(&mut self, layout: Option<Layout>) {
+        self.pending = layout;
+        self.generation = self.generation.wrapping_add(1);
+    }
+}
+
+/// Essais du fil de la disposition pour une même disposition : après un échec,
+/// le suivant attend de plus en plus (250 ms, puis le double à chaque fois,
+/// 8 s au plus), et l'on abandonne après `LAYOUT_MAX_FAILURES` échecs (KDE
+/// sans kscreen-doctor : quatre lignes de journal par seconde toute la
+/// session, STLIN-09). Une nouvelle disposition repart de zéro.
+const LAYOUT_MAX_FAILURES: u32 = 12;
+
+#[derive(Default)]
+struct LayoutTries {
+    generation: u64,
+    failures: u32,
+    next: Option<Instant>,
+}
+
+impl LayoutTries {
+    fn reset_for(&mut self, generation: u64) {
+        if self.generation != generation {
+            *self = LayoutTries { generation, ..Default::default() };
+        }
+    }
+
+    /// Faut-il essayer maintenant ?
+    fn due(&mut self, generation: u64, now: Instant) -> bool {
+        self.reset_for(generation);
+        self.failures < LAYOUT_MAX_FAILURES && self.next.is_none_or(|t| now >= t)
+    }
+
+    /// Note un échec ; rend la ligne à journaliser (pas à chaque fois).
+    fn failed(&mut self, generation: u64, now: Instant, error: &str) -> Option<String> {
+        self.reset_for(generation);
+        self.failures += 1;
+        let wait = Duration::from_millis(250u64 << self.failures.min(5)).min(Duration::from_secs(8));
+        self.next = Some(now + wait);
+        if self.failures >= LAYOUT_MAX_FAILURES {
+            Some(format!("disposition : {error} ; abandon après {} essais", self.failures))
+        } else if self.failures == 1 || self.failures.is_power_of_two() {
+            Some(format!("disposition : {error} (essai {})", self.failures))
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -356,8 +415,11 @@ fn apply_layout(desk: &dyn Desk, shared: &Mutex<Shared>, layout: &Layout) -> Res
             places.push(Place { connector: m.connector.clone(), x: right + m.x - left, y: m.y, scale: m.scale, primary: false });
         }
     }
+    // Le verrou est rendu pendant l'application (D-Bus ou kscreen-doctor,
+    // jusqu'à ~1 s) : les requêtes d'Admin n'attendent pas (STLIN-09).
+    drop(sh);
     desk.apply(&places)?;
-    sh.dirty = true;
+    shared.lock().unwrap().dirty = true;
     let kept = if layout.keep_others { others.len() } else { 0 };
     log(&format!("disposition de la session appliquée ({} écran(s) virtuel(s), {kept} de l'ordinateur gardé(s))", layout.screens.len()));
     Ok(true)
@@ -367,12 +429,10 @@ fn screens_file() -> PathBuf {
     if let Some(p) = std::env::var_os("KYBERNOW_SCREENS_FILE").filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
     }
-    let data = std::env::var_os("XDG_DATA_HOME")
-        .filter(|p| !p.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
-    data.join("kybernow/station/kyber-screens.toml")
+    // Chemin fixe, celui que kybernow-station-setup écrit dans les réglages
+    // de Kyber : XDG_DATA_HOME n'est suivi nulle part (STLIN-19).
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"));
+    home.join(".local/share/kybernow/station/kyber-screens.toml")
 }
 
 struct Agent {
@@ -404,14 +464,30 @@ impl Agent {
         let desk = new_desk(self.kind)?;
         let shared = Arc::clone(&self.shared);
         std::thread::spawn(move || {
+            let mut tries = LayoutTries::default();
             loop {
                 std::thread::sleep(Duration::from_millis(250));
-                let pending = shared.lock().unwrap().pending.clone();
-                if let Some(layout) = pending {
-                    match apply_layout(desk.as_ref(), &shared, &layout) {
-                        Ok(true) => shared.lock().unwrap().pending = None,
-                        Ok(false) => {}
-                        Err(e) => log(&format!("disposition : {e}")),
+                let (pending, generation) = {
+                    let sh = shared.lock().unwrap();
+                    (sh.pending.clone(), sh.generation)
+                };
+                let Some(layout) = pending else { continue };
+                if !tries.due(generation, Instant::now()) {
+                    continue;
+                }
+                match apply_layout(desk.as_ref(), &shared, &layout) {
+                    Ok(true) => {
+                        // Seulement si aucune disposition plus récente n'a été posée entre-temps.
+                        let mut sh = shared.lock().unwrap();
+                        if sh.generation == generation {
+                            sh.pending = None;
+                        }
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        if let Some(line) = tries.failed(generation, Instant::now(), &e) {
+                            log(&line);
+                        }
                     }
                 }
             }
@@ -421,6 +497,7 @@ impl Agent {
 
     fn handle(&mut self, req: &Value) -> Result<Value> {
         self.recorder.pump();
+        self.forget_lost();
         match req["cmd"].as_str() {
             Some("create") => self.create(req),
             Some("remove") => {
@@ -516,11 +593,11 @@ impl Agent {
         let disabled = if keep_others { 0 } else { self.physical_count() };
         // Déjà visibles : tout de suite ; sinon, dès qu'ils apparaissent.
         match apply_layout(self.desk.as_ref(), &self.shared, &layout) {
-            Ok(true) => self.shared.lock().unwrap().pending = None,
-            Ok(false) => self.shared.lock().unwrap().pending = Some(layout),
+            Ok(true) => self.shared.lock().unwrap().set_pending(None),
+            Ok(false) => self.shared.lock().unwrap().set_pending(Some(layout)),
             Err(e) => {
                 log(&format!("disposition : {e}"));
-                self.shared.lock().unwrap().pending = Some(layout);
+                self.shared.lock().unwrap().set_pending(Some(layout));
             }
         }
         self.sync_places();
@@ -530,7 +607,7 @@ impl Agent {
     fn restore(&mut self) -> Value {
         let saved = {
             let mut sh = self.shared.lock().unwrap();
-            sh.pending = None;
+            sh.set_pending(None);
             sh.saved.take()
         };
         if let Some(saved) = saved
@@ -677,6 +754,29 @@ impl Agent {
         Ok(())
     }
 
+    /// Captures fermées par le compositeur (STLIN-11) : retirées, pour que
+    /// la liste de Kyber ne les garde pas ; celles de l'ordinateur sont
+    /// refaites par `ensure_sources`, un écran virtuel perdu est retiré.
+    fn forget_lost(&mut self) {
+        let lost = self.recorder.lost();
+        if lost.is_empty() {
+            return;
+        }
+        let before = self.physicals.len();
+        self.physicals.retain(|p| !lost.contains(&p.cast.key));
+        let mut gone = before - self.physicals.len();
+        for v in self.virtuals.iter_mut() {
+            if v.as_ref().is_some_and(|v| lost.contains(&v.cast.key)) {
+                *v = None;
+                gone += 1;
+            }
+        }
+        log(&format!("{gone} capture(s) fermée(s) par le compositeur"));
+        if let Err(e) = self.ensure_sources() {
+            log(&format!("écrans de l'ordinateur : {e}"));
+        }
+    }
+
     fn stop_physicals(&mut self) {
         for p in std::mem::take(&mut self.physicals) {
             self.recorder.stop(&p.cast);
@@ -754,7 +854,35 @@ fn uint(v: &Value, key: &str) -> Result<u32> {
     v[key].as_u64().map(|n| n as u32).ok_or_else(|| format!("« {key} » manquant"))
 }
 
+/// SIGTERM, SIGINT et SIGHUP bloqués dans tous les fils (à appeler avant le
+/// premier fil, connexions D-Bus comprises) puis attendus par un fil dédié :
+/// `systemctl --user stop` (mise à jour, désinstallation, déconnexion) arrête
+/// tout le groupe d'Admin, et l'agent doit rendre les écrans avant de partir
+/// (sous Sway/Hyprland, sinon, les écrans de l'ordinateur restent éteints :
+/// STLIN-04). Les programmes lancés par `Command` repartent avec un masque vide.
+fn block_stop_signals() -> libc::sigset_t {
+    // SAFETY: sigset_t initialisé par sigemptyset avant tout usage ; appels POSIX simples.
+    unsafe {
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        for sig in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+            libc::sigaddset(&mut set, sig);
+        }
+        libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+        set
+    }
+}
+
+/// Attend l'un des signaux d'arrêt (bloqués par `block_stop_signals`).
+fn wait_stop_signal(set: &libc::sigset_t) -> i32 {
+    let mut sig = 0;
+    // SAFETY: `set` vient de block_stop_signals ; sigwait ne fait qu'attendre.
+    unsafe { libc::sigwait(set, &mut sig) };
+    sig
+}
+
 fn main() {
+    let stop_signals = block_stop_signals();
     let mut agent = match Agent::new() {
         Ok(a) => a,
         Err(e) => {
@@ -777,10 +905,37 @@ fn main() {
         agent.desk.name(),
         agent.file.display()
     ));
-    let stdin = std::io::stdin();
+    // L'agent reste sur ce fil (le bureau n'est pas `Send`) : les lignes de
+    // l'entrée et les signaux d'arrêt arrivent par le même canal.
+    enum Event {
+        Line(String),
+        Stop(i32),
+    }
+    let (tx, rx) = std::sync::mpsc::channel::<Event>();
+    {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(Event::Stop(wait_stop_signal(&stop_signals)));
+        });
+    }
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            if tx.send(Event::Line(line)).is_err() {
+                break;
+            }
+        }
+        // Fin de l'entrée (Admin arrêté) : le canal se ferme.
+    });
     let mut stdout = std::io::stdout();
-    for line in stdin.lock().lines() {
-        let Ok(line) = line else { break };
+    while let Ok(event) = rx.recv() {
+        let line = match event {
+            Event::Line(line) => line,
+            Event::Stop(sig) => {
+                log(&format!("signal {sig} : écrans rendus avant l'arrêt"));
+                break;
+            }
+        };
         if line.trim().is_empty() {
             continue;
         }
@@ -801,6 +956,54 @@ fn main() {
         let _ = stdout.flush();
     }
     agent.shutdown();
+    std::process::exit(0);
+}
+
+#[cfg(test)]
+mod layout_tries_tests {
+    use super::{LAYOUT_MAX_FAILURES, LayoutTries, Shared};
+    use std::time::{Duration, Instant};
+
+    /// Essais espacés après un échec, abandon, et nouvelle disposition qui repart de zéro.
+    #[test]
+    fn essais_espaces_puis_abandon() {
+        let t0 = Instant::now();
+        let mut tries = LayoutTries::default();
+        assert!(tries.due(1, t0));
+        assert!(tries.failed(1, t0, "x").is_some());
+        assert!(!tries.due(1, t0 + Duration::from_millis(100)));
+        assert!(tries.due(1, t0 + Duration::from_millis(600)));
+        let mut logged = 1;
+        for _ in 1..LAYOUT_MAX_FAILURES {
+            if tries.failed(1, t0, "x").is_some() {
+                logged += 1;
+            }
+        }
+        assert!(logged < LAYOUT_MAX_FAILURES, "pas une ligne par essai");
+        assert!(!tries.due(1, t0 + Duration::from_secs(3600)), "abandon");
+        assert!(tries.due(2, t0), "nouvelle disposition");
+    }
+
+    /// Chaque disposition posée change de numéro.
+    #[test]
+    fn numero_change_a_chaque_disposition() {
+        let mut sh = Shared::default();
+        let g = sh.generation;
+        sh.set_pending(None);
+        assert_ne!(sh.generation, g);
+    }
+}
+
+#[cfg(test)]
+mod signal_tests {
+    /// Un SIGHUP bloqué est rendu par `wait_stop_signal` (et ne tue pas).
+    #[test]
+    fn signal_d_arret_attendu() {
+        let set = super::block_stop_signals();
+        // SAFETY: raise vise ce fil, où le signal est bloqué.
+        unsafe { libc::raise(libc::SIGHUP) };
+        assert_eq!(super::wait_stop_signal(&set), libc::SIGHUP);
+    }
 }
 
 #[cfg(test)]

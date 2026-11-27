@@ -2,6 +2,9 @@
 # la session graphique de l'utilisateur (docs/station-linux.md). « Fermer
 # l'icône » l'arrête jusqu'à la prochaine ouverture de session.
 [Unit]
+# Pas pour les comptes système (gestionnaire de connexion, services) : les
+# services sont activés pour tous les comptes (systemctl --global, STLIN-15).
+ConditionUser=!@system
 Description=KyberNow Station (icône)
 PartOf=graphical-session.target
 After=graphical-session.target kybernow-admin.service

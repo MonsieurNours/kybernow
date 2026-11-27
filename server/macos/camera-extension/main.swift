@@ -14,6 +14,7 @@
 import CoreMediaIO
 import CoreVideo
 import Foundation
+import Security
 import VideoToolbox
 import os.log
 
@@ -22,6 +23,22 @@ let cameraName = "KyberNow Camera"
 let fps: Int32 = 30
 let sizes: [(Int32, Int32)] = [(1280, 720), (1920, 1080)]
 let staleAfter: Double = 2
+
+/// Le seul programme admis sur l'entrée de la caméra (STMAC-03).
+let sinkSigningID = "fr.leslignesclaires.kybernow.station.kybernow-camera"
+let sinkRequirement = "anchor apple generic and identifier \"\(sinkSigningID)\" and certificate leaf[subject.OU] = \"P6DB682S4K\""
+
+/// Identifiant de signature attendu, puis la signature du processus vérifiée
+/// (un identifiant seul se choisit librement en signant soi-même).
+func sinkClientAllowed(signingID: String?, pid: pid_t) -> Bool {
+    guard signingID == sinkSigningID, pid > 0 else { return false }
+    var code: SecCode?
+    let attributes = [kSecGuestAttributePid: NSNumber(value: pid)] as CFDictionary
+    guard SecCodeCopyGuestWithAttributes(nil, attributes, [], &code) == errSecSuccess, let code else { return false }
+    var requirement: SecRequirement?
+    guard SecRequirementCreateWithString(sinkRequirement as CFString, [], &requirement) == errSecSuccess, let requirement else { return false }
+    return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
+}
 
 /// Une image NV12 gris foncé (Y 40, chrominance neutre).
 func greyBuffer(width: Int, height: Int) -> CVPixelBuffer? {
@@ -83,7 +100,9 @@ final class DeviceSource: NSObject, CMIOExtensionDeviceSource {
     // Ce que l'outil a posé en dernier (fil `queue`).
     private var latest: CVPixelBuffer?
     private var latestAt: Double = 0
-    private var sequence: UInt64 = 0
+    /// Image grise gardée pour sa taille : sans flux de l'appareil, elle
+    /// repart 30 fois par seconde sans être refaite (STMAC-20).
+    private var grey: CVPixelBuffer?
 
     override init() {
         super.init()
@@ -186,7 +205,12 @@ final class DeviceSource: NSObject, CMIOExtensionDeviceSource {
                 frame = out
             }
         }
-        if frame == nil { frame = greyBuffer(width: w, height: h) }
+        if frame == nil {
+            if grey.map({ CVPixelBufferGetWidth($0) != w || CVPixelBufferGetHeight($0) != h }) ?? true {
+                grey = greyBuffer(width: w, height: h)
+            }
+            frame = grey
+        }
         guard let frame else { return }
 
         var fd: CMFormatDescription?
@@ -199,7 +223,6 @@ final class DeviceSource: NSObject, CMIOExtensionDeviceSource {
         guard CMSampleBufferCreateReadyWithImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: frame,
                                                        formatDescription: fd, sampleTiming: &timing,
                                                        sampleBufferOut: &sample) == noErr, let sample else { return }
-        sequence += 1
         source.stream.send(sample, discontinuity: [], hostTimeInNanoseconds: UInt64(now.seconds * 1_000_000_000))
     }
 }
@@ -250,7 +273,16 @@ final class StreamSource: NSObject, CMIOExtensionStreamSource {
     }
 
     func authorizedToStartStream(for client: CMIOExtensionClient) -> Bool {
-        if direction == .sink { self.client = client }
+        // Les apps (FaceTime, Zoom…) lisent la source librement. L'entrée,
+        // elle, n'accepte que kybernow-camera de la Station, signé par notre
+        // équipe : sinon n'importe quelle app y pousserait ses images, que
+        // les autres présenteraient comme la caméra de l'appareil (STMAC-03).
+        guard direction == .sink else { return true }
+        guard sinkClientAllowed(signingID: client.signingID, pid: client.pid) else {
+            log.error("entrée refusée : \(client.signingID ?? "?", privacy: .public) (pid \(client.pid))")
+            return false
+        }
+        self.client = client
         return true
     }
 
@@ -271,7 +303,10 @@ final class StreamSource: NSObject, CMIOExtensionStreamSource {
         }
     }
 
-    // L'entrée : chaque image de l'outil, l'une après l'autre.
+    // L'entrée : chaque image de l'outil, l'une après l'autre. Sans image en
+    // attente, nouvel essai 5 ms plus tard : CoreMediaIO ne prévient pas
+    // l'extension qu'une image arrive sur l'entrée (pas de sémaphore possible,
+    // STMAC-20) ; l'appel est léger et l'image attend au plus 5 ms.
     private func consume() {
         guard consuming, let client else { return }
         stream.consumeSampleBuffer(from: client) { [weak self] buffer, sequence, _, hasMore, error in

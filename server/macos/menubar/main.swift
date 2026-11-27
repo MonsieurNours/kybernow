@@ -36,14 +36,30 @@ final class StatusController: NSObject, NSMenuDelegate {
         menu.autoenablesItems = false
         item.menu = menu
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
+        // Toutes les 2 s menu ouvert, toutes les 6 s sinon : chaque relevé lance
+        // deux launchctl et un appel à Admin (STMAC-14).
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.ticks += 1
+            if self.menuOpen || self.ticks % 3 == 0 { self.refresh() }
+        }
     }
 
     // MARK: État
 
+    /// Un relevé à la fois : Admin bloqué rend un relevé plus long (~5 s)
+    /// que l'intervalle (2 s), la file grossirait sans fin (STMAC-14).
+    private var polling = false
+    private var ticks = 0
+    private var menuOpen = false
+
     private func refresh() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        if polling { return }
+        polling = true
         poller.async { [weak self] in
             guard let self else { return }
+            defer { DispatchQueue.main.async { self.polling = false } }
             var s = Snapshot()
             s.kyber = serviceState(Labels.kyber)
             s.admin = serviceState(Labels.admin)
@@ -52,7 +68,9 @@ final class StatusController: NSObject, NSMenuDelegate {
             s.permissions = PermissionState.current()
             DispatchQueue.main.async {
                 self.snapshot = s
-                self.notifier.update(s)
+                // Admin muet (relevé raté) : garder les notifications, sinon
+                // elles reviendraient « nouvelles », avec le son (STMAC-13).
+                if s.state != nil { self.notifier.update(s) }
                 self.item.button?.image = statusIcon(s.kyber != .running || s.permissions.count < 3 ? .idle : s.inSession ? .session : .running)
                 self.item.button?.toolTip = "KyberNow Station · \(self.statusLine(s).0)"
                 if let menu = self.item.menu, menu.numberOfItems > 0 { self.build(menu) }
@@ -113,6 +131,9 @@ final class StatusController: NSObject, NSMenuDelegate {
     }
 
     // MARK: Menu
+
+    func menuWillOpen(_ menu: NSMenu) { menuOpen = true }
+    func menuDidClose(_ menu: NSMenu) { menuOpen = false }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         build(menu)
@@ -400,6 +421,14 @@ if arguments.first == "--permissions" {
 }
 if arguments.first == "--check-strings" {
     exit(checkStrings() ? 0 : 1)
+}
+if arguments.first == "--check-instance" {
+    exit(checkInstance() ? 0 : 1)
+}
+// Une seule icône (Single.swift) : une copie ouverte à la main passe la main
+// au service launchd de l'icône.
+if !claimSingleInstance() {
+    exit(0)
 }
 
 let app = NSApplication.shared

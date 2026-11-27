@@ -2,18 +2,18 @@
 
 [English](INSTALLATION.en.md) · Français
 
-KyberNow Station fait de votre ordinateur sous Linux une Station : son écran, son son et ses manettes sur vos autres appareils, avec les apps KyberNow Link. Elle fonctionne sous GNOME et KDE Plasma, sous Wayland. Tout se télécharge sur la page des versions : https://github.com/MonsieurNours/kybernow/releases
+KyberNow Station fait de votre ordinateur sous Linux une Station : son écran, son son et ses manettes sur vos autres appareils, avec les apps KyberNow Link. Elle fonctionne sous GNOME, KDE Plasma, Sway et Hyprland, sous Wayland. Tout se télécharge sur la page des versions : https://github.com/MonsieurNours/kybernow/releases
 
 ## Ubuntu, Debian, Fedora
 
-Prenez le paquet de votre système et de votre processeur (`amd64`/`x86_64` pour un PC, `arm64`/`aarch64` pour une machine ARM), puis :
+Prenez le paquet de votre système et de votre processeur (`x86_64` pour un PC, `arm64` pour une machine ARM), puis :
 
 ```sh
-sudo apt install ./kybernow-station_<version>_amd64.deb     # Ubuntu, Debian
-sudo dnf install ./kybernow-station-<version>.x86_64.rpm     # Fedora
+sudo apt install ./KyberNow-Station-Linux-x86_64.deb     # Ubuntu, Debian
+sudo dnf install ./KyberNow-Station-Linux-x86_64.rpm     # Fedora
 ```
 
-La Station démarre à votre prochaine ouverture de session.
+La Station démarre à votre prochaine ouverture de session. Installez-la avec votre compte (`sudo`) : c'est lui qui pourra la mettre à jour depuis Admin. Sous Sway ou Hyprland sans lanceur de session (uwsm), voyez « Démarrage » dans [docs/station-linux.md](../../docs/station-linux.md).
 
 La caméra de vos appareils (« KyberNow Camera ») passe par PipeWire, vue par les navigateurs et OBS. Pour que Zoom, Discord et toutes les autres apps la voient, installez aussi v4l2loopback, puis redémarrez :
 

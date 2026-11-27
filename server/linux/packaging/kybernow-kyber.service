@@ -2,6 +2,9 @@
 # kyavserver et kynputserver), dans la session graphique de l'utilisateur,
 # piloté par Admin (docs/station-linux.md).
 [Unit]
+# Pas pour les comptes système (gestionnaire de connexion, services) : les
+# services sont activés pour tous les comptes (systemctl --global, STLIN-15).
+ConditionUser=!@system
 Description=KyberNow Station (Kyber)
 PartOf=graphical-session.target
 After=graphical-session.target pipewire.service kybernow-admin.service

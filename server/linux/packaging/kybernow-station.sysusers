@@ -1,0 +1,3 @@
+# KyberNow Station pour Linux : les comptes qui peuvent demander une mise à
+# jour au service root (socket kybernow-station-update, STLIN-02).
+g kybernow-station -

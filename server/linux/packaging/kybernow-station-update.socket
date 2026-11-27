@@ -3,12 +3,19 @@
 # ne fait que déposer sa demande ici ; systemd lance pour chacune le service
 # root kybernow-station-update@.service, qui revérifie tout (signature,
 # version, empreinte) avant d'installer quoi que ce soit.
+#
+# Réservé au propriétaire de la Station et au groupe kybernow-station
+# (STLIN-02) : le paquet crée le groupe, y met le compte qui l'installe
+# (sudo, pkexec) et le note comme propriétaire du socket
+# (/etc/systemd/system/kybernow-station-update.socket.d/owner.conf). Un
+# autre compte local ne peut plus demander un retour arrière ni une bêta.
 [Unit]
 Description=KyberNow Station (demandes de mise à jour)
 
 [Socket]
 ListenStream=/run/kybernow-station/update.sock
-SocketMode=0666
+SocketMode=0660
+SocketGroup=kybernow-station
 DirectoryMode=0755
 Accept=yes
 MaxConnections=4

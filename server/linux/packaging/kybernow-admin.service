@@ -2,6 +2,9 @@
 # l'utilisateur (docs/station-linux.md). Première initialisation au premier
 # démarrage (kybernow-station-setup), puis Admin, qui lance l'agent des écrans.
 [Unit]
+# Pas pour les comptes système (gestionnaire de connexion, services) : les
+# services sont activés pour tous les comptes (systemctl --global, STLIN-15).
+ConditionUser=!@system
 Description=KyberNow Station (Admin)
 PartOf=graphical-session.target
 After=graphical-session.target pipewire.service

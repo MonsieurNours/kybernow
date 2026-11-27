@@ -93,7 +93,7 @@ EOF
 # pas du système). Pris dans le third_party du dépôt principal.
 webclient() {
     local main official engine
-    main="$(cd "$(git -C "$ROOT" rev-parse --git-common-dir)/.." && pwd)"
+    main="$(cd "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
     official="${KYBER_WEBCLIENT:-$main/third_party/payload/kyber-0.29.0/webclient}"
     engine="${KYBER_WEB_OUT:-$main/third_party/kyber-web-out}"
     if [ ! -d "$official" ] || [ ! -f "$engine/kyclient_wasm_bg.wasm" ]; then

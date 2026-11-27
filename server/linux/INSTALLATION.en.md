@@ -2,18 +2,18 @@
 
 English · [Français](INSTALLATION.md)
 
-KyberNow Station turns your Linux computer into a Station: its screen, its sound and its controllers on your other devices, with the KyberNow Link apps. It works on GNOME and KDE Plasma, on Wayland. Everything is on the releases page: https://github.com/MonsieurNours/kybernow/releases
+KyberNow Station turns your Linux computer into a Station: its screen, its sound and its controllers on your other devices, with the KyberNow Link apps. It works on GNOME, KDE Plasma, Sway and Hyprland, on Wayland. Everything is on the releases page: https://github.com/MonsieurNours/kybernow/releases
 
 ## Ubuntu, Debian, Fedora
 
-Take the package for your system and processor (`amd64`/`x86_64` for a PC, `arm64`/`aarch64` for an ARM machine), then:
+Take the package for your system and processor (`x86_64` for a PC, `arm64` for an ARM machine), then:
 
 ```sh
-sudo apt install ./kybernow-station_<version>_amd64.deb     # Ubuntu, Debian
-sudo dnf install ./kybernow-station-<version>.x86_64.rpm     # Fedora
+sudo apt install ./KyberNow-Station-Linux-x86_64.deb     # Ubuntu, Debian
+sudo dnf install ./KyberNow-Station-Linux-x86_64.rpm     # Fedora
 ```
 
-The Station starts the next time you log in.
+The Station starts the next time you log in. Install it with your own account (`sudo`): that account can then update it from Admin. On Sway or Hyprland without a session launcher (uwsm), see “Startup” in [docs/station-linux.en.md](../../docs/station-linux.en.md).
 
 Your devices' camera (“KyberNow Camera”) goes through PipeWire, seen by browsers and OBS. For Zoom, Discord and every other app to see it, also install v4l2loopback, then restart:
 

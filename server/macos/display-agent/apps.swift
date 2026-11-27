@@ -141,8 +141,14 @@ private func screenLocked() -> Bool {
     return info["CGSSessionScreenIsLocked"] as? Bool ?? false
 }
 
+/// Commandes ponctuelles des apps (celles d'`appsCommand`).
+let appsCommands: Set<String> = ["apps", "launch", "close", "locked", "lock"]
+
+func isAppsCommand(_ command: String) -> Bool { appsCommands.contains(command) }
+
 /// Commandes ponctuelles des apps ; `nil` : pas une commande d'ici.
 func appsCommand(_ command: String, _ args: [String]) throws -> [String: Any]? {
+    guard isAppsCommand(command) else { return nil }
     switch command {
     case "apps":
         guard let icons = option(args, "--icons") else { throw Failure(message: "--icons manquant") }

@@ -6,7 +6,9 @@
 #
 # Mêmes correctifs que pour Windows (server/kyber-patches, posés par
 # server/kyber-patches/apply.sh), puis ceux propres au Mac
-# (server/macos/kyber-patches, s'il y en a), dans l'ordre de leur nom.
+# (server/macos/kyber-patches, 21 aujourd'hui), dans l'ordre de leur nom. Un
+# morceau qui ne s'applique qu'avec un décalage du contexte (« fuzz ») est
+# signalé (STCOM-05 ; KYBERNOW_PATCH_STRICT=1 : un échec).
 #
 # Sources : $KYBER_DIR (défaut : third_party/kyber-desktop-macos, une copie de
 # kyber-desktop à part : les correctifs Mac et son rootfs-arm64-macos ne se
@@ -63,6 +65,20 @@ HERE_PATCHES="$ROOT/server/kyber-patches"
     kyber_apply_server_patches
 )
 
+# Un correctif qui ne se pose qu'avec un décalage du contexte (« fuzz »)
+# est signalé : il peut tomber au mauvais endroit sans échec
+# (STCOM-05). KYBERNOW_PATCH_STRICT=1 en fait un échec. Pas encore d'échec
+# par défaut : le correctif Mac 0009 n'a pas été rafraîchi (session des
+# correctifs Kyber).
+kyber_patch_fuzz_warn() {
+    # $1 : le correctif, $2 : le dossier. Essai à blanc sans décalage permis
+    # (-F0) : le patch d'Apple ne dit pas quand il en prend un.
+    local p=$1 dir=$2
+    (cd "$dir" && patch -p1 -F0 --forward --dry-run -s < "$p" >/dev/null 2>&1) && return 0
+    echo "    Attention : $(basename "$p") ne se pose qu'avec un décalage du contexte (fuzz) : à rafraîchir" >&2
+    [ -z "${KYBERNOW_PATCH_STRICT:-}" ]
+}
+
 # Correctifs propres au Mac : même nommage que les correctifs communs.
 MAC_PATCHES="$ROOT/server/macos/kyber-patches"
 mac_repo() {
@@ -99,6 +115,7 @@ done
 for p in "$MAC_PATCHES"/*.patch; do
     repo="$(mac_repo "$p")"
     echo "    $(basename "$p") (Mac)"
+    kyber_patch_fuzz_warn "$p" "$repo" || exit 1
     (cd "$repo" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | sed 's/^/        /') || {
         echo "Correctif $(basename "$p") inapplicable (hunk en échec ci-dessus)" >&2
         exit 1
@@ -129,6 +146,7 @@ for p in "$ROOT"/server/macos/crates/*.patch; do
     dst="$KYBER_DIR/target/kybernow-crates/$crate"
     rm -rf "$dst"; mkdir -p "$(dirname "$dst")"; cp -R "$src" "$dst"; chmod -R u+w "$dst"
     echo "    $(basename "$p") (crate)"
+    kyber_patch_fuzz_warn "$p" "$dst" || exit 1
     (cd "$dst" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | sed 's/^/        /') || {
         echo "Correctif $(basename "$p") inapplicable" >&2; exit 1
     }
