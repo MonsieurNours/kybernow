@@ -88,6 +88,7 @@
   import Switch from './lib/Switch.svelte'
   import LendPanelView from './bar/LendPanel.svelte'
   import SharePanel from './bar/SharePanel.svelte'
+  import PsBarView from './bar/PsBar.svelte'
   import type { BarHdr, BarMic, Chosen, PyroWaveBanner, PsBar, PsBarNav, PsStats } from './lib/api'
   import { psStatsLines } from './lib/api'
   import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RecordingEvent, RecordingView, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
@@ -1544,76 +1545,7 @@
 <div class="bar" class:compact class:padmode={psBar?.pad_mode} role="toolbar" aria-label={t('bar.toolbar')} tabindex="-1" bind:this={bar}>
   <Mark size={22} state="now" lit />
   {#if psBar}
-  {@const b = psBar}
-  <!-- Partie sur une console : son nom, les mesures, le son, la souris, ses réglages, le plein écran, la veille, la fin. -->
-  <span class="psname">{b.name}</span>
-  <span class="sep"></span>
-  <div class="slot">
-    <button
-      class="stats"
-      class:open={menu === 'stats'}
-      class:ring={ringed('stats')}
-      aria-haspopup="dialog"
-      aria-expanded={menu === 'stats'}
-      aria-label={t('bar.statistics')}
-      title={t('bar.statistics')}
-      onclick={() => psAct('stats')}
-    >
-      {#if psStats && psStats.width > 0}
-        <span class="mono lat">{t('ps.fps', { n: Math.round(psStats.fps) })}</span>
-        <span class="sep"></span>
-        <span class="mono info">{psStats.width} × {psStats.height} · {psStats.hevc ? 'H.265' : 'H.264'}{psStats.hdr ? ' · HDR' : ''}</span>
-      {:else}
-        <span class="lat"><Icon name="chart" size={18} stroke={1.6} /></span>
-      {/if}
-    </button>
-    {#if menu === 'stats'}
-      <div class="menu path psstats" role="dialog" aria-label={t('bar.statistics')}>
-        <div class="eyebrow">{t('bar.statistics')}</div>
-        {#if psLines.length}
-          {#each psLines as line, i (i)}<p class="mono">{line}</p>{/each}
-        {:else}
-          <p class="help">{t('ps.stats_waiting')}</p>
-        {/if}
-      </div>
-    {/if}
-  </div>
-  {#if route?.via_relay}
-    <span class="relay" class:tcp={route.transport === 'relay_tcp'} title={routeTitle}><Icon name="globe" size={14} stroke={1.6} />{t('relay.via')}</span>
-  {/if}
-  <span class="sep"></span>
-  <button class="icon" class:on={b.muted} class:ring={ringed('sound')} aria-pressed={b.muted} aria-label={b.muted ? t('ps.unmute') : t('ps.mute')} title={b.muted ? t('ps.unmute') : t('ps.mute')} onclick={() => psAct('sound')}>
-    <Icon name={b.muted ? 'speakeroff' : 'speaker'} size={20} stroke={1.6} />
-  </button>
-  {#if !b.pad}
-    <!-- Une manette branchée l'emporte sur le clavier et la souris : pas de souris. -->
-    <button class="icon" class:on={b.captured} class:ring={ringed('mouse')} aria-pressed={b.captured} aria-label={(b.captured ? t('ps.give_mouse') : t('ps.take_mouse')) + t('bar.mouse_shortcut')} title={(b.captured ? t('ps.give_mouse') : t('ps.take_mouse')) + t('bar.mouse_shortcut')} onclick={() => psAct('mouse')}>
-      <Icon name="mouse" size={20} stroke={1.6} />
-    </button>
-  {/if}
-  <button class="icon" class:ring={ringed('settings')} aria-label={t('home.settings_for', { name: b.name })} title={t('home.settings_for', { name: b.name })} onclick={() => psAct('settings')}>
-    <Icon name="gear" size={20} stroke={1.6} />
-  </button>
-  <button class="icon" class:ring={ringed('fullscreen')} aria-label={(b.fullscreen ? t('ps.exit_fullscreen') : t('bar.fullscreen')) + t('bar.fullscreen_shortcut')} title={b.fullscreen ? t('ps.exit_fullscreen') : t('bar.fullscreen')} onclick={() => psAct('fullscreen')}>
-    <Icon name="fullscreen" size={20} stroke={1.6} />
-  </button>
-  <button class="icon" class:ring={ringed('rest')} aria-label={t('ps.rest')} title={t('ps.rest')} onclick={() => psAct('rest')}>
-    <Icon name="power" size={20} stroke={1.6} />
-  </button>
-  <span class="sep"></span>
-  <button class="quit" class:ring={ringed('disconnect')} title={t('bar.disconnect') + t('bar.disconnect_shortcut')} onclick={() => psAct('disconnect')}>{t('bar.disconnect')}</button>
-  {#if b.pad_mode}
-    <!-- La manette pilote la barre : la console reçoit une manette au repos. -->
-    <div class="padbanner" role="note">
-      <span class="drives"><Icon name="gamepad" size={16} stroke={1.8} />{t('ps.pad_drives')}</span>
-      <span class="away">{t('ps.pad_away')}</span>
-      <span class="sep"></span>
-      <span class="k"><span class="mono">◀ ▶</span>{t('ps.pad_navigate')}</span>
-      <span class="k"><span class="mono">✕</span>{t('ps.pad_select')}</span>
-      <span class="k"><span class="mono">○</span>{t('ps.pad_close')}</span>
-      <span class="k"><span class="mono">L1 R1 OPTIONS CREATE</span>{t('ps.pad_back')}</span>
-    </div>
-  {/if}
+  <PsBarView b={psBar} stats={psStats} lines={psLines} {menu} {route} {routeTitle} {ringed} act={psAct} />
   {:else if borrow}
     <!-- L'ami qui emprunte : « Prêté par {hôte} » et le temps restant (rien n'est changé sur l'ordinateur). -->
     <span class="title">{t('lend.lent_by', { host: borrow.host })}</span>
@@ -2115,34 +2047,6 @@
     }
   }
 
-  /* Barre d'une console : son nom, puis les mêmes pièces qu'une session d'ordinateur. */
-  .psname {
-    padding: 0 6px 0 4px;
-    font-size: 14px;
-    font-weight: 600;
-    max-width: 220px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .menu.psstats {
-    gap: 8px;
-    width: 440px;
-  }
-
-  .menu.psstats p {
-    margin: 0;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--muted);
-    white-space: normal;
-  }
-
-  .menu.psstats .help {
-    font-family: var(--sans);
-    font-size: 13px;
-  }
-
   /* Barre pilotée par la manette : l'anneau sur l'élément choisi, le bandeau sous la barre. */
   .bar.padmode {
     position: relative;
@@ -2150,48 +2054,6 @@
 
   .ring {
     box-shadow: 0 0 0 2px var(--signal), 0 0 14px rgb(109 91 255 / 0.55) !important;
-  }
-
-  .padbanner {
-    position: absolute;
-    top: calc(100% + 10px);
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    height: 40px;
-    padding: 0 16px;
-    border: 1px solid rgb(154 140 255 / 0.4);
-    border-radius: 12px;
-    background: rgb(9 13 18 / 0.92);
-    box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
-    font-size: 12px;
-    color: var(--muted);
-    animation: drop 0.2s var(--ease-out);
-  }
-
-  .padbanner .drives {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-weight: 600;
-    color: var(--signal);
-  }
-
-  .padbanner .away {
-    color: var(--faint);
-  }
-
-  .padbanner .k {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
-
-  .padbanner .k .mono {
-    font-size: 11px;
-    color: var(--text);
   }
 
   /* Le bandeau sous la barre : un menu ouvert passe dessous. */
