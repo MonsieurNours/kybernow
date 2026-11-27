@@ -235,7 +235,7 @@ Relay: another Station's `retour` refused; `remote_admin` false, no passkey or a
 | Relay | `attach_request` → `attach_code`, then `attached`; `attach_status`; `detach` / `detached` (Station, through its control connection) | Attachment, after approval in the console (`/compte/rattacher?code=…`); detaching on both sides |
 | Admin | `GET/PUT /api/account` (Admin session) | Attached account, switch, detach |
 | Admin | `POST /api/account/attach` (Admin session) | “Sign in”: attach code asked of the relay, console page to open |
-| Admin | `GET /api/local/account`, `PUT /api/local/account/relay`, `POST`/`DELETE /api/local/account/attach`, `POST /api/local/account/enroll` (local token) | The installer: chosen relay, attaching during installation, enrollment of a silent installation (“Installers”) |
+| Admin | `GET /api/local/account`, `PUT /api/local/account/relay`, `POST`/`DELETE /api/local/account/attach`, `POST /api/local/account/enroll` (local token; to set the relay, attach and enroll, also the installer token, `x-kyber-installer`, read from `installer-token` in the data folder, which only administrators can read) | The installer: chosen relay, attaching during installation, enrollment of a silent installation (“Installers”) |
 | Relay | `enroll` → `attached` (Station, through its control connection) | Enrollment with an organization token (batch 5) |
 | Admin | `GET /api/account/access`, `POST /api/account/access/{id}/block` | Local list, blocking |
 | Admin | all the routes of a paired device | Also accept `Authorization: KyberNow <jeton>` according to the rights |

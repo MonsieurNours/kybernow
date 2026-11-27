@@ -16,7 +16,7 @@ KyberNow-Station-Setup.exe = [launcher][tar.zst payload][32-byte “KNPAYLD1” 
 
 ## What the installation does
 
-1. Stops and removes a previous version or official Kyber (NSIS uninstaller launched with `_?=` to wait for it).
+1. Stops a previous version (its services are created again further on, once the files are written) or removes official Kyber (NSIS uninstaller launched with `_?=` to wait for it).
 2. Extracts the payload into `C:\Program Files\KyberNow\` (`kyber\`, `admin\`, `tray\`, `drivers\`, `licenses\`). In `kyber\`, the Kyber 0.29 files are overlaid by the patched overlay (`kyavserver.exe`, txproto and their runtime, `kycontroller.exe`, the input server `kynput.dll` and `kynputserver.exe`, the web client engine in `webclient\`, see [docs/kyber-changes.en.md](../../docs/kyber-changes.en.md)). Right after: `kybernow.json`, `uninstall.exe` and the entry in “Installed apps” (display name “KyberNow Station”, `DISPLAY_NAME`; key `…\Uninstall\KyberNow`, `PRODUCT`, the folders' name, which does not change: existing installations, Admin and `update.ps1` depend on it), so that an installation interrupted further on can be uninstalled normally.
 3. Generates Kyber's TLS certificate (`cert-gen.exe`).
 4. `kyber-admin init`: port, encoder (see “Choosing the encoder”), single account (Kyber Basic + Admin, recorded as the installation account), random JWT secret instead of Kyber's development key, written to `C:\ProgramData\KyberNow\kyber-jwt.key` (`kyber_config.toml` only carries the path). Just before, and again after: `kyber\kyber_config.toml`, Kyber's certificate and key (`kybertest_cert.pem`, `kybertest_key.pem`) are reserved to SYSTEM and Administrators (`src/acl.rs`, `secure_file`, descriptor `O:BAD:PAI(A;;FA;;;SY)(A;;FA;;;BA)`), also with “Keep my settings”: Program Files is readable by everyone and these files hold the accounts' password hashes. Admin reapplies these permissions at every start.
@@ -38,6 +38,8 @@ The analysis reads `C:\Program Files\KyberNow\kybernow.json`: if KyberNow Statio
 - **Start from scratch**: like a first installation (new account, new random ports, new certificate, original `kyber_config.toml`), with a warning: every device must be paired again.
 
 An official Kyber installation (without `kybernow.json`) is always removed and replaced.
+
+Before writing anything, the installer finishes an update cut short by a power failure (marker `C:\ProgramData\KyberNow\update\bascule.json`: each missing folder takes back its `.prev` copy), stops the services, the Kyber server, the microphone and camera helpers and Frame Server (the same list as Admin's applicator, `server/admin/src/update/windows_common.rs`), sets aside a camera library that is still loaded (deleted at the next restart) and removes what updates leave behind (`kyber.prev`, `admin.bad`…, `.staging`): “Go back to the previous version” will not bring back an outdated release. The services are deleted only right before being created again, once the files are written: a failed extraction leaves a stopped Station, not one without services. One installation at a time (`Global\KyberNowUpdate` lock, shared with Admin and `update.ps1`). Windows tools (`sc`, `reg`, `netsh`…) are started by their full path under `System32`, never from `Setup.exe`'s folder, and addresses open in the browser through `ShellExecuteW`.
 
 During the installation, the window does not close: the button is greyed out and Alt+F4 is ignored.
 

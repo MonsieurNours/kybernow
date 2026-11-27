@@ -244,7 +244,7 @@ Relais : `retour` d'une autre Station refusé ; `remote_admin` faux, passkey abs
 | Relais | `attach_request` → `attach_code`, puis `attached` ; `attach_status` ; `detach` / `detached` (Station, par sa connexion de contrôle) | Rattachement, après approbation dans la console (`/compte/rattacher?code=…`) ; détachement des deux côtés |
 | Admin | `GET/PUT /api/account` (session d'Admin) | Compte rattaché, interrupteur, détacher |
 | Admin | `POST /api/account/attach` (session d'Admin) | « Se connecter » : code de rattachement demandé au relais, page de la console à ouvrir |
-| Admin | `GET /api/local/account`, `PUT /api/local/account/relay`, `POST`/`DELETE /api/local/account/attach`, `POST /api/local/account/enroll` (jeton local) | L'installateur : relais choisi, rattachement pendant l'installation, enrôlement d'une installation silencieuse (« Installateurs ») |
+| Admin | `GET /api/local/account`, `PUT /api/local/account/relay`, `POST`/`DELETE /api/local/account/attach`, `POST /api/local/account/enroll` (jeton local ; pour régler le relais, rattacher et enrôler, aussi le jeton de l'installateur, `x-kyber-installer`, lu dans `installer-token` du dossier de données, réservé aux administrateurs) | L'installateur : relais choisi, rattachement pendant l'installation, enrôlement d'une installation silencieuse (« Installateurs ») |
 | Relais | `enroll` → `attached` (Station, par sa connexion de contrôle) | Enrôlement par un jeton d'organisation (lot 5) |
 | Admin | `GET /api/account/access`, `POST /api/account/access/{id}/block` | Liste locale, blocage |
 | Admin | toutes les routes d'un appareil appairé | Acceptent aussi `Authorization: KyberNow <jeton>` selon les droits |
