@@ -177,6 +177,9 @@ pub struct ComputerView {
     fingerprint_short: String,
     /// L'erreur sous le nom (`Problem`), quand il y en a.
     problem: Option<Problem>,
+    /// L'adresse et le port d'Admin tels qu'on les montre (« 192.168.1.20:9443 »,
+    /// « [fe80::1]:9443 » : crochets une fois, `console::host_for_url`).
+    address: String,
     /// Le relais d'un ordinateur d'un compte, tel qu'on le montre
     /// (`account::relay_label`, sans empreinte) ; vide sinon.
     relay_label: String,
@@ -641,7 +644,8 @@ impl UiState {
                 let origin = origins.remove(&c.id);
                 let fingerprint_short = c.fingerprint.as_deref().map(console::short_fingerprint).unwrap_or_default();
                 let relay_label = c.account.as_ref().map(|a| kybernow_core::account::relay_label(&a.relay)).unwrap_or_default();
-                ComputerView { computer: c, fingerprint_short, problem: l.problem, relay_label, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending, lend, origin, offer }
+                let address = format!("{}:{}", console::host_for_url(&c.host), c.port);
+                ComputerView { computer: c, fingerprint_short, problem: l.problem, address, relay_label, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending, lend, origin, offer }
             })
             .collect()
     }

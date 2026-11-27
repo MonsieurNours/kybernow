@@ -405,6 +405,7 @@ const computerViews = () =>
   structuredClone(computers).map((c) => ({
     ...c,
     fingerprint_short: shortFp(c.fingerprint),
+    address: `${c.host.includes(':') ? `[${c.host}]` : c.host}:${c.port}`,
     relay_label: (c as { account?: { relay: string } | null }).account?.relay.split('#')[0] ?? '',
     offer: offerOf(c),
   }))
