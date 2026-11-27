@@ -78,7 +78,7 @@ pub async fn run(hub: Arc<Hub>, endpoint: quinn::Endpoint, base: quinn::ServerCo
             incoming.refuse();
             continue;
         }
-        if per_ip.lock().unwrap().take(&ip, now).is_err() {
+        if per_ip.lock().unwrap().take(&crate::hub::ip_key(ip), now).is_err() {
             hub.metrics.limit_hit("quic_handshakes_ip");
             incoming.refuse();
             continue;
@@ -114,6 +114,13 @@ async fn drain_ctl(conn: quinn::Connection) {
     }
 }
 
+async fn drain_media_bi(conn: quinn::Connection) {
+    while let Ok((mut send, mut recv)) = conn.accept_bi().await {
+        let _ = recv.stop(0u32.into());
+        let _ = send.reset(0u32.into());
+    }
+}
+
 async fn handle(hub: Arc<Hub>, connecting: quinn::Connecting, mode: kybernow_tunnel::congestion::CcMode, ip: IpAddr, _guard: ConnGuard) {
     let conn = match timeout(Duration::from_secs(10), connecting).await {
         Ok(Ok(c)) => c,
@@ -126,6 +133,7 @@ async fn handle(hub: Arc<Hub>, connecting: quinn::Connecting, mode: kybernow_tun
             // Les réglages permettent tout avant l'ALPN : sur `kn-ctl/1`, les
             // flux unidirectionnels et les datagrammes sont refusés ou jetés,
             // pour qu'ils ne s'entassent pas en mémoire.
+            conn.set_max_concurrent_uni_streams(0u32.into());
             let drain = tokio::spawn(drain_ctl(conn.clone()));
             hub.serve_ctl(Conn::Quic(conn), spki, ip).await;
             drain.abort();
@@ -133,7 +141,12 @@ async fn handle(hub: Arc<Hub>, connecting: quinn::Connecting, mode: kybernow_tun
         Some(ALPN_MEDIA) => {
             mode.set_permissive();
             hub.metrics.handshake("kn-media/1", "ok");
+            // Aucun flux bidirectionnel en `kn-media/1` : plus de nouveaux, et ceux déjà
+            // ouverts sont refusés, pour que rien ne s'entasse en mémoire (REL-14).
+            conn.set_max_concurrent_bi_streams(0u32.into());
+            let drain = tokio::spawn(drain_media_bi(conn.clone()));
             hub.serve_media_quic(conn, spki).await;
+            drain.abort();
         }
         _ => conn.close(0u32.into(), b"alpn"),
     }

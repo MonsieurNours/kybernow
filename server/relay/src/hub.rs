@@ -379,7 +379,8 @@ impl Hub {
         spki: Option<Vec<u8>>,
         ip: IpAddr,
     ) {
-        if self.station_hellos.lock().unwrap().take(&ip, Instant::now()).is_err() {
+        // Les limites par adresse comptent un /64 en IPv6 (REL-18).
+        if self.station_hellos.lock().unwrap().take(&ip_key(ip), Instant::now()).is_err() {
             self.metrics.limit_hit("stations_per_minute_ip");
             return refuse(&conn, tx, writer, ErrorCode::TooMany, "trop de connexions de Station pour cette adresse").await;
         }
@@ -394,7 +395,7 @@ impl Hub {
             return refuse(&conn, tx, writer, ErrorCode::BadRequest, "signature de l'empreinte").await;
         }
         let id = id::station_id(&spki);
-        let others = self.stations.lock().unwrap().values().filter(|s| s.ip == ip && s.id != id).count();
+        let others = self.stations.lock().unwrap().values().filter(|s| ip_key(s.ip) == ip_key(ip) && s.id != id).count();
         if others >= self.cfg.limits.stations_per_ip {
             self.metrics.limit_hit("stations_per_ip");
             return refuse(&conn, tx, writer, ErrorCode::TooMany, "trop de Stations pour cette adresse").await;
@@ -902,7 +903,11 @@ impl Hub {
 
     async fn station_media(&self, peer: Arc<StationPeer>, tx: MediaSender, mut rx: MediaReceiver) {
         let n = self.next_media.fetch_add(1, Ordering::Relaxed);
-        *peer.media.write().unwrap() = Some((n, tx));
+        // L'ancienne connexion des paquets est fermée : elle ne garde plus de mémoire (REL-14).
+        let old = peer.media.write().unwrap().replace((n, tx));
+        if let Some((_, old)) = old {
+            old.close();
+        }
         while let Some((flow, payload)) = rx.recv().await {
             if !self.is_current_station(&peer) {
                 break;
@@ -917,7 +922,11 @@ impl Hub {
 
     async fn client_media(&self, peer: Arc<ClientPeer>, tx: MediaSender, mut rx: MediaReceiver) {
         let n = self.next_media.fetch_add(1, Ordering::Relaxed);
-        *peer.media.write().unwrap() = Some((n, tx));
+        // L'ancienne connexion des paquets est fermée : elle ne garde plus de mémoire (REL-14).
+        let old = peer.media.write().unwrap().replace((n, tx));
+        if let Some((_, old)) = old {
+            old.close();
+        }
         while let Some((flow, payload)) = rx.recv().await {
             if !self.is_current_client(&peer) {
                 break;

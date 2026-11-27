@@ -223,6 +223,10 @@ async fn relay_page(hub: &Hub, req: Request<Incoming>, ip: IpAddr) -> Response<B
 
 /// La taille d'un formulaire des comptes.
 pub const MAX_FORM_BYTES: usize = 16 * 1024;
+/// Le corps d'une requête arrive dans ce temps, sinon 408 (REL-17).
+pub const BODY_TIMEOUT: Duration = Duration::from_secs(10);
+/// Une place dans la file des comptes se libère dans ce temps, sinon 503 (REL-17).
+pub const GATE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// L'envoi vient-il d'un autre site ? `Sec-Fetch-Site` (une Station, `<id>.<domaine>`,
 /// est du même site mais pas de la même origine), sinon `Origin` (`null` est
@@ -258,15 +262,18 @@ async fn account_page(accounts: Arc<Accounts>, req: Request<Incoming>, ip: IpAdd
         if !content_type.starts_with("application/x-www-form-urlencoded") {
             return html(StatusCode::UNSUPPORTED_MEDIA_TYPE, pages::not_found(lang));
         }
-        match http_body_util::Limited::new(req.into_body(), MAX_FORM_BYTES).collect().await {
-            Ok(body) => account_web::parse_pairs(&String::from_utf8_lossy(&body.to_bytes())),
-            Err(_) => return html(StatusCode::PAYLOAD_TOO_LARGE, pages::not_found(lang)),
+        match tokio::time::timeout(BODY_TIMEOUT, http_body_util::Limited::new(req.into_body(), MAX_FORM_BYTES).collect()).await {
+            Ok(Ok(body)) => account_web::parse_pairs(&String::from_utf8_lossy(&body.to_bytes())),
+            Ok(Err(_)) => return html(StatusCode::PAYLOAD_TOO_LARGE, pages::not_found(lang)),
+            Err(_) => return html(StatusCode::REQUEST_TIMEOUT, pages::not_answering(lang)),
         }
     } else {
         Vec::new()
     };
     let request = account_web::Request { method, path, query, cookies, form, ip, lang, user_agent, cross_site: cross };
-    let Ok(_permit) = accounts.gate.acquire().await else { return html(StatusCode::SERVICE_UNAVAILABLE, pages::not_answering(lang)) };
+    let Ok(Ok(_permit)) = tokio::time::timeout(GATE_TIMEOUT, accounts.gate.acquire()).await else {
+        return html(StatusCode::SERVICE_UNAVAILABLE, pages::not_answering(lang));
+    };
     let worker = accounts.clone();
     let reply = match tokio::task::spawn_blocking(move || worker.handle(&request)).await {
         Ok(r) => r,
@@ -326,8 +333,9 @@ async fn device_api(accounts: Arc<Accounts>, req: Request<Incoming>, ip: IpAddr)
         .map(|(_, token)| token.trim().to_string());
     let path = req.uri().path().to_string();
     let body = if method != ApiMethod::Get {
-        match http_body_util::Limited::new(req.into_body(), MAX_FORM_BYTES).collect().await {
-            Ok(b) => {
+        match tokio::time::timeout(BODY_TIMEOUT, http_body_util::Limited::new(req.into_body(), MAX_FORM_BYTES).collect()).await {
+            Err(_) => return json(StatusCode::REQUEST_TIMEOUT, serde_json::json!({ "error": "timeout" })),
+            Ok(Ok(b)) => {
                 let bytes = b.to_bytes();
                 if bytes.iter().all(u8::is_ascii_whitespace) {
                     serde_json::Value::Null
@@ -338,13 +346,16 @@ async fn device_api(accounts: Arc<Accounts>, req: Request<Incoming>, ip: IpAddr)
                     }
                 }
             }
-            Err(_) => return json(StatusCode::PAYLOAD_TOO_LARGE, serde_json::json!({ "error": "too_large" })),
+            Ok(Err(_)) => return json(StatusCode::PAYLOAD_TOO_LARGE, serde_json::json!({ "error": "too_large" })),
         }
     } else {
         serde_json::Value::Null
     };
     let request = ApiRequest { method, path, bearer, body, ip };
-    let Ok(_permit) = accounts.gate.acquire().await else { return json(StatusCode::SERVICE_UNAVAILABLE, serde_json::json!({ "error": "unavailable" })) };
+    // Sa propre file : les pages (et leurs calculs d'Argon2) ne retiennent pas `/v1/access` (REL-17).
+    let Ok(Ok(_permit)) = tokio::time::timeout(GATE_TIMEOUT, accounts.api_gate.acquire()).await else {
+        return json(StatusCode::SERVICE_UNAVAILABLE, serde_json::json!({ "error": "unavailable" }));
+    };
     let worker = accounts.clone();
     let reply = match tokio::task::spawn_blocking(move || worker.api(&request)).await {
         Ok(r) => r,

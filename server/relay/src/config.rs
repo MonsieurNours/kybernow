@@ -114,6 +114,8 @@ pub struct Limits {
     /// Au-delà de ce nombre de négociations par seconde, preuve d'adresse (Retry).
     pub retry_above_per_second: u32,
     pub tcp_per_ip: usize,
+    /// Connexions TCP (repli et pages) en tout (REL-16).
+    pub tcp_total: usize,
     pub stations_per_ip: usize,
     /// Connexions de Station acceptées par minute et par adresse (une
     /// Station se reconnecte rarement ; sans cette limite, des clés jetables
@@ -143,6 +145,7 @@ impl Default for Limits {
             quic_total: 4096,
             retry_above_per_second: 100,
             tcp_per_ip: 32,
+            tcp_total: 4096,
             stations_per_ip: 4,
             stations_per_minute_per_ip: 20,
             clients_per_station: 8,

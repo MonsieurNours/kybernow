@@ -150,8 +150,9 @@ pub struct ConnGuard {
 }
 
 impl ConnCounter {
+    /// Une connexion de plus pour cette adresse (un /64 en IPv6 : REL-18), dans la limite `max`.
     pub fn try_acquire(&self, ip: IpAddr, max: usize) -> Option<ConnGuard> {
-        let ip = ip.to_canonical();
+        let ip = crate::hub::ip_key(ip);
         let mut map = self.0.lock().unwrap();
         let n = map.entry(ip).or_insert(0);
         if *n >= max {

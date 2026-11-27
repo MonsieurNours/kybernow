@@ -320,6 +320,8 @@ pub struct Accounts {
     clock: Clock,
     /// Quelques requêtes à la fois, hors de l'exécuteur.
     pub gate: tokio::sync::Semaphore,
+    /// L'API des appareils, à part : pas d'Argon2, et `/v1/access` ouvre les sessions (REL-17).
+    pub api_gate: tokio::sync::Semaphore,
     /// Lot 2 : la clé de signature, les codes de rattachement, le lien vers les Stations.
     pub stations: stations::Stations,
     /// Lot 3 : les limites des appareils.
@@ -365,6 +367,7 @@ impl Accounts {
             limits: Mutex::new(Limiter::default()),
             clock,
             gate: tokio::sync::Semaphore::new(CONCURRENT),
+            api_gate: tokio::sync::Semaphore::new(CONCURRENT),
             stations: stations::Stations::new(stations::SigningKeys::ephemeral()),
             devices: devices::Devices::default(),
         }

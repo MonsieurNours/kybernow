@@ -28,6 +28,7 @@
 # quic_total = 4096
 # retry_above_per_second = 100
 # tcp_per_ip = 32
+# tcp_total = 4096
 # stations_per_ip = 4
 # stations_per_minute_per_ip = 20
 # clients_per_station = 8

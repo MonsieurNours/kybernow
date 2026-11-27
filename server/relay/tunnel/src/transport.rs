@@ -480,6 +480,14 @@ impl MediaSender {
         MediaSender(SendInner::Quic(conn, Arc::new(AtomicUsize::new(0))))
     }
 
+    /// Ferme la connexion QUIC des paquets (une nouvelle la remplace) ; rien en repli TCP,
+    /// où les paquets passent par la connexion de contrôle.
+    pub fn close(&self) {
+        if let SendInner::Quic(conn, _) = &self.0 {
+            conn.close(0u32.into(), b"remplacee");
+        }
+    }
+
     /// Envoie un paquet sur un flux. Un numéro de flux qui ne s'écrit pas en
     /// entier variable de QUIC (au-delà de 2^62, venu d'un message mal formé)
     /// ne s'envoie pas.

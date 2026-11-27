@@ -48,8 +48,12 @@ pub async fn read_msg<R: AsyncRead + Unpin + ?Sized>(r: &mut R) -> io::Result<Op
     if len > MAX_FRAME {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "trame trop longue"));
     }
-    let mut body = vec![0u8; len];
-    r.read_exact(&mut body).await?;
+    // Lu au fil de l'arrivée : la longueur annoncée seule n'alloue rien (REL-16).
+    let mut body = Vec::with_capacity(len.min(4096));
+    let got = (&mut *r).take(len as u64).read_to_end(&mut body).await?;
+    if got < len {
+        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "trame coupée"));
+    }
     serde_json::from_slice(&body).map(Some).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
@@ -127,6 +131,19 @@ pub async fn read_record<R: AsyncRead + Unpin + ?Sized>(r: &mut R) -> io::Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn trame_annoncee_longue_mais_coupee() {
+        // REL-16 : 60 000 octets annoncés, 3 envoyés : refusée sans attendre le reste.
+        let mut data = 60_000u32.to_be_bytes().to_vec();
+        data.extend_from_slice(b"{\"t");
+        let err = read_msg(&mut &data[..]).await.unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+        // Une trame entière passe toujours.
+        let msg = Msg::Ping { n: 7 };
+        let framed = encode(&msg);
+        assert!(matches!(read_msg(&mut &framed[..]).await.unwrap(), Some(Msg::Ping { n: 7 })));
+    }
 
     #[test]
     fn entiers_variables_de_quic() {
