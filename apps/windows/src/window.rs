@@ -591,6 +591,8 @@ pub struct App {
     bar_visible: AtomicBool,
     /// Dernière fenêtre active (le clavier y revient quand la barre se cache).
     last_active: AtomicIsize,
+    /// Toutes ses fenêtres sont réduites : débit plafonné (`HIDDEN_BITRATE`).
+    hidden_cap: AtomicBool,
     /// Touches dont l'enfoncement a été pris par le crochet pour cette
     /// session (leur relâchement suit, même si elle n'est plus active).
     grabbed: Mutex<Vec<u32>>,
@@ -733,6 +735,7 @@ impl App {
             title_stats,
             bar_visible: AtomicBool::new(false),
             last_active: AtomicIsize::new(0),
+            hidden_cap: AtomicBool::new(false),
             grabbed: Mutex::new(Vec::new()),
             user_ended: AtomicBool::new(false),
             ever_shown: AtomicBool::new(false),
@@ -2211,6 +2214,24 @@ fn raw_delta(lparam: LPARAM) -> (i64, i64) {
 }
 
 
+/// Débit plafonné quand toutes les fenêtres d'une session sont réduites (bit/s) :
+/// la même valeur que l'app Mac pour une fenêtre cachée.
+const HIDDEN_BITRATE: u32 = 20_000_000;
+
+/// Toutes les fenêtres de la session réduites : le cœur plafonne le débit
+/// (l'image reste là, prête à la reprise) ; une fenêtre rouverte le rend.
+fn follow_minimized(app: &App) {
+    let windows = app.windows();
+    let hidden = !windows.is_empty() && windows.iter().all(|w| unsafe { IsIconic(w.hwnd()).as_bool() });
+    if app.hidden_cap.swap(hidden, Ordering::Relaxed) == hidden {
+        return;
+    }
+    if let Some(s) = app.link.session.get().and_then(Weak::upgrade) {
+        log::info!("[{}] fenêtres {} : débit {}", app.host_name, if hidden { "réduites" } else { "rouvertes" }, if hidden { "plafonné à 20 Mbit/s" } else { "rendu" });
+        s.set_bitrate_cap(hidden.then_some(HIDDEN_BITRATE));
+    }
+}
+
 /// Ferme une fenêtre d'écran (`remove_window` et `quit`) : son fil de l'image
 /// s'arrête d'abord (il ne présente plus sur une fenêtre détruite), puis la
 /// fenêtre part, et le pointeur fait de la forme de l'ordinateur est libéré.
@@ -2599,6 +2620,7 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
         match msg {
             WM_SIZE => {
                 update_client_size(&app, &win);
+                follow_minimized(&app);
                 LRESULT(0)
             }
             WM_ERASEBKGND => LRESULT(1),
