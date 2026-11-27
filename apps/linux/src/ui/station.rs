@@ -8,7 +8,9 @@
 use super::canvas::{Align, Canvas, Font, Rgba, Text};
 use super::theme::*;
 use super::widgets::{eyebrow, panel};
-use crate::app::{admin_url, Rect, requires_setup_text, too_old_text, App, Online, StationKind, StationStep};
+use kybernow_rules::address::admin_url;
+
+use crate::app::{Rect, requires_setup_text, too_old_text, App, Online, StationKind, StationStep};
 use crate::i18n::{decimal, tr};
 use crate::model::Host;
 

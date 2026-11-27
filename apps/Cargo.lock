@@ -2578,11 +2578,16 @@ dependencies = [
 name = "kybernow-linux"
 version = "0.11.7"
 dependencies = [
+ "aes-gcm",
+ "base64 0.22.1",
  "cc",
+ "flate2",
  "fontdue",
  "getrandom 0.2.17",
  "keycode",
  "kybernow-core",
+ "kybernow-rules",
+ "kyclient",
  "libc",
  "log",
  "mdns-sd 0.13.11",

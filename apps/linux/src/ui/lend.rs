@@ -19,7 +19,9 @@ use super::share::{qr_or_wait, relay_lines, wait_ring};
 use super::theme::*;
 use super::widgets::{self, eyebrow, legend};
 use super::{unit, Frame};
-use crate::app::{format_code, lend_duration_label, App, Layout, LendSteam, Rect, SessionUi, Target, LEND_DURATIONS};
+use kybernow_rules::format::format_code;
+
+use crate::app::{lend_duration_label, App, Layout, LendSteam, Rect, SessionUi, Target, LEND_DURATIONS};
 use crate::i18n::tr;
 
 const HEADER: f32 = 46.0;
@@ -28,10 +30,23 @@ const QR: f32 = 128.0;
 const REQUEST: f32 = 54.0;
 const FOOT: f32 = 56.0;
 
-const WARNING: (&str, &str) = (
-    "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
-    "Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
-);
+/// L'avertissement du prêt, selon le système de la Station (`os` de `GET /api/stream/info`, docs/link-ui.md, « Prêt
+/// de l'ordinateur ») : Windows, Mac, ou Linux et système inconnu (une Station d'avant).
+fn warning(app: &App, s: &SessionUi) -> String {
+    let os = app.store.host(&s.host).and_then(|h| h.os.as_deref()).unwrap_or("");
+    let (fr, en) = if os.trim_start().get(..7).is_some_and(|p| p.eq_ignore_ascii_case("windows")) {
+        ("Votre ami joue dans votre session Windows.", "Your friend plays in your Windows session.")
+    } else if crate::app::station_is_mac(os) {
+        ("Votre ami joue dans votre session du Mac.", "Your friend plays in your Mac session.")
+    } else {
+        ("Votre ami joue dans votre session.", "Your friend plays in your session.")
+    };
+    let rest = tr(
+        "Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
+        "They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
+    );
+    format!("{} {rest}", tr(fr, en))
+}
 const HELP: (&str, &str) = (
     "Votre ami entre ce code avec « Rejoindre avec un code » dans KyberNow Link, ou ouvre ce lien dans un navigateur.",
     "Your friend enters this code with “Join with a code” in KyberNow Link, or opens this link in a browser.",
@@ -72,7 +87,7 @@ fn height(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32, u: f32) -> f32 {
     match v.and_then(|v| v.code.as_ref()) {
         None => {
             if !app.store.app.lend_warned {
-                h += lines(cv, tr(WARNING.0, WARNING.1), 12.5 * u, inner) * 17.0 * u + 14.0 * u;
+                h += lines(cv, &warning(app, s), 12.5 * u, inner) * 17.0 * u + 14.0 * u;
             }
             h += 2.0 * (22.0 * u + 36.0 * u + 14.0 * u) + 48.0 * u + 12.0 * u;
         }
@@ -182,7 +197,7 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
         None => {
             // L'avertissement de confiance, jusqu'au premier code créé.
             if !app.store.app.lend_warned {
-                y += cv.paragraph(x, y + 4.0 * u, Text::new(Font::Regular, 12.5 * u, WARN), tr(WARNING.0, WARNING.1), inner, 17.0 * u) + 14.0 * u;
+                y += cv.paragraph(x, y + 4.0 * u, Text::new(Font::Regular, 12.5 * u, WARN), &warning(app, s), inner, 17.0 * u) + 14.0 * u;
             }
             eyebrow(cv, x, y + 12.0 * u, 10.5 * u, FAINT, tr("Durée", "Duration"));
             y += 22.0 * u;
@@ -217,7 +232,7 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
                         cv.icon(&Icon::Check, x + bw + 10.0 * u, y + 66.0 * u, 18.0 * u, 2.0, OK);
                         cv.text(x + bw + 34.0 * u, y + 81.0 * u, Text::new(Font::Regular, 12.5 * u, OK), tr("Lien copié.", "Link copied."));
                     } else {
-                        cv.text_fit(x, y + 112.0 * u, Text::new(Font::Regular, 11.5 * u, WARN), tr("Copie impossible : sélectionnez le lien à la main.", "Could not copy: select the link by hand."), lw);
+                        cv.text_fit(x, y + 112.0 * u, Text::new(Font::Regular, 11.5 * u, WARN), tr("Copie impossible : sélectionnez le lien à la main.", "Could not copy: select the link by hand."), lw);
                     }
                 }
             }
@@ -282,5 +297,45 @@ pub fn tile(s: &SessionUi) -> (String, bool) {
         Some(v) if !v.requests.is_empty() => (crate::app::requests_label(v.requests.len()), true),
         Some(v) if v.code.is_some() => (format_code(&v.code.as_ref().map(|c| c.code.clone()).unwrap_or_default()), true),
         _ => (tr("Code et QR code", "Code and QR code").to_string(), false),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::Store;
+
+    /// LINAPP-54 : l'avertissement selon le système de la Station ; inconnu (Station d'avant) : la variante sans système.
+    #[test]
+    fn avertissement_selon_le_systeme() {
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        let mut h = crate::model::Host {
+            id: "a".into(),
+            name: "Atelier".into(),
+            address: "192.168.1.20".into(),
+            port: 9443,
+            fingerprint: None,
+            user: String::new(),
+            password: String::new(),
+            os: None,
+            gpu: None,
+            av1: false,
+            pyrowave: false,
+            mac: None,
+            wake: Vec::new(),
+            relay: None,
+            settings: crate::model::HostSettings::default(),
+            last: None,
+        };
+        let s = SessionUi::new(1, "a", "Atelier", crate::model::Profile::Jeu, false, false, 1);
+        for (os, start) in [(Some("Windows 11 Pro 24H2"), "Votre ami joue dans votre session Windows. Il ne voit"), (Some("macOS 26.1"), "Votre ami joue dans votre session du Mac. Il ne voit"), (Some("Ubuntu 24.04"), "Votre ami joue dans votre session. Il ne voit"), (None, "Votre ami joue dans votre session. Il ne voit")] {
+            h.os = os.map(str::to_string);
+            app.store.hosts = vec![h.clone()];
+            assert!(warning(&app, &s).starts_with(start), "{os:?} : {}", warning(&app, &s));
+        }
+        crate::i18n::force_english(true);
+        assert!(warning(&app, &s).starts_with("Your friend plays in your session. They see neither"));
+        crate::i18n::force_english(false);
     }
 }

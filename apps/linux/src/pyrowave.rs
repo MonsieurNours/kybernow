@@ -25,11 +25,11 @@ impl Risk {
     pub fn warning(self) -> &'static str {
         match self {
             Risk::Wifi => tr(
-                "En Wi-Fi, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr.",
+                "En Wi-Fi, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr.",
                 "On Wi-Fi, PyroWave may stutter: it needs about 300 Mbit/s at 1080p. Keep “Auto” if you're not sure.",
             ),
             Risk::Relay => tr(
-                "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr.",
+                "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr.",
                 "Away from home, PyroWave goes through the relay and your internet connection: the picture may stutter. Keep “Auto” if you're not sure.",
             ),
         }
@@ -79,17 +79,17 @@ pub fn chosen_help() -> &'static str {
 /// HEVC (docs/profil-auto.md).
 pub fn auto_help(wired: bool, takes: bool) -> &'static str {
     if wired && takes {
-        tr("Auto : PyroWave, car cet appareil est relié par câble. Sinon HEVC.", "Auto: PyroWave, because this device is connected by cable. Otherwise HEVC.")
+        tr("Auto : PyroWave, car cet appareil est relié par câble. Sinon HEVC.", "Auto: PyroWave, because this device is connected by cable. Otherwise HEVC.")
     } else if wired {
-        tr("Auto : HEVC. PyroWave est pris par Max et Auto, quand cet appareil est relié par câble.", "Auto: HEVC. PyroWave is used by Max and Auto, when this device is connected by cable.")
+        tr("Auto : HEVC. PyroWave est pris par Max et Auto, quand cet appareil est relié par câble.", "Auto: HEVC. PyroWave is used by Max and Auto, when this device is connected by cable.")
     } else {
-        tr("Auto : HEVC. PyroWave est pris seulement quand cet appareil est relié par câble.", "Auto: HEVC. PyroWave is only used when this device is connected by cable.")
+        tr("Auto : HEVC. PyroWave est pris seulement quand cet appareil est relié par câble.", "Auto: HEVC. PyroWave is only used when this device is connected by cable.")
     }
 }
 
 /// L'aide de « Texte net (4:4:4) » avec PyroWave.
 pub fn yuv444_help() -> &'static str {
-    tr("Avec PyroWave, presque sans coût : seul le débit monte.", "With PyroWave, almost free: only the bitrate goes up.")
+    tr("Avec PyroWave, presque sans coût : seul le débit monte.", "With PyroWave, almost free: only the bitrate goes up.")
 }
 
 /// L'appareil qui décode, pour la raison d'une valeur PyroWave inactive : un Raspberry Pi (sa génération, et
@@ -111,11 +111,11 @@ pub fn unavailable(name: &str, offered: bool, decodes: bool, who: Decoder) -> Op
             match who {
                 Decoder::Device => tr("Cet appareil ne sait pas décoder PyroWave.", "This device can't decode PyroWave."),
                 Decoder::Pi { generation, .. } if generation < 5 => tr(
-                    "Ce Raspberry Pi ne sait pas décoder PyroWave : il faut un Raspberry Pi 5.",
+                    "Ce Raspberry Pi ne sait pas décoder PyroWave : il faut un Raspberry Pi 5.",
                     "This Raspberry Pi can't decode PyroWave: it takes a Raspberry Pi 5.",
                 ),
                 Decoder::Pi { link_os: false, .. } => tr(
-                    "Ce Raspberry Pi ne sait pas décoder PyroWave : il lui faut Raspberry Pi OS « Trixie », à jour.",
+                    "Ce Raspberry Pi ne sait pas décoder PyroWave : il lui faut Raspberry Pi OS « Trixie », à jour.",
                     "This Raspberry Pi can't decode PyroWave: it needs an up-to-date Raspberry Pi OS “Trixie”.",
                 ),
                 Decoder::Pi { .. } => tr("Ce Raspberry Pi ne sait pas décoder PyroWave.", "This Raspberry Pi can't decode PyroWave."),
@@ -165,9 +165,9 @@ mod tests {
         assert_eq!(unavailable("Atelier", true, false, d).unwrap(), "Cet appareil ne sait pas décoder PyroWave.");
         assert_eq!(unavailable("Atelier", true, true, d), None);
         assert_eq!(unavailable("Atelier", false, false, pi(4, true)).unwrap(), "Atelier ne propose pas PyroWave.");
-        assert_eq!(unavailable("Atelier", true, false, pi(4, true)).unwrap(), "Ce Raspberry Pi ne sait pas décoder PyroWave : il faut un Raspberry Pi 5.");
-        assert_eq!(unavailable("Atelier", true, false, pi(3, false)).unwrap(), "Ce Raspberry Pi ne sait pas décoder PyroWave : il faut un Raspberry Pi 5.");
-        assert_eq!(unavailable("Atelier", true, false, pi(5, false)).unwrap(), "Ce Raspberry Pi ne sait pas décoder PyroWave : il lui faut Raspberry Pi OS « Trixie », à jour.");
+        assert_eq!(unavailable("Atelier", true, false, pi(4, true)).unwrap(), "Ce Raspberry Pi ne sait pas décoder PyroWave : il faut un Raspberry Pi 5.");
+        assert_eq!(unavailable("Atelier", true, false, pi(3, false)).unwrap(), "Ce Raspberry Pi ne sait pas décoder PyroWave : il faut un Raspberry Pi 5.");
+        assert_eq!(unavailable("Atelier", true, false, pi(5, false)).unwrap(), "Ce Raspberry Pi ne sait pas décoder PyroWave : il lui faut Raspberry Pi OS « Trixie », à jour.");
         assert_eq!(unavailable("Atelier", true, false, pi(5, true)).unwrap(), "Ce Raspberry Pi ne sait pas décoder PyroWave.");
         assert_eq!(unavailable("Atelier", true, true, pi(5, true)), None);
         assert_eq!(lowered(1920, 1080, 300), "Définition ramenée à 1920 × 1080 pour tenir dans 300 Mbit/s.");

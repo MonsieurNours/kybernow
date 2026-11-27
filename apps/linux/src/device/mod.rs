@@ -21,6 +21,7 @@ mod chime;
 mod focus;
 mod hdr_wl;
 mod jobs;
+mod journal;
 mod link;
 mod log_file;
 mod media;
@@ -62,6 +63,8 @@ use crate::ui::{self, canvas::Canvas};
 
 /// Ce qui revient à la boucle principale (fils de fond, rappels du cœur).
 pub enum Event {
+    /// « Envoyer le journal » : l'étape suivante, ou la fin au bureau.
+    Journal(journal::JournalEvent),
     HostInfo {
         id: String,
         online: bool,
@@ -84,6 +87,8 @@ pub enum Event {
         own_device: Option<bool>,
         /// Le HDR que la Station propose ; `None` : pas de réponse.
         hdr: Option<crate::app::StationHdr>,
+        /// Ce que l'accueil dit sous le nom (mot de passe refusé, Station réinstallée).
+        error: Option<crate::app::HostError>,
         /// Ce que « Partager » peut faire (KyberNow Share) ; `None` : pas de réponse d'Admin.
         share: Option<crate::app::ShareAvail>,
         /// Ce que « Prêter l'ordinateur… » peut faire, et la vue du prêt quand il est activé ; `None` : pas de réponse.
@@ -167,7 +172,7 @@ pub enum SessionEvent {
     /// écran au moins de l'image est en HDR.
     /// `lowered` : PyroWave, la définition ramenée (`Second::lowered`).
     /// `target` : le débit visé (`Second::target`), pour la ligne « Débit visé » et le trait de la courbe du débit.
-    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, lost_frames: u32, codec: String, audio_ms: Option<f64>, chain: Option<[f64; 6]>, hdr: bool, lowered: Option<kybernow_core::pyrowave::Lowered>, target: Option<kybernow_core::adaptive::TargetBitrate> },
+    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, lost_frames: u32, lost_packets: u32, keyframes: u32, rtt_ms: Option<f64>, measured: Option<f64>, codec: String, audio: Option<(f64, f64)>, chain: Option<[f64; 6]>, hdr: bool, lowered: Option<kybernow_core::pyrowave::Lowered>, target: Option<kybernow_core::adaptive::TargetBitrate> },
     Notice(String),
     /// PyroWave : le réseau sature (`Notice::PyroWaveStrained`, une fois par session) : le bandeau « Le réseau
     /// sature » avec « Passer en HEVC ».
@@ -232,28 +237,32 @@ struct HitAreas {
 
 static HIT: Mutex<HitAreas> = Mutex::new(HitAreas { enabled: false, drag: (0, 0, 0, 0), holes: Vec::new(), size: (0, 0) });
 
+/// Rappel de SDL (zones de la fenêtre sans cadre) : une panique n'en sort pas (`ffi_guard!` du cœur), la zone est
+/// alors normale.
 extern "C" fn hit_test(_win: *mut sdl::SDL_Window, p: *const sdl::SDL_Point, _data: *mut c_void) -> c_int {
-    let Ok(h) = HIT.try_lock() else { return sdl::HITTEST_NORMAL };
-    if !h.enabled {
-        return sdl::HITTEST_NORMAL;
-    }
-    let (x, y) = unsafe { ((*p).x, (*p).y) };
-    let (w, hh) = h.size;
-    let b = 6;
-    let (l, r, t, bo) = (x < b, x >= w - b, y < b, y >= hh - b);
-    match (l, r, t, bo) {
-        (true, _, true, _) => return sdl::HITTEST_RESIZE_TOPLEFT,
-        (_, true, true, _) => return sdl::HITTEST_RESIZE_TOPRIGHT,
-        (true, _, _, true) => return sdl::HITTEST_RESIZE_BOTTOMLEFT,
-        (_, true, _, true) => return sdl::HITTEST_RESIZE_BOTTOMRIGHT,
-        (true, _, _, _) => return sdl::HITTEST_RESIZE_LEFT,
-        (_, true, _, _) => return sdl::HITTEST_RESIZE_RIGHT,
-        (_, _, true, _) => return sdl::HITTEST_RESIZE_TOP,
-        (_, _, _, true) => return sdl::HITTEST_RESIZE_BOTTOM,
-        _ => {}
-    }
-    let inside = |(rx, ry, rw, rh): (i32, i32, i32, i32)| x >= rx && x < rx + rw && y >= ry && y < ry + rh;
-    if inside(h.drag) && !h.holes.iter().any(|r| inside(*r)) { sdl::HITTEST_DRAGGABLE } else { sdl::HITTEST_NORMAL }
+    kybernow_core::ffi_guard!(sdl::HITTEST_NORMAL => {
+        let Ok(h) = HIT.try_lock() else { return sdl::HITTEST_NORMAL };
+        if !h.enabled {
+            return sdl::HITTEST_NORMAL;
+        }
+        let (x, y) = unsafe { ((*p).x, (*p).y) };
+        let (w, hh) = h.size;
+        let b = 6;
+        let (l, r, t, bo) = (x < b, x >= w - b, y < b, y >= hh - b);
+        match (l, r, t, bo) {
+            (true, _, true, _) => return sdl::HITTEST_RESIZE_TOPLEFT,
+            (_, true, true, _) => return sdl::HITTEST_RESIZE_TOPRIGHT,
+            (true, _, _, true) => return sdl::HITTEST_RESIZE_BOTTOMLEFT,
+            (_, true, _, true) => return sdl::HITTEST_RESIZE_BOTTOMRIGHT,
+            (true, _, _, _) => return sdl::HITTEST_RESIZE_LEFT,
+            (_, true, _, _) => return sdl::HITTEST_RESIZE_RIGHT,
+            (_, _, true, _) => return sdl::HITTEST_RESIZE_TOP,
+            (_, _, _, true) => return sdl::HITTEST_RESIZE_BOTTOM,
+            _ => {}
+        }
+        let inside = |(rx, ry, rw, rh): (i32, i32, i32, i32)| x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+        if inside(h.drag) && !h.holes.iter().any(|r| inside(*r)) { sdl::HITTEST_DRAGGABLE } else { sdl::HITTEST_NORMAL }
+    })
 }
 
 /// Une fenêtre SDL de l'app, avec son rendu, sa texture d'interface, sa
@@ -671,10 +680,15 @@ struct Live {
     typing: bool,
     /// Échap tenu (long : rend la souris).
     escape_down: Option<Instant>,
-    /// La caméra de l'appareil, allumée (docs/webcam.md) : le fil de la webcam.
+    /// La caméra de l'appareil, allumée (docs/webcam.md) : le fil de la webcam, et depuis quand elle attend la réponse
+    /// de l'ordinateur (« Caméra… », 10 s au plus).
     camera: Option<camera::Sender>,
+    camera_since: Option<Instant>,
     /// La barre du bureau doit se cacher à cet instant.
     bar_hide: Option<Instant>,
+    /// Toutes les fenêtres de la session sont réduites ou cachées : l'image n'est plus regardée
+    /// (`Session::set_background`, 20 Mbit/s et image figée sans panne).
+    background: bool,
     /// Le pointeur est contre le bord haut : la barre du bureau s'ouvre à cet instant s'il y reste.
     bar_arm: Option<Instant>,
     /// Multi-écrans : la fenêtre où ce geste a lieu et celle où la barre est ouverte
@@ -718,6 +732,9 @@ struct Live {
     changed: Option<(screens::Detected, Instant)>,
     /// Le micro capté pour l'ordinateur (docs/micro.md) : ouvert tant que le cœur dit de capter.
     mic: Option<mic::Capture>,
+    /// « Micro » de la session (`micro::MicUi` du cœur : choix, réponse de l'ordinateur, textes) ; `None` sans micro
+    /// sur l'appareil. L'interface en reçoit la vue (`mic::view`).
+    mic_ui: Option<kybernow_core::micro::MicUi>,
 }
 
 /// Ce que tient chaque session en cours (`App::sessions` en est l'interface), dans l'ordre d'ouverture.
@@ -867,8 +884,11 @@ pub fn run(args: &[String]) {
     if let Ok(v) = std::env::var("KYBERNOW_VIDEO") {
         sdl::hint("SDL_VIDEODRIVER", &v);
     }
-    // PyroWave : la sonde (device Vulkan, image de test) tourne sur un fil pendant que la fenêtre s'ouvre.
+    // PyroWave : la sonde (device Vulkan, image de test) tourne sur un fil pendant que la fenêtre s'ouvre. Le
+    // décodeur lit l'en-tête `KNPW` version 2 (métadonnées HDR10 de la capture) : demandé à la Station.
     system::pyrowave_probe_start();
+    #[cfg(feature = "pyrowave")]
+    kyclient::set_pyrowave_header(2);
     // HDR (docs/hdr.md) : sur un bureau Wayland dont la gestion des couleurs décrit une image PQ BT.2020 et dont un
     // écran est en HDR, SDL prend Wayland (seule voie du HDR ; X11 et Xwayland n'en ont pas), et la fenêtre peut être
     // transparente : l'image HDR, sur une sous-surface dessous, se voit par le trou que l'app y laisse.
@@ -971,7 +991,7 @@ pub fn run(args: &[String]) {
     // Un fichier des réglages illisible a été mis de côté (jamais réécrit vide) : on le dit.
     if let Some(p) = app.store.set_aside.clone() {
         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        app.toast(format!("{} {name}", tr("Réglages illisibles, mis de côté : vos ordinateurs sont à rajouter. Copie gardée :", "Unreadable settings, set aside: your computers need adding again. Copy kept:")));
+        app.toast(format!("{} {name}", tr("Réglages illisibles, mis de côté : vos ordinateurs sont à rajouter. Copie gardée :", "Unreadable settings, set aside: your computers need adding again. Copy kept:")));
     }
     if os {
         app.os = Some(os::info());
@@ -991,7 +1011,7 @@ pub fn run(args: &[String]) {
     app.launched = Instant::now();
     for h in app.store.hosts.clone() {
         let last = Store::image_path(&h.id).with_extension("png");
-        if app.store.app.keep_last_image
+        if h.settings.keep_last_image
             && let Some(img) = std::fs::read(&last).ok().and_then(|b| ui::canvas::decode_png(&b))
         {
             app.images.insert(h.id.clone(), img);
@@ -1480,7 +1500,7 @@ pub fn run(args: &[String]) {
     link::close();
     app.store.save();
     unsafe { sdl::SDL_Quit() };
-    log::info!("KyberNow Link s'arrête");
+    log::info!("{}", log_file::STOPPED);
 }
 
 /// Les actions qui visent une partie sur une console PlayStation (ou la recherche d'une console « Par adresse ») :
@@ -1508,6 +1528,36 @@ const QUIT_WAIT: Duration = Duration::from_secs(8);
 /// Quitter l'app : chaque session est arrêtée puis attendue (`Session::stop`, `Session::wait` : la Station est
 /// prévenue, ses écrans, son son et ses manettes reviennent), les sessions en parallèle et au plus `QUIT_WAIT`
 /// en tout, comme l'app Windows. Les fenêtres se cachent pendant l'attente : l'app a l'air fermée.
+/// La souris d'un réglage (`desktop`, `game`, sinon Auto).
+fn mouse_mode(setting: &str) -> MouseMode {
+    match setting {
+        "desktop" => MouseMode::Desktop,
+        "game" => MouseMode::Game,
+        _ => MouseMode::Auto,
+    }
+}
+
+/// L'image d'une session n'est plus regardée quand toutes ses fenêtres sont réduites ou cachées (docs/link-ui.md,
+/// « Image qui n'est plus regardée ») : le cœur demande 20 Mbit/s à l'ordinateur et prend l'image figée pour voulue
+/// (`Session::set_background`, `Device::Computer`) ; tout est rendu au retour. Pas sur KyberNow Link OS, toujours en
+/// plein écran.
+fn sync_background(lives: &mut Lives, wins: &Wins, id: SessionId) {
+    if os::is_os() {
+        return;
+    }
+    let Some(l) = lives.get_mut(id) else { return };
+    let mut windows = wins.list.iter().filter(|w| w.session == Some(id)).peekable();
+    if windows.peek().is_none() {
+        return;
+    }
+    let hidden = windows.all(|w| unsafe { sdl::SDL_GetWindowFlags(w.window) } & (sdl::SDL_WINDOW_HIDDEN | sdl::SDL_WINDOW_MINIMIZED) != 0);
+    if hidden != l.background {
+        l.background = hidden;
+        log::info!("session {} : image {}", l.host, if hidden { "plus regardée (fenêtre réduite ou cachée)" } else { "de nouveau regardée" });
+        l.handle.session.set_background(hidden, kybernow_core::rules::limits::Device::Computer);
+    }
+}
+
 fn stop_all(lives: &Lives, wins: &Wins) {
     if lives.is_empty() {
         return;
@@ -1706,9 +1756,13 @@ fn session_tick(app: &mut App, l: &mut Live, wins: &mut Wins, dirty: &mut bool, 
         let name = app.sessions[si].name.clone();
         for e in link.poll() {
             match &e {
-                CameraEvent::Started => app.camera_state(l.id, crate::app::CameraState::Sending, None, None),
+                CameraEvent::Started => {
+                    l.camera_since = None;
+                    app.camera_state(l.id, crate::app::CameraState::Sending, None, None);
+                }
                 CameraEvent::Busy { .. } | CameraEvent::Failed { .. } => {
                     l.camera = None;
+                    l.camera_since = None;
                     app.camera_state(l.id, crate::app::CameraState::Off, None, event_notice(&e, &name, lang));
                 }
                 CameraEvent::KeyframeWanted => {
@@ -1718,6 +1772,15 @@ fn session_tick(app: &mut App, l: &mut Live, wins: &mut Wins, dirty: &mut bool, 
                 }
                 _ => {}
             }
+            *dirty = true;
+        }
+        // « Caméra… » sans réponse en 10 s : éteinte, avec l'avis.
+        if let Some(t) = l.camera_since
+            && app.camera_unanswered(l.id, t)
+        {
+            l.camera = None;
+            l.camera_since = None;
+            link.stop();
             *dirty = true;
         }
         let s = &mut app.sessions[si];
@@ -1965,6 +2028,7 @@ fn push_settings(l: &mut Live, settings: StreamSettings, capabilities: Capabilit
         l.handle.session.set_screens(base.clone());
     }
     l.settings = settings.clone();
+    l.handle.shared.set_wanted(settings.codec);
     l.handle.session.set_settings(settings);
 }
 
@@ -2354,6 +2418,12 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 sdl::SDL_WINDOWEVENT_RESTORED if wi == 0 => app.maximized = false,
                 _ => {}
             }
+            // Réduite, cachée, rendue : l'image de la session est-elle encore regardée ?
+            if matches!(e, sdl::SDL_WINDOWEVENT_SHOWN | sdl::SDL_WINDOWEVENT_HIDDEN | sdl::SDL_WINDOWEVENT_MINIMIZED | sdl::SDL_WINDOWEVENT_MAXIMIZED | sdl::SDL_WINDOWEVENT_RESTORED)
+                && let Some(id) = ws
+            {
+                sync_background(lives, wins, id);
+            }
             *dirty = true;
         }
         sdl::SDL_RENDER_TARGETS_RESET | sdl::SDL_RENDER_DEVICE_RESET => {
@@ -2674,7 +2744,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 let (v, pr) = pads.ids(slot);
                 gamepads::plug(slot as u32, Some(v), Some(pr));
                 if let Some(s) = app.session_mut() {
-                    s.notice = Some((format!("{} {}{} : {}", tr("Manette", "Controller"), tr("J", "P"), slot + 1, pads.name(slot)), Instant::now()));
+                    s.notice = Some((format!("{} {}{} : {}", tr("Manette", "Controller"), tr("J", "P"), slot + 1, pads.name(slot)), Instant::now()));
                 }
                 // L'ordinateur ne crée pas les manettes : il le dit, une fois par session, à la première branchée.
                 for sid in app.sessions.iter().map(|s| s.id).collect::<Vec<_>>() {
@@ -2792,8 +2862,9 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
 #[allow(clippy::too_many_arguments)]
 fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, wins: &mut Wins, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>, tx: &Sender<Event>) {
     match e {
-        Event::HostInfo { id, online, away, relay, os, gpu, av1, pyrowave, virtual_display, max_screens, station, wake, own_device, share, lend, lend_view, gamepads, hdr } => {
+        Event::HostInfo { id, online, away, relay, os, gpu, av1, pyrowave, virtual_display, max_screens, station, wake, own_device, share, lend, lend_view, gamepads, hdr, error } => {
             let entry = app.live.entry(id.clone()).or_insert_with(HostLive::default);
+            entry.error = error;
             entry.online = if online {
                 Online::Online
             } else if away {
@@ -2867,7 +2938,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
             }
         }
         Event::PairAsked { name } => {
-            app.add.message = Some(format!("{} {name} : {}", tr("Code présenté à", "Code shown to"), tr("acceptez-le dans Admin", "accept it in Admin")));
+            app.add.message = Some(format!("{} {name} : {}", tr("Code présenté à", "Code shown to"), tr("acceptez-le dans Admin", "accept it in Admin")));
         }
         Event::PairAccepted(host) => {
             for c in pairing.drain(..) {
@@ -2959,6 +3030,18 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
         Event::RecordingReply { session, result } => app.recording_reply(session, result),
         Event::LendHome { host, result } => app.lend_home_reply(&host, result),
         // Comptes KyberNow : un code, une connexion, les ordinateurs d'un compte (l'accueil refait quand ils arrivent).
+        Event::Journal(journal::JournalEvent::Step(step)) => {
+            // Fermé entre-temps (« Terminé ») : rien à montrer.
+            if app.journal.is_some() {
+                app.journal = Some(step);
+            }
+        }
+        Event::Journal(journal::JournalEvent::Done(done)) => {
+            app.journal_preparing = false;
+            if let Some(n) = done.notice() {
+                app.toast(n);
+            }
+        }
         Event::Account(e) => {
             if accounts::handle(e, app, actions, tx) {
                 accounts::sync(app);
@@ -3046,7 +3129,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
             match r {
                 Ok(p) => {
                     app.os_update.ready = Some(p);
-                    app.toast(tr("Nouvelle version prête : Réglages de l'appareil › Mise à jour", "New version ready: Device settings › Update"));
+                    app.toast(tr("Nouvelle version prête : Réglages de l'appareil › Mise à jour", "New version ready: Device settings › Update"));
                 }
                 Err(e) => app.os_update.error = Some(e),
             }
@@ -3204,7 +3287,7 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 app.watch_display(id, l.handle.session.watch_display());
             }
         }
-        SessionEvent::Second { latency_ms, fps, mbps, lost, lost_frames, codec, audio_ms, chain, hdr, lowered, target } => {
+        SessionEvent::Second { latency_ms, fps, mbps, lost, lost_frames, lost_packets, keyframes, rtt_ms, measured, codec, audio, chain, hdr, lowered, target } => {
             let Some(l) = lives.get_mut(id) else { return };
             let local = Stats::local_medians(&l.local);
             l.local.clear();
@@ -3235,7 +3318,12 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 let mut bitrate_history = s.stats.as_ref().map(|s| s.bitrate_history.clone()).unwrap_or_default();
                 Stats::push_bitrate(&mut bitrate_history, mbps, target.map(|t| t.bitrate as f64 / 1e6));
                 let target = target.map(|t| (kybernow_core::adaptive::TargetBitrate::label(lang), t.text(lang)));
-                s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio_ms, history, stages, hdr, lost_frames, lowered, bitrate_history, target });
+                // « Pertes · 30 s » et la session.
+                let mut losses = s.stats.as_ref().map(|s| s.losses.clone()).unwrap_or_default();
+                Stats::push_losses(&mut losses, (lost_frames, lost_packets, keyframes));
+                let (sf, sp) = s.stats.as_ref().map_or((0, 0), |s| s.session_lost);
+                let session_lost = (sf + u64::from(lost_frames), sp + u64::from(lost_packets));
+                s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio, losses, session_lost, rtt_ms, measured, history, stages, hdr, lost_frames, lowered, bitrate_history, target });
                 // PyroWave en Wi-Fi ou par le relais : le bandeau du début de session, une fois.
                 s.pyrowave_seen();
             }
@@ -3298,11 +3386,23 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
         // Le micro : la puce et la tuile suivent ; la capture s'ouvre tant que le cœur dit de capter.
         SessionEvent::Mic(state) => {
             log::info!("micro : {state:?}");
-            app.mic_changed(id, mic::state_of(state));
+            let (name, guest) = app.session_by(id).map(|s| (s.name.clone(), s.guest.is_some())).unwrap_or_default();
             if let Some(l) = lives.get_mut(id) {
+                if let Some(m) = l.mic_ui.as_mut() {
+                    let notice = m.changed(state, &name);
+                    app.set_mic(id, mic::view(m, guest), notice);
+                }
                 sync_mic(app, l, state.capturing());
-                if state.capturing() && l.mic.is_none() {
-                    actions.extend(app.mic_failed(id));
+                // L'appareil ne donne pas son micro (la capture ne s'ouvre pas) : coupé, avec l'avis.
+                if state.capturing()
+                    && l.mic.is_none()
+                    && let Some(m) = l.mic_ui.as_mut()
+                    && m.on
+                {
+                    m.denied();
+                    l.handle.session.set_microphone(false);
+                    app.set_mic(id, mic::view(m, guest), None);
+                    actions.extend(app.mic_denied(id));
                 }
             }
         }
@@ -3332,12 +3432,12 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
         SessionEvent::CameraOffer(offered) => actions.extend(app.camera_offer(id, offered, camera::cameras(), camera::chosen())),
         SessionEvent::CameraProblem(problem, name) => {
             use kybernow_core::camera::{DeviceNotice, device_notice};
-            let which = match problem {
-                camera::Problem::InUse => DeviceNotice::InUse,
-                camera::Problem::Unplugged => DeviceNotice::Unplugged,
-                camera::Problem::NoEncoder => DeviceNotice::NoEncoder,
+            let text = match problem {
+                camera::Problem::InUse => device_notice(DeviceNotice::InUse, &name, kybernow_core::i18n::current()),
+                camera::Problem::Unplugged => device_notice(DeviceNotice::Unplugged, &name, kybernow_core::i18n::current()),
+                camera::Problem::NoEncoder => device_notice(DeviceNotice::NoEncoder, &name, kybernow_core::i18n::current()),
+                camera::Problem::Refused => crate::app::camera_refused_text().to_string(),
             };
-            let text = device_notice(which, &name, kybernow_core::i18n::current());
             // Débranchée : la suivante de la liste prend la relève ; sinon la caméra s'éteint.
             let next = camera::cameras().into_iter().find(|(_, n)| *n != name);
             match (problem, next) {
@@ -3559,7 +3659,16 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             }
             OsAction::Cec(on) => os::ctl(&[if on { "cec-name" } else { "cec-off" }]),
             OsAction::Hdmi(m) => os::ctl(&["hdmi", &m]),
+            // Le pays, le fuseau et le clavier : laissés dans le dossier de l'app, lus et vérifiés par root (sudoers :
+            // `locale` sans argument).
+            OsAction::Locale(request) => match std::fs::write(crate::model::Store::dir().join("os-locale"), request) {
+                Ok(()) => os::ctl(&["locale"]),
+                Err(e) => log::warn!("pays et fuseau : {e}"),
+            },
         },
+        // « Envoyer le journal » (Réglages de l'app › À propos) ; « Terminé » retire le dépôt pas encore ouvert.
+        Action::SendLog => journal::start(app, tx),
+        Action::JournalClose => journal::close(),
         Action::CheckUpdate => {
             app.update = crate::app::UpdateState::Checking;
             jobs::check_update(app.store.app.beta, tx.clone());
@@ -3579,6 +3688,12 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
         Action::ToggleMouse(id) => {
             if let (Some(l), Some(s)) = (lives.get_mut(id), app.session_by(id)) {
                 l.mouse = if s.relative { MouseMode::Desktop } else { MouseMode::Game };
+            }
+        }
+        // Le menu de la souris de la barre : tout de suite (le réglage de l'ordinateur est déjà gardé).
+        Action::SetMouse(id, mode) => {
+            if let Some(l) = lives.get_mut(id) {
+                l.mouse = mouse_mode(&mode);
             }
         }
         Action::OpenKeyboard(id) => {
@@ -3658,9 +3773,18 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 l.handle.shared.set_silenced(on);
             }
         }
+        // « Micro » allumé ou coupé : le `MicUi` du cœur (déjà pris par l'ordinateur : l'avis « Micro envoyé à
+        // {nom}. » tout de suite), la session, puis la vue de l'interface.
         Action::SetMic(id, on) => {
-            if let Some(l) = lives.get(id) {
+            if let Some(l) = lives.get_mut(id)
+                && let Some(m) = l.mic_ui.as_mut()
+            {
+                m.set(on);
                 l.handle.session.set_microphone(on);
+                let name = app.session_by(id).map(|s| s.name.clone()).unwrap_or_default();
+                let notice = if on && m.state == kybernow_core::micro::MicState::On { m.changed(kybernow_core::micro::MicState::On, &name) } else { None };
+                let guest = app.session_by(id).is_some_and(|s| s.guest.is_some());
+                app.set_mic(id, mic::view(m, guest), notice);
             }
         }
         // Le micro choisi ou le traitement voix changés : les captures en cours se rouvrent avec eux.
@@ -3694,11 +3818,13 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 });
                 *name.lock().unwrap() = sender.name.clone();
                 l.camera = Some(sender);
+                l.camera_since = Some(Instant::now());
             }
         }
         Action::CameraOff(id) => {
             if let Some(l) = lives.get_mut(id) {
                 l.camera = None;
+                l.camera_since = None;
                 l.handle.session.camera().stop();
             }
         }
@@ -3751,7 +3877,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 if !app.add.asked.is_empty() {
                     return;
                 }
-                app.add.message = Some(tr("Aucune Station trouvée pour l'instant : le code sera présenté dès qu'elle apparaît, ou ajoutez-la par adresse.", "No Station found yet: the code is shown as soon as one appears, or add it by address.").into());
+                app.add.message = Some(tr("Aucune Station trouvée pour l'instant : le code sera présenté dès qu'elle apparaît, ou ajoutez-la par adresse.", "No Station found yet: the code is shown as soon as one appears, or add it by address.").into());
                 return;
             }
             app.add.asked.extend(targets.iter().map(|t| (t.name.clone(), t.address.clone())));
@@ -4217,9 +4343,10 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
     ui.pw_wired = wired;
     // « HDR » dans la barre et le menu : la puce de l'ordinateur (hôte, emprunt) sur un écran HDR ; un invité n'en a pas.
     // « Micro » : le choix retenu pour cet ordinateur (un invité part coupé) ; donné au cœur juste après le départ.
-    ui.mic = app.mic_ui(borrow_key.as_deref().unwrap_or(&h.id), guest.is_some());
-    if let Some(m) = ui.mic {
+    let mic_ui = app.mic_choice(borrow_key.as_deref().unwrap_or(&h.id), guest.is_some()).map(kybernow_core::micro::MicUi::new);
+    if let Some(m) = &mic_ui {
         handle.session.set_microphone(m.on);
+        ui.mic = Some(mic::view(m, guest.is_some()));
     }
     ui.hdr = match (&guest, &borrow_key) {
         (Some(_), _) => None,
@@ -4244,17 +4371,15 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         game_fullscreen: false,
         path: crate::app::PathKind::Direct,
         relay_error: None,
-        mouse: match h.settings.mouse.as_str() {
-            "desktop" => MouseMode::Desktop,
-            "game" => MouseMode::Game,
-            _ => MouseMode::Auto,
-        },
+        mouse: mouse_mode(&h.settings.mouse),
         typing: false,
         escape_down: None,
         camera: None,
+        camera_since: None,
         bar_hide: None,
         bar_arm: None,
         bar_arm_win: None,
+        background: false,
         bar_win: None,
         decoded: None,
         last_frame: None,
@@ -4272,6 +4397,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         rescan_at: Instant::now(),
         changed: None,
         mic: None,
+        mic_ui,
     };
     let vsync = if first { wants_vsync(app, &h) } else { false };
     if first {
@@ -4355,7 +4481,7 @@ fn disconnect(app: &mut App, lives: &mut Lives, wins: &mut Wins, id: SessionId) 
     // L'accueil qui revient montre déjà la dernière image de la session.
     if let (Some(l), Some(s)) = (lives.get(id), app.session_by(id))
         && !l.guest
-        && app.store.app.keep_last_image
+        && app.store.host(&s.host).is_some_and(|h| h.settings.keep_last_image)
         && let Some(img) = l.snapshot.clone()
     {
         let host = s.host.clone();
@@ -4483,7 +4609,7 @@ fn finish(app: &mut App, l: Live) {
         h.last = Some(LastSession { median, p95, seconds, mode: l.mode.clone(), hz: l.hz, codec: l.codec.into(), mbps, at: now_secs(), screens: l.screens as u32, route: l.path.as_str().into(), hdr: l.handle.session.hdr_used() });
     }
     app.store.save();
-    if app.store.app.keep_last_image
+    if app.store.host(&id).is_some_and(|h| h.settings.keep_last_image)
         && let Some(img) = l.snapshot.clone()
     {
         if let Some(png) = ui::canvas::encode_png(&img) {
@@ -4718,9 +4844,9 @@ mod tests {
         assert!(second.multi && second.surface.is_some(), "écrans réduits à « Cet écran » par le cœur, mode de sa fenêtre");
         let (win_w, win_h) = (wins.list[1].out_size.0 as f64, wins.list[1].out_size.1 as f64);
         let (sw, sh) = second.surface.map(|((w, h), _)| (w as f64, h as f64)).unwrap();
-        assert!((sw - win_w).abs() <= 2.0 && (sh - win_h).abs() <= 2.0, "la surface du mode est celle de la fenêtre : {sw}×{sh} contre {win_w}×{win_h}");
+        assert!((sw - win_w).abs() <= 2.0 && (sh - win_h).abs() <= 2.0, "la surface du mode est celle de la fenêtre : {sw}×{sh} contre {win_w}×{win_h}");
         assert!(focus::sync(&mut app, &lives, &mut pads, &mut applied));
-        assert!(!focus::sync(&mut app, &lives, &mut pads, &mut applied), "rien n'a changé : rien à refaire");
+        assert!(!focus::sync(&mut app, &lives, &mut pads, &mut applied), "rien n'a changé : rien à refaire");
         // « Garder le son » sur la première : le cœur la laisse audible ; l'interface le recopie.
         focus::set_keep_sound(lives.get(1).unwrap(), true);
         focus::sync(&mut app, &lives, &mut pads, &mut applied);
@@ -4770,7 +4896,7 @@ mod tests {
         focus::sync(&mut app, &lives, &mut pads, &mut applied);
         assert_eq!((app.sessions.len(), app.running_sessions(), core.count(), lives.0.len(), wins.list.len()), (4, 3, 3, 3, 4), "le message et sa fenêtre restent");
         assert_eq!(app.active_id(), Some(4), "la carte d'erreur reste la session active de l'interface tant que sa fenêtre a le clavier");
-        assert!(!app.sessions_full() && app.session_of_host("d").is_none(), "une session finie ne compte plus : on peut s'y reconnecter");
+        assert!(!app.sessions_full() && app.session_of_host("d").is_none(), "une session finie ne compte plus : on peut s'y reconnecter");
         // Une session de plus s'ouvre à sa place (la finie attend « Fermer ») : quatre en cours, cinq fenêtres.
         connect(&mut app, &mut lives, &mut wins, &tx, "e", jeu);
         assert_eq!((app.sessions.len(), app.running_sessions(), core.count(), wins.list.len()), (5, 4, 4, 5));
@@ -4810,14 +4936,14 @@ mod tests {
         assert!(reap(&mut app, &mut lives, &mut wins));
         assert_eq!((app.active_id(), lives.0.len(), wins.list.len(), core.count()), (None, 0, 1, 0));
         assert!(!wins.list[0].hidden && wins.list[0].session.is_none());
-        assert!(focus::sync(&mut app, &lives, &mut pads, &mut applied), "plus de session : l'état global de SDL est rendu");
+        assert!(focus::sync(&mut app, &lives, &mut pads, &mut applied), "plus de session : l'état global de SDL est rendu");
         // Quitter attend les sessions : chacune est arrêtée puis attendue, sans dépasser le délai.
         connect(&mut app, &mut lives, &mut wins, &tx, "a", jeu);
         connect(&mut app, &mut lives, &mut wins, &tx, "b", jeu);
         assert_eq!(lives.0.len(), 2);
         let started = Instant::now();
         stop_all(&lives, &wins);
-        assert!(started.elapsed() < QUIT_WAIT, "les sessions ont fini avant le délai : {:?}", started.elapsed());
+        assert!(started.elapsed() < QUIT_WAIT, "les sessions ont fini avant le délai : {:?}", started.elapsed());
         let main = wins.list.pop().unwrap();
         main.destroy();
         unsafe { sdl::SDL_Quit() };

@@ -80,28 +80,48 @@ impl Drop for Capture {
     }
 }
 
+/// Rappel de SDL (fil du son) : une panique n'en sort pas (`ffi_guard!` du cœur), le tampon est alors perdu.
 extern "C" fn captured(user: *mut c_void, stream: *mut u8, len: c_int) {
-    let sink = unsafe { &*(user as *const Sink) };
-    let n = len.max(0) as usize / 4;
-    let samples = unsafe { std::slice::from_raw_parts(stream as *const f32, n) };
-    if let Some(s) = sink.session.upgrade() {
-        s.push_microphone(samples, sink.rate);
-    }
+    kybernow_core::ffi_guard!({
+        let sink = unsafe { &*(user as *const Sink) };
+        let n = len.max(0) as usize / 4;
+        let samples = unsafe { std::slice::from_raw_parts(stream as *const f32, n) };
+        if let Some(s) = sink.session.upgrade() {
+            s.push_microphone(samples, sink.rate);
+        }
+    })
 }
 
-/// L'état du cœur, vu de l'interface.
-pub fn state_of(s: kybernow_core::micro::MicState) -> crate::micro::MicState {
-    use crate::micro::{MicRefusal as R, MicState as U};
-    use kybernow_core::micro::{MicRefusal, MicState};
-    match s {
-        MicState::Off => U::Off,
-        MicState::Waiting => U::Waiting,
-        MicState::On => U::On,
-        MicState::Refused(r) => U::Refused(match r {
-            MicRefusal::NotAllowed => R::NotAllowed,
-            MicRefusal::NoDevice => R::NoDevice,
-            MicRefusal::Unsupported => R::Unsupported,
-            MicRefusal::OldStation => R::OldStation,
-        }),
+/// La vue de l'interface (`MicView`) : `MicUi::ui_json` du cœur, textes dans la langue de l'app (raccourci de la puce
+/// compris), et si la puce est montrée (`MicUi::shown` : pas un invité que l'hôte ne laisse pas parler).
+pub fn view(m: &kybernow_core::micro::MicUi, guest: bool) -> crate::micro::MicView {
+    let mut v = m.ui_json(kybernow_core::i18n::current(), &crate::micro::shortcut());
+    v["shown"] = serde_json::Value::Bool(m.shown(guest));
+    serde_json::from_value(v).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kybernow_core::micro::{MicRefusal, MicState, MicUi};
+
+    /// La vue de l'interface est celle du cœur : « Envoi… » dans la tuile tant que l'ordinateur n'a pas répondu, la
+    /// raison d'un refus, la puce cachée pour un invité que l'hôte ne laisse pas parler.
+    #[test]
+    fn vue_du_micro_du_coeur() {
+        kybernow_core::i18n::set_current(kybernow_core::i18n::Lang::Fr);
+        kybernow_core::micro::set_device_has_microphone(true);
+        let mut m = MicUi::new(false);
+        m.set(true);
+        assert_eq!(m.changed(MicState::Waiting, "Atelier"), None);
+        let v = view(&m, false);
+        assert_eq!((v.on, v.lit, v.sent, v.tile.as_str(), v.shown), (true, true, false, "Envoi…", true));
+        // Le texte du cœur (son catalogue garde l'espace ordinaire), avec le raccourci de l'app.
+        assert_eq!(v.tooltip, "Micro : envoyé à l'ordinateur (Ctrl+Alt+Maj+V)");
+        assert_eq!(m.changed(MicState::On, "Atelier").as_deref(), Some("Micro envoyé à Atelier."));
+        assert_eq!(view(&m, false).tile, "Envoyé");
+        m.changed(MicState::Refused(MicRefusal::NotAllowed), "Atelier");
+        let v = view(&m, true);
+        assert_eq!((v.shown, v.lit, v.reason.as_deref()), (false, false, Some("L'hôte ne laisse pas les invités parler.")));
     }
 }

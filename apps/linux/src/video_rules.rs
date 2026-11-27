@@ -114,8 +114,8 @@ mod tests {
         for _ in 0..BACKLOG_MAX {
             assert_eq!(b.admit(false), Admit::Send);
         }
-        assert_eq!(b.admit(false), Admit::DropFirst, "file pleine : le premier jeté le dit");
-        assert_eq!(b.admit(true), Admit::Drop, "toujours pleine : même une image clé attend");
+        assert_eq!(b.admit(false), Admit::DropFirst, "file pleine : le premier jeté le dit");
+        assert_eq!(b.admit(true), Admit::Drop, "toujours pleine : même une image clé attend");
         for _ in 0..BACKLOG_MAX {
             b.taken();
         }
@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn matrice_et_plage() {
         assert_eq!(yuv_for(true, false), Yuv::Bt709);
-        assert_eq!(yuv_for(true, true), Yuv::Bt709, "BT.709 plein : ramené en plage réduite, pas en JPEG (BT.601)");
+        assert_eq!(yuv_for(true, true), Yuv::Bt709, "BT.709 plein : ramené en plage réduite, pas en JPEG (BT.601)");
         assert_eq!(yuv_for(false, true), Yuv::Jpeg);
         assert_eq!(yuv_for(false, false), Yuv::Bt601);
         assert!(needs_narrowing(true, true) && !needs_narrowing(true, false) && !needs_narrowing(false, true));

@@ -76,6 +76,10 @@ fn status(app: &App, h: &Host) -> (String, Rgba, bool) {
             None => (line, WARN, true),
         };
     }
+    // Une erreur sous le nom, quand il y en a (docs/link-ui.md).
+    if let Some(e) = app.live.get(&h.id).and_then(|l| l.error) {
+        return (e.text().to_string(), WARN, false);
+    }
     let t = match app.live.get(&h.id).map(|l| l.online).unwrap_or_default() {
         Online::Online => (tr("En ligne", "Online"), OK, true),
         // Joignable seulement par le relais (docs/relais.md).
@@ -704,4 +708,24 @@ fn status_line(app: &App, cv: &mut Canvas, right: f32, y: f32, u: f32) -> f32 {
 
 pub fn gbit(m: u32) -> String {
     if m % 1000 == 0 { format!("{} Gbit/s", m / 1000) } else { format!("{} Gbit/s", decimal(m as f64 / 1000.0, 1)) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{HostError, HostLive};
+
+    /// TRANS-39 : l'erreur de la dernière sonde, sous le nom, à la place de l'état (docs/link-ui.md, « Accueil »).
+    #[test]
+    fn erreur_sous_le_nom() {
+        crate::i18n::force_english(false);
+        let mut app = crate::preview::demo(false, crate::app::Layout::Desktop);
+        let h = app.store.hosts[0].clone();
+        app.live.insert(h.id.clone(), HostLive { online: Online::Offline, error: Some(HostError::PasswordRefused), ..Default::default() });
+        assert_eq!(status(&app, &h).0, "Mot de passe refusé : mettez-le à jour dans les réglages.");
+        app.live.get_mut(&h.id).unwrap().error = Some(HostError::Reinstalled);
+        assert_eq!(status(&app, &h).0, "La Station a été réinstallée : vérifiez son empreinte dans les réglages.");
+        app.live.get_mut(&h.id).unwrap().error = None;
+        assert_eq!(status(&app, &h).0, "Hors ligne");
+    }
 }

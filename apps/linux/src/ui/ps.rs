@@ -139,17 +139,6 @@ pub fn cards(app: &App, cv: &mut Canvas, f: &mut Frame, x: &mut f32, y: f32, cw:
 
 // MARK: - Onglet PlayStation
 
-fn spinner(app: &App, cv: &mut Canvas, cx: f32, cy: f32, r: f32, u: f32) {
-    let t = app.screen_since.elapsed().as_secs_f32();
-    let a0 = if app.reduce_motion { 0.0 } else { t * 4.0 };
-    let pts: Vec<(f32, f32)> = (0..=16)
-        .map(|i| {
-            let a = a0 + i as f32 * 0.28;
-            (cx + r * a.cos(), cy + r * a.sin())
-        })
-        .collect();
-    cv.polyline(&pts, 2.0 * u, SPECTRE);
-}
 
 /// L'onglet PlayStation et ses étapes.
 pub fn add(app: &App, cv: &mut Canvas, f: &mut Frame, step: &PsStep, x0: f32, y0: f32, u: f32, footer: f32) {
@@ -195,7 +184,7 @@ fn tab(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, foot
     eyebrow(cv, x0, y + 12.0 * u, 11.5 * u, FAINT, tr("Comptes PlayStation Network", "PlayStation Network accounts"));
     y += 24.0 * u;
     if app.store.ps_accounts.is_empty() {
-        cv.text_fit(x0, y + 16.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), tr("Aucun compte : ajoutez-en un pour associer une console.", "No account: add one to pair a console."), left_w);
+        cv.text_fit(x0, y + 16.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), tr("Aucun compte : ajoutez-en un pour associer une console.", "No account: add one to pair a console."), left_w);
         y += 30.0 * u;
     }
     for (i, a) in app.store.ps_accounts.iter().enumerate().take(4) {
@@ -220,7 +209,7 @@ fn tab(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, foot
     eyebrow(cv, x0, y + 12.0 * u, 11.5 * u, FAINT, tr("Consoles sur ce réseau", "Consoles on this network"));
     y += 24.0 * u;
     if app.ps.found.is_empty() {
-        spinner(app, cv, x0 + 9.0 * u, y + 12.0 * u, 8.0 * u, u);
+        super::widgets::spinner(app, cv, x0 + 9.0 * u, y + 12.0 * u, 8.0 * u, u);
         let msg = tr(
             "Aucune console trouvée. Allumez-la ou mettez-la en veille, ou saisissez son adresse dans « Par adresse ».",
             "No console found. Turn it on or put it in rest mode, or enter its address in “By address”.",
@@ -254,7 +243,7 @@ fn tab(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, foot
         }
         let tw = right - r.x - 50.0 * u;
         cv.text_fit(r.x + 36.0 * u, r.y + 30.0 * u, Text::new(Font::Semibold, 16.0 * u, FROST), &fd.name, tw);
-        let line = if paired.is_empty() { format!("{} · {}", fd.model, fd.state.label()) } else { format!("{} · {} {}", fd.model, tr("Associée :", "Paired:"), paired.join(", ")) };
+        let line = if paired.is_empty() { format!("{} · {}", fd.model, fd.state.label()) } else { format!("{} · {} {}", fd.model, tr("Associée :", "Paired:"), paired.join(", ")) };
         cv.text_fit(r.x + 36.0 * u, r.y + 51.0 * u, Text::new(Font::Mono, 11.5 * u, FAINT), &line, tw);
         y += rh + 8.0 * u;
     }
@@ -280,9 +269,9 @@ fn tab(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, foot
         eyebrow(cv, ix, yy, 11.5 * u, FAINT, tr("Envoyer à un appareil", "Send to a device"));
         yy += 18.0 * u;
         if app.ps.add.devices.is_empty() {
-            spinner(app, cv, ix + 9.0 * u, yy + 12.0 * u, 7.0 * u, u);
+            super::widgets::spinner(app, cv, ix + 9.0 * u, yy + 12.0 * u, 7.0 * u, u);
             let msg = tr(
-                "Aucun appareil en attente. Sur la télé ou l'autre appareil : Ajouter une console › Recevoir d'un autre appareil.",
+                "Aucun appareil en attente. Sur la télé ou l'autre appareil : Ajouter une console › Recevoir d'un autre appareil.",
                 "No device waiting. On the TV or the other device: Add a console › Receive from another device.",
             );
             yy += cv.paragraph(ix + 28.0 * u, yy + 17.0 * u, Text::new(Font::Regular, 14.0 * u, FAINT), msg, iw - 28.0 * u, 20.0 * u) + 24.0 * u;
@@ -315,7 +304,7 @@ fn tab(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, foot
 fn which(app: &App, cv: &mut Canvas, f: &mut Frame, console: &str, x0: f32, y0: f32, u: f32) {
     let w = (cv.w - 2.0 * x0).min(620.0 * u);
     let name = app.ps.found.iter().find(|c| c.host_id.eq_ignore_ascii_case(console)).map(|c| c.name.clone()).or_else(|| app.store.console(console).map(|c| c.name.clone())).unwrap_or_default();
-    title(cv, x0, y0, u, tr("Avec quel compte ?", "Which account?"), w);
+    title(cv, x0, y0, u, tr("Avec quel compte ?", "Which account?"), w);
     let mut y = y0 + 84.0 * u;
     cv.text_fit(x0, y + 4.0 * u, Text::new(Font::Mono, 13.0 * u, FAINT), &name, w);
     y += 24.0 * u;
@@ -406,7 +395,7 @@ fn go_row(app: &App, cv: &mut Canvas, f: &mut Frame, label: &str, enabled: bool,
     let bw = widgets::primary_state(cv, f, Target::PsGo, x0, y, bh, label, false, enabled && !app.ps.add.busy);
     let (mx, mid) = (x0 + bw + 24.0 * u, y + bh / 2.0);
     if app.ps.add.busy {
-        spinner(app, cv, mx + 9.0 * u, mid, 8.0 * u, u);
+        super::widgets::spinner(app, cv, mx + 9.0 * u, mid, 8.0 * u, u);
     } else if let Some(m) = &app.ps.add.message {
         cv.paragraph(mx, mid + 5.0 * u, Text::new(Font::Regular, 15.0 * u, WARN), m, (x0 + w - mx).max(220.0 * u), 22.0 * u);
     }
@@ -449,7 +438,7 @@ fn paste(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
     title(cv, x0, y0, u, tr("Se connecter à PlayStation Network", "Sign in to PlayStation Network"), w);
     let mut y = y0 + 90.0 * u;
     let lead = tr(
-        "La page de connexion de Sony s'est ouverte dans votre navigateur. Une fois connecté, Sony affiche une page presque vide : copiez son adresse (elle commence par https://remoteplay.dl.playstation.net) et collez-la ici.",
+        "La page de connexion de Sony s'est ouverte dans votre navigateur. Une fois connecté, Sony affiche une page presque vide : copiez son adresse (elle commence par https://remoteplay.dl.playstation.net) et collez-la ici.",
         "Sony's sign-in page opened in your browser. Once signed in, Sony shows an almost empty page: copy its address (it starts with https://remoteplay.dl.playstation.net) and paste it here.",
     );
     y += cv.paragraph(x0, y, Text::new(Font::Regular, 16.0 * u, MUTED), lead, w, 24.0 * u) + 12.0 * u;
@@ -483,10 +472,10 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame, console: &str, account: &str,
     title(cv, x0, y0, u, &format!("{} {name}", tr("Associer", "Pair")), cv.w - 2.0 * x0);
     let mut y = y0 + 86.0 * u;
     let pseudo = app.store.ps_account(account).map(|a| a.label()).unwrap_or_default();
-    cv.text_fit(x0, y + 4.0 * u, Text::new(Font::Mono, 13.0 * u, FAINT), &format!("{} {pseudo}", tr("Compte :", "Account:")), w);
+    cv.text_fit(x0, y + 4.0 * u, Text::new(Font::Mono, 13.0 * u, FAINT), &format!("{} {pseudo}", tr("Compte :", "Account:")), w);
     y += 26.0 * u;
     let lead = tr(
-        "Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché.",
+        "Sur la console : Réglages › Système › Lecture à distance › Associer un appareil. Saisissez le code affiché.",
         "On the console: Settings › System › Remote Play › Link Device. Enter the code shown.",
     );
     y += cv.paragraph(x0, y + 14.0 * u, Text::new(Font::Regular, 17.0 * u, FROST), lead, w, 25.0 * u) + 24.0 * u;
@@ -543,12 +532,12 @@ fn receive(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) 
             y += 130.0 * u;
         }
         None => {
-            spinner(app, cv, x0 + 12.0 * u, y + 30.0 * u, 10.0 * u, u);
+            super::widgets::spinner(app, cv, x0 + 12.0 * u, y + 30.0 * u, 10.0 * u, u);
             y += 70.0 * u;
         }
     }
     let lead = tr(
-        "Sur votre Mac, votre PC ou votre téléphone : Ajouter un ordinateur ou une console › PlayStation › Envoyer à un appareil, puis saisissez ce code.",
+        "Sur votre Mac, votre PC ou votre téléphone : Ajouter un ordinateur ou une console › PlayStation › Envoyer à un appareil, puis saisissez ce code.",
         "On your Mac, PC or phone: Add a computer or a console › PlayStation › Send to a device, then enter this code.",
     );
     cv.paragraph(x0, y, Text::new(Font::Regular, 18.0 * u, MUTED), lead, w, 26.0 * u);
@@ -628,11 +617,11 @@ pub fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     };
     let line1 = format!("{} × {} · {} {fps_unit} · {format} · {} Mbit/s {}", ps.width, ps.height, ps.max_fps, ps.target_kbps / 1000, tr("demandés", "requested"));
     let line1 = if ps.width == 0 { format!("— · {} Mbit/s {}", ps.target_kbps / 1000, tr("demandés", "requested")) } else { line1 };
-    let line2 = format!("{} {:.0} {fps_unit} · {} Mbit/s", tr("Reçu :", "Received:"), ps.fps, decimal(ps.mbps as f64, 1));
-    let line3 = if english() { format!("Pictures lost: {} · repaired: {}", ps.lost, ps.recovered) } else { format!("Images perdues : {} · réparées : {}", ps.lost, ps.recovered) };
+    let line2 = format!("{} {:.0} {fps_unit} · {} Mbit/s", tr("Reçu :", "Received:"), ps.fps, decimal(ps.mbps as f64, 1));
+    let line3 = if english() { format!("Pictures lost: {} · repaired: {}", ps.lost, ps.recovered) } else { format!("Images perdues : {} · réparées : {}", ps.lost, ps.recovered) };
     let mut lines = vec![line1, line2, line3];
     if ps.relayed {
-        lines.push(format!("{} {}", tr("Chemin :", "Path:"), tr("Par le relais", "Via the relay")));
+        lines.push(format!("{} {}", tr("Chemin :", "Path:"), tr("Par le relais", "Via the relay")));
     }
     let mono = Text::new(Font::Mono, 12.5 * u, FROST);
     let w = lines.iter().map(|l| cv.text_width(mono, l)).fold(0.0f32, f32::max) + 40.0 * u;
@@ -787,7 +776,7 @@ pub fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     widgets::dot(cv, x0 + 4.0 * u, sy - 4.0 * u, 3.5 * u, OK, false);
     let mut line = s.name.clone();
     if let Some(p) = app.pads.first() {
-        line.push_str(&format!(" · {} {}", tr("manette :", "controller:"), p.name));
+        line.push_str(&format!(" · {} {}", tr("manette :", "controller:"), p.name));
     }
     cv.text_fit(x0 + 16.0 * u, sy, Text::new(Font::Mono, 12.0 * u, FAINT), &line, w * 0.6);
     cv.text(w - x0, sy, Text::new(Font::Mono, 12.0 * u, FAINT).align(Align::Right), tr("Pendant ce menu, la console reçoit une manette au repos", "While this menu is open, the console gets an idle controller"));

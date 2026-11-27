@@ -75,7 +75,7 @@ impl HomeBanner {
                 if english() {
                     format!("KyberNow Station {v} is available. Away from home, the app can't update the Station: do it once you're back.")
                 } else {
-                    format!("KyberNow Station {v} est disponible. Hors de chez vous, l'app ne peut pas mettre à jour la Station : faites-le une fois rentré.")
+                    format!("KyberNow Station {v} est disponible. Hors de chez vous, l'app ne peut pas mettre à jour la Station : faites-le une fois rentré.")
                 }
             }
             HomeBanner::Failed(m) => m.clone(),
@@ -153,9 +153,9 @@ impl StationNotice {
         let v = &self.app_version;
         match (self.single(), english()) {
             (true, true) => format!("KyberNow Link is now {v}. Update the Station too: about a minute, a session in progress will be cut off."),
-            (true, false) => format!("KyberNow Link est passée en {v}. Mettez aussi la Station à jour : environ une minute, une session en cours sera coupée."),
+            (true, false) => format!("KyberNow Link est passée en {v}. Mettez aussi la Station à jour : environ une minute, une session en cours sera coupée."),
             (false, true) => format!("KyberNow Link is now {v}. Update your computers too: about a minute each, a session in progress will be cut off."),
-            (false, false) => format!("KyberNow Link est passée en {v}. Mettez aussi vos ordinateurs à jour : environ une minute chacun, une session en cours sera coupée."),
+            (false, false) => format!("KyberNow Link est passée en {v}. Mettez aussi vos ordinateurs à jour : environ une minute chacun, une session en cours sera coupée."),
         }
     }
 

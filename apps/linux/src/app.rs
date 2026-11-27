@@ -15,6 +15,11 @@ use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
 
+use kybernow_rules::address::{admin_url, host_for_url, parse_address, ADDRESS_EXAMPLE};
+use kybernow_rules::fingerprint;
+use kybernow_rules::format::{format_code, recording_clock};
+use kybernow_rules::limits::{clamp_manual_mbps, manual_mbps, Device, MAX_GUESTS, RELAY_LINK_WAIT_SECS};
+
 use crate::i18n::{english, tr};
 use crate::model::{Host, Profile, Store};
 
@@ -93,9 +98,29 @@ pub enum Online {
     Offline,
 }
 
+/// Une erreur dite sous le nom de l'ordinateur, à l'accueil (docs/link-ui.md, « Accueil »).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostError {
+    /// Admin refuse le compte de l'appareil (401).
+    PasswordRefused,
+    /// Le certificat d'Admin n'est plus celui de l'appairage : la Station a été réinstallée.
+    Reinstalled,
+}
+
+impl HostError {
+    pub fn text(self) -> &'static str {
+        match self {
+            HostError::PasswordRefused => tr("Mot de passe refusé : mettez-le à jour dans les réglages.", "Password refused: update it in the settings."),
+            HostError::Reinstalled => tr("La Station a été réinstallée : vérifiez son empreinte dans les réglages.", "The Station was reinstalled: check its fingerprint in the settings."),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct HostLive {
     pub online: Online,
+    /// L'erreur de la dernière sonde, dite sous le nom (mot de passe refusé, Station réinstallée).
+    pub error: Option<HostError>,
     /// La Station a un écran virtuel (`None` : pas encore su).
     pub virtual_display: Option<bool>,
     /// La Station, depuis sa dernière réponse (`None` : jamais répondu).
@@ -542,6 +567,18 @@ impl Machine {
         self.hw_h264 || self.hw_hevc || self.hw_av1
     }
 
+    /// Le décodeur matériel de chaque format que la session prend (H.264, HEVC, AV1) : VA-API, ou V4L2 sur le Pi
+    /// (H.264, HEVC ; pas d'AV1).
+    pub fn hw_decoders(&self) -> [bool; 3] {
+        let hw = self.vaapi || self.pi.is_some();
+        [self.hw_h264 && hw, self.hw_hevc && hw, self.hw_av1 && self.vaapi]
+    }
+
+    /// Le décodeur matériel à ouvrir (`kn_decoder_open`) : 1 VA-API, 2 V4L2 (Raspberry Pi sans VA-API).
+    pub fn hw_backend(&self) -> i32 {
+        if self.pi.is_some() && !self.vaapi { 2 } else { 1 }
+    }
+
     /// Le nom du décodeur matériel, pour les étiquettes : « carte graphique », « décodeur du Pi ».
     pub fn hw_name(&self) -> &'static str {
         if self.pi.is_some() { tr("décodeur du Pi", "Pi decoder") } else { tr("carte graphique", "graphics card") }
@@ -619,7 +656,16 @@ pub struct Stats {
     pub lost: u32,
     pub mode: String,
     pub decoder: String,
-    pub audio_ms: Option<f64>,
+    /// Son : le tampon et la sortie (ms), ligne « Son » des statistiques.
+    pub audio: Option<(f64, f64)>,
+    /// Les 30 dernières secondes des pertes : images perdues, paquets perdus, images clés demandées (« Pertes · 30 s »).
+    pub losses: Vec<(u32, u32, u32)>,
+    /// Depuis le début de la session : images et paquets perdus (« Session : 12 images, 40 paquets »).
+    pub session_lost: (u64, u64),
+    /// Aller-retour réseau (ms), ligne « Réseau ».
+    pub rtt_ms: Option<f64>,
+    /// Part des images montrées dont la latence est mesurée (%), ligne « Mesures ».
+    pub measured: Option<f64>,
     /// Latences des dernières secondes (courbe de la barre).
     pub history: Vec<f64>,
     /// Le trajet d'une image (docs/link-ui.md, « Statistiques ») : capture, encodage, envoi, réseau, décodage,
@@ -643,6 +689,14 @@ pub struct Stats {
 }
 
 impl Stats {
+    /// Les pertes d'une seconde (images, paquets, images clés) ajoutées aux 30 dernières.
+    pub fn push_losses(history: &mut Vec<(u32, u32, u32)>, second: (u32, u32, u32)) {
+        history.push(second);
+        if history.len() > 30 {
+            history.remove(0);
+        }
+    }
+
     /// La seconde `mbps` (et son débit visé) ajoutée à la courbe du débit, 30 secondes au plus.
     pub fn push_bitrate(history: &mut Vec<(f64, Option<f64>)>, mbps: f64, target: Option<f64>) {
         history.push((mbps, target));
@@ -714,32 +768,78 @@ pub enum MenuItem {
     Disconnect,
 }
 
-/// Raccourcis du menu Touches (scancodes de Windows, comme sur Android).
-pub const SHORTCUTS: [(&str, &str, &[u16]); 10] = [
-    ("Ctrl + Alt + Suppr", "Ctrl + Alt + Del", &[0x1D, 0x38, 0xE053]),
-    ("Alt + Tab", "Alt + Tab", &[0x38, 0x0F]),
-    ("Touche Windows", "Windows key", &[0xE05B]),
-    ("Windows + D : bureau", "Windows + D: desktop", &[0xE05B, 0x20]),
-    ("Alt + F4", "Alt + F4", &[0x38, 0x3E]),
-    ("Échap", "Esc", &[0x01]),
-    ("F11 : plein écran", "F11: full screen", &[0x57]),
-    ("Gestionnaire des tâches", "Task Manager", &[0x1D, 0x2A, 0x01]),
-    ("Impr. écran", "Print Screen", &[0xE037]),
-    ("Windows + L : verrouiller", "Windows + L: lock", &[0xE05B, 0x26]),
+/// Les choix du menu de la souris de la barre, comme le réglage « Souris » : la valeur gardée, le nom.
+pub const MOUSE_MODES: [(&str, (&str, &str)); 3] = [("auto", ("Auto", "Auto")), ("desktop", ("Souris du bureau", "Desktop mouse")), ("game", ("Souris des jeux", "Game mouse"))];
+
+/// L'infobulle de la souris de la barre (docs/link-ui.md).
+pub fn mouse_tooltip() -> String {
+    let k = shortcut_text('M');
+    if english() {
+        format!("Mouse: Auto switches to the game mouse when a game is full screen on the computer ({k} switches)")
+    } else {
+        format!("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur ({k} bascule)")
+    }
+}
+
+/// Une entrée du menu « Touches » : son nom, son indication (en petit dessous, ou après « : » dans un menu sans
+/// seconde ligne ; vide : aucune), en français et en anglais, et les touches envoyées (scancodes de Windows, comme
+/// sur Android).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shortcut {
+    pub name: (&'static str, &'static str),
+    pub hint: (&'static str, &'static str),
+    pub keys: &'static [u16],
+}
+
+impl Shortcut {
+    pub fn name(&self) -> &'static str {
+        tr(self.name.0, self.name.1)
+    }
+
+    pub fn hint(&self) -> &'static str {
+        tr(self.hint.0, self.hint.1)
+    }
+
+    /// Sur une ligne : « Alt + Tab : changer d'app ».
+    pub fn inline(&self) -> String {
+        match self.hint() {
+            "" => self.name().to_string(),
+            h => format!("{}{} {h}", self.name(), tr(" :", ":")),
+        }
+    }
+}
+
+const fn key(name: (&'static str, &'static str), hint: (&'static str, &'static str), keys: &'static [u16]) -> Shortcut {
+    Shortcut { name, hint, keys }
+}
+
+/// Le menu « Touches » (docs/link-ui.md, barre de session) : dix entrées, dans cet ordre, les quatre premières
+/// celles de toutes les apps. La police de l'app n'a pas le signe ⊞ : « Windows » à sa place.
+pub const SHORTCUTS: [Shortcut; 10] = [
+    key(("Ctrl + Alt + Suppr", "Ctrl + Alt + Del"), ("verrouiller, changer", "lock, switch user"), &[0x1D, 0x38, 0xE053]),
+    key(("Touche Windows seule", "Windows key alone"), ("menu Démarrer", "Start menu"), &[0xE05B]),
+    key(("Alt + Tab", "Alt + Tab"), ("changer d'app", "switch apps"), &[0x38, 0x0F]),
+    key(("Impr. écran", "Print Screen"), ("capture", "screenshot"), &[0xE037]),
+    key(("Windows + D", "Windows + D"), ("bureau", "desktop"), &[0xE05B, 0x20]),
+    key(("Windows + L", "Windows + L"), ("verrouiller", "lock"), &[0xE05B, 0x26]),
+    key(("Alt + F4", "Alt + F4"), ("fermer la fenêtre", "close the window"), &[0x38, 0x3E]),
+    key(("Échap", "Esc"), ("", ""), &[0x01]),
+    key(("Gestionnaire des tâches", "Task Manager"), ("Ctrl + Maj + Échap", "Ctrl + Shift + Esc"), &[0x1D, 0x2A, 0x01]),
+    key(("F11", "F11"), ("plein écran", "full screen"), &[0x57]),
 ];
 
 /// Le même menu face à une Station Mac (docs/link-ui.md, « Face à une Station Mac ») : la touche ⊞ y est ⌘.
 /// Ces touches partent telles quelles, sans l'échange de « Ctrl agit comme ⌘ ».
-pub const MAC_SHORTCUTS: [(&str, &str, &[u16]); 5] = [
-    ("⌘ ⇥ : changer d'app", "⌘ ⇥: switch app", &[0xE05B, 0x0F]),
-    ("⌘ Espace : Spotlight", "⌘ Space: Spotlight", &[0xE05B, 0x39]),
-    ("⌃ ⌘ Q : verrouiller", "⌃ ⌘ Q: lock", &[0x1D, 0xE05B, 0x10]),
-    ("⇧ ⌘ 5 : capture", "⇧ ⌘ 5: screenshot", &[0x2A, 0xE05B, 0x06]),
-    ("⌥ ⌘ Échap : forcer à quitter", "⌥ ⌘ Esc: force quit", &[0x38, 0xE05B, 0x01]),
+pub const MAC_SHORTCUTS: [Shortcut; 5] = [
+    key(("⌘ ⇥", "⌘ ⇥"), ("changer d'app", "switch app"), &[0xE05B, 0x0F]),
+    key(("⌘ Espace", "⌘ Space"), ("Spotlight", "Spotlight"), &[0xE05B, 0x39]),
+    key(("⌃ ⌘ Q", "⌃ ⌘ Q"), ("verrouiller", "lock"), &[0x1D, 0xE05B, 0x10]),
+    key(("⇧ ⌘ 5", "⇧ ⌘ 5"), ("capture", "screenshot"), &[0x2A, 0xE05B, 0x06]),
+    key(("⌥ ⌘ Échap", "⌥ ⌘ Esc"), ("forcer à quitter", "force quit"), &[0x38, 0xE05B, 0x01]),
 ];
 
 /// Les raccourcis du menu Touches : ceux d'un PC, ou ceux du Mac face à une Station Mac.
-pub fn shortcuts(mac: bool) -> &'static [(&'static str, &'static str, &'static [u16])] {
+pub fn shortcuts(mac: bool) -> &'static [Shortcut] {
     if mac { &MAC_SHORTCUTS } else { &SHORTCUTS }
 }
 
@@ -777,6 +877,23 @@ pub enum BarMenu {
     Lend,
     /// La caméra de l'appareil : l'allumer ou l'éteindre, puis les webcams (docs/webcam.md).
     Camera,
+    /// La souris : « Auto », « Souris du bureau », « Souris des jeux », le réglage de l'ordinateur coché.
+    Mouse,
+    /// « Plus » (barre étroite) : les commandes qui ne tiennent plus dans la barre.
+    More,
+}
+
+/// Ce que la caméra allumée attend au plus la réponse de l'ordinateur (docs/link-ui.md, « Caméra de l'appareil »).
+pub const CAMERA_ANSWER: Duration = Duration::from_secs(10);
+
+/// « Caméra… » sans réponse de l'ordinateur en 10 s : la caméra s'éteint (docs/link-ui.md).
+pub fn camera_no_answer_text() -> &'static str {
+    tr("L'ordinateur ne répond pas : la caméra est éteinte.", "The computer isn't answering: the camera is off.")
+}
+
+/// Le départ refusé par la session (elle ne prend pas la caméra) (docs/link-ui.md).
+pub fn camera_refused_text() -> &'static str {
+    tr("La caméra n'a pas pu démarrer sur l'ordinateur.", "The camera couldn't start on the computer.")
 }
 
 /// L'état de la caméra de l'appareil dans une session (docs/link-ui.md, « Caméra de l'appareil »).
@@ -1062,9 +1179,9 @@ pub struct ShareView {
 }
 
 /// Ce que l'app attend au plus le lien du relais d'un partage en préparation, à partir du moment où elle le voit
-/// (miroir de `kybernow_core::share::RELAY_LINK_WAIT`, que l'interface seule ne connaît pas) : ensuite, elle fait
-/// comme si le relais était injoignable (le lien du réseau, « Pas encore joignable hors de chez vous. »).
-pub const RELAY_LINK_WAIT: Duration = Duration::from_secs(10);
+/// (`RELAY_LINK_WAIT_SECS` de `kybernow_rules::limits`, celui du cœur) : ensuite, elle fait comme si le relais était
+/// injoignable (le lien du réseau, « Pas encore joignable hors de chez vous. »).
+pub const RELAY_LINK_WAIT: Duration = Duration::from_secs(RELAY_LINK_WAIT_SECS);
 
 /// L'état du relais d'un partage ouvert (`relay.state` d'Admin).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1114,12 +1231,12 @@ impl ShareView {
     pub fn help(&self) -> &'static str {
         if self.relay_joined() {
             tr(
-                "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité.",
+                "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité.",
                 "On the same network or elsewhere: “Join with a code” in KyberNow Link, or this link in a browser. Away from home, you accept each guest.",
             )
         } else {
             tr(
-                "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.",
+                "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.",
                 "On the same network: “Join with a code” in KyberNow Link, or this link in a browser.",
             )
         }
@@ -1194,9 +1311,6 @@ pub mod relay_wait {
     }
 }
 
-/// Les invités qu'un partage reçoit au plus.
-pub const MAX_GUESTS: usize = 4;
-
 /// « 2 invités », « 1 invité », « 0 invité » ; “2 guests”, “1 guest” : la pastille de la barre.
 pub fn guests_label(n: usize) -> String {
     if crate::i18n::english() {
@@ -1229,11 +1343,6 @@ pub fn share_tile(share: Option<&ShareView>) -> (String, bool) {
         Some(v) => (format_code(&v.code), true),
         None => (tr("Code et QR code", "Code and QR code").to_string(), false),
     }
-}
-
-/// « 123 456 » : le code d'un partage (six chiffres, groupés par trois), tel quel s'il n'en a pas six.
-pub fn format_code(code: &str) -> String {
-    if code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()) { format!("{} {}", &code[..3], &code[3..]) } else { code.to_string() }
 }
 
 /// « Invité sur Atelier », “Guest on Atelier” : le titre d'une session d'invité.
@@ -1386,7 +1495,7 @@ impl LendSlotUi {
         if self.now {
             format!("{} {end}", tr("Votre créneau, jusqu'à", "Your time slot, until"))
         } else {
-            format!("{} {}, {} – {end}", tr("Votre créneau :", "Your time slot:"), crate::app_time::weekday_label(self.start), crate::app_time::hour_label(self.start))
+            format!("{} {}, {} – {end}", tr("Votre créneau :", "Your time slot:"), crate::app_time::weekday_label(self.start), crate::app_time::hour_label(self.start))
         }
     }
 }
@@ -1429,7 +1538,7 @@ impl Default for BorrowUi {
 /// « Retirer l'ordinateur de {hôte} de cet appareil ? » (élidé : « d'Hugo »), “Remove {host}'s computer from this device?” :
 /// la confirmation de « Retirer cet ordinateur ».
 pub fn remove_borrowed_question(host: &str) -> String {
-    if crate::i18n::english() { format!("Remove {host}'s computer from this device?") } else { format!("Retirer l'ordinateur {} de cet appareil ?", crate::i18n::de(host)) }
+    if crate::i18n::english() { format!("Remove {host}'s computer from this device?") } else { format!("Retirer l'ordinateur {} de cet appareil ?", crate::i18n::de(host)) }
 }
 
 /// « En attente de {hôte}… », “Waiting for {host}…”.
@@ -1575,7 +1684,7 @@ impl LendRequestUi {
     /// « Créneau de Léa : l'ordinateur lui est prêté dans 2 min. »
     pub fn line(&self) -> String {
         if self.slot {
-            return if crate::i18n::english() { format!("{}'s time slot: the computer is lent to them in 2 min.", self.name) } else { format!("Créneau {} : l'ordinateur lui est prêté dans 2 min.", crate::i18n::de(&self.name)) };
+            return if crate::i18n::english() { format!("{}'s time slot: the computer is lent to them in 2 min.", self.name) } else { format!("Créneau {} : l'ordinateur lui est prêté dans 2 min.", crate::i18n::de(&self.name)) };
         }
         format!("{} {}", self.name, tr("veut emprunter l'ordinateur.", "wants to borrow the computer."))
     }
@@ -1625,9 +1734,14 @@ impl LendCodeUi {
 
 // MARK: - Enregistrement de la session (docs/enregistrement.md ; textes : docs/link-ui.md, « Enregistrement de la session »)
 
+/// Un raccourci de l'app (Ctrl+Alt+Maj + lettre, docs/link-ui.md), tel qu'il s'écrit dans les infobulles.
+pub fn shortcut_text(letter: char) -> String {
+    format!("{}{letter}", tr("Ctrl+Alt+Maj+", "Ctrl+Alt+Shift+"))
+}
+
 /// Le raccourci de l'enregistrement, tel qu'il s'écrit dans les infobulles.
-pub fn recording_shortcut() -> &'static str {
-    tr("Ctrl+Alt+Maj+R", "Ctrl+Alt+Shift+R")
+pub fn recording_shortcut() -> String {
+    shortcut_text('R')
 }
 
 /// Les textes de l'enregistrement, donnés par le cœur (`RecordingState::ui_json`) dans la langue de l'app :
@@ -1713,12 +1827,6 @@ impl RecordingUi {
     }
 }
 
-/// « 02:14 », « 59:59 », « 1:02:14 ».
-pub fn recording_clock(seconds: u64) -> String {
-    let (h, m, s) = (seconds / 3600, (seconds / 60) % 60, seconds % 60);
-    if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m:02}:{s:02}") }
-}
-
 /// La vue du prêt chez l'hôte (`LendView` du cœur) : ce qui est prêté, à qui, le préavis, les demandes, le code.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct LendHostView {
@@ -1774,7 +1882,7 @@ impl LendHostView {
         (kind == LendNoticeKind::SlotStart).then(|| {
             let slot = self.requests.iter().find(|r| r.slot).or(self.requests.first());
             let name = slot.map(|r| r.name.as_str()).or(self.borrower.as_ref().map(|(n, _)| n.as_str())).unwrap_or_default();
-            if crate::i18n::english() { format!("{name}'s time slot: the computer is lent to them in 2 min.") } else { format!("Créneau {} : l'ordinateur lui est prêté dans 2 min.", crate::i18n::de(name)) }
+            if crate::i18n::english() { format!("{name}'s time slot: the computer is lent to them in 2 min.") } else { format!("Créneau {} : l'ordinateur lui est prêté dans 2 min.", crate::i18n::de(name)) }
         })
     }
 }
@@ -2187,7 +2295,7 @@ pub struct SessionUi {
     pub recording_busy: bool,
     /// « Micro » (docs/micro.md) : `None` sans micro sur l'appareil (ni puce, ni tuile) et pour une partie sur une
     /// console ; sinon le choix retenu pour cet ordinateur et l'état dit par le cœur.
-    pub mic: Option<crate::micro::MicUi>,
+    pub mic: Option<crate::micro::MicView>,
 }
 
 impl SessionUi {
@@ -2531,10 +2639,15 @@ pub enum Setting {
     UpdateChannel,
     CheckUpdate,
     KeepImage,
+    /// « Envoyer le journal » (Réglages de l'app › À propos, docs/link-ui.md).
+    SendLog,
     /// KyberNow Link OS (réglages de l'appareil).
     OsUsage,
     OsWifi,
     OsBtPair,
+    /// Link OS › Langue : « Pays », « Fuseau horaire » (docs/link-ui.md, « KyberNow Link OS : langue, pays et fuseau »).
+    OsCountry,
+    OsTimezone,
     OsHdmi,
     OsCec,
     OsAutoUpdate,
@@ -2658,11 +2771,29 @@ pub enum OsAction {
     Cec(bool),
     /// Mode HDMI pour le prochain démarrage.
     Hdmi(String),
+    /// Le pays, le fuseau et le clavier (`country::request`) : le Wi-Fi, l'heure et le clavier le suivent.
+    Locale(String),
 }
 
-/// Débits proposés (Mbit/s, 0 : celui du profil) : jusqu'à 500, quand
-/// l'ordinateur, le réseau et le décodeur le tiennent.
-pub const BITRATES: [u32; 14] = [0, 10, 20, 30, 40, 50, 60, 80, 100, 150, 200, 300, 400, 500];
+/// Les crans du menu « Débit » (Mbit/s), gardés entre les bornes du débit réglé à la main.
+const BITRATE_STEPS: [u32; 18] = [10, 20, 30, 40, 50, 60, 80, 100, 150, 200, 300, 400, 500, 800, 1000, 1500, 2000, 2500];
+
+/// Débits proposés (Mbit/s, 0 : celui du profil, « Auto ») : les crans entre les bornes du débit réglé à la main de
+/// `kybernow_rules::limits::manual_mbps` (docs/link-ui.md, « Libellés des réglages ») : 500 au plus en HEVC, AV1 et
+/// H.264, 2 500 en PyroWave.
+pub fn bitrates(pyrowave: bool) -> Vec<u32> {
+    let (lo, hi) = manual_mbps(Device::Computer, pyrowave);
+    std::iter::once(0).chain(BITRATE_STEPS.into_iter().filter(|b| (lo..=hi).contains(b))).collect()
+}
+
+/// Un débit (Mbit/s, 0 : Auto) ramené aux bornes de ce format, puis au cran le plus proche du menu.
+pub fn snap_mbps(m: u32, pyrowave: bool) -> u32 {
+    if m == 0 {
+        return 0;
+    }
+    let m = clamp_manual_mbps(m, Device::Computer, pyrowave);
+    bitrates(pyrowave).into_iter().filter(|b| *b > 0).min_by_key(|b| b.abs_diff(m)).unwrap_or(m)
+}
 
 /// Les rubriques des réglages d'un ordinateur (docs/link-ui.md) : le profil en
 /// tête, puis les six rubriques communes à toutes les apps Link.
@@ -2811,11 +2942,15 @@ pub struct SetupState {
     pub lang: usize,
     /// 0 : salon, 1 : bureau.
     pub usage: usize,
+    /// Le pays et le fuseau de l'écran Langue ; le pays suit la langue tant qu'on ne l'a pas choisi.
+    pub country: &'static crate::country::Country,
+    pub zone: &'static str,
+    pub country_chosen: bool,
 }
 
 impl Default for SetupState {
     fn default() -> Self {
-        Self { active: false, step: SetupStep::Controller, bt: Vec::new(), bt_listening: false, wifi: Vec::new(), wifi_scanning: false, wifi_pick: None, password: String::new(), shift: false, net_message: None, net_busy: false, lang: 1, usage: 0 }
+        Self { active: false, step: SetupStep::Controller, bt: Vec::new(), bt_listening: false, wifi: Vec::new(), wifi_scanning: false, wifi_pick: None, password: String::new(), shift: false, net_message: None, net_busy: false, lang: 1, usage: 0, country: crate::country::for_language("fr"), zone: crate::country::for_language("fr").zones[0], country_chosen: false }
     }
 }
 
@@ -2912,12 +3047,21 @@ pub enum Target {
     BarKeys,
     BarShortcut(usize),
     BarMouse,
+    /// Le menu de la souris : « Auto », « Souris du bureau », « Souris des jeux » (`MOUSE_MODES`).
+    BarMousePick(usize),
+    /// Le bouton du panneau « Envoyer le journal » (QR code).
+    JournalButton,
+    /// La pastille « Presse-papiers » (sans action) ; « Plus » (barre étroite).
+    BarClipboard,
+    BarMore,
     /// La caméra : le bouton de la barre (son menu), « Allumer / Éteindre la caméra », une webcam de la liste.
     BarCamera,
     BarCameraToggle,
     BarCameraPick(usize),
     /// Les mesures de la barre (latence, courbe, image) : un clic ouvre ou ferme « Statistiques ».
     BarStats,
+    /// La croix du panneau « Statistiques » : « Fermer les statistiques ».
+    StatsClose,
     BarFullscreen,
     BarQuit,
     /// Plusieurs ordinateurs : le menu « Ordinateurs » de la barre, l'un des ordinateurs
@@ -3010,6 +3154,9 @@ pub enum Target {
     SetupSkip,
     SetupLang(usize),
     SetupUsage(usize),
+    /// L'écran Langue de Link OS : « Pays » et « Fuseau horaire » (‹ › pour changer).
+    SetupCountry,
+    SetupZone,
     SetupWifi(usize),
     SetupRescan,
     KeyShift,
@@ -3190,6 +3337,8 @@ pub enum Action {
     Light(SessionId, bool),
     /// Souris des jeux ou du bureau (barre, Ctrl+Alt+Maj+M).
     ToggleMouse(SessionId),
+    /// La souris choisie dans la barre (`auto`, `desktop`, `game`), tout de suite.
+    SetMouse(SessionId, String),
     /// Plein écran de la fenêtre d'une session ; `None` : la fenêtre de l'app, hors session.
     ToggleFullscreen(Option<SessionId>),
     /// Clavier de Steam (`steam://open/keyboard`), ou saisie de texte de SDL ; la session
@@ -3201,6 +3350,10 @@ pub enum Action {
     Language,
     Interface,
     CheckUpdate,
+    /// « Envoyer le journal » : au bureau, l'e-mail (sinon l'enregistrement) ; ailleurs, le dépôt et son QR code.
+    SendLog,
+    /// Le panneau du journal fermé (« Terminé ») : le dépôt pas encore ouvert est retiré.
+    JournalClose,
     OpenUrl(String),
     Minimize,
     Maximize,
@@ -3333,6 +3486,10 @@ pub struct App {
     /// focus à rendre à sa fermeture, et l'ordinateur dont le test s'ouvrira après la session (« Refaire le test »
     /// du bandeau, Auto choisi en session sans test gardé).
     pub autotest: Option<crate::autotest::Panel>,
+    /// « Envoyer le journal » par QR code : le panneau et son étape ; au bureau, la préparation en cours (le bouton dit
+    /// « Préparation du journal… »).
+    pub journal: Option<crate::journal::JournalStep>,
+    pub journal_preparing: bool,
     pub autotest_attempt: u32,
     pub autotest_back: Option<Target>,
     pub autotest_pending: Option<String>,
@@ -3571,6 +3728,8 @@ impl App {
             standby: false,
             confirm: None,
             autotest: None,
+            journal: None,
+            journal_preparing: false,
             autotest_attempt: 0,
             autotest_back: None,
             autotest_pending: None,
@@ -3698,8 +3857,7 @@ impl App {
     /// Les Stations trouvées qui ne sont pas déjà ajoutées.
     pub fn new_found(&self) -> Vec<&Found> {
         // Un ordinateur d'un compte annoncé sur le réseau est déjà là : même empreinte d'Admin.
-        let norm = |s: &str| s.trim().to_ascii_lowercase();
-        let of_account = |f: &Found| f.fingerprint.as_deref().is_some_and(|fp| self.store.account_hosts.iter().filter_map(|a| self.store.host(&a.id)).any(|h| h.fingerprint.as_deref().is_some_and(|hf| norm(hf) == norm(fp))));
+        let of_account = |f: &Found| self.store.account_hosts.iter().filter_map(|a| self.store.host(&a.id)).any(|h| fingerprint::same_opt(h.fingerprint.as_deref(), f.fingerprint.as_deref()));
         self.found.iter().filter(|f| !self.store.hosts.iter().any(|h| h.address == f.address && h.port == f.port) && !of_account(f)).collect()
     }
 
@@ -4085,6 +4243,8 @@ impl App {
             SetupStep::Language => {
                 self.store.app.language = if self.setup.lang == 0 { "en".into() } else { "fr".into() };
                 acts.push(Action::Language);
+                // Le pays : le Wi-Fi, l'heure et le clavier le suivent.
+                acts.extend(self.set_country(self.setup.country.code, self.setup.zone));
                 acts.push(Action::Save);
                 self.setup.step = SetupStep::Network;
                 if self.net.kind != NetKind::Ethernet {
@@ -4258,6 +4418,20 @@ impl App {
                 }
                 _ => {}
             }
+        }
+        // L'écran Langue de Link OS : ‹ › changent le pays et le fuseau.
+        if self.screen == Screen::Setup && matches!(self.focus, Target::SetupCountry | Target::SetupZone) && matches!(n, Nav::Left | Nav::Right) {
+            let dir = if n == Nav::Left { -1 } else { 1 };
+            return if self.focus == Target::SetupCountry { self.setup_country(dir) } else { self.setup_zone(dir) };
+        }
+        // Le panneau du journal : son bouton, B le ferme.
+        if self.journal.is_some() {
+            match n {
+                Nav::Back => return self.close_journal(),
+                Nav::Ok => return self.activate(Target::JournalButton),
+                _ => self.focus = Target::JournalButton,
+            }
+            return Vec::new();
         }
         // Le panneau du test du profil Auto : ses boutons, B l'annule (le test s'arrête).
         if self.autotest.is_some() {
@@ -5078,9 +5252,11 @@ impl App {
             }
             // Une carte (langue, usage) : la choisir, c'est continuer (A « Choisir »).
             Target::SetupLang(i) => {
-                self.setup.lang = i;
+                self.setup_lang(i);
                 self.setup_next()
             }
+            Target::SetupCountry => self.setup_country(1),
+            Target::SetupZone => self.setup_zone(1),
             Target::SetupUsage(i) => {
                 self.setup.usage = i;
                 self.setup_next()
@@ -5118,7 +5294,7 @@ impl App {
             }
             Target::KeyOk => {
                 let a = self.add.address.trim().to_string();
-                match parse_address(&a) {
+                match parse_address(&a, None) {
                     Some((address, port)) => {
                         self.add.busy = true;
                         self.add.message = Some(tr("Connexion à Admin…", "Reaching Admin…").into());
@@ -5131,7 +5307,7 @@ impl App {
                         vec![Action::Probe { address: a, port: 0 }]
                     }
                     None => {
-                        self.add.message = Some(tr("Adresse et port d'Admin, par exemple 192.168.1.20:24811", "Admin address and port, for example 192.168.1.20:24811").into());
+                        self.add.message = Some(format!("{} {ADDRESS_EXAMPLE}", tr("Adresse et port d'Admin, par exemple", "Admin address and port, for example")));
                         Vec::new()
                     }
                 }
@@ -5199,7 +5375,7 @@ impl App {
             Target::Menu(item) => self.menu(item),
             Target::Shortcut(i) | Target::BarShortcut(i) => {
                 let mac = self.session().is_some_and(|s| self.session_mac(s));
-                let Some(keys) = shortcuts(mac).get(i).map(|k| k.2.to_vec()) else { return Vec::new() };
+                let Some(keys) = shortcuts(mac).get(i).map(|k| k.keys.to_vec()) else { return Vec::new() };
                 let Some(s) = self.session_mut() else { return Vec::new() };
                 s.keys = false;
                 s.menu = false;
@@ -5241,7 +5417,18 @@ impl App {
                 self.remember_profile(p);
                 vec![Action::SetProfile(id, p), Action::Save]
             }
-            Target::BarMouse => self.active_id().map(|id| vec![Action::ToggleMouse(id)]).unwrap_or_default(),
+            // Une partie sur une console : « Prendre la souris » (une bascule) ; une session d'ordinateur : le menu.
+            Target::BarMouse if self.session().is_some_and(|s| s.console.is_some()) => self.active_id().map(|id| vec![Action::ToggleMouse(id)]).unwrap_or_default(),
+            Target::BarMouse => self.toggle_bar_menu(BarMenu::Mouse),
+            Target::BarMousePick(i) => self.pick_mouse(i),
+            // Le bouton du panneau du journal : « Nouveau QR code », « Réessayer » relancent ; « Terminé » ferme.
+            Target::JournalButton => match &self.journal {
+                Some(step) if step.retries() => self.send_log(),
+                Some(_) => self.close_journal(),
+                None => Vec::new(),
+            },
+            Target::BarMore => self.toggle_bar_menu(BarMenu::More),
+            Target::BarClipboard => Vec::new(),
             Target::BarCamera => self.toggle_bar_menu(BarMenu::Camera),
             Target::BarCameraToggle => {
                 let Some(s) = self.session_mut() else { return Vec::new() };
@@ -5259,7 +5446,7 @@ impl App {
                 }
                 v
             }
-            Target::BarStats => {
+            Target::BarStats | Target::StatsClose => {
                 if let Some(s) = self.session_mut() {
                     s.toggle_stats();
                 }
@@ -5302,6 +5489,111 @@ impl App {
         if let Some(id) = self.session().map(|s| s.host.clone()) {
             self.set_profile(&id, p);
         }
+    }
+
+    /// « Envoyer le journal » : par QR code (Steam Deck en mode Jeu, salon, KyberNow Link OS), le panneau s'ouvre sur
+    /// « Préparation du journal… » ; au bureau, le bouton le dit le temps de préparer l'e-mail.
+    pub fn send_log(&mut self) -> Vec<Action> {
+        if self.journal_by_qr() {
+            self.journal = Some(crate::journal::JournalStep::Preparing);
+            self.focus = Target::JournalButton;
+        } else if self.journal_preparing {
+            return Vec::new();
+        } else {
+            self.journal_preparing = true;
+        }
+        vec![Action::SendLog]
+    }
+
+    /// Le journal passe par un QR code : pas de fenêtre d'e-mail à ouvrir (Steam Deck en mode Jeu, salon, KyberNow
+    /// Link OS).
+    pub fn journal_by_qr(&self) -> bool {
+        self.layout.console() || self.is_os()
+    }
+
+    /// La ligne « Envoyer le journal » (À propos) : le bouton et son aide ; au bureau, pendant la préparation, « Préparation
+    /// du journal… » à sa place.
+    pub fn journal_row(&self) -> Row {
+        let qr = self.journal_by_qr();
+        let kind = if self.journal_preparing { RowKind::Info(crate::journal::preparing().into()) } else { RowKind::Button { text: crate::journal::title().into(), style: ButtonStyle::Ghost } };
+        Row { setting: Setting::SendLog, label: crate::journal::title().into(), hint: crate::journal::help(qr).into(), kind, enabled: true, tag: None }
+    }
+
+    /// « Terminé » : le panneau se ferme, le dépôt pas encore ouvert est retiré (le pilote).
+    fn close_journal(&mut self) -> Vec<Action> {
+        self.journal = None;
+        self.focus = Target::Setting(Setting::SendLog);
+        vec![Action::JournalClose]
+    }
+
+    /// L'écran Langue de Link OS : la langue choisie propose son pays, tant qu'on n'en a pas choisi un.
+    fn setup_lang(&mut self, i: usize) {
+        self.setup.lang = i;
+        if !self.setup.country_chosen {
+            let c = crate::country::for_language(if i == 0 { "en" } else { "fr" });
+            self.setup.country = c;
+            self.setup.zone = c.zones[0];
+        }
+    }
+
+    /// « Pays » de l'écran Langue : le suivant (`dir` 1) ou le précédent (-1) ; son premier fuseau.
+    fn setup_country(&mut self, dir: i32) -> Vec<Action> {
+        let all = crate::country::COUNTRIES;
+        let i = all.iter().position(|c| c.code == self.setup.country.code).unwrap_or(0);
+        let c = &all[cycle(i, all.len(), dir)];
+        self.setup.country = c;
+        self.setup.zone = c.zones[0];
+        self.setup.country_chosen = true;
+        Vec::new()
+    }
+
+    /// « Fuseau horaire » de l'écran Langue (pays à plusieurs fuseaux).
+    fn setup_zone(&mut self, dir: i32) -> Vec<Action> {
+        let zones = self.setup.country.zones;
+        let i = zones.iter().position(|z| *z == self.setup.zone).unwrap_or(0);
+        self.setup.zone = zones[cycle(i, zones.len(), dir)];
+        Vec::new()
+    }
+
+    /// Le pays de l'appareil (Link OS) : celui choisi, sinon celui de la langue.
+    pub fn os_country(&self) -> &'static crate::country::Country {
+        crate::country::by_code(&self.store.app.os_country).unwrap_or_else(|| crate::country::for_language(if english() { "en" } else { "fr" }))
+    }
+
+    /// Le pays et le fuseau de l'appareil (Link OS) : gardés, et donnés au système (`kybernow-os-ctl locale`).
+    fn set_country(&mut self, code: &str, zone: &str) -> Vec<Action> {
+        let Some(c) = crate::country::by_code(code) else { return Vec::new() };
+        let zone = crate::country::zone(c, zone);
+        self.store.app.os_country = c.code.into();
+        self.store.app.os_timezone = zone.into();
+        vec![Action::Os(OsAction::Locale(crate::country::request(c, zone))), Action::Save]
+    }
+
+    /// Le menu de la souris de la barre : le choix s'applique tout de suite et reste pour cet ordinateur, comme le
+    /// réglage « Souris » de la rubrique Commandes (docs/link-ui.md, barre de session).
+    fn pick_mouse(&mut self, i: usize) -> Vec<Action> {
+        let Some(mode) = MOUSE_MODES.get(i).map(|m| m.0) else { return Vec::new() };
+        let Some(s) = self.session_mut() else { return Vec::new() };
+        s.bar_menu = None;
+        let (id, host) = (s.id, s.host.clone());
+        let mut actions = vec![Action::SetMouse(id, mode.to_string())];
+        if let Some(h) = self.store.host_mut(&host) {
+            h.settings.mouse = mode.to_string();
+            actions.push(Action::Save);
+        }
+        actions
+    }
+
+    /// Le réglage de la souris de l'ordinateur d'une session (`auto`, `desktop`, `game`) ; « Auto » sans réglage
+    /// (invité, emprunt).
+    pub fn mouse_setting(&self, s: &SessionUi) -> &str {
+        self.store.host(&s.host).map_or("auto", |h| h.settings.mouse.as_str())
+    }
+
+    /// Le presse-papiers est partagé avec l'ordinateur de cette session (le réglage de l'ordinateur ; jamais pour un
+    /// invité ni un emprunt).
+    pub fn clipboard_shared(&self, s: &SessionUi) -> bool {
+        s.guest.is_none() && s.borrow.is_none() && self.store.host(&s.host).is_some_and(|h| h.settings.clipboard)
     }
 
     /// Ouvre un menu déroulant de la barre, ou le ferme s'il est déjà ouvert.
@@ -5765,6 +6057,19 @@ impl App {
             s.bar_menu = None;
         }
         actions
+    }
+
+    /// La caméra allumée attend encore la réponse de l'ordinateur (« Caméra… ») depuis plus de `CAMERA_ANSWER` : elle
+    /// s'éteint, avec l'avis de link-ui. Rend vrai si c'est le cas (le pilote l'arrête).
+    pub fn camera_unanswered(&mut self, id: SessionId, since: Instant) -> bool {
+        let Some(s) = self.session_by_mut(id) else { return false };
+        if s.camera != CameraState::Starting || since.elapsed() < CAMERA_ANSWER {
+            return false;
+        }
+        s.camera = CameraState::Off;
+        s.camera_line = None;
+        s.notice = Some((camera_no_answer_text().into(), Instant::now()));
+        true
     }
 
     /// L'état de la caméra (réponse de l'ordinateur), sa ligne des statistiques, et l'avis d'un refus ou d'un
@@ -6677,20 +6982,19 @@ impl App {
                 choice(
                     Setting::Interface,
                     tr("Interface", "Interface"),
-                    tr("Auto : console en mode Jeu de SteamOS, bureau ailleurs.", "Auto: console in SteamOS Gaming Mode, desktop elsewhere.").into(),
+                    tr("Auto : console en mode Jeu de SteamOS, bureau ailleurs.", "Auto: console in SteamOS Gaming Mode, desktop elsewhere.").into(),
                     vec!["Auto".into(), tr("Bureau", "Desktop").into(), tr("Portable", "Handheld").into(), tr("Salon", "Living room").into()],
                     iface,
                     vec![false; 4],
                 ),
-                choice(Setting::Language, tr("Langue", "Language"), tr("Auto : celle du système.", "Auto: the system's.").into(), vec!["Auto".into(), "Français".into(), "English".into()], lang, vec![false; 3]),
-                toggle(Setting::KeepImage, tr("Garder la dernière image", "Keep the last image"), tr("L'accueil montre la dernière image de chaque session, pour tous les ordinateurs.", "The home screen shows the last image of each session, for every computer.").into(), self.store.app.keep_last_image),
+                choice(Setting::Language, tr("Langue", "Language"), tr("Auto : celle du système.", "Auto: the system's.").into(), vec!["Auto".into(), "Français".into(), "English".into()], lang, vec![false; 3]),
                 choice(
                     Setting::UpdateChannel,
                     tr("Versions proposées", "Offered versions"),
                     if flatpak() {
-                        tr("Le Flatpak ne se met pas à jour seul : l'app prévient quand une version est publiée.", "The Flatpak does not update itself: the app tells you when a version is published.").into()
+                        tr("Le Flatpak ne se met pas à jour seul : l'app prévient quand une version est publiée.", "The Flatpak does not update itself: the app tells you when a version is published.").into()
                     } else {
-                        tr("Le paquet .deb ne se met pas à jour seul : l'app prévient quand une version est publiée.", "The .deb package does not update itself: the app tells you when a version is published.").into()
+                        tr("Le paquet .deb ne se met pas à jour seul : l'app prévient quand une version est publiée.", "The .deb package does not update itself: the app tells you when a version is published.").into()
                     },
                     vec![tr("Stables", "Stable").into(), tr("Aussi les bêtas", "Betas too").into()],
                     self.store.app.beta as usize,
@@ -6698,11 +7002,13 @@ impl App {
                 ),
                 Row { setting: Setting::CheckUpdate, label: format!("KyberNow Link {}", self.version), hint: update, kind: RowKind::Action(tr("Chercher", "Check").into()), enabled: true, tag: None },
             ];
-            // « Micro » et « Réduire l'écho et le bruit », après « Garder la dernière image » (l'app n'a pas de « Son »).
-            let at = rows.iter().position(|r| r.setting == Setting::KeepImage).map_or(rows.len(), |i| i + 1);
+            // « Micro » et « Réduire l'écho et le bruit », après l'interface (l'app n'a pas de « Son »).
+            let at = rows.iter().position(|r| r.setting == Setting::Interface).map_or(rows.len(), |i| i + 1);
             for (k, r) in self.mic_app_rows().into_iter().enumerate() {
                 rows.insert(at + k, r);
             }
+            // À propos, en dernier : « Envoyer le journal ».
+            rows.push(self.journal_row());
             return rows;
         }
         if section == Section::Accounts {
@@ -6711,7 +7017,7 @@ impl App {
         if section == Section::Gamepads {
             let n = self.pads.len();
             let hint = if n == 0 {
-                tr("Aucune manette : branchez-la, ou associez-la en Bluetooth.", "No controller: plug it in, or pair it over Bluetooth.").to_string()
+                tr("Aucune manette : branchez-la, ou associez-la en Bluetooth.", "No controller: plug it in, or pair it over Bluetooth.").to_string()
             } else {
                 self.pads.iter().map(|p| format!("{}{} {}", tr("J", "P"), p.slot + 1, p.name)).collect::<Vec<_>>().join(" · ")
             };
@@ -6771,12 +7077,13 @@ impl App {
                 }
                 let display = ["auto", "vsync", "immediate", "vrr"];
                 let vrr_hint = match (pi, m.vrr) {
-                    (Some(_), _) => tr("La sortie HDMI du Pi n'a pas de fréquence variable. Immédiat : chaque image dès qu'elle est décodée.", "The Pi's HDMI output has no variable refresh. Immediate: each frame as soon as it is decoded."),
-                    (None, Some(true)) => tr("Fréquence variable : l'écran suit le rythme des images. Immédiat : l'image peut se déchirer.", "Variable refresh: the screen follows the pace of the frames. Immediate: the picture may tear."),
-                    (None, Some(false)) => tr("Cet écran n'annonce pas la fréquence variable. Immédiat : chaque image dès qu'elle est décodée.", "This screen does not announce variable refresh. Immediate: each frame as soon as it is decoded."),
-                    (None, None) => tr("Fréquence variable : quand l'écran et le système la permettent.", "Variable refresh: when the screen and the system allow it."),
+                    (Some(_), _) => tr("La sortie HDMI du Pi n'a pas de fréquence variable. Immédiat : chaque image dès qu'elle est décodée.", "The Pi's HDMI output has no variable refresh. Immediate: each frame as soon as it is decoded."),
+                    (None, Some(true)) => tr("Fréquence variable : l'écran suit le rythme des images. Immédiat : l'image peut se déchirer.", "Variable refresh: the screen follows the pace of the frames. Immediate: the picture may tear."),
+                    (None, Some(false)) => tr("Cet écran n'annonce pas la fréquence variable. Immédiat : chaque image dès qu'elle est décodée.", "This screen does not announce variable refresh. Immediate: each frame as soon as it is decoded."),
+                    (None, None) => tr("Fréquence variable : quand l'écran et le système la permettent.", "Variable refresh: when the screen and the system allow it."),
                 };
-                let br_labels: Vec<String> = BITRATES.iter().map(|b| if *b == 0 { "Auto".into() } else { format!("{b} Mbit/s") }).collect();
+                let rates = bitrates(st.codec == "pyrowave");
+                let br_labels: Vec<String> = rates.iter().map(|b| if *b == 0 { "Auto".into() } else { format!("{b} Mbit/s") }).collect();
                 let (res_hint, fps_hint, codec_hint) = picture_hints(m);
                 let (codec_hint, codec_warn) = self.pyrowave_codec_hint(h, codec_hint, pw_shown);
                 let res_row = choice(Setting::Resolution, tr("Définition", "Resolution"), res_hint, res_labels, res.iter().position(|v| *v == st.resolution).unwrap_or(0), res_off);
@@ -6800,7 +7107,7 @@ impl App {
                         Setting::VirtualDisplay,
                         tr("Écran virtuel", "Virtual display"),
                         tr(
-                            "L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin.",
+                            "L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin.",
                             "The computer creates a display sized for this device during the session; its own displays switch off, then come back at the end.",
                         )
                         .into(),
@@ -6820,7 +7127,7 @@ impl App {
                             tag: if hevc { who(m.hw_hevc444) } else { None },
                         }
                     },
-                    choice(Setting::Bitrate, tr("Débit", "Bitrate"), tr("Auto : il suit la définition, la fréquence et le profil.", "Auto: it follows the resolution, the refresh rate and the profile.").into(), br_labels, BITRATES.iter().position(|v| *v == st.mbps).unwrap_or(0), vec![false; BITRATES.len()]),
+                    choice(Setting::Bitrate, tr("Débit", "Bitrate"), tr("Auto : il suit la définition, la fréquence et le profil.", "Auto: it follows the resolution, the refresh rate and the profile.").into(), br_labels, rates.iter().position(|v| *v == st.mbps).unwrap_or(0), vec![false; rates.len()]),
                     // Profil Auto : sous le débit, « Choisi par le test du {date} ({réseau}). » et « Refaire le test ».
                     // Puis « Débit adaptatif » (docs/link-ui.md, « Profil Auto et débit adaptatif »).
                     toggle(Setting::Adaptive, crate::autotest::adaptive(), crate::autotest::adaptive_help(pw), st.adaptive),
@@ -6832,6 +7139,8 @@ impl App {
                         display.iter().position(|v| *v == st.display).unwrap_or(0),
                         vec![false, false, false, m.vrr == Some(false) || pi.is_some()],
                     ),
+                    // « Garder la dernière image » (docs/link-ui.md, rubrique Image) : pour cet ordinateur.
+                    toggle(Setting::KeepImage, tr("Garder la dernière image", "Keep the last image"), tr("L'accueil montre la dernière image de la session de cet ordinateur.", "The home screen shows the last image of this computer's session.").into(), st.keep_last_image),
                 ];
                 // « HDR », après le texte net, seulement sur un écran HDR ; inactif avec la raison de la puce.
                 if let Some(u) = hdr {
@@ -6847,7 +7156,7 @@ impl App {
                     rows.insert(1, self.displays_row(h));
                 }
                 if m.battery.is_some() {
-                    rows.push(toggle(Setting::BatteryLight, tr("Alléger sur batterie", "Lighter on battery"), tr("Sur batterie : 60 images par seconde au plus, débit réduit.", "On battery: 60 frames per second at most, lower bitrate.").into(), st.battery_light));
+                    rows.push(toggle(Setting::BatteryLight, tr("Alléger sur batterie", "Lighter on battery"), tr("Sur batterie : 60 images par seconde au plus, débit réduit.", "On battery: 60 frames per second at most, lower bitrate.").into(), st.battery_light));
                 }
                 rows
             }
@@ -6874,7 +7183,7 @@ impl App {
                     choice(
                         Setting::Xbox360,
                         tr("Manette vue par l'ordinateur", "Controller seen by the computer"),
-                        tr("Xbox 360 : tous les jeux la reconnaissent. Fidèle : le modèle branché.", "Xbox 360: every game recognises it. As is: the model you plugged in.").into(),
+                        tr("Xbox 360 : tous les jeux la reconnaissent. Fidèle : le modèle branché.", "Xbox 360: every game recognises it. As is: the model you plugged in.").into(),
                         vec!["Xbox 360".into(), tr("Fidèle", "As is").into()],
                         (!st.xbox360) as usize,
                         vec![false; 2],
@@ -6883,7 +7192,7 @@ impl App {
                     choice(
                         Setting::Mouse,
                         tr("Souris", "Mouse"),
-                        tr("Auto : souris des jeux quand un jeu en plein écran cache le pointeur de l'ordinateur.", "Auto: game mouse when a full-screen game hides the computer's pointer.").into(),
+                        tr("Auto : souris des jeux quand un jeu en plein écran cache le pointeur de l'ordinateur.", "Auto: game mouse when a full-screen game hides the computer's pointer.").into(),
                         vec!["Auto".into(), tr("Souris du bureau", "Desktop mouse").into(), tr("Souris des jeux", "Game mouse").into()],
                         ["auto", "desktop", "game"].iter().position(|v| *v == st.mouse).unwrap_or(0),
                         vec![false; 3],
@@ -6948,7 +7257,7 @@ impl App {
                     let (value, hint) = match (h.wake.first(), &h.mac) {
                         (Some(card), _) => (tr("Prêt", "Ready"), format!("{}. {help}", card.mac)),
                         (None, Some(m)) => (tr("Prêt", "Ready"), format!("{m} ({}). {help}", tr("saisie", "entered by hand"))),
-                        (None, None) => ("", format!("{} {help}", tr("Pas encore d'adresse : connectez-vous une fois à cet ordinateur.", "No address yet: connect to this computer once."))),
+                        (None, None) => ("", format!("{} {help}", tr("Pas encore d'adresse : connectez-vous une fois à cet ordinateur.", "No address yet: connect to this computer once."))),
                     };
                     info(tr("Réveil par le réseau", "Wake on LAN"), hint, value.into())
                 },
@@ -6969,8 +7278,8 @@ impl App {
                 vec![
                     info(tr("Système", "System"), String::new(), h.os.clone().unwrap_or_else(dash)),
                     info(tr("Carte graphique", "Graphics card"), String::new(), h.gpu.clone().unwrap_or_else(dash)),
-                    info(tr("Adresse", "Address"), String::new(), if h.address.is_empty() { dash() } else { format!("{}:{}", bracketed(&h.address), h.port) }),
-                    info(tr("Empreinte", "Fingerprint"), String::new(), h.fingerprint.as_deref().map(short_fp).unwrap_or_else(dash)),
+                    info(tr("Adresse", "Address"), String::new(), if h.address.is_empty() { dash() } else { format!("{}:{}", host_for_url(&h.address), h.port) }),
+                    info(tr("Empreinte", "Fingerprint"), String::new(), h.fingerprint.as_deref().map(fingerprint::short).filter(|f| !f.is_empty()).unwrap_or_else(dash)),
                 ]
             }
             Section::Station => {
@@ -6982,7 +7291,7 @@ impl App {
                         Setting::StationAdmin,
                         tr("Ouvrir Admin", "Open Admin"),
                         tr(
-                            "Admin s'ouvre dans votre navigateur et demande son mot de passe. Le navigateur peut signaler le certificat : la Station signe elle-même sa connexion, c'est normal.",
+                            "Admin s'ouvre dans votre navigateur et demande son mot de passe. Le navigateur peut signaler le certificat : la Station signe elle-même sa connexion, c'est normal.",
                             "Admin opens in your browser and asks for its password. The browser may warn about the certificate: the Station signs its own connection, this is expected.",
                         )
                         .into(),
@@ -7035,7 +7344,7 @@ impl App {
             tr("Avec une définition sur mesure, la session prend un seul écran.", "With a custom resolution, the session takes a single display.")
         } else if plan.enabled {
             tr(
-                "Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon.",
+                "Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon.",
                 "Auto: all of this device's displays in Desktop and Max, one in Game and Custom. Each display gets a display on the computer, laid out the same way.",
             )
         } else {
@@ -7077,7 +7386,7 @@ impl App {
             Section::OsUsage => vec![choice(
                 Setting::OsUsage,
                 tr("Usage de ce Raspberry Pi", "What this Raspberry Pi is for"),
-                tr("Salon : au téléviseur, à la manette · Bureau : écran, clavier et souris · Start tenu trois secondes bascule", "Living room: on a TV, with a controller · Desktop: screen, keyboard and mouse · Start held three seconds switches").into(),
+                tr("Salon : au téléviseur, à la manette · Bureau : écran, clavier et souris · Start tenu trois secondes bascule", "Living room: on a TV, with a controller · Desktop: screen, keyboard and mouse · Start held three seconds switches").into(),
                 vec![tr("Salon", "Living room").into(), tr("Bureau", "Desktop").into()],
                 (a.interface == "desktop") as usize,
                 vec![false; 2],
@@ -7095,7 +7404,7 @@ impl App {
                     NetKind::Unknown => tr("Pas de réseau", "No network").into(),
                 };
                 vec![
-                    info(tr("Liaison", "Link"), tr("Ethernet dès qu'un câble est branché ; le Wi-Fi sinon", "Ethernet as soon as a cable is plugged in; Wi-Fi otherwise").into(), state),
+                    info(tr("Liaison", "Link"), tr("Ethernet dès qu'un câble est branché ; le Wi-Fi sinon", "Ethernet as soon as a cable is plugged in; Wi-Fi otherwise").into(), state),
                     action(Setting::OsWifi, tr("Réseau Wi-Fi", "Wi-Fi network"), tr("La liste des réseaux, le mot de passe à la manette", "The list of networks, the password with the controller").into(), tr("Choisir", "Choose")),
                 ]
             }
@@ -7104,7 +7413,7 @@ impl App {
                 if v.is_empty() {
                     v.push(info(tr("Aucune manette", "No controller"), tr("Branchez-la en USB, ou associez-la", "Plug it in over USB, or pair it").into(), String::new()));
                 }
-                v.push(action(Setting::OsBtPair, tr("Associer une manette", "Pair a controller"), tr("Bluetooth à l'écoute : la manette en mode association est acceptée sans code", "Bluetooth listening: a controller in pairing mode is accepted without a code").into(), tr("Associer", "Pair")));
+                v.push(action(Setting::OsBtPair, tr("Associer une manette", "Pair a controller"), tr("Bluetooth à l'écoute : la manette en mode association est acceptée sans code", "Bluetooth listening: a controller in pairing mode is accepted without a code").into(), tr("Associer", "Pair")));
                 v.push(action(Setting::Pads, tr("Tester les manettes", "Test the controllers"), tr("Boutons, sticks, vibrations", "Buttons, sticks, rumble").into(), &format!("{}", self.pads.len())));
                 v
             }
@@ -7113,7 +7422,7 @@ impl App {
                 let labels = vec!["Auto".into(), "4K · 60 Hz".into(), "1080p · 120 Hz".into(), "1080p · 60 Hz".into()];
                 let off = vec![false, m.max_height() < 2160, m.max_hz(1080) < 120, false];
                 vec![
-                    choice(Setting::OsHdmi, tr("Sortie HDMI", "HDMI output"), tr("Au prochain démarrage · Auto : le mode que le téléviseur préfère", "At the next boot · Auto: the mode the TV prefers").into(), labels, modes.iter().position(|v| *v == a.os_hdmi).unwrap_or(0), off),
+                    choice(Setting::OsHdmi, tr("Sortie HDMI", "HDMI output"), tr("Au prochain démarrage · Auto : le mode que le téléviseur préfère", "At the next boot · Auto: the mode the TV prefers").into(), labels, modes.iter().position(|v| *v == a.os_hdmi).unwrap_or(0), off),
                     toggle(Setting::OsCec, "HDMI-CEC", tr("Nom annoncé, télécommande, veille et réveil du téléviseur avec l'appareil", "Name announced, remote, TV standby and wake with the device").into(), a.os_cec),
                     info(tr("Écran", "Screen"), m.display_name.clone(), format!("{} × {} · {} Hz", m.display.0, m.display.1, m.refresh)),
                 ]
@@ -7121,7 +7430,7 @@ impl App {
             Section::OsSound => {
                 let mut v = vec![
                     info(tr("Sortie", "Output"), tr("La première prise HDMI de la puce", "The chip's first HDMI socket").into(), format!("HDMI · {} {}", m.audio_channels, tr("voies", "channels"))),
-                    info(tr("Par ordinateur", "Per computer"), tr("Stéréo, 5.1 ou 7.1 : Réglages de l'ordinateur › Son", "Stereo, 5.1 or 7.1: Computer settings › Sound").into(), String::new()),
+                    info(tr("Par ordinateur", "Per computer"), tr("Stéréo, 5.1 ou 7.1 : Réglages de l'ordinateur › Son", "Stereo, 5.1 or 7.1: Computer settings › Sound").into(), String::new()),
                 ];
                 // Un micro USB branché : son choix et « Réduire l'écho et le bruit ».
                 v.extend(self.mic_app_rows());
@@ -7130,15 +7439,27 @@ impl App {
             Section::OsUpdate => Vec::new(),
             Section::OsLanguage => {
                 let lang = ["auto", "fr", "en"].iter().position(|v| *v == a.language).unwrap_or(0);
-                vec![choice(Setting::Language, tr("Langue", "Language"), tr("Auto : celle du système", "Auto: the system's").into(), vec!["Auto".into(), "Français".into(), "English".into()], lang, vec![false; 3])]
+                let mut v = vec![choice(Setting::Language, tr("Langue", "Language"), tr("Auto : celle du système", "Auto: the system's").into(), vec!["Auto".into(), "Français".into(), "English".into()], lang, vec![false; 3])];
+                // « Pays » (et « Fuseau horaire » pour un pays qui en a plusieurs) : le Wi-Fi, l'heure et le clavier le suivent.
+                let c = self.os_country();
+                let all = crate::country::COUNTRIES;
+                let ci = all.iter().position(|x| x.code == c.code).unwrap_or(0);
+                v.push(choice(Setting::OsCountry, crate::country::country_label(), crate::country::help().into(), all.iter().map(|x| x.name().to_string()).collect(), ci, vec![false; all.len()]));
+                if c.zones.len() > 1 {
+                    let zone = crate::country::zone(c, &a.os_timezone);
+                    let zi = c.zones.iter().position(|z| *z == zone).unwrap_or(0);
+                    v.push(choice(Setting::OsTimezone, crate::country::zone_title(), String::new(), c.zones.iter().map(|z| crate::country::zone_label(z)).collect(), zi, vec![false; c.zones.len()]));
+                }
+                v
             }
             Section::OsAdvanced => {
                 let o = self.os.clone().unwrap_or_default();
                 vec![
-                    toggle(Setting::OsSsh, "SSH", tr("Compte kybernow, par clé : kybernow-ssh.pub déposé sur la carte", "kybernow account, by key: kybernow-ssh.pub dropped on the card").into(), o.ssh),
+                    toggle(Setting::OsSsh, "SSH", tr("Compte kybernow, par clé : kybernow-ssh.pub déposé sur la carte", "kybernow account, by key: kybernow-ssh.pub dropped on the card").into(), o.ssh),
                     action(Setting::OsReboot, tr("Redémarrer", "Restart"), tr("Le Raspberry Pi redémarre sur le système en cours", "The Raspberry Pi restarts on the current system").into(), tr("Redémarrer", "Restart")),
-                    action(Setting::OsPoweroff, tr("Éteindre", "Shut down"), tr("Arrêt complet ; le bouton du Pi 5 rallume", "Full shutdown; the Pi 5's button turns it back on").into(), tr("Éteindre", "Shut down")),
+                    action(Setting::OsPoweroff, tr("Éteindre", "Shut down"), tr("Arrêt complet ; le bouton du Pi 5 rallume", "Full shutdown; the Pi 5's button turns it back on").into(), tr("Éteindre", "Shut down")),
                     info("KyberNow Link OS", format!("{} · {} {}", o.built, tr("emplacement", "slot"), o.slot), o.version),
+                    self.journal_row(),
                 ]
             }
             _ => return None,
@@ -7181,6 +7502,7 @@ impl App {
                 return Vec::new();
             }
             Setting::CheckUpdate => return vec![Action::CheckUpdate],
+            Setting::SendLog => return self.send_log(),
             Setting::UpdateChannel => {
                 self.store.app.beta = if i == usize::MAX { !self.store.app.beta } else { i == 1 };
                 return vec![Action::Save, Action::CheckUpdate];
@@ -7195,10 +7517,6 @@ impl App {
                 self.store.app.interface = order[i.min(3)].into();
                 return vec![Action::Interface, Action::Save];
             }
-            Setting::KeepImage => {
-                self.store.app.keep_last_image = !self.store.app.keep_last_image;
-                return vec![Action::Save];
-            }
             Setting::MicDevice => return self.choose_mic_device(i),
             Setting::MicEcho => {
                 self.store.app.mic_echo = !self.store.app.mic_echo;
@@ -7209,6 +7527,18 @@ impl App {
                 let desktop = if i == usize::MAX { self.store.app.interface != "desktop" } else { i == 1 };
                 self.store.app.interface = if desktop { "desktop".into() } else { "tv".into() };
                 return vec![Action::Save, Action::Interface];
+            }
+            Setting::OsCountry => {
+                let all = crate::country::COUNTRIES;
+                let cur = all.iter().position(|x| x.code == self.os_country().code).unwrap_or(0);
+                let i = if i == usize::MAX { (cur + 1) % all.len() } else { i.min(all.len() - 1) };
+                return self.set_country(all[i].code, "");
+            }
+            Setting::OsTimezone => {
+                let c = self.os_country();
+                let cur = c.zones.iter().position(|z| *z == crate::country::zone(c, &self.store.app.os_timezone)).unwrap_or(0);
+                let i = if i == usize::MAX { (cur + 1) % c.zones.len() } else { i.min(c.zones.len() - 1) };
+                return self.set_country(c.code, c.zones[i]);
             }
             Setting::OsHdmi => {
                 let modes = ["auto", "2160p60", "1080p120", "1080p60"];
@@ -7257,7 +7587,7 @@ impl App {
             }
             Setting::OsUpdateLater => {
                 // Rien ne s'installe sans « Redémarrer sur la … » (Réglages de l'appareil › Mise à jour).
-                self.toast(tr("La mise à jour attend ici : rien ne s'installe sans vous", "The update waits here: nothing installs without you"));
+                self.toast(tr("La mise à jour attend ici : rien ne s'installe sans vous", "The update waits here: nothing installs without you"));
                 return Vec::new();
             }
             Setting::OsRollback => {
@@ -7336,9 +7666,17 @@ impl App {
             // Ne rend pas le profil « Personnalisé » : `custom()` ne le regarde pas.
             Setting::Displays if enabled => st.displays = pick(&["auto", "this", "all"], i),
             Setting::Fps => st.fps = [0u32, 30, 60, 90, 120, 144][i.min(5)],
-            Setting::Codec => st.codec = pick(&["auto", "hevc", "h264", "av1", "pyrowave"], i),
+            Setting::Codec => {
+                st.codec = pick(&["auto", "hevc", "h264", "av1", "pyrowave"], i);
+                // Hors de PyroWave, un débit au-delà de 500 Mbit/s revient dans les bornes du format.
+                st.mbps = snap_mbps(st.mbps, st.codec == "pyrowave");
+            }
             Setting::Display => st.display = pick(&["auto", "vsync", "immediate", "vrr"], i),
-            Setting::Bitrate => st.mbps = BITRATES[i.min(BITRATES.len() - 1)],
+            Setting::KeepImage => st.keep_last_image = !st.keep_last_image,
+            Setting::Bitrate => {
+                let rates = bitrates(st.codec == "pyrowave");
+                st.mbps = rates[i.min(rates.len() - 1)];
+            }
             Setting::Audio => st.audio = pick(&["auto", "stereo", "5.1", "7.1", "computer"], i),
             Setting::Mouse => st.mouse = pick(&["auto", "desktop", "game"], i),
             // Vaut tout de suite : les fenêtres de session suivent le réglage (`device::sync_keyboard_grab`).
@@ -7404,13 +7742,12 @@ impl App {
     }
 
     /// « Micro » d'une session qui démarre : le choix retenu pour cet ordinateur (hôte, ordinateur emprunté ; un
-    /// invité part coupé) ; `None` sans micro sur l'appareil.
-    pub fn mic_ui(&self, host: &str, guest: bool) -> Option<crate::micro::MicUi> {
+    /// invité part coupé) ; `None` sans micro sur l'appareil. Le pilote en fait le `MicUi` du cœur.
+    pub fn mic_choice(&self, host: &str, guest: bool) -> Option<bool> {
         if !self.has_mic() {
             return None;
         }
-        let on = !guest && (self.store.host(host).map(|h| h.settings.mic).or_else(|| self.store.borrowed(host).map(|b| b.mic)).unwrap_or(false));
-        Some(crate::micro::MicUi::new(on))
+        Some(!guest && (self.store.host(host).map(|h| h.settings.mic).or_else(|| self.store.borrowed(host).map(|b| b.mic)).unwrap_or(false)))
     }
 
     /// Retient le choix « Micro » pour l'ordinateur de cette session (hôte, ordinateur emprunté ; rien pour un
@@ -7423,66 +7760,48 @@ impl App {
         }
     }
 
-    /// « Micro » de la barre, de la tuile ou de Ctrl+Alt+Maj+V : l'allume ou le coupe, et le retient pour cet
-    /// ordinateur ; rien ne relance l'image. L'ordinateur ne le prend pas : rien ne change ; `notify` (manette,
-    /// raccourci) dit la raison en capsule, la souris l'a déjà en infobulle.
+    /// La vue du micro d'une session, refaite par le pilote (`MicUi::ui_json` du cœur), et l'avis bref qu'il rend
+    /// (« Micro envoyé à {nom}. »).
+    pub fn set_mic(&mut self, id: SessionId, view: crate::micro::MicView, notice: Option<String>) {
+        let Some(s) = self.session_by_mut(id) else { return };
+        s.mic = Some(view);
+        if let Some(n) = notice {
+            s.notice = Some((n, Instant::now()));
+        }
+    }
+
+    /// « Micro » de la barre, de la tuile ou de Ctrl+Alt+Maj+V : l'allume ou le coupe (le pilote le dit au `MicUi`
+    /// du cœur et à la session), et le retient pour cet ordinateur ; rien ne relance l'image. L'ordinateur ne le prend
+    /// pas : rien ne change ; `notify` (manette, raccourci) dit la raison en capsule, la souris l'a déjà en infobulle.
     pub fn toggle_mic(&mut self, id: SessionId, notify: bool) -> Vec<Action> {
         let Some(s) = self.session_by_mut(id) else { return Vec::new() };
-        let Some(m) = s.mic.as_mut() else { return Vec::new() };
-        if let Some(r) = m.refused() {
+        let Some(m) = s.mic.as_ref() else { return Vec::new() };
+        if let Some(r) = m.reason.clone() {
             if notify {
-                s.notice = Some((r.text().into(), Instant::now()));
+                s.notice = Some((r, Instant::now()));
             }
             return Vec::new();
         }
         let on = !m.on;
-        m.on = on;
-        // L'avis « Micro envoyé à {nom}. » quand l'état passera à « On » (tout de suite s'il y est déjà).
-        m.announce = on;
         let key = s.host.clone();
-        let guest = s.guest.is_some();
-        if on && m.state == crate::micro::MicState::On {
-            self.mic_changed(id, crate::micro::MicState::On);
-        }
-        if guest {
+        if s.guest.is_some() {
             return vec![Action::SetMic(id, on)];
         }
         self.remember_mic(&key, on);
         vec![Action::SetMic(id, on), Action::Save]
     }
 
-    /// L'état dit par le cœur (`Platform::on_microphone`) : la puce et la tuile le suivent ; à « On » après un
-    /// allumage, l'avis bref « Micro envoyé à {nom}. ».
-    pub fn mic_changed(&mut self, id: SessionId, state: crate::micro::MicState) {
-        let Some(s) = self.session_by_mut(id) else { return };
-        let name = s.name.clone();
-        let Some(m) = s.mic.as_mut() else { return };
-        m.state = state;
-        match state {
-            crate::micro::MicState::On if m.announce && m.on => {
-                m.announce = false;
-                s.notice = Some((crate::micro::sent_notice(&name), Instant::now()));
-            }
-            crate::micro::MicState::Refused(_) => m.announce = false,
-            _ => {}
-        }
-    }
-
-    /// L'appareil n'a pas donné son micro (la capture ne s'ouvre pas) : « Micro » reste coupé, avec l'avis.
-    pub fn mic_failed(&mut self, id: SessionId) -> Vec<Action> {
+    /// L'appareil n'a pas donné son micro (la capture ne s'ouvre pas) : « Micro » reste coupé (le pilote le dit au
+    /// `MicUi` du cœur, `denied`), avec l'avis, et le choix retenu coupé.
+    pub fn mic_denied(&mut self, id: SessionId) -> Vec<Action> {
         let Some(s) = self.session_by_mut(id) else { return Vec::new() };
-        let Some(m) = s.mic.as_mut() else { return Vec::new() };
-        if !m.on {
-            return Vec::new();
-        }
-        m.on = false;
-        m.announce = false;
         s.notice = Some((crate::micro::no_access().into(), Instant::now()));
         let (key, guest) = (s.host.clone(), s.guest.is_some());
-        if !guest {
-            self.remember_mic(&key, false);
+        if guest {
+            return Vec::new();
         }
-        vec![Action::SetMic(id, false), Action::Save]
+        self.remember_mic(&key, false);
+        vec![Action::Save]
     }
 
     /// Les lignes du micro des Réglages de l'app : « Micro » (« Celui du système », puis les micros de l'appareil),
@@ -7522,12 +7841,7 @@ impl App {
         let mut actions = vec![Action::Save];
         let ids: Vec<SessionId> = self.sessions.iter().filter(|s| s.host == host && s.running() && s.guest.is_none()).map(|s| s.id).collect();
         for id in ids {
-            if let Some(m) = self.session_by_mut(id).and_then(|s| s.mic.as_mut())
-                && m.refused().is_none()
-                && m.on != on
-            {
-                m.on = on;
-                m.announce = on;
+            if self.session_by(id).and_then(|s| s.mic.as_ref()).is_some_and(|m| m.reason.is_none() && m.on != on) {
                 actions.push(Action::SetMic(id, on));
             }
         }
@@ -7742,15 +8056,15 @@ fn picture_hints(m: &Machine) -> (String, String, String) {
         let screen = tr("La définition de l'image que l'ordinateur envoie.", "The resolution of the picture the computer sends.").to_string();
         let fps = tr("Les images par seconde demandées à l'ordinateur.", "The frames per second asked of the computer.").to_string();
         let codec = if m.vaapi && m.hw_any() {
-            format!("{} {}. {}", tr("La carte graphique de cet appareil décode :", "This device's graphics card decodes:"), decoders_label(m), tr("Sans elle, le processeur décode H.264 et HEVC.", "Without it, the processor decodes H.264 and HEVC."))
+            format!("{} {}. {}", tr("La carte graphique de cet appareil décode :", "This device's graphics card decodes:"), decoders_label(m), tr("Sans elle, le processeur décode H.264 et HEVC.", "Without it, the processor decodes H.264 and HEVC."))
         } else {
-            tr("La carte graphique de cet appareil ne décode rien : le processeur décode H.264 et HEVC.", "This device's graphics card decodes nothing: the processor decodes H.264 and HEVC.").into()
+            tr("La carte graphique de cet appareil ne décode rien : le processeur décode H.264 et HEVC.", "This device's graphics card decodes nothing: the processor decodes H.264 and HEVC.").into()
         };
         return (screen, fps, codec);
     };
     let screen = match p.generation {
         5 => tr("4K seulement en HEVC, décodé par le Pi. Au-delà de 1080p, le H.264 passe par le processeur et saccade.", "4K in HEVC only, decoded by the Pi. Above 1080p, H.264 goes through the CPU and stutters.").to_string(),
-        4 => tr("4K en HEVC, 1080p en H.264 : les deux par le décodeur du Pi.", "4K in HEVC, 1080p in H.264: both by the Pi's decoder.").to_string(),
+        4 => tr("4K en HEVC, 1080p en H.264 : les deux par le décodeur du Pi.", "4K in HEVC, 1080p in H.264: both by the Pi's decoder.").to_string(),
         _ => tr("1080p au plus (HDMI 1.4), en H.264 par le décodeur du Pi.", "1080p at most (HDMI 1.4), in H.264 by the Pi's decoder.").to_string(),
     };
     let fps = if p.generation >= 4 {
@@ -7758,30 +8072,30 @@ fn picture_hints(m: &Machine) -> (String, String, String) {
             format!(
                 "{} {} {}",
                 tr("L'écran annonce 1080p à", "The screen announces 1080p at"),
-                format!("{} Hz ;", m.max_hz_1080p),
+                format!("{} Hz ;", m.max_hz_1080p),
                 tr("le Pi ne sort pas la 4K au-delà de 60 Hz. Pas de fréquence variable sur cette sortie.", "the Pi does not output 4K above 60 Hz. No variable refresh on this output.")
             )
         } else {
             tr("Le Pi sort la 4K à 60 Hz au plus, et le 1080p à 120 Hz si l'écran l'annonce. Pas de fréquence variable sur cette sortie.", "The Pi outputs 4K at 60 Hz at most, and 1080p at 120 Hz when the screen announces it. No variable refresh on this output.").to_string()
         }
     } else {
-        tr("60 Hz au plus sur la sortie HDMI de ce Pi ; 30 Hz en H.264 décodé par la puce.", "60 Hz at most on this Pi's HDMI output; 30 Hz for H.264 decoded by the chip.").to_string()
+        tr("60 Hz au plus sur la sortie HDMI de ce Pi ; 30 Hz en H.264 décodé par la puce.", "60 Hz at most on this Pi's HDMI output; 30 Hz for H.264 decoded by the chip.").to_string()
     };
     let codec = match p.generation {
-        5 => tr("HEVC : jusqu'à 4K à 60 Hz, en 4:2:0. H.264 : 1080p à 60 Hz au plus, par les quatre cœurs. AV1 : rien ne le décode ici.", "HEVC: up to 4K at 60 Hz, 4:2:0. H.264: 1080p at 60 Hz at most, on the four cores. AV1: nothing decodes it here.").to_string(),
-        4 => tr("HEVC jusqu'à 4K à 60 Hz et H.264 jusqu'à 1080p à 60 Hz, tous deux par le décodeur du Pi. AV1 : rien ne le décode ici.", "HEVC up to 4K at 60 Hz and H.264 up to 1080p at 60 Hz, both by the Pi's decoder. AV1: nothing decodes it here.").to_string(),
-        _ => tr("H.264 par le décodeur du Pi, 1080p à 30 Hz au plus. HEVC par le processeur : 720p. AV1 : non.", "H.264 by the Pi's decoder, 1080p at 30 Hz at most. HEVC on the CPU: 720p. AV1: no.").to_string(),
+        5 => tr("HEVC : jusqu'à 4K à 60 Hz, en 4:2:0. H.264 : 1080p à 60 Hz au plus, par les quatre cœurs. AV1 : rien ne le décode ici.", "HEVC: up to 4K at 60 Hz, 4:2:0. H.264: 1080p at 60 Hz at most, on the four cores. AV1: nothing decodes it here.").to_string(),
+        4 => tr("HEVC jusqu'à 4K à 60 Hz et H.264 jusqu'à 1080p à 60 Hz, tous deux par le décodeur du Pi. AV1 : rien ne le décode ici.", "HEVC up to 4K at 60 Hz and H.264 up to 1080p at 60 Hz, both by the Pi's decoder. AV1: nothing decodes it here.").to_string(),
+        _ => tr("H.264 par le décodeur du Pi, 1080p à 30 Hz au plus. HEVC par le processeur : 720p. AV1 : non.", "H.264 by the Pi's decoder, 1080p at 30 Hz at most. HEVC on the CPU: 720p. AV1: no.").to_string(),
     };
     (screen, fps, codec)
 }
 
 /// Ce que dit la ligne 4:4:4 : ce qu'elle apporte, et sur le Pi ce qu'il en coûte.
 fn yuv444_hint(m: &Machine, hevc: bool) -> String {
-    let base = tr("Couleurs complètes : le texte reste net, au prix d'un débit plus élevé.", "Full colour: text stays sharp, at the cost of a higher bitrate.");
+    let base = tr("Couleurs complètes : le texte reste net, au prix d'un débit plus élevé.", "Full colour: text stays sharp, at the cost of a higher bitrate.");
     if !hevc {
         format!("{base} {}", tr("En HEVC seulement.", "HEVC only."))
     } else if m.pi.is_some() {
-        format!("{base} {}", tr("Sur ce Pi, le processeur décode : 1080p au plus.", "On this Pi, the processor decodes: 1080p at most."))
+        format!("{base} {}", tr("Sur ce Pi, le processeur décode : 1080p au plus.", "On this Pi, the processor decodes: 1080p at most."))
     } else {
         base.into()
     }
@@ -7817,25 +8131,6 @@ pub fn profile_phrase(p: Option<Profile>) -> &'static str {
     }
 }
 
-/// Une adresse IPv6 entre crochets (« [fe80::1] »), les autres telles quelles.
-pub fn bracketed(address: &str) -> String {
-    let a = address.trim_start_matches('[').trim_end_matches(']');
-    if a.contains(':') { format!("[{a}]") } else { a.to_string() }
-}
-
-/// L'adresse d'Admin à ouvrir dans un navigateur ou à mettre dans le QR code :
-/// celle du cœur avec l'app ; sans lui (captures), la même, recalculée.
-pub fn admin_url(address: &str, port: u16) -> String {
-    #[cfg(feature = "device")]
-    {
-        kybernow_core::console::admin_url(address, port)
-    }
-    #[cfg(not(feature = "device"))]
-    {
-        format!("https://{}:{port}/", bracketed(address))
-    }
-}
-
 fn decoders_label(m: &Machine) -> String {
     let mut v = Vec::new();
     if m.hw_h264 {
@@ -7855,65 +8150,13 @@ pub fn flatpak() -> bool {
     std::path::Path::new("/.flatpak-info").exists()
 }
 
-/// « sha256:7C:3A:91:E0:… » → « 7c3a · 91e0 · 4b2d · a81f ».
-pub fn short_fp(fp: &str) -> String {
-    let hex: String = fp.trim_start_matches("sha256:").chars().filter(|c| c.is_ascii_hexdigit()).collect::<String>().to_ascii_lowercase();
-    let groups: Vec<&str> = (0..4).filter_map(|i| hex.get(i * 4..i * 4 + 4)).collect();
-    groups.join(" · ")
-}
-
 fn cycle(i: usize, n: usize, dir: i32) -> usize {
     ((i as i32 + dir).rem_euclid(n as i32)) as usize
-}
-
-/// `192.168.1.20:24811` → adresse et port.
-pub fn parse_address(s: &str) -> Option<(String, u16)> {
-    let s = s.trim();
-    // IPv6 : entre crochets, le port après (« [fe80::1]:24811 »). Sans crochets, une adresse IPv6 n'a pas de port
-    // lisible : « fe80::1 » n'est pas l'hôte « fe80: » sur le port 1 (audit TRANS-35).
-    let (a, p) = match s.strip_prefix('[') {
-        Some(rest) => {
-            let (a, tail) = rest.split_once(']')?;
-            if !a.contains(':') {
-                return None;
-            }
-            (a, tail.strip_prefix(':')?)
-        }
-        None => {
-            let (a, p) = s.rsplit_once(':')?;
-            if a.contains(':') || a.contains(['[', ']']) {
-                return None;
-            }
-            (a, p)
-        }
-    };
-    let port: u16 = p.parse().ok()?;
-    let a = a.trim();
-    if a.is_empty() || port == 0 {
-        return None;
-    }
-    Some((a.to_string(), port))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn address() {
-        assert_eq!(parse_address("192.168.1.20:24811"), Some(("192.168.1.20".into(), 24811)));
-        assert_eq!(parse_address("192.168.1.20"), None);
-        assert_eq!(parse_address(":24811"), None);
-        // IPv6 (TRANS-35) : entre crochets avec le port ; nue, refusée plutôt que lue « fe80: » port 1.
-        assert_eq!(parse_address("[fe80::1]:24811"), Some(("fe80::1".into(), 24811)));
-        assert_eq!(parse_address(" [2001:db8::5]:443 "), Some(("2001:db8::5".into(), 443)));
-        assert_eq!(parse_address("fe80::1"), None);
-        assert_eq!(parse_address("fe80::1:24811"), None);
-        assert_eq!(parse_address("[fe80::1]"), None);
-        assert_eq!(parse_address("[]:24811"), None);
-        assert_eq!(parse_address("[192.168.1.20]:24811"), None);
-        assert_eq!(parse_address("pc.local:24811"), Some(("pc.local".into(), 24811)));
-    }
 
     #[test]
     fn frame_path_stages() {
@@ -7926,11 +8169,6 @@ mod tests {
         assert_eq!(Stats::local_medians(&[]), None);
         assert_eq!(Stats::local_medians(&[(3.0, 9.0), (1.0, 5.0), (2.0, 7.0)]), Some((2.0, 7.0)));
         assert_eq!(Stats::local_medians(&[(1.0, 4.0), (2.0, 6.0)]), Some((1.5, 5.0)));
-    }
-
-    #[test]
-    fn fingerprint() {
-        assert_eq!(short_fp("sha256:7C:3A:91:E0:4B:2D:A8:1F:00"), "7c3a · 91e0 · 4b2d · a81f");
     }
 
     #[test]
@@ -7981,7 +8219,7 @@ mod tests {
         store.hosts.push(host());
         store.selected = Some("a".into());
         let mut app = App::new(store, Layout::Desktop);
-        assert_eq!(app.hdr_ui(&app.store.hosts[0]), None, "écran SDR : pas de puce");
+        assert_eq!(app.hdr_ui(&app.store.hosts[0]), None, "écran SDR : pas de puce");
         assert!(app.activate(Target::HdrChip).is_empty());
         app.screen_hdr = Some(crate::hdr::Luminance::default());
         let u = app.hdr_ui(&app.store.hosts[0]).unwrap();
@@ -8074,7 +8312,7 @@ mod tests {
             app.nav(Nav::Char(c));
         }
         app.activate(Target::KeyOk);
-        assert!(app.add.message.is_some(), "dix chiffres : refusé");
+        assert!(app.add.message.is_some(), "dix chiffres : refusé");
         for c in "cd".chars() {
             app.nav(Nav::Char(c));
         }
@@ -8131,7 +8369,7 @@ mod tests {
         app.machine.pyrowave = true;
         app.net.kind = NetKind::Ethernet;
         assert_eq!(codec_row(&app).hint, crate::pyrowave::auto_help(true, false));
-        assert_eq!(codec_row(&app).hint, "Auto : HEVC. PyroWave est pris par Max et Auto, quand cet appareil est relié par câble.");
+        assert_eq!(codec_row(&app).hint, "Auto : HEVC. PyroWave est pris par Max et Auto, quand cet appareil est relié par câble.");
         app.store.hosts[0].settings.profile = Profile::Max;
         assert_eq!(codec_row(&app).hint, crate::pyrowave::auto_help(true, true));
         app.store.hosts[0].settings.profile = Profile::Jeu;
@@ -8431,7 +8669,7 @@ mod tests {
         assert_eq!(app.activate(Target::ShareRefuse(4)), vec![Action::Share(a, ShareOp::Refuse("r1".into()))]);
         app.share_reply(a, Ok(Some(view(vec![guest("g1", false), guest("g2", false), guest("g3", false), guest("g4", false), guest("r1", true)]))));
         assert!(app.activate(Target::BarShare).is_empty());
-        assert_eq!(app.focus, Target::ShareRefuse(4), "« Accepter » est inactif : le focus commence sur « Refuser »");
+        assert_eq!(app.focus, Target::ShareRefuse(4), "« Accepter » est inactif : le focus commence sur « Refuser »");
     }
 
     #[test]
@@ -8544,7 +8782,7 @@ mod tests {
         assert_eq!(codec.hint, crate::pyrowave::auto_help(true, true));
         // L'aide de « Débit adaptatif » en PyroWave.
         let adaptive = app.rows(Section::Picture).into_iter().find(|r| r.setting == Setting::Adaptive).unwrap();
-        assert!(adaptive.hint.ends_with("En PyroWave, il est en pause : la définition baisse à la place."));
+        assert!(adaptive.hint.ends_with("En PyroWave, il est en pause : la définition baisse à la place."));
         // Le décodeur ne le sait plus : HEVC.
         app.machine.pyrowave = false;
         assert_eq!(app.codec_for(&app.store.hosts[0]), "hevc");
@@ -8614,7 +8852,7 @@ mod tests {
         app.active = Some(1);
         assert!(app.encoder_ceiling(1, 250));
         assert_eq!(app.store.hosts[0].settings.encoder_max, Some(250));
-        assert!(!app.encoder_ceiling(1, 250), "le même : rien à enregistrer");
+        assert!(!app.encoder_ceiling(1, 250), "le même : rien à enregistrer");
         assert!(app.encoder_ceiling(1, 200));
         assert_eq!(app.store.hosts[0].settings.encoder_max, Some(200));
         assert!(app.session().unwrap().notice.is_none());
@@ -8642,9 +8880,8 @@ mod tests {
 
     #[test]
     fn admin_address() {
-        assert_eq!(admin_url("192.168.1.20", 24811), "https://192.168.1.20:24811/");
-        assert_eq!(admin_url("fe80::1", 24811), "https://[fe80::1]:24811/");
-        assert!(qrcodegen::QrCode::encode_text(&admin_url("192.168.1.20", 24811), qrcodegen::QrCodeEcc::Medium).is_ok());
+        // L'adresse vient de `kybernow_rules::address::admin_url` ; le QR code de Réglages › Station la prend.
+        assert!(qrcodegen::QrCode::encode_text(&admin_url("fe80::1", 9443), qrcodegen::QrCodeEcc::Medium).is_ok());
     }
 
     #[test]
@@ -8682,7 +8919,7 @@ mod tests {
         let RowKind::Choice { options, current, disabled, .. } = &row.kind else { panic!("pas des valeurs au choix") };
         assert_eq!(options, &["Auto", "Cet écran", "Tous les écrans"]);
         assert_eq!((*current, disabled.iter().any(|d| *d)), (0, false));
-        assert!(row.hint.starts_with("Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé."), "{}", row.hint);
+        assert!(row.hint.starts_with("Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé."), "{}", row.hint);
         // Choisir une valeur la garde, sans rendre le profil « Personnalisé ».
         app.activate(Target::Choice(Setting::Displays, 2));
         assert_eq!(app.selected().unwrap().settings.displays, "all");
@@ -8713,12 +8950,12 @@ mod tests {
         // Actif de nouveau : l'aide d'Auto.
         app.screens_plan = ScreensPlan::default();
         let row = app.rows(Section::Picture).into_iter().find(|r| r.setting == Setting::Displays).unwrap();
-        assert!(row.enabled && row.hint.starts_with("Auto : tous les écrans"));
+        assert!(row.enabled && row.hint.starts_with("Auto : tous les écrans"));
         app.screens_plan = ScreensPlan { count: 1, enabled: false, shown: 1 };
         app.store.hosts[0].settings.resolution = 1080;
         app.store.hosts[0].settings.displays = "all".into();
         app.activate(Target::Choice(Setting::Displays, 0));
-        assert_eq!(app.selected().unwrap().settings.displays, "all", "inactif : le réglage ne bouge pas");
+        assert_eq!(app.selected().unwrap().settings.displays, "all", "inactif : le réglage ne bouge pas");
         // Anglais.
         crate::i18n::force_english(true);
         let row = app.rows(Section::Picture).into_iter().find(|r| r.setting == Setting::Displays).unwrap();
@@ -8775,7 +9012,7 @@ mod tests {
     fn ui_owns_input_while_a_panel_is_open() {
         let mut app = desk();
         let a = open(&mut app, "a");
-        assert!(!app.session_by(a).unwrap().ui_owns_input(), "à l'image : l'ordinateur a la main");
+        assert!(!app.session_by(a).unwrap().ui_owns_input(), "à l'image : l'ordinateur a la main");
         app.session_back();
         assert!(app.session_by(a).unwrap().menu && app.session_by(a).unwrap().ui_owns_input(), "menu de session");
         for set in [
@@ -8808,7 +9045,7 @@ mod tests {
     fn camera_follows_the_computer() {
         let mut app = desk();
         let a = open(&mut app, "a");
-        assert!(app.session_by_mut(a).unwrap().toggle_camera().is_empty(), "pas proposée : rien");
+        assert!(app.session_by_mut(a).unwrap().toggle_camera().is_empty(), "pas proposée : rien");
         let cams = vec![("/dev/video0".to_string(), "Intégrée".to_string()), ("/dev/video2".to_string(), "Logitech C920".to_string())];
         assert_eq!(app.camera_offer(a, true, cams, Some("/dev/video2".into())), vec![Action::Save], "le réglage apparaît");
         assert_eq!(app.session_by(a).unwrap().camera_current.as_deref(), Some("/dev/video2"));
@@ -8960,7 +9197,7 @@ mod tests {
         let mut app = desk();
         let ids: Vec<SessionId> = ["a", "b", "c", "d"].iter().map(|h| open(&mut app, h)).collect();
         assert!(app.sessions_full() && app.running_sessions() == 4);
-        assert!(app.activate(Target::BarComputer(4)).is_empty(), "quatre en cours : « Se connecter » est inactif");
+        assert!(app.activate(Target::BarComputer(4)).is_empty(), "quatre en cours : « Se connecter » est inactif");
         app.session_by_mut(ids[3]).unwrap().phase = Phase::Ended { error: Some("Un autre appareil a pris la main".into()) };
         assert!(!app.sessions_full() && app.running_sessions() == 3 && app.sessions.len() == 4);
         assert!(app.session_of_host("d").is_none() && app.session_of_host("c").is_some());
@@ -8990,7 +9227,7 @@ mod tests {
         let (a, b) = (open(&mut app, "a"), open(&mut app, "b"));
         assert!(app.session_mac(app.session_by(a).unwrap()));
         assert!(!app.session_mac(app.session_by(b).unwrap()));
-        assert_eq!(app.activate(Target::Shortcut(0)), vec![Action::Shortcut(b, SHORTCUTS[0].2.to_vec())]);
+        assert_eq!(app.activate(Target::Shortcut(0)), vec![Action::Shortcut(b, SHORTCUTS[0].keys.to_vec())]);
         app.activate_session(a);
         assert_eq!(app.activate(Target::BarShortcut(0)), vec![Action::Shortcut(a, vec![0xE05B, 0x0F])], "⌘ ⇥");
         assert_eq!(app.activate(Target::BarShortcut(4)), vec![Action::Shortcut(a, vec![0x38, 0xE05B, 0x01])], "⌥ ⌘ Échap");
@@ -9050,7 +9287,7 @@ mod tests {
         assert!(!App::new(Store::default(), Layout::Tv).multi_sessions());
         let mut os = App::new(Store::default(), Layout::Desktop);
         os.os = Some(OsInfo::default());
-        assert!(!os.multi_sessions(), "KyberNow Link OS en usage bureau : une session");
+        assert!(!os.multi_sessions(), "KyberNow Link OS en usage bureau : une session");
     }
 
     /// Les actions de session portent leur session : une action partie d'une session qui n'est plus
@@ -9062,16 +9299,21 @@ mod tests {
         assert_eq!(app.activate(Target::BarQuit), vec![Action::Disconnect(b)]);
         app.activate_session(a);
         assert_eq!(app.activate(Target::BarQuit), vec![Action::Disconnect(a)]);
-        assert_eq!(app.activate(Target::BarMouse), vec![Action::ToggleMouse(a)]);
+        // La souris de la barre : un menu ; le choix part tout de suite et reste pour l'ordinateur.
+        assert!(app.activate(Target::BarMouse).is_empty());
+        assert_eq!(app.session_by(a).unwrap().bar_menu, Some(BarMenu::Mouse));
+        assert_eq!(app.activate(Target::BarMousePick(2)).first(), Some(&Action::SetMouse(a, "game".into())));
+        assert_eq!(app.session_by(a).unwrap().bar_menu, None);
+        assert!(app.activate(Target::BarClipboard).is_empty(), "la pastille n'a pas d'action");
         assert_eq!(app.activate(Target::BarFullscreen), vec![Action::ToggleFullscreen(Some(a))]);
         assert_eq!(app.activate(Target::BarPick(Profile::Max)), vec![Action::SetProfile(a, Profile::Max), Action::Save]);
-        assert_eq!(app.activate(Target::Shortcut(0)).first(), Some(&Action::Shortcut(a, SHORTCUTS[0].2.to_vec())));
+        assert_eq!(app.activate(Target::Shortcut(0)).first(), Some(&Action::Shortcut(a, SHORTCUTS[0].keys.to_vec())));
         assert_eq!(app.activate(Target::Menu(MenuItem::Sound)), vec![Action::Mute(a, true)]);
         // Une session finie sur une erreur : « Retour » la ferme, la dernière ramène l'accueil.
         app.session_by_mut(b).unwrap().phase = Phase::Ended { error: Some("coupée".into()) };
         app.activate_session(b);
         assert!(app.session_back().is_empty());
-        assert_eq!((app.active, app.screen), (Some(a), Screen::Session), "une autre session reste : pas d'accueil");
+        assert_eq!((app.active, app.screen), (Some(a), Screen::Session), "une autre session reste : pas d'accueil");
         app.session_mut().unwrap().phase = Phase::Ended { error: Some("coupée".into()) };
         assert!(app.session_back().is_empty());
         assert_eq!((app.active, app.screen, app.sessions.len()), (None, Screen::Home, 0));
@@ -9246,20 +9488,20 @@ mod tests {
             cv.resize(size.0, size.1, 1.0);
             app.hits = crate::ui::draw(&app, &mut cv);
             let quality: Vec<Rect> = ShareQuality::ALL.iter().map(|q| app.hits.iter().find(|(t, _)| *t == Target::JoinQuality(*q)).expect("un choix").1).collect();
-            assert!(quality.windows(2).all(|w| w[0].x + w[0].w <= w[1].x + 0.5 && (w[0].y - w[1].y).abs() < 0.5), "{layout:?} : cinq choix sur une ligne");
+            assert!(quality.windows(2).all(|w| w[0].x + w[0].w <= w[1].x + 0.5 && (w[0].y - w[1].y).abs() < 0.5), "{layout:?} : cinq choix sur une ligne");
             let name = app.hits.iter().find(|(t, _)| *t == Target::JoinName).unwrap().1;
             let go = app.hits.iter().find(|(t, _)| *t == Target::JoinGo).unwrap().1;
-            assert!(name.y + name.h <= quality[0].y && quality[0].y + quality[0].h <= go.y, "{layout:?} : sous le prénom, au-dessus de « Rejoindre »");
+            assert!(name.y + name.h <= quality[0].y && quality[0].y + quality[0].h <= go.y, "{layout:?} : sous le prénom, au-dessus de « Rejoindre »");
             app.focus = Target::JoinName;
             app.nav(Nav::Down);
-            assert!(matches!(app.focus, Target::JoinQuality(_)), "{layout:?} : {:?}", app.focus);
+            assert!(matches!(app.focus, Target::JoinQuality(_)), "{layout:?} : {:?}", app.focus);
             app.focus = Target::JoinQuality(ShareQuality::Auto);
             app.nav(Nav::Right);
             assert_eq!(app.focus, Target::JoinQuality(ShareQuality::Host), "{layout:?}");
             app.nav(Nav::Ok);
-            assert_eq!(app.join.quality, ShareQuality::Host, "{layout:?} : Entrée choisit");
+            assert_eq!(app.join.quality, ShareQuality::Host, "{layout:?} : Entrée choisit");
             app.nav(Nav::Right);
-            assert_eq!(app.focus, Target::JoinQuality(ShareQuality::P2160_60), "{layout:?} : « 4K · 60 Hz » après « Comme l'hôte »");
+            assert_eq!(app.focus, Target::JoinQuality(ShareQuality::P2160_60), "{layout:?} : « 4K · 60 Hz » après « Comme l'hôte »");
             app.nav(Nav::Right);
             assert_eq!(app.focus, Target::JoinQuality(ShareQuality::P1080_60), "{layout:?}");
             app.nav(Nav::Left);
@@ -9281,7 +9523,7 @@ mod tests {
         app.open_session(SessionUi::guest(id, "share:g1", "Atelier", ShareRole::Spectator));
         app.session_mut().unwrap().phase = Phase::Streaming;
         let shown = |app: &App| app.session().unwrap().guest.as_ref().unwrap().shown().to_string();
-        assert_eq!(shown(&app), "Auto", "la qualité reçue n'est pas connue : le choix");
+        assert_eq!(shown(&app), "Auto", "la qualité reçue n'est pas connue : le choix");
         app.share_image(id, Some("1080p · 60 Hz".into()), None);
         assert_eq!(shown(&app), "1080p · 60 Hz");
         assert!(app.session().unwrap().notice.is_none());
@@ -9311,7 +9553,7 @@ mod tests {
         assert!(app.session().unwrap().guest.as_ref().unwrap().image.is_none());
         assert_eq!(shown(&app), "720p · 30 Hz");
         app.activate(Target::BarQuality);
-        assert!(app.activate(Target::QualityPick(ShareQuality::P720_30)).is_empty(), "le même choix : rien à demander");
+        assert!(app.activate(Target::QualityPick(ShareQuality::P720_30)).is_empty(), "le même choix : rien à demander");
         assert!(app.session().unwrap().bar_menu.is_none());
         // Une session d'hôte n'a pas ce choix.
         open(&mut app, "a");
@@ -9344,7 +9586,7 @@ mod tests {
         crate::i18n::force_english(false);
         let g = ShareGuest { id: "g".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(1_000), quality: Some("720p · 30 Hz".into()), ..Default::default() };
         assert_eq!(g.meta(1_000 + 4 * 60), "iPhone ou iPad · 720p · 30 Hz · depuis 4 min");
-        assert_eq!(ShareGuest { quality: None, ..g.clone() }.meta(1_000 + 4 * 60), "iPhone ou iPad · depuis 4 min", "l'image de l'hôte : rien");
+        assert_eq!(ShareGuest { quality: None, ..g.clone() }.meta(1_000 + 4 * 60), "iPhone ou iPad · depuis 4 min", "l'image de l'hôte : rien");
         assert_eq!(ShareGuest { since: None, ..g.clone() }.meta(5), "iPhone ou iPad · 720p · 30 Hz");
         crate::i18n::force_english(true);
         assert_eq!(g.meta(1_000 + 4 * 60), "iPhone or iPad · 720p · 30 Hz · for 4 min");
@@ -9584,14 +9826,14 @@ mod tests {
         let said = |to: ShareRole, from: ShareRole| to.notice(Some(from));
         assert_eq!(said(Player, Spectator), Some("Vous pouvez jouer à la manette."));
         assert_eq!(said(Kbm, Spectator), Some("Vous avez le clavier et la souris."));
-        assert_eq!(said(PlayerKbm, Spectator), Some("Vous pouvez jouer à la manette."), "deux droits donnés : les manettes d'abord");
+        assert_eq!(said(PlayerKbm, Spectator), Some("Vous pouvez jouer à la manette."), "deux droits donnés : les manettes d'abord");
         assert_eq!(said(PlayerKbm, Kbm), Some("Vous pouvez jouer à la manette."));
         assert_eq!(said(PlayerKbm, Player), Some("Vous avez le clavier et la souris."));
-        assert_eq!(said(Kbm, Player), Some("Vous avez le clavier et la souris."), "un droit donné, un repris : le donné d'abord");
-        assert_eq!(said(Player, Kbm), Some("Vous pouvez jouer à la manette."), "un droit donné, un repris : le donné d'abord");
+        assert_eq!(said(Kbm, Player), Some("Vous avez le clavier et la souris."), "un droit donné, un repris : le donné d'abord");
+        assert_eq!(said(Player, Kbm), Some("Vous pouvez jouer à la manette."), "un droit donné, un repris : le donné d'abord");
         assert_eq!(said(Spectator, Player), Some("Vous regardez de nouveau."));
         assert_eq!(said(Spectator, Kbm), Some("Vous regardez de nouveau."));
-        assert_eq!(said(Spectator, PlayerKbm), Some("Vous regardez de nouveau."), "deux droits repris : plus aucun, un seul avis");
+        assert_eq!(said(Spectator, PlayerKbm), Some("Vous regardez de nouveau."), "deux droits repris : plus aucun, un seul avis");
         assert_eq!(said(Kbm, PlayerKbm), Some("Les manettes sont reprises."));
         assert_eq!(said(Player, PlayerKbm), Some("Le clavier et la souris sont repris."));
         // Le rôle de départ (avant la connexion) et un rôle inchangé n'ont pas d'avis.
@@ -9612,8 +9854,8 @@ mod tests {
             let r = ShareRole::of(pads, kbm);
             assert_eq!((r.pads(), r.kbm()), (pads, kbm));
             for on in [false, true] {
-                assert_eq!((r.with_pads(on).pads(), r.with_pads(on).kbm()), (on, kbm), "{r:?} : les manettes, le clavier et la souris tels quels");
-                assert_eq!((r.with_kbm(on).pads(), r.with_kbm(on).kbm()), (pads, on), "{r:?} : le clavier et la souris, les manettes telles quelles");
+                assert_eq!((r.with_pads(on).pads(), r.with_pads(on).kbm()), (on, kbm), "{r:?} : les manettes, le clavier et la souris tels quels");
+                assert_eq!((r.with_kbm(on).pads(), r.with_kbm(on).kbm()), (pads, on), "{r:?} : le clavier et la souris, les manettes telles quelles");
             }
         }
         // Quitter le partage : « Se déconnecter », pour sa session.
@@ -9638,8 +9880,6 @@ mod tests {
         assert_eq!(app_label("tvos"), "Apple TV");
         assert_eq!(app_label("plan9"), "plan9");
         assert_eq!((guests_label(0), guests_label(1), guests_label(2)), ("0 invité".to_string(), "1 invité".to_string(), "2 invités".to_string()));
-        assert_eq!(format_code("482917"), "482 917");
-        assert_eq!(format_code("12"), "12");
         // Le sous-titre de la tuile « Partager » : les invités, sinon le code, sinon « Code et QR code ».
         let view = |n: usize| ShareView { code: "482917".into(), guests: (0..n).map(|i| ShareGuest { id: format!("g{i}"), name: "Léa".into(), ..Default::default() }).collect(), ..Default::default() };
         assert_eq!(share_tile(None), ("Code et QR code".to_string(), false));
@@ -9747,8 +9987,8 @@ mod tests {
                 "2 demandes",
                 "Tom demande à rejoindre",
                 "Android · hors de chez vous",
-                "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.",
-                "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité.",
+                "Sur le même réseau : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur.",
+                "Sur le même réseau ou ailleurs : « Rejoindre avec un code » dans KyberNow Link, ou ce lien dans un navigateur. Hors de chez vous, vous acceptez chaque invité.",
                 "Pas encore joignable hors de chez vous.",
             ),
             (
@@ -10118,8 +10358,8 @@ mod tests {
         app.recording_changed(id, recording_sample(true, false, false, 0), None);
         assert_eq!(app.activate(Target::BarRecord), vec![Action::Recording(id, true)]);
         assert!(app.activate(Target::BarRecord).is_empty(), "une demande à la fois");
-        app.recording_reply(id, Err("PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264.".into()));
-        assert_eq!(app.session().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264."));
+        app.recording_reply(id, Err("PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264.".into()));
+        assert_eq!(app.session().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264."));
         app.recording_reply(id, Ok(Some(recording_sample(true, true, false, 134))));
         let r = app.session().unwrap().recording.clone().unwrap();
         assert_eq!((r.label(), r.tile()), ("Enregistrement · 02:14".to_string(), ("Arrêter l'enregistrement".to_string(), "02:14".to_string())));
@@ -10137,7 +10377,6 @@ mod tests {
         // Un invité voit, sans rien lancer.
         let guest = recording_sample(true, true, true, 5);
         assert_eq!((guest.label(), guest.tooltip()), ("Enregistrement".to_string(), "Bureau enregistre la session."));
-        assert_eq!(recording_clock(3734), "1:02:14");
     }
 
     /// L'hôte : « Prêter l'ordinateur… » ouvre le panneau (réduit à la raison avec une Station trop ancienne), « Créer un
@@ -10232,12 +10471,12 @@ mod tests {
     #[test]
     fn lend_app_words_and_relay() {
         crate::i18n::force_english(false);
-        assert_eq!(remove_borrowed_question("Hugo"), "Retirer l'ordinateur d'Hugo de cet appareil ?");
-        assert_eq!(remove_borrowed_question("Matthieu"), "Retirer l'ordinateur de Matthieu de cet appareil ?");
+        assert_eq!(remove_borrowed_question("Hugo"), "Retirer l'ordinateur d'Hugo de cet appareil ?");
+        assert_eq!(remove_borrowed_question("Matthieu"), "Retirer l'ordinateur de Matthieu de cet appareil ?");
         assert_eq!(LendAvail::Impossible.text(), Some("Le prêt n'est pas possible sur cet ordinateur."));
         assert_eq!(LendAvail::Off.text(), Some("Le prêt est coupé dans Admin (page « Prêt »)."));
         let slot = LendRequestUi { id: "r1".into(), name: "Hugo".into(), app: "ios".into(), slot: true, ..Default::default() };
-        assert_eq!(slot.line(), "Créneau d'Hugo : l'ordinateur lui est prêté dans 2 min.");
+        assert_eq!(slot.line(), "Créneau d'Hugo : l'ordinateur lui est prêté dans 2 min.");
         crate::i18n::force_english(true);
         assert_eq!(remove_borrowed_question("Hugo"), "Remove Hugo's computer from this device?");
         assert_eq!(LendAvail::Impossible.text(), Some("Lending isn't possible on this computer."));

@@ -106,6 +106,7 @@ pub fn retry() -> &'static str {
 
 /// « Le test n'a pas pu joindre {nom}. » (échec sans réponse du cœur : le pilote n'a pas pu lancer le test).
 #[cfg(any(test, not(feature = "device")))]
+#[cfg_attr(all(test, feature = "device"), allow(dead_code))]
 pub fn unreachable(name: &str) -> String {
     if crate::i18n::english() { format!("The test couldn't reach {name}.") } else { format!("Le test n'a pas pu joindre {name}.") }
 }
@@ -122,7 +123,7 @@ pub fn adaptive_help(pyrowave: bool) -> String {
         "Lowers the bitrate when the network is saturated, then raises it again. Off, the bitrate never moves.",
     );
     if pyrowave {
-        format!("{base} {}", tr("En PyroWave, il est en pause : la définition baisse à la place.", "With PyroWave it pauses: the resolution goes down instead."))
+        format!("{base} {}", tr("En PyroWave, il est en pause : la définition baisse à la place.", "With PyroWave it pauses: the resolution goes down instead."))
     } else {
         base.into()
     }

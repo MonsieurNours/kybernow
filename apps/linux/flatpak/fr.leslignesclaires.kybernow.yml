@@ -22,6 +22,8 @@ finish-args:
   - --device=all
   # Veille de l'écran suspendue pendant la session.
   - --talk-name=org.freedesktop.ScreenSaver
+  # « Envoyer le journal » sans app d'e-mail : enregistré dans Téléchargements (l'e-mail passe par le portail).
+  - --filesystem=xdg-download
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm20/bin
   prepend-ld-library-path: /usr/lib/sdk/llvm20/lib

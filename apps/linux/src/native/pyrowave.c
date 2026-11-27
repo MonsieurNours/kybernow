@@ -304,18 +304,8 @@ int kn_pw_decode(kn_pw *d, const uint8_t *data, size_t len, uint8_t *const out[3
     return 1;
 }
 
-// Repli sans paquet de configuration : définition et chroma lues dans l'en-tête
-// de séquence (8 octets en tête d'un paquet PyroWave, bit `extended`, début d'image).
-int kn_pw_sequence_header(const uint8_t *data, size_t len, int *width, int *height, int *c444) {
-    if (len < 8) return 0;
-    uint32_t w0 = (uint32_t)data[0] | (uint32_t)data[1] << 8 | (uint32_t)data[2] << 16 | (uint32_t)data[3] << 24;
-    uint32_t w1 = (uint32_t)data[4] | (uint32_t)data[5] << 8 | (uint32_t)data[6] << 16 | (uint32_t)data[7] << 24;
-    if (!(w0 >> 31) || ((w1 >> 24) & 3) != 0) return 0;
-    *width = (int)(w0 & 0x3FFF) + 1;
-    *height = (int)((w0 >> 14) & 0x3FFF) + 1;
-    *c444 = (int)((w1 >> 26) & 1);
-    return 1;
-}
+// Sans paquet de configuration, la définition et la chroma se lisent dans
+// l'en-tête de séquence : `pyrowave::Config::from_sequence_header` du cœur.
 
 // Image de test : 128 × 128, 4:2:0, rampe de Y de 16 à 235, Cb et Cr à 128 ;
 // celle de l'app Mac (encodée par l'encodeur Metal du port, même flux binaire).

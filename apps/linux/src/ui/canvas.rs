@@ -75,6 +75,9 @@ pub struct Fonts {
     old: HashMap<(Font, char, u32), Glyph>,
 }
 
+/// L'espace fine insécable (U+202F).
+pub const NARROW_NBSP: char = '\u{202F}';
+
 /// Glyphes gardés par génération.
 const GLYPH_GENERATION: usize = 3000;
 
@@ -92,7 +95,17 @@ impl Fonts {
         let key = (font, c, (size * 10.0).round() as u32);
         if !self.cache.contains_key(&key) {
             let g = self.old.remove(&key).unwrap_or_else(|| {
-                let (metrics, coverage) = self.fonts[&font].rasterize(c, size);
+                let f = &self.fonts[&font];
+                // L'espace fine insécable (avant « : ; ! ? » en français, docs/i18n.md) : les polices de la charte ne
+                // l'ont pas ; l'espace insécable, plus étroite (sauf la chasse fixe de Martian Mono).
+                if c == NARROW_NBSP && f.lookup_glyph_index(c) == 0 {
+                    let (mut metrics, coverage) = f.rasterize('\u{00A0}', size);
+                    if !matches!(font, Font::Mono | Font::MonoMedium) {
+                        metrics.advance_width *= 0.6;
+                    }
+                    return Glyph { metrics, coverage };
+                }
+                let (metrics, coverage) = f.rasterize(c, size);
                 Glyph { metrics, coverage }
             });
             if self.cache.len() >= GLYPH_GENERATION {
@@ -482,7 +495,8 @@ impl Canvas {
     pub fn line_count(&mut self, style: Text, s: &str, max: f32) -> usize {
         let mut line = String::new();
         let mut lines = 0;
-        for word in s.split_whitespace() {
+        // Les mots : entre espaces ordinaires (jamais à une espace insécable, fine ou non).
+        for word in s.split(|c: char| c.is_ascii_whitespace()).filter(|w| !w.is_empty()) {
             let candidate = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
             if !line.is_empty() && self.text_width(style, &candidate) > max {
                 lines += 1;
@@ -501,7 +515,8 @@ impl Canvas {
         let mut line = String::new();
         let mut yy = y;
         let mut lines = 0;
-        for word in s.split_whitespace() {
+        // Les mots : entre espaces ordinaires (jamais à une espace insécable, fine ou non).
+        for word in s.split(|c: char| c.is_ascii_whitespace()).filter(|w| !w.is_empty()) {
             let candidate = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
             if !line.is_empty() && self.text_width(style, &candidate) > max {
                 self.text(x, yy, style, &line);
@@ -861,6 +876,23 @@ impl Canvas {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// TRANS-32 : l'espace fine insécable avant « : ; ! ? » (absente des polices) se dessine étroite, sans glyphe de
+    /// remplacement, et une ligne ne se coupe jamais à elle.
+    #[test]
+    fn espace_fine_insecable() {
+        let mut cv = Canvas::new();
+        cv.resize(400, 100, 1.0);
+        let st = Text::new(Font::Regular, 20.0, Rgba(255, 255, 255, 255));
+        let fine = cv.text_width(st, "a\u{202F}:");
+        let normal = cv.text_width(st, "a :");
+        assert!(fine < normal && fine > cv.text_width(st, "a:"), "{fine} {normal}");
+        // « mot : » ne se coupe pas entre le mot et les deux-points.
+        let w = cv.text_width(st, "mot\u{202F}:");
+        assert_eq!(cv.line_count(st, "mot\u{202F}:", w + 1.0), 1);
+        let mot = cv.text_width(st, "mot");
+        assert_eq!(cv.line_count(st, "mot :", mot + 1.0), 2, "une espace ordinaire, elle, coupe");
+    }
 
     #[test]
     fn masked_half_is_drawn() {

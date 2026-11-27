@@ -147,6 +147,9 @@ pub struct HostSettings {
     /// première fois ; la barre, la tuile du menu et la rubrique Son le changent, la session suivante le reprend.
     /// Propre à cet appareil : jamais synchronisé.
     pub mic: bool,
+    /// « Garder la dernière image » (docs/link-ui.md, rubrique Image) : l'accueil montre la dernière image de la
+    /// session de cet ordinateur. Propre à cet appareil : jamais synchronisé.
+    pub keep_last_image: bool,
 }
 
 impl Default for HostSettings {
@@ -178,6 +181,7 @@ impl Default for HostSettings {
             auto: None,
             encoder_max: None,
             mic: false,
+            keep_last_image: true,
         }
     }
 }
@@ -373,8 +377,10 @@ pub struct AppSettings {
     /// Interface : `auto` (console sous gamescope, bureau ailleurs),
     /// `desktop`, `handheld`, `tv`.
     pub interface: String,
-    /// Garder la dernière image de chaque session pour l'accueil.
-    pub keep_last_image: bool,
+    /// « Garder la dernière image » d'avant la 0.11.8, pour toute l'app : lu une fois et repris par chaque ordinateur
+    /// (`HostSettings::keep_last_image`, `Store::adopt_legacy_keep_image`), jamais réécrit.
+    #[serde(rename = "keep_last_image", skip_serializing)]
+    pub legacy_keep_last_image: Option<bool>,
     /// KyberNow Link OS : le premier démarrage (manette, langue, réseau, usage,
     /// ordinateur) est fait.
     pub os_setup_done: bool,
@@ -389,6 +395,10 @@ pub struct AppSettings {
     /// KyberNow Link OS : mode de la sortie HDMI au démarrage : `auto`,
     /// `2160p60`, `1080p120`, `1080p60`.
     pub os_hdmi: String,
+    /// KyberNow Link OS : le pays (code ISO, vide : pas encore choisi) et son fuseau (docs/link-ui.md, « KyberNow
+    /// Link OS : langue, pays et fuseau ») ; le Wi-Fi, l'heure et le clavier le suivent (`kybernow-os-ctl locale`).
+    pub os_country: String,
+    pub os_timezone: String,
     /// KyberNow Share : le prénom donné en rejoignant un partage, retenu pour
     /// la fois suivante (vide : le nom de cet appareil est proposé). Avec la qualité de l'image ci-dessous, la
     /// seule trace d'un partage sur l'appareil : un invité n'est jamais ajouté aux ordinateurs.
@@ -417,7 +427,7 @@ pub struct AppSettings {
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), beta: false, interface: "auto".into(), keep_last_image: true, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), share_name: String::new(), share_quality: String::new(), lend_warned: false, sync_settings: true, last_launched: String::new(), welcome: Default::default(), mic_device: String::new(), mic_echo: true }
+        Self { language: "auto".into(), beta: false, interface: "auto".into(), legacy_keep_last_image: None, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), os_country: String::new(), os_timezone: String::new(), share_name: String::new(), share_quality: String::new(), lend_warned: false, sync_settings: true, last_launched: String::new(), welcome: Default::default(), mic_device: String::new(), mic_echo: true }
     }
 }
 
@@ -529,28 +539,6 @@ impl PsSettings {
     pub fn custom(&self) -> bool {
         self.resolution != "auto" || self.fps != 60 || self.bitrate_kbps.is_some() || self.codec != "auto"
     }
-
-    /// La hauteur de la définition (Auto : 1080). (Essais : le cœur en décide en session, `PlaySettings`.)
-    #[cfg(test)]
-    pub fn height(&self) -> u32 {
-        match self.resolution.as_str() {
-            "p720" => 720,
-            "p540" => 540,
-            "p360" => 360,
-            _ => 1080,
-        }
-    }
-
-    /// Le débit effectif, kbit/s (Auto : préréglages de chiaki-ng, `Resolution::auto_bitrate`).
-    #[cfg(test)]
-    pub fn bitrate(&self) -> u32 {
-        self.bitrate_kbps.map(|b| b.clamp(2_000, 100_000)).unwrap_or(match self.height() {
-            720 => 10_000,
-            540 => 6_000,
-            360 => 2_000,
-            _ => 15_000,
-        })
-    }
 }
 
 /// Une console PlayStation : trouvée sur le réseau (ou par son adresse, ou reçue d'un autre appareil), avec ses
@@ -650,15 +638,14 @@ impl KnAccount {
     }
 }
 
-/// Un relais tel qu'on le montre : sa forme normale sans l'empreinte épinglée (`RelayAddr::web_authority`).
+/// Un relais tel qu'on le montre (`kybernow_rules::relay::label` : sans l'empreinte épinglée ni le port 443) ; aucun :
+/// le relais public.
 pub fn relay_label(relay: &str) -> String {
-    let r = relay.split('#').next().unwrap_or_default().trim();
-    let r = r.strip_suffix(":443").unwrap_or(r);
-    if r.is_empty() { DEFAULT_RELAY.to_string() } else { r.to_string() }
+    if relay.split('#').next().unwrap_or_default().trim().is_empty() { DEFAULT_RELAY.to_string() } else { kybernow_rules::relay::label(relay) }
 }
 
 /// Le relais public, proposé d'abord (« Ajouter un compte »).
-pub const DEFAULT_RELAY: &str = "share.kybernow.app";
+pub use kybernow_rules::relay::DEFAULT_RELAY;
 
 /// Un ordinateur d'un compte (`account::AccountComputer` du cœur, même JSON). La dernière liste est gardée (rien de
 /// secret) : l'accueil la montre dès le lancement, et l'empreinte d'Admin, que le relais ne donne que pour une Station
@@ -734,10 +721,14 @@ pub struct Store {
     pub accounts: Vec<KnAccount>,
     pub account_computers: Vec<KnComputer>,
     pub account_hosts: Vec<AccountHost>,
-    /// Réglages synchronisés (`crate::synced`) : ceux que le relais garde pour chaque ordinateur des comptes (la base
-    /// des envois, et le dernier changement déjà appliqué ici), et les changements qu'il n'a pas encore reçus.
-    pub synced: Vec<crate::synced::SyncedEntry>,
-    pub sync_pending: Vec<crate::synced::PendingSync>,
+    /// Réglages synchronisés (`crate::synced`) : la mémoire de chaque compte, le JSON d'`account::AccountSync` du cœur
+    /// (ce que le relais garde pour ses ordinateurs, ce qui est déjà appliqué ici, ce qu'il n'a pas encore reçu).
+    pub account_sync: Vec<crate::synced::AccountMemory>,
+    /// La mémoire d'avant la 0.11.8, lue une fois et reprise dans `account_sync` (`adopt_legacy_sync`), jamais réécrite.
+    #[serde(rename = "synced", skip_serializing)]
+    pub legacy_synced: Vec<crate::synced::LegacySynced>,
+    #[serde(rename = "sync_pending", skip_serializing)]
+    pub legacy_sync_pending: Vec<crate::synced::LegacyPending>,
     /// Mise à jour des Stations (docs/link-ui.md) : pour chaque ordinateur (`Host::id`), « Plus tard » et la dernière
     /// vérification demandée. Gardé sur cet appareil seulement (jamais dans les réglages synchronisés).
     pub station_offers: std::collections::HashMap<String, StationMemory>,
@@ -821,12 +812,23 @@ impl Store {
         if s.device_id.is_empty() {
             s.device_id = new_id();
         }
+        s.adopt_legacy_sync();
+        s.adopt_legacy_keep_image();
         s.set_aside = aside;
         if writable {
             s.path = Some(path);
             s.save();
         }
         s
+    }
+
+    /// « Garder la dernière image » coupé pour toute l'app avant la 0.11.8 : coupé pour chaque ordinateur.
+    pub fn adopt_legacy_keep_image(&mut self) {
+        if self.app.legacy_keep_last_image.take() == Some(false) {
+            for h in &mut self.hosts {
+                h.settings.keep_last_image = false;
+            }
+        }
     }
 
     /// Écrit le fichier (par un fichier temporaire renommé : jamais à moitié écrit).
@@ -861,7 +863,7 @@ impl Store {
     /// empreinte d'Admin, sinon même adresse) prend le nouvel accès (adresse, compte, relais) au lieu d'être ajouté
     /// deux fois.
     pub fn put_invited(&mut self, host: Host) -> String {
-        let same_fp = host.fingerprint.as_deref().filter(|f| !f.is_empty()).and_then(|fp| self.hosts.iter().position(|h| h.fingerprint.as_deref() == Some(fp)));
+        let same_fp = self.hosts.iter().position(|h| kybernow_rules::fingerprint::same_opt(h.fingerprint.as_deref(), host.fingerprint.as_deref()));
         let i = same_fp.or_else(|| self.hosts.iter().position(|h| h.address == host.address && h.port == host.port));
         self.put_at(i, host)
     }
@@ -1104,12 +1106,11 @@ impl Store {
     /// adresse (la session passe alors par le réseau, puis par le relais s'il ne répond pas) ; absent, il la perd (par
     /// le relais seulement). Rend vrai si quelque chose a changé.
     pub fn locate_account_hosts(&mut self, found: &[(String, u16, Option<String>)]) -> bool {
-        let norm = |s: &str| s.trim().to_ascii_lowercase();
         let ids: Vec<String> = self.account_hosts.iter().map(|a| a.id.clone()).collect();
         let mut changed = false;
         for id in ids {
             let Some(h) = self.host_mut(&id) else { continue };
-            let seen = h.fingerprint.as_deref().filter(|f| !f.trim().is_empty()).and_then(|fp| found.iter().find(|(_, _, f)| f.as_deref().is_some_and(|f| norm(f) == norm(fp))));
+            let seen = found.iter().find(|(_, _, f)| kybernow_rules::fingerprint::same_opt(h.fingerprint.as_deref(), f.as_deref()));
             let (address, port) = seen.map(|(a, p, _)| (a.clone(), *p)).unwrap_or_default();
             if h.address != address || h.port != port {
                 h.address = address;
@@ -1180,6 +1181,25 @@ fn utc_stamp(secs: u64) -> String {
 #[cfg(test)]
 mod store_file_tests {
     use super::*;
+
+    /// « Garder la dernière image » coupé pour toute l'app avant la 0.11.8 : coupé pour chaque ordinateur, et le champ
+    /// d'avant n'est plus écrit (TRANS-39 : le réglage est celui de l'ordinateur).
+    #[test]
+    fn garder_la_derniere_image_par_ordinateur() {
+        let d = dir("garder-image");
+        let path = d.join("kybernow.json");
+        let host = r#"{"id":"a","name":"Atelier","address":"192.168.1.20","port":9443,"fingerprint":null,"user":"u","password":"","os":null,"gpu":null,"av1":false,"pyrowave":false,"mac":null,"wake":[],"relay":null,"settings":{},"last":null}"#;
+        std::fs::write(&path, format!(r#"{{"hosts":[{host}],"app":{{"keep_last_image":false}}}}"#)).unwrap();
+        let s = Store::load_from(path.clone(), 0);
+        assert!(!s.hosts[0].settings.keep_last_image);
+        let saved = std::fs::read_to_string(&path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        assert!(v["app"].get("keep_last_image").is_none());
+        assert_eq!(v["hosts"][0]["settings"]["keep_last_image"], false);
+        // Sans réglage d'avant : gardée.
+        assert!(HostSettings::default().keep_last_image);
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     fn dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("kybernow-store-{name}-{}", std::process::id()));

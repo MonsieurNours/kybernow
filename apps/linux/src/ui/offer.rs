@@ -19,21 +19,8 @@ fn arrow_up(cv: &mut Canvas, cx: f32, cy: f32, r: f32, u: f32, color: Rgba) {
 }
 
 /// Le cercle d'attente.
-fn spinner(app: &App, cv: &mut Canvas, cx: f32, cy: f32, r: f32, u: f32) {
-    let t = app.screen_since.elapsed().as_secs_f32();
-    let a0 = if app.reduce_motion { 0.0 } else { t * 4.0 };
-    cv.circle_stroke(cx, cy, r, 1.5 * u, LINE_2);
-    let pts: Vec<(f32, f32)> = (0..=16).map(|i| a0 + i as f32 * 0.28).map(|a| (cx + r * a.cos(), cy + r * a.sin())).collect();
-    cv.polyline(&pts, 2.0 * u, SPECTRE);
-}
 
-fn primary_w(cv: &mut Canvas, h: f32, s: &str) -> f32 {
-    cv.text_width(Text::new(Font::Semibold, h * 0.32, FROST), s) + 2.0 * h * 0.58
-}
 
-fn ghost_w(cv: &mut Canvas, size: f32, s: &str) -> f32 {
-    cv.text_width(Text::new(Font::Regular, size, FROST), s) + size * 2.0
-}
 
 /// Hauteur, hauteur des boutons, taille du texte, largeur du texte.
 fn layout(app: &App, cv: &mut Canvas, b: &HomeBanner, width: f32) -> (f32, f32, f32, f32) {
@@ -44,10 +31,10 @@ fn layout(app: &App, cv: &mut Canvas, b: &HomeBanner, width: f32) -> (f32, f32, 
     let pad = 16.0 * u;
     let mut buttons = 0.0;
     if let Some(l) = b.main_label() {
-        buttons += primary_w(cv, bh, l) + 10.0 * u;
+        buttons += super::widgets::primary_width(cv, bh, l, false) + 10.0 * u;
     }
     if b.later() {
-        buttons += ghost_w(cv, size, crate::i18n::tr("Plus tard", "Later")) + 10.0 * u;
+        buttons += super::widgets::ghost_width(cv, size, false, crate::i18n::tr("Plus tard", "Later")) + 10.0 * u;
     }
     let text_w = (width - pad - 36.0 * u - 14.0 * u - buttons - pad).max(160.0 * u);
     let style = Text::new(Font::Regular, size, FROST);
@@ -77,7 +64,10 @@ pub fn banner(app: &App, cv: &mut Canvas, f: &mut Frame, id: &str, x: f32, y: f3
     let cy = y + h / 2.0;
     let ix = x + pad + 18.0 * u;
     if b == HomeBanner::Busy {
-        spinner(app, cv, ix, cy, 10.0 * u, u);
+        {
+            cv.circle_stroke(ix, cy, 10.0 * u, 1.5 * u, LINE_2);
+            super::widgets::spinner(app, cv, ix, cy, 10.0 * u, u);
+        }
     } else {
         arrow_up(cv, ix, cy, 18.0 * u, u, accent);
     }
@@ -92,12 +82,12 @@ pub fn banner(app: &App, cv: &mut Canvas, f: &mut Frame, id: &str, x: f32, y: f3
     let by = cy - bh / 2.0;
     if b.later() {
         let later = crate::i18n::tr("Plus tard", "Later");
-        bx -= ghost_w(cv, size, later);
+        bx -= super::widgets::ghost_width(cv, size, false, later);
         widgets::ghost(cv, f, Target::OfferLater, bx, by, bh, size, None, later, MUTED);
         bx -= 10.0 * u;
     }
     if let Some(l) = b.main_label() {
-        bx -= primary_w(cv, bh, l);
+        bx -= super::widgets::primary_width(cv, bh, l, false);
         widgets::primary(cv, f, Target::OfferUpdate, bx, by, bh, l, false);
     }
     h
@@ -155,7 +145,10 @@ pub fn notice(app: &App, cv: &mut Canvas, f: &mut Frame) {
         if let Some(s) = row_state_text(&r.state) {
             let color = row_color(&r.state);
             if r.state == RowState::Busy {
-                spinner(app, cv, ix + 9.0 * u, yy + 12.0 * u, 9.0 * u, u);
+                {
+            cv.circle_stroke(ix + 9.0 * u, yy + 12.0 * u, 9.0 * u, 1.5 * u, LINE_2);
+            super::widgets::spinner(app, cv, ix + 9.0 * u, yy + 12.0 * u, 9.0 * u, u);
+        }
                 cv.text_fit(ix + 28.0 * u, yy + 18.0 * u, Text::new(Font::Regular, body.size, color), &s, iw - 28.0 * u);
             } else {
                 cv.text_fit(ix, yy + 18.0 * u, Text::new(Font::Regular, body.size, color), &s, iw);
@@ -178,18 +171,21 @@ pub fn notice(app: &App, cv: &mut Canvas, f: &mut Frame) {
             match &r.state {
                 RowState::Ready | RowState::Failed(_) => {
                     let l = crate::i18n::tr("Mettre à jour", "Update");
-                    sx -= ghost_w(cv, rsize, l);
+                    sx -= super::widgets::ghost_width(cv, rsize, false, l);
                     widgets::ghost(cv, f, Target::NoticeRow(i), sx, by, rb, rsize, None, l, FROST);
                     sx -= 14.0 * u;
                 }
                 RowState::Refused(_) => {
                     let l = crate::station_offer::update_anyway();
-                    sx -= ghost_w(cv, rsize, l);
+                    sx -= super::widgets::ghost_width(cv, rsize, false, l);
                     widgets::ghost(cv, f, Target::NoticeRow(i), sx, by, rb, rsize, None, l, FROST);
                     sx -= 14.0 * u;
                 }
                 RowState::Busy => {
-                    spinner(app, cv, sx - 9.0 * u, yy + row_h / 2.0, 9.0 * u, u);
+                    {
+            cv.circle_stroke(sx - 9.0 * u, yy + row_h / 2.0, 9.0 * u, 1.5 * u, LINE_2);
+            super::widgets::spinner(app, cv, sx - 9.0 * u, yy + row_h / 2.0, 9.0 * u, u);
+        }
                     sx -= 28.0 * u;
                 }
                 RowState::Done => {}
@@ -206,12 +202,12 @@ pub fn notice(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let by = if desktop { y + ch - pad - bh } else { (yy + 28.0 * u).min(ch - bh - 24.0 * u) };
     let mut bx = ix + iw;
     if let Some(l) = n.main_label() {
-        bx -= primary_w(cv, bh, l);
+        bx -= super::widgets::primary_width(cv, bh, l, false);
         widgets::primary(cv, f, Target::NoticeMain, bx, by, bh, l, false);
         bx -= 12.0 * u;
     }
     let later = n.later_label();
-    bx -= ghost_w(cv, size, later);
+    bx -= super::widgets::ghost_width(cv, size, false, later);
     widgets::ghost(cv, f, Target::NoticeLater, bx, by, bh, size, None, later, MUTED);
     // À la manette : la légende des deux boutons.
     if !desktop {

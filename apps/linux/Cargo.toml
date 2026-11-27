@@ -12,6 +12,12 @@ path = "src/main.rs"
 
 [dependencies]
 kybernow-core = { path = "../core", optional = true }
+# Les règles pures communes aux apps (adresses, empreintes, codes, relais, bornes du débit, courbes HDR) : l'interface
+# s'en sert sans le cœur (captures, essais sur le Mac).
+kybernow-rules = { path = "../core/rules" }
+# PyroWave : l'en-tête `KNPW` version 2 demandé à la Station (`kyclient::set_pyrowave_header`, correctif kyclient
+# 0025, posé avec `pyrowave`) ; le même kyclient que celui du cœur.
+kyclient = { path = "../../third_party/kyber-desktop/kysdk/kyctl/kyclient", features = ["kymux"], optional = true }
 keycode = { version = "1.0", optional = true }
 # Le manifeste signé d'une mise à jour de KyberNow Link OS, déposé à côté de
 # l'image pour que root le vérifie (même version que le cœur).
@@ -27,15 +33,20 @@ mdns-sd = { version = "0.13", default-features = false }
 getrandom = "0.2"
 # QR code d'Admin (Réglages de l'ordinateur › Station, à la manette et sur KyberNow Link OS) : pur Rust, sans dépendance.
 qrcodegen = "1.8"
+# « Envoyer le journal » par QR code : compressé, chiffré sur l'appareil (docs/relais.md, « Dépôt d'un journal »),
+# la clé en base64url dans l'adresse ; les mêmes que le cœur.
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"], optional = true }
+flate2 = { version = "1", optional = true }
+base64 = { version = "0.22", optional = true }
 
 [features]
 # L'app : cœur, FFmpeg, SDL. Sans elle (--no-default-features), seule
 # l'interface se compile : captures des écrans (`--preview`), sur Mac aussi.
 default = ["device"]
-device = ["dep:kybernow-core", "dep:keycode", "dep:ureq"]
+device = ["dep:kybernow-core", "dep:keycode", "dep:ureq", "dep:aes-gcm", "dep:flate2", "dep:base64"]
 # PyroWave demandé à Kyber : la fonctionnalité `pyrowave` du cœur, avec le
 # correctif kyclient 0025 (scripts/build.sh --kyber-pyrowave).
-pyrowave = ["device", "kybernow-core/pyrowave"]
+pyrowave = ["device", "kybernow-core/pyrowave", "dep:kyclient"]
 
 [build-dependencies]
 cc = "1"

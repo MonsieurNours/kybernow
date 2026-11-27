@@ -93,7 +93,7 @@ fn body(app: &App, cv: &mut Canvas, f: &mut Frame) {
         y.max(500.0) + 30.0,
         Text::new(Font::Regular, 19.0, FAINT),
         tr(
-            "Quatre joueurs au plus. En mode Jeu de SteamOS, Steam Input présente les manettes comme des manettes Xbox : la vibration passe par lui.",
+            "Quatre joueurs au plus. En mode Jeu de SteamOS, Steam Input présente les manettes comme des manettes Xbox : la vibration passe par lui.",
             "Four players at most. In SteamOS Gaming Mode, Steam Input presents controllers as Xbox controllers: rumble goes through it.",
         ),
         690.0,

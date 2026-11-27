@@ -18,7 +18,7 @@ use kybernow_core::share::{self, JoinRequest, Joining, PendingJoin, ShareAvailab
 use kybernow_core::wake::WakeTarget;
 
 use super::Event;
-use crate::app::{BorrowSource, Found, LendAvail, LendHostView, LendLive, LendOp, LendSlotUi, LendState, LendSteam, SessionId, ShareAvail, ShareOp, ShareView, StationKind, StationLive, StationRefusal};
+use crate::app::{BorrowSource, Found, HostError, LendAvail, LendHostView, LendLive, LendOp, LendSlotUi, LendState, LendSteam, SessionId, ShareAvail, ShareOp, ShareView, StationKind, StationLive, StationRefusal};
 use crate::model::{new_id, Borrowed, Host, HostRelay, HostSettings, WakeCard};
 
 /// Sonde un ordinateur : en ligne ou non, son système, sa Station, et son
@@ -29,7 +29,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
         // « Hors de chez vous » si le relais le dit connecté (jamais de sonde par le relais toutes les 8 s).
         if host.address.is_empty() && super::accounts::access(&host.id).is_some() {
             let away = away_from_home(&host, &ConsoleError::Network(String::from("absent du réseau")));
-            let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, pyrowave: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None, hdr: None });
+            let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, pyrowave: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None, hdr: None, error: None });
             return;
         }
         // Un ordinateur d'un compte : le jeton d'accès du relais ; un ordinateur appairé : le compte de l'appareil.
@@ -66,6 +66,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                     lend_view,
                     gamepads: Some(info.gamepads_available()),
                     hdr: Some(station_hdr(&info)),
+                    error: None,
                 });
                 if want_preview
                     && let Ok(bytes) = c.preview(960)
@@ -78,7 +79,13 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                 log::info!("{} : hors ligne ({e})", host.name);
                 // Le réseau ne répond pas : l'ordinateur est peut-être joignable par le relais (« Hors de chez vous »).
                 let away = away_from_home(&host, &e);
-                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, pyrowave: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None, hdr: None });
+                // Le mot de passe refusé, une Station réinstallée : dits sous le nom, à l'accueil.
+                let error = match &e {
+                    ConsoleError::Http { status: 401, .. } => Some(HostError::PasswordRefused),
+                    ConsoleError::CertificateChanged { .. } => Some(HostError::Reinstalled),
+                    _ => None,
+                };
+                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, pyrowave: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None, hdr: None, error });
             }
         }
     });
@@ -230,7 +237,7 @@ pub fn discover(tx: Sender<Event>) {
                 return;
             }
         };
-        let rx = match daemon.browse("_kybernow._tcp.local.") {
+        let rx = match daemon.browse(kybernow_core::discovery::SERVICE) {
             Ok(rx) => rx,
             Err(e) => {
                 log::warn!("découverte : recherche impossible ({e})");
@@ -240,15 +247,23 @@ pub fn discover(tx: Sender<Event>) {
         let mut found: HashMap<String, Found> = HashMap::new();
         while let Ok(ev) = rx.recv() {
             match ev {
+                // L'annonce lue par le cœur (`discovery::found`) : l'adresse à joindre (IPv4 hors de 169.254/16
+                // d'abord, jamais une IPv6 locale au lien), le nom, l'empreinte mise en forme ; `kyber=0` (Admin sans
+                // Kyber) n'est pas proposé.
                 mdns_sd::ServiceEvent::ServiceResolved(info) => {
-                    let Some(addr) = info.get_addresses().iter().find(|a| a.is_ipv4()).or_else(|| info.get_addresses().iter().next()) else { continue };
-                    let name = info.get_property_val_str("name").map(str::to_string).unwrap_or_else(|| {
-                        info.get_fullname().split("._kybernow").next().unwrap_or("Station").to_string()
-                    });
-                    let fp = info.get_property_val_str("fp").map(|s| if s.starts_with("sha256:") { s.to_string() } else { format!("sha256:{s}") });
-                    let f = Found { name, address: addr.to_string(), port: info.get_port(), fingerprint: fp };
-                    found.insert(info.get_fullname().to_string(), f);
-                    let _ = tx.send(Event::Found(found.values().cloned().collect()));
+                    let addresses: Vec<std::net::IpAddr> = info.get_addresses().iter().copied().collect();
+                    let full = info.get_fullname().to_string();
+                    let seen = kybernow_core::discovery::found(&full, info.get_port(), &addresses, |k| info.get_property_val_str(k).map(str::to_string));
+                    let changed = match seen {
+                        Some(f) => {
+                            found.insert(full, Found { name: f.name, address: f.host, port: f.port, fingerprint: f.fingerprint });
+                            true
+                        }
+                        None => found.remove(&full).is_some(),
+                    };
+                    if changed {
+                        let _ = tx.send(Event::Found(found.values().cloned().collect()));
+                    }
                 }
                 mdns_sd::ServiceEvent::ServiceRemoved(_, full) => {
                     if found.remove(&full).is_some() {
@@ -348,7 +363,7 @@ pub fn pair(targets: Vec<Target>, code: String, device: DeviceInfo, cancel: Arc<
                     }
                     Ok(PairStatus::Expired) => {
                         pending.remove(i);
-                        let _ = tx.send(Event::PairFailed(crate::i18n::tr("Code expiré : recommencez", "Code expired: try again").into()));
+                        let _ = tx.send(Event::PairFailed(crate::i18n::tr("Code expiré : recommencez", "Code expired: try again").into()));
                         continue;
                     }
                     _ => {}
@@ -535,13 +550,13 @@ pub fn download_os(tx: Sender<Event>) {
 /// (même dossier de la release), déposés dans `dir` pour root.
 fn os_manifest(image_url: &str, dir: &std::path::Path) -> Result<(), String> {
     use std::io::Read;
-    let base = image_url.rsplit_once('/').map(|(b, _)| b).ok_or_else(|| format!("adresse inattendue : {image_url}"))?;
+    let base = image_url.rsplit_once('/').map(|(b, _)| b).ok_or_else(|| format!("adresse inattendue : {image_url}"))?;
     for (name, limit) in [(OS_MANIFEST, 256u64 << 10), (OS_SIGNATURE, 16 << 10)] {
         let url = format!("{base}/{name}");
-        let resp = ureq::get(&url).call().map_err(|e| format!("{name} : {e}"))?;
+        let resp = ureq::get(&url).call().map_err(|e| format!("{name} : {e}"))?;
         let mut buf = Vec::new();
-        resp.into_reader().take(limit).read_to_end(&mut buf).map_err(|e| format!("{name} : {e}"))?;
-        std::fs::write(dir.join(name), &buf).map_err(|e| format!("{} : {e}", dir.join(name).display()))?;
+        resp.into_reader().take(limit).read_to_end(&mut buf).map_err(|e| format!("{name} : {e}"))?;
+        std::fs::write(dir.join(name), &buf).map_err(|e| format!("{} : {e}", dir.join(name).display()))?;
     }
     Ok(())
 }

@@ -31,7 +31,10 @@ if [ -n "${SAMPLES:-}" ]; then
     for p in "$SAMPLES"/*.pyrowave; do
         name="$(basename "$p" .pyrowave)"
         echo "== $name"
-        "$WORK/check" "$p" "$SAMPLES/${name%-hdr}.yuv" $([[ "$name" == *hdr ]] && echo src8) || fail=1
+        # Un flux HDR se compare à la mire 8 bits d'origine.
+        extra=()
+        [[ "$name" == *hdr ]] && extra=(src8)
+        "$WORK/check" "$p" "$SAMPLES/${name%-hdr}.yuv" "${extra[@]}" || fail=1
     done
     exit $fail
 fi

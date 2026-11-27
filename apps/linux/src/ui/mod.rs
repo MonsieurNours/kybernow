@@ -11,6 +11,7 @@ pub mod canvas;
 mod home;
 pub mod icons;
 mod join;
+mod journal;
 mod launch;
 mod lend;
 mod offer;
@@ -150,6 +151,10 @@ pub fn draw_view(app: &App, cv: &mut Canvas, view: View) -> Vec<(Target, Rect)> 
     if view.main && !background && app.autotest.is_some() && matches!(app.screen, Screen::Home | Screen::Settings) {
         autotest::overlay(app, cv, &mut f);
     }
+    // « Envoyer le journal » par QR code, par-dessus les réglages (de l'app, de l'appareil sur Link OS).
+    if view.main && !background && app.journal.is_some() && matches!(app.screen, Screen::Settings | Screen::Device) {
+        journal::overlay(app, cv, &mut f);
+    }
     if view.main
         && !background
         && let Some((msg, at)) = &app.toast
@@ -219,15 +224,8 @@ pub fn toast(app: &App, cv: &mut Canvas, msg: &str, at: &Instant) {
     let u = unit(app.layout);
     let t = at.elapsed().as_secs_f32();
     let a = if t > 3.6 { ((4.0 - t) / 0.4).clamp(0.0, 1.0) } else { 1.0 };
-    let style = Text::new(Font::Regular, 14.0 * u, FROST.alpha(a));
-    let h = 38.0 * u;
-    let w = cv.text_width(style, msg) + 52.0 * u;
-    let x = (cv.w - w) / 2.0;
     let y = cv.h - if app.layout.console() { 120.0 } else { 90.0 } * u;
-    cv.rrect(x, y, w, h, h / 2.0, Rgba(9, 13, 18, (230.0 * a) as u8));
-    cv.rrect_stroke(x, y, w, h, h / 2.0, 1.0, LINE_2.alpha(a));
-    cv.circle(x + 20.0 * u, y + h / 2.0, 3.5 * u, SPECTRE.alpha(a));
-    cv.text(x + 32.0 * u, y + h / 2.0 + 5.0 * u, style, msg);
+    widgets::capsule(cv, y, 38.0 * u, Text::new(Font::Regular, 14.0 * u, FROST.alpha(a)), msg, widgets::Mark::Dot(SPECTRE), a);
 }
 
 /// Le fond de l'accueil sans image : la signature de l'ordinateur (deux

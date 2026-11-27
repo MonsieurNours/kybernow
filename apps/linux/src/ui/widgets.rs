@@ -9,6 +9,45 @@ use super::theme::*;
 use super::Frame;
 use crate::app::{Rect, Tag, TagKind, Target};
 
+/// La roue d'attente : un arc qui tourne (fixe avec moins d'animations), centré en (`cx`, `cy`), de rayon `r`.
+pub fn spinner(app: &crate::app::App, cv: &mut Canvas, cx: f32, cy: f32, r: f32, u: f32) {
+    let t = app.screen_since.elapsed().as_secs_f32();
+    let a0 = if app.reduce_motion { 0.0 } else { t * 4.0 };
+    let pts: Vec<(f32, f32)> = (0..=16).map(|i| a0 + i as f32 * 0.28).map(|a| (cx + r * a.cos(), cy + r * a.sin())).collect();
+    cv.polyline(&pts, 2.0 * u, SPECTRE);
+}
+
+/// L'accélération des apparitions (cubic-bezier(.2, .9, .1, 1) approché : départ vif, arrivée douce).
+pub fn ease(p: f32) -> f32 {
+    1.0 - (1.0 - p.clamp(0.0, 1.0)).powi(4)
+}
+
+/// Ce qui précède le texte d'une capsule : un point de couleur, ou une icône.
+#[derive(Clone, Copy)]
+pub enum Mark {
+    Dot(Rgba),
+    Icon(Icon),
+}
+
+/// Une capsule centrée (avis, reconnexion) : en `y`, de hauteur `h`, le texte en `style`, la marque avant lui, à
+/// l'opacité `a` ; jamais plus large que la fenêtre moins 32 points (le texte est alors raccourci).
+pub fn capsule(cv: &mut Canvas, y: f32, h: f32, style: Text, msg: &str, mark: Mark, a: f32) {
+    let u = h / 34.0;
+    let lead = match mark {
+        Mark::Dot(_) => 32.0 * u,
+        Mark::Icon(_) => 40.0 * u,
+    };
+    let w = (cv.text_width(style, msg) + lead + 14.0 * u).min(cv.w - 32.0);
+    let x = (cv.w - w) / 2.0;
+    cv.rrect(x, y, w, h, h / 2.0, Rgba(9, 13, 18, (225.0 * a) as u8));
+    cv.rrect_stroke(x, y, w, h, h / 2.0, 1.0, LINE_2.alpha(a));
+    match mark {
+        Mark::Dot(c) => dot(cv, x + 18.0 * u, y + h / 2.0, 3.5 * u, c.alpha(a), true),
+        Mark::Icon(i) => cv.icon(&i, x + 14.0 * u, y + (h - 16.0 * u) / 2.0, 16.0 * u, 1.6, SPECTRE.alpha(a)),
+    }
+    cv.text_fit(x + lead, y + h / 2.0 + 5.0 * u, style, msg, w - lead - 14.0 * u);
+}
+
 /// Étiquette en capitales Martian Mono (« DERNIÈRE SESSION »).
 pub fn eyebrow(cv: &mut Canvas, x: f32, y: f32, size: f32, color: Rgba, s: &str) -> f32 {
     cv.text(x, y, Text::new(Font::Mono, size, color).tracking(size * 0.08), &s.to_uppercase())

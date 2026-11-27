@@ -15,8 +15,14 @@
 #                                       prend une adresse de lecteur, la télécommande lui parle
 #   kybernow-os-ctl cec-off             rend l'adresse CEC (réglage HDMI-CEC coupé)
 #   kybernow-os-ctl hdmi auto|2160p60|1080p120|1080p60   mode de la sortie HDMI au prochain démarrage (cmdline.txt)
+#   kybernow-os-ctl locale              le pays, le fuseau et le clavier choisis dans l'app (premier démarrage,
+#                                       Réglages de l'appareil › Langue), lus dans LOCALE_REQUEST et vérifiés ici :
+#                                       fuseau, pays du Wi-Fi (maintenant et aux démarrages suivants), disposition
+#                                       d'un clavier USB (docs/link-ui.md, « KyberNow Link OS : langue, pays et fuseau »)
 set -euo pipefail
 CEC="${CEC_DEVICE:-/dev/cec0}"
+# Ce que l'app laisse pour `locale` (son dossier : XDG_CONFIG_HOME de kybernow-link.service).
+LOCALE_REQUEST=/var/lib/kybernow/config/kybernow/os-locale
 # SSH : tout ce qui doit survivre aux mises à jour A/B vit sur la partition de
 # données (sshd-kybernow.conf y fait pointer sshd).
 SSH_DIR=/var/lib/kybernow/ssh
@@ -95,8 +101,34 @@ hdmi)
         *) echo "mode inconnu : $2" >&2; exit 2 ;;
     esac
     ;;
+locale)
+    # Un fichier ordinaire de l'app, jamais un lien ; chaque valeur à sa forme exacte, le fuseau connu du système.
+    [ -f "$LOCALE_REQUEST" ] && [ ! -L "$LOCALE_REQUEST" ] || { echo "pas de choix de pays" >&2; exit 2; }
+    cc="$(sed -n 's/^COUNTRY=\([A-Z][A-Z]\)$/\1/p' "$LOCALE_REQUEST" | head -1)"
+    tz="$(sed -n 's#^TIMEZONE=\([A-Za-z][A-Za-z0-9_+-]*\(/[A-Za-z0-9_+-]\{1,\}\)\{0,2\}\)$#\1#p' "$LOCALE_REQUEST" | head -1)"
+    km="$(sed -n 's/^KEYMAP=\([a-z]\{2,8\}\)$/\1/p' "$LOCALE_REQUEST" | head -1)"
+    if [ -z "$cc" ] || [ -z "$tz" ] || [ -z "$km" ] || [ ! -f "/usr/share/zoneinfo/$tz" ]; then
+        echo "choix de pays illisible" >&2
+        exit 2
+    fi
+    # Le fuseau (gardé d'une mise à jour à l'autre : /etc/timezone et /etc/localtime, kybernow-os-update).
+    timedatectl set-timezone "$tz" 2>/dev/null || ln -sf "/usr/share/zoneinfo/$tz" /etc/localtime
+    echo "$tz" > /etc/timezone
+    # Le pays du Wi-Fi : maintenant, puis à chaque démarrage par la ligne de commande du noyau (gardée par la mise à jour).
+    iw reg set "$cc" 2>/dev/null || true
+    CMD=/boot/firmware/cmdline.txt
+    sed -i -E 's/ ?cfg80211\.ieee80211_regdom=[A-Z]+//' "$CMD"
+    sed -i -E "1s/\$/ cfg80211.ieee80211_regdom=$cc/" "$CMD"
+    # Le clavier USB : la disposition de la console, que l'app lit (gardée par la mise à jour).
+    if [ -f /etc/default/keyboard ]; then
+        sed -i -E "s/^XKBLAYOUT=.*/XKBLAYOUT=\"$km\"/; s/^XKBVARIANT=.*/XKBVARIANT=\"\"/" /etc/default/keyboard
+    else
+        printf 'XKBMODEL="pc105"\nXKBLAYOUT="%s"\nXKBVARIANT=""\nXKBOPTIONS=""\nBACKSPACE="guess"\n' "$km" > /etc/default/keyboard
+    fi
+    if command -v setupcon >/dev/null; then setupcon -k --force >/dev/null 2>&1 || true; fi
+    ;;
 *)
-    echo "usage : kybernow-os-ctl ssh on|off | ssh-keys | reboot | poweroff | standby on|off | cec-name | cec-off | hdmi MODE" >&2
+    echo "usage : kybernow-os-ctl ssh on|off | ssh-keys | reboot | poweroff | standby on|off | cec-name | cec-off | hdmi MODE | locale" >&2
     exit 2
     ;;
 esac

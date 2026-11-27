@@ -22,7 +22,3 @@ int kn_pw_decode(kn_pw *d, const uint8_t *data, size_t len, uint8_t *const out[3
     return -2;
 }
 void kn_pw_close(kn_pw *d) { (void)d; }
-int kn_pw_sequence_header(const uint8_t *data, size_t len, int *w, int *h, int *c444) {
-    (void)data; (void)len; (void)w; (void)h; (void)c444;
-    return 0;
-}

@@ -96,7 +96,7 @@ mod tests {
         // L'écran SDL 2, en recopie de 1, se retrouve sur le même écran.
         assert_eq!(index_of(&g, &all, 2), 1);
         assert_eq!(index_of(&g, &all, 3), 2);
-        assert_eq!(index_of(&g, &all, 9), 0, "un écran inconnu : le principal");
+        assert_eq!(index_of(&g, &all, 9), 0, "un écran inconnu : le principal");
     }
 
     #[test]
@@ -146,7 +146,7 @@ mod tests {
         assert_eq!(refresh_of(true, 24), 30);
         assert_eq!(refresh_of(true, 60), 60);
         assert_eq!(refresh_of(true, 144), 144);
-        assert_eq!(refresh_of(false, 0), 60, "aucun mode : 60 Hz");
+        assert_eq!(refresh_of(false, 0), 60, "aucun mode : 60 Hz");
     }
 
     #[test]

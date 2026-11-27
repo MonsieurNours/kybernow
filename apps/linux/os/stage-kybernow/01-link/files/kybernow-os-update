@@ -164,6 +164,8 @@ carry_settings() {
     [ -f "$R/etc/hosts" ] && cp -f "$R/etc/hosts" "$new/etc/hosts"
     [ -f "$R/etc/timezone" ] && cp -f "$R/etc/timezone" "$new/etc/timezone"
     [ -L "$R/etc/localtime" ] && cp -Pf "$R/etc/localtime" "$new/etc/localtime"
+    # La disposition du clavier (kybernow-os-ctl locale).
+    [ -f "$R/etc/default/keyboard" ] && cp -f "$R/etc/default/keyboard" "$new/etc/default/keyboard"
     if [ -z "$R" ]; then
         if systemctl is-enabled --quiet ssh.service 2>/dev/null; then
             systemctl --root="$new" enable ssh.service >/dev/null 2>&1 || true
@@ -175,6 +177,10 @@ carry_settings() {
     video="$(grep -o 'video=HDMI-A-1:[^ ]*' "$BOOTFW/cmdline.txt" 2>/dev/null | head -1 || true)"
     sed -i -E 's/ ?video=HDMI-A-1:[^ ]+//' "$boot/cmdline.txt"
     if [ -n "$video" ]; then sed -i -E "1s/\$/ $video/" "$boot/cmdline.txt"; fi
+    # Le pays du Wi-Fi (kybernow-os-ctl locale) : le cfg80211.ieee80211_regdom= de la ligne de commande en cours.
+    regdom="$(grep -o 'cfg80211\.ieee80211_regdom=[A-Z]*' "$BOOTFW/cmdline.txt" 2>/dev/null | head -1 || true)"
+    sed -i -E 's/ ?cfg80211\.ieee80211_regdom=[A-Z]+//' "$boot/cmdline.txt"
+    if [ -n "$regdom" ]; then sed -i -E "1s/\$/ $regdom/" "$boot/cmdline.txt"; fi
 }
 
 cmd="${1:-status}"

@@ -1,10 +1,11 @@
 //! Le HDR de l'app Linux (docs/hdr.md), ce qui se calcule sans écran ni carte
 //! graphique (testé sur le Mac aussi) :
 //!
-//! - les courbes : PQ (SMPTE ST 2084), primaires BT.2020 vers BT.709, la courbe
-//!   vers le SDR (genou à 75 % du blanc, compression jusqu'à 4 fois le blanc :
-//!   celle de l'image à part en SDR de la Station) et l'EETF de BT.2390 vers un
-//!   écran HDR plus faible que le flux ;
+//! - les courbes, celles de `kybernow_rules::hdr` (communes à toutes les apps) :
+//!   PQ (SMPTE ST 2084), primaires BT.2020 vers BT.709, la courbe vers le SDR
+//!   (genou à 75 % du blanc, compression jusqu'à 4 fois le blanc : celle de
+//!   l'image à part en SDR de la Station) et l'EETF de BT.2390 vers un écran
+//!   HDR plus faible que le flux ;
 //! - le rendu d'une image PQ (`render_for`) : telle quelle, ramenée à la crête
 //!   de l'écran, ou vers le SDR (écran sans HDR : fenêtre glissée sur un écran
 //!   SDR, HDR coupé) ;
@@ -14,67 +15,10 @@
 //! Le shader de `src/native/hdr_gl.c` fait les mêmes calculs que `shade` (le
 //! test `tests/hdr/run.sh` les compare sur la carte graphique).
 
-/// Constantes de la PQ (SMPTE ST 2084).
-const M1: f64 = 0.1593017578125;
-const M2: f64 = 78.84375;
-const C1: f64 = 0.8359375;
-const C2: f64 = 18.8515625;
-const C3: f64 = 18.6875;
-
-/// Luminance (cd/m²) d'un signal PQ de 0 à 1.
-pub fn pq_eotf(e: f64) -> f64 {
-    let p = e.clamp(0.0, 1.0).powf(1.0 / M2);
-    10_000.0 * ((p - C1).max(0.0) / (C2 - C3 * p)).powf(1.0 / M1)
-}
-
-/// Signal PQ (0 à 1) d'une luminance en cd/m² (écrêtée à 10 000) ; 0 pour le
-/// noir (la formule y donne 7·10⁻⁷).
-pub fn pq_oetf(nits: f64) -> f64 {
-    if nits <= 0.0 {
-        return 0.0;
-    }
-    let l = (nits / 10_000.0).clamp(0.0, 1.0).powf(M1);
-    ((C1 + C2 * l) / (1.0 + C3 * l)).powf(M2)
-}
-
-/// Primaires BT.2020 vers BT.709, en lumière linéaire (lignes : R, G, B).
-pub const BT2020_TO_709: [[f64; 3]; 3] = [[1.660491, -0.587641, -0.072850], [-0.124550, 1.132900, -0.008349], [-0.018151, -0.100579, 1.118730]];
-
-/// La courbe vers le SDR, sur la plus grande composante `m` en unités du blanc
-/// SDR : rien sous le genou (0,75), puis une compression de pente 1 au genou
-/// qui ramène 4 fois le blanc à 1 (la courbe de l'image à part en SDR de la
-/// Station, correctifs 0022).
-pub fn sdr_knee(m: f64) -> f64 {
-    if m <= 0.75 {
-        return m;
-    }
-    let x = m - 0.75;
-    0.75 + x / (1.0 + 3.692_307_7 * x)
-}
-
-/// L'EETF de BT.2390, dans le domaine PQ : `e` (signal PQ) d'un flux dont la
-/// crête est `src_hi` (PQ, noir à 0) ramené à un écran de `dst_lo` à `dst_hi`
-/// (PQ). Sous le genou (`ks`, 1,5 × crête de l'écran − 0,5, en part de la crête
-/// du flux), rien ne change ; au-dessus, une spline d'Hermite rejoint la crête
-/// de l'écran. Le noir de l'écran relève les ombres de `dst_lo × (1 − E)⁴`.
-pub fn eetf(e: f64, src_hi: f64, dst_lo: f64, dst_hi: f64) -> f64 {
-    if src_hi <= 0.0 {
-        return e;
-    }
-    let e1 = (e / src_hi).clamp(0.0, 1.0);
-    let max_lum = (dst_hi / src_hi).min(1.0);
-    let min_lum = (dst_lo / src_hi).clamp(0.0, 1.0);
-    let ks = (1.5 * max_lum - 0.5).max(0.0);
-    let e2 = if e1 < ks || ks >= 1.0 {
-        e1
-    } else {
-        let t = (e1 - ks) / (1.0 - ks);
-        let (t2, t3) = (t * t, t * t * t);
-        (2.0 * t3 - 3.0 * t2 + 1.0) * ks + (t3 - 2.0 * t2 + t) * (1.0 - ks) + (-2.0 * t3 + 3.0 * t2) * max_lum
-    };
-    let e3 = e2 + min_lum * (1.0 - e2).powi(4);
-    e3 * src_hi
-}
+// Les courbes (PQ, BT.2020 vers BT.709, courbe vers le SDR de la Station, EETF de BT.2390) : celles de
+// `kybernow_rules::hdr`, communes à toutes les apps (WINAPP-49) ; le shader de `hdr_gl.c` les recopie, et
+// `shade` ci-dessous en est la référence en Rust.
+use kybernow_rules::hdr::{eetf, nits_to_pq, pq_to_nits, sdr_curve, BT2020_TO_709, TONE_MARGIN};
 
 /// Les valeurs HDR d'un écran de l'appareil, en cd/m² (miroir de
 /// `HdrLuminance` du cœur, que l'interface seule n'a pas).
@@ -164,6 +108,22 @@ impl StreamLight {
     }
 }
 
+/// Les métadonnées HDR10 d'un paquet de configuration PyroWave `KNPW` version 2 (48 octets au moins,
+/// docs/kyber-changes.md, « En-tête KNPW version 2 ») : minimum et maximum du mastering display (cd/m²), MaxCLL,
+/// MaxFALL ; 0 pour ce que le drapeau dit absent. `None` pour la version 1, qui n'en a pas, ou un paquet trop court.
+/// (`pyrowave::Config` du cœur lit les deux versions mais ne rend pas encore ces champs.)
+pub fn knpw_metadata(b: &[u8]) -> Option<[f32; 4]> {
+    if b.len() < 48 || !b.starts_with(b"KNPW") || b[4] < 2 {
+        return None;
+    }
+    let u16le = |o: usize| f32::from(u16::from_le_bytes([b[o], b[o + 1]]));
+    let u32le = |o: usize| u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]) as f32;
+    let flags = b[16];
+    let (min, max) = if flags & 1 != 0 { (u32le(40) / 10_000.0, u32le(36) / 10_000.0) } else { (0.0, 0.0) };
+    let (cll, fall) = if flags & 2 != 0 { (u16le(44), u16le(46)) } else { (0.0, 0.0) };
+    Some([min, max, cll, fall])
+}
+
 /// Comment montrer une image PQ.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Render {
@@ -184,7 +144,7 @@ pub fn render_for(screen: Option<Luminance>, light: StreamLight, sent: Luminance
         None => Render::Sdr { white: sent.sdr_white.max(1.0) },
         Some(l) => {
             let peak = light.peak(sent.max);
-            if peak <= l.max * 1.02 { Render::Pq } else { Render::Eetf { src_max: peak, dst_min: l.min, dst_max: l.max } }
+            if peak <= l.max * TONE_MARGIN { Render::Pq } else { Render::Eetf { src_max: peak, dst_min: l.min, dst_max: l.max } }
         }
     }
 }
@@ -204,7 +164,7 @@ impl Tone {
     pub fn of(r: Render) -> Self {
         match r {
             Render::Pq => Self { mode: 0, src_hi: 1.0, dst_lo: 0.0, dst_hi: 1.0, white: 203.0 },
-            Render::Eetf { src_max, dst_min, dst_max } => Self { mode: 1, src_hi: pq_oetf(src_max) as f32, dst_lo: pq_oetf(dst_min) as f32, dst_hi: pq_oetf(dst_max) as f32, white: 203.0 },
+            Render::Eetf { src_max, dst_min, dst_max } => Self { mode: 1, src_hi: nits_to_pq(src_max) as f32, dst_lo: nits_to_pq(dst_min) as f32, dst_hi: nits_to_pq(dst_max) as f32, white: 203.0 },
             Render::Sdr { white } => Self { mode: 2, src_hi: 1.0, dst_lo: 0.0, dst_hi: 1.0, white: white as f32 },
         }
     }
@@ -232,21 +192,21 @@ pub fn shade(y: u16, cb: u16, cr: u16, t: &Tone) -> [f64; 3] {
     match t.mode {
         0 => e,
         1 => {
-            let n = e.map(pq_eotf);
+            let n = e.map(pq_to_nits);
             let m = n[0].max(n[1]).max(n[2]);
             if m <= 0.0 {
                 return e;
             }
-            let k = pq_eotf(eetf(pq_oetf(m), f64::from(t.src_hi), f64::from(t.dst_lo), f64::from(t.dst_hi))) / m;
-            n.map(|c| pq_oetf(c * k))
+            let k = pq_to_nits(eetf(nits_to_pq(m), f64::from(t.src_hi), f64::from(t.dst_lo), f64::from(t.dst_hi))) / m;
+            n.map(|c| nits_to_pq(c * k))
         }
         _ => {
-            let n = e.map(pq_eotf);
+            let n = e.map(pq_to_nits);
             let white = f64::from(t.white).max(1.0);
             let mut s = BT2020_TO_709.map(|row| (row[0] * n[0] + row[1] * n[1] + row[2] * n[2]).max(0.0) / white);
             let m = s[0].max(s[1]).max(s[2]);
             if m > 0.75 {
-                let k = sdr_knee(m) / m;
+                let k = sdr_curve(m) / m;
                 s = s.map(|c| c * k);
             }
             s.map(srgb_encode)
@@ -314,54 +274,53 @@ mod tests {
         (a - b).abs() <= eps
     }
 
+    /// Essai croisé du shader (`hdr_gl.c`) contre `kybernow_rules::hdr`, sans carte graphique : ses constantes (PQ,
+    /// genou et pente de la courbe vers le SDR, première ligne de BT.2020 vers BT.709) sont celles des règles.
+    /// `tests/hdr/run.sh` compare ensuite ses pixels à `shade` sur la carte graphique.
     #[test]
-    fn pq_aller_retour() {
-        // Points connus de ST 2084 : 100 cd/m² ≈ 0,508, 1 000 ≈ 0,752, 10 000 = 1.
-        assert!(close(pq_oetf(100.0), 0.5081, 1e-3));
-        assert!(close(pq_oetf(1000.0), 0.7518, 1e-3));
-        assert!(close(pq_oetf(10_000.0), 1.0, 1e-9));
-        assert_eq!((pq_oetf(0.0), pq_oetf(-5.0), pq_eotf(0.0)), (0.0, 0.0, 0.0));
-        for n in [0.01, 1.0, 80.0, 203.0, 600.0, 1600.0, 4000.0] {
-            assert!(close(pq_eotf(pq_oetf(n)), n, n * 1e-6 + 1e-6), "{n}");
+    fn shader_aux_constantes_des_regles() {
+        use kybernow_rules::hdr::{PQ_C1, PQ_C2, PQ_C3, PQ_M1, PQ_M2, SDR_KNEE, SDR_SLOPE};
+        let src = include_str!("native/hdr_gl.c");
+        let constant = |name: &str| -> f64 {
+            let at = src.find(&format!("const float {name} = ")).unwrap_or_else(|| panic!("{name} absent du shader"));
+            let rest = &src[at + name.len() + 15..];
+            rest[..rest.find(';').unwrap()].trim().parse().unwrap()
+        };
+        for (name, want) in [("M1", PQ_M1), ("M2", PQ_M2), ("C1", PQ_C1), ("C2", PQ_C2), ("C3", PQ_C3)] {
+            assert!(close(constant(name), want, 1e-12), "{name}");
         }
+        assert!(src.contains(&format!("if (m > {SDR_KNEE})")), "genou de la courbe vers le SDR");
+        let slope = src.split("x / (1.0 + ").nth(1).and_then(|r| r.split(" * x)").next()).and_then(|v| v.parse::<f64>().ok()).expect("pente du shader");
+        assert!(close(slope, SDR_SLOPE, 1e-6), "pente {slope} contre {SDR_SLOPE}");
+        let row = BT2020_TO_709[0];
+        assert!(src.contains(&format!("vec3({:.6}, {:.6}, {:.6})", row[0], row[1], row[2])), "BT.2020 vers BT.709");
     }
 
+    /// L'en-tête PyroWave version 2 : les métadonnées de la capture ; la version 1 et un paquet trop court n'en ont pas.
     #[test]
-    fn courbe_sdr_comme_la_station() {
-        assert_eq!(sdr_knee(0.5), 0.5);
-        assert_eq!(sdr_knee(0.75), 0.75);
-        // 4 fois le blanc ramené au blanc ; pente 1 au genou, croissante, jamais au-delà de 1 avant 4.
-        assert!(close(sdr_knee(4.0), 1.0, 1e-6));
-        assert!(close((sdr_knee(0.7501) - 0.75) / 0.0001, 1.0, 1e-3));
-        let mut last = 0.0;
-        for i in 0..400 {
-            let v = sdr_knee(i as f64 / 100.0);
-            assert!(v >= last && v <= 1.0 + 1e-9);
-            last = v;
-        }
-    }
-
-    #[test]
-    fn eetf_bt2390() {
-        let (src, lo, hi) = (pq_oetf(4000.0), pq_oetf(0.0), pq_oetf(1000.0));
-        // La crête du flux va à la crête de l'écran ; le bas de l'échelle ne bouge pas.
-        assert!(close(pq_eotf(eetf(src, src, lo, hi)), 1000.0, 1.0));
-        for n in [0.1, 10.0, 100.0, 203.0] {
-            assert!(close(pq_eotf(eetf(pq_oetf(n), src, lo, hi)), n, n * 1e-6 + 1e-6), "{n}");
-        }
-        // Croissante, jamais au-dessus de l'écran.
-        let mut last = 0.0;
-        for i in 0..=100 {
-            let v = eetf(src * i as f64 / 100.0, src, lo, hi);
-            assert!(v + 1e-12 >= last && v <= hi + 1e-9, "{i}");
-            last = v;
-        }
-        // Un écran qui tient la crête : rien ne change.
-        assert!(close(eetf(0.6, 0.7, 0.0, 0.8), 0.6, 1e-12));
-        // Un noir d'écran relève les ombres, sans toucher la crête.
-        let black = pq_oetf(0.05);
-        assert!(eetf(0.0, src, black, hi) > 0.0);
-        assert!(close(pq_eotf(eetf(src, src, black, hi)), 1000.0, 1.0));
+    fn metadonnees_de_l_en_tete_pyrowave_v2() {
+        let mut v2 = vec![0u8; 48];
+        v2[0..4].copy_from_slice(b"KNPW");
+        v2[4] = 2;
+        v2[6] = 1;
+        v2[16] = 0b11;
+        v2[36..40].copy_from_slice(&16_000_000u32.to_le_bytes()); // 1 600 cd/m²
+        v2[40..44].copy_from_slice(&1u32.to_le_bytes()); // 0,0001 cd/m²
+        v2[44..46].copy_from_slice(&1200u16.to_le_bytes());
+        v2[46..48].copy_from_slice(&400u16.to_le_bytes());
+        let m = knpw_metadata(&v2).unwrap();
+        assert!(close(f64::from(m[0]), 0.0001, 1e-9) && m[1] == 1600.0 && m[2] == 1200.0 && m[3] == 400.0, "{m:?}");
+        // Le niveau de lumière absent (bit 1 à 0) : MaxCLL et MaxFALL à 0, le mastering display gardé.
+        v2[16] = 0b01;
+        assert_eq!(knpw_metadata(&v2).map(|m| (m[1], m[2], m[3])), Some((1600.0, 0.0, 0.0)));
+        // Plus long : les octets en trop sont ignorés.
+        v2.extend_from_slice(&[9; 16]);
+        assert!(knpw_metadata(&v2).is_some());
+        // Version 1 (16 octets), ou une version 2 trop courte : rien.
+        let mut v1 = v2[..16].to_vec();
+        v1[4] = 1;
+        assert_eq!(knpw_metadata(&v1), None);
+        assert_eq!(knpw_metadata(&v2[..47]), None);
     }
 
     #[test]
@@ -390,19 +349,19 @@ mod tests {
         assert!(shade(940, 512, 512, &pq).iter().all(|c| close(*c, 1.0, 1e-9)));
         // Un gris au blanc du bureau (203 cd/m² en PQ) : vers le SDR à 203, le blanc passé par le genou (comme
         // l'image à part de la Station) ; à 406, un gris moyen, sous le genou.
-        let code = (64.0 + 876.0 * pq_oetf(203.0)).round() as u16;
+        let code = (64.0 + 876.0 * nits_to_pq(203.0)).round() as u16;
         let white = shade(code, 512, 512, &Tone::of(Render::Sdr { white: 203.0 }));
-        assert!(white.iter().all(|c| close(*c, srgb_encode(sdr_knee(1.0)), 0.01)), "{white:?}");
+        assert!(white.iter().all(|c| close(*c, srgb_encode(sdr_curve(1.0)), 0.01)), "{white:?}");
         let half = shade(code, 512, 512, &Tone::of(Render::Sdr { white: 406.0 }));
         assert!(half.iter().all(|c| close(*c, srgb_encode(0.5), 0.01)), "{half:?}");
         // Quatre fois le blanc : le blanc SDR.
-        let bright = (64.0 + 876.0 * pq_oetf(812.0)).round() as u16;
+        let bright = (64.0 + 876.0 * nits_to_pq(812.0)).round() as u16;
         assert!(shade(bright, 512, 512, &Tone::of(Render::Sdr { white: 203.0 })).iter().all(|c| close(*c, 1.0, 0.01)));
         // L'EETF garde la teinte (les composantes gardent leurs rapports en lumière linéaire).
         let t = Tone::of(Render::Eetf { src_max: 4000.0, dst_min: 0.0, dst_max: 1000.0 });
         let (y, cb, cr) = (900, 480, 600);
-        let before = ycbcr_to_rgb(y, cb, cr).map(pq_eotf);
-        let after = shade(y, cb, cr, &t).map(pq_eotf);
+        let before = ycbcr_to_rgb(y, cb, cr).map(pq_to_nits);
+        let after = shade(y, cb, cr, &t).map(pq_to_nits);
         assert!(after[0] < before[0]);
         assert!(close(after[1] / after[0], before[1] / before[0], 1e-6));
         // L'image réduite : sRGB 8 bits.
@@ -439,6 +398,6 @@ mod tests {
         assert_eq!(probe.hdr_at(0, 0).map(|l| l.max), Some(1000.0));
         assert_eq!(probe.hdr_at(2560, 0), None);
         assert_eq!(probe.hdr_at(99, 99), None);
-        assert!(WlProbe { supported: true, outputs: vec![hdr] }.hdr_at(99, 99).is_some(), "une seule sortie : elle");
+        assert!(WlProbe { supported: true, outputs: vec![hdr] }.hdr_at(99, 99).is_some(), "une seule sortie : elle");
     }
 }

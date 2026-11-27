@@ -17,5 +17,6 @@ Cmnd_Alias KYBERNOW_OS_CTL = /usr/local/sbin/kybernow-os-ctl ssh on, \
     /usr/local/sbin/kybernow-os-ctl hdmi auto, \
     /usr/local/sbin/kybernow-os-ctl hdmi 2160p60, \
     /usr/local/sbin/kybernow-os-ctl hdmi 1080p120, \
-    /usr/local/sbin/kybernow-os-ctl hdmi 1080p60
+    /usr/local/sbin/kybernow-os-ctl hdmi 1080p60, \
+    /usr/local/sbin/kybernow-os-ctl locale
 kybernow ALL=(root) NOPASSWD: KYBERNOW_OS_UPDATE, KYBERNOW_OS_CTL
