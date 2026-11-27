@@ -258,7 +258,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         pads.mouse.mac = mac
         ui = SessionUi(
             title, tv, state, this, OnScreenPad(onScreenOut), guest = guest != null, computerName = host.name,
-            borrower = loan != null, lender = loan?.host ?: "", lendUntil = loan?.until, mac = mac, watch = watchUi,
+            borrower = loan != null, lender = loan?.host ?: "", lendUntil = loan?.until, mac = mac, stationSystem = StationSystem.of(host.os, Native.stationIsMac(host.os ?: "")), watch = watchUi,
         ).apply {
             lendWarning = !app.lendWarned
             profile = host.settings.profile

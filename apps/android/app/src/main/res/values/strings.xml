@@ -630,6 +630,8 @@
     <string name="lend_cancel_code">Cancel code</string>
     <string name="lend_qr_label">QR code for the loan</string>
     <string name="lend_warning">Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.</string>
+    <string name="lend_warning_mac">Your friend plays in your Mac session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.</string>
+    <string name="lend_warning_other">Your friend plays in your session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.</string>
     <string name="lend_off">Lending is off in Admin (“Lending” page).</string>
     <string name="lend_too_old">Lending needs KyberNow Station 0.9.0 or later.</string>
     <string name="lend_unavailable">Lending isn\'t possible on this computer.</string>

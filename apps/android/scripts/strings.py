@@ -713,6 +713,8 @@ S = [
 ("lend_cancel_code", "Annuler le code", "Cancel code"),
 ("lend_qr_label", "QR code du prêt", "QR code for the loan"),
 ("lend_warning", "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.", "Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust."),
+("lend_warning_mac", "Votre ami joue dans votre session du Mac. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.", "Your friend plays in your Mac session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust."),
+("lend_warning_other", "Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.", "Your friend plays in your session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust."),
 ("lend_off", "Le prêt est coupé dans Admin (page « Prêt »).", "Lending is off in Admin (“Lending” page)."),
 ("lend_too_old", "Le prêt demande KyberNow Station 0.9.0 ou plus récente.", "Lending needs KyberNow Station 0.9.0 or later."),
 # `lend.available` faux dans l'info de la Station (« Textes des apps »).
