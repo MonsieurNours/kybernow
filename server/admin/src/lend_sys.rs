@@ -73,7 +73,32 @@ pub struct Rules {
     pub system: String,
     /// Dossier de Steam (vide s'il n'est pas connu) : ses programmes et ses jeux sont des apps.
     pub steam: String,
+    /// Dossiers `steamapps\` des bibliothèques de Steam (`libraryfolders.vdf`,
+    /// en minuscules, avec `\` final) : leurs jeux sont des apps. Un dossier
+    /// nommé `steamapps` ailleurs (Téléchargements) n'y donne aucun droit.
+    pub libraries: Vec<String>,
 }
+
+/// Dossiers de Windows où un compte standard peut écrire : rien n'y est
+/// permis d'office pendant un prêt (sinon l'ami y déposerait un programme).
+#[cfg_attr(not(windows), allow(dead_code))]
+const SYSTEM_WRITABLE: &[&str] = &[
+    "temp\\",
+    "tasks\\",
+    "tracing\\",
+    "debug\\",
+    "registration\\crmlog\\",
+    "servicing\\packages\\",
+    "system32\\tasks\\",
+    "system32\\tasks_migrated\\",
+    "system32\\com\\dmp\\",
+    "system32\\fxstmp\\",
+    "system32\\microsoft\\crypto\\rsa\\machinekeys\\",
+    "system32\\spool\\",
+    "syswow64\\tasks\\",
+    "syswow64\\com\\dmp\\",
+    "syswow64\\fxstmp\\",
+];
 
 /// Le verdict sur un processus nouveau de la session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,15 +124,24 @@ impl Rules {
         let app = parent == Parent::App
             || self.apps.contains(&path)
             || (!self.steam.is_empty() && path.starts_with(self.steam.as_str()))
-            || path.contains("\\steamapps\\");
+            || self.steam_game(&path);
         if HELPERS.contains(&name) {
             return if parent == Parent::App { (Verdict::Allow, true) } else { (Verdict::Deny, false) };
         }
-        let allowed = app
-            || parent == Parent::Allowed
-            || self.dirs.iter().any(|d| path.starts_with(d.as_str()))
-            || (!self.system.is_empty() && path.starts_with(self.system.as_str()));
+        let allowed = app || parent == Parent::Allowed || self.dirs.iter().any(|d| path.starts_with(d.as_str())) || self.in_system(&path);
         if allowed { (Verdict::Allow, app) } else { (Verdict::Deny, false) }
+    }
+
+    /// Un jeu d'une bibliothèque de Steam (chemin en minuscules).
+    fn steam_game(&self, path: &str) -> bool {
+        self.libraries.iter().any(|l| path.starts_with(l.as_str()))
+    }
+
+    /// Un programme de Windows : sous `c:\windows\`, hors des dossiers où un
+    /// compte standard peut écrire (chemin en minuscules).
+    fn in_system(&self, path: &str) -> bool {
+        !self.system.is_empty()
+            && path.strip_prefix(self.system.as_str()).is_some_and(|rest| !SYSTEM_WRITABLE.iter().any(|w| rest.starts_with(w)))
     }
 }
 
@@ -120,7 +154,7 @@ impl Rules {
         if path.contains("\\steamapps\\") {
             return false;
         }
-        (!self.system.is_empty() && path.starts_with(self.system.as_str())) || self.dirs.iter().any(|d| path.starts_with(d.as_str()))
+        self.in_system(&path) || self.dirs.iter().any(|d| path.starts_with(d.as_str()))
     }
 }
 
@@ -267,14 +301,21 @@ pub fn rules(apps: &[String], steam: Option<PathBuf>, kyber_dir: &Path) -> Rules
         dirs.push(steam.clone());
     }
     let system = std::env::var_os("SystemRoot").map(|r| dir_key(Path::new(&r))).unwrap_or_else(|| "c:\\windows\\".into());
-    Rules { apps: apps.iter().map(|a| a.to_ascii_lowercase().replace('/', "\\")).collect(), dirs, system, steam }
+    let libraries = if steam.is_empty() {
+        Vec::new()
+    } else {
+        crate::lend_last::libraries(Path::new(steam.trim_end_matches('\\'))).iter().map(|l| dir_key(&l.join("steamapps"))).collect()
+    };
+    Rules { apps: apps.iter().map(|a| a.to_ascii_lowercase().replace('/', "\\")).collect(), dirs, system, steam, libraries }
 }
 
 /// La surveillance en cours ; l'arrêter ferme ce qu'elle a laissé ouvrir.
 pub struct Watch {
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    /// Processus nouveaux permis pendant le prêt (à fermer à la fin).
-    started: std::sync::Arc<std::sync::Mutex<HashSet<u32>>>,
+    /// Processus nouveaux permis pendant le prêt (à fermer à la fin), avec
+    /// l'instant de leur création sous Windows (0 ailleurs) : un identifiant
+    /// repris depuis par un autre processus n'est jamais fermé.
+    started: std::sync::Arc<std::sync::Mutex<HashSet<(u32, u64)>>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -287,7 +328,7 @@ impl Watch {
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
-        let started: Vec<u32> = self.started.lock().unwrap().iter().copied().collect();
+        let started: Vec<(u32, u64)> = self.started.lock().unwrap().iter().copied().collect();
         platform::close_started(&started, rules)
     }
 }
@@ -327,7 +368,7 @@ pub fn console_agent() -> Option<PathBuf> {
 
 #[cfg(windows)]
 mod platform {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
@@ -532,30 +573,36 @@ mod platform {
         let session = console_session()?;
         let before: HashSet<u32> = snapshot().into_iter().map(|(pid, _)| pid).collect();
         let stop = Arc::new(AtomicBool::new(false));
+        // Les processus déjà vus, avec l'instant de leur création : un nouveau
+        // processus qui reprend l'identifiant d'un ancien est jugé comme les autres.
+        let born_now = |pid: u32| born(pid).unwrap_or(0);
         let started = Arc::new(Mutex::new(HashSet::new()));
         let (stop2, started2) = (stop.clone(), started.clone());
         let thread = std::thread::spawn(move || {
             let roots = before.iter().filter(|pid| session_of(**pid) == Some(session)).filter_map(|pid| Some((*pid, born(*pid)?, image_path(*pid)?)));
             let mut host = HostLine::new(&rules, roots);
             tracing::info!("prêt : {} processus de l'hôte épargnés avec ce qu'ils lancent", host.len());
-            let mut seen = before;
+            let mut seen: HashMap<u32, u64> = before.iter().map(|pid| (*pid, born_now(*pid))).collect();
             // Les processus permis pendant le prêt, et s'ils sont de la lignée d'une app.
             let mut allowed: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
             while !stop2.load(Ordering::SeqCst) {
                 let all = snapshot();
-                host.retain(&all.iter().map(|(pid, _)| *pid).collect::<HashSet<u32>>());
-                let fresh: Vec<(u32, u32)> = all.into_iter().filter(|(pid, _)| !seen.contains(pid)).collect();
+                let alive: HashSet<u32> = all.iter().map(|(pid, _)| *pid).collect();
+                host.retain(&alive);
+                seen.retain(|pid, _| alive.contains(pid));
+                allowed.retain(|pid, _| alive.contains(pid));
+                let fresh: Vec<(u32, u32)> = all.into_iter().filter(|(pid, _)| seen.get(pid).is_none_or(|at| *at != born_now(*pid))).collect();
                 // Les parents avant leurs enfants : les processus de WebView2
                 // du lanceur, nés dans le même passage que lui, sont permis.
                 let mut mine = Vec::new();
                 for (pid, ppid) in parents_first(fresh) {
                     if session_of(pid) != Some(session) {
-                        seen.insert(pid);
+                        seen.insert(pid, born_now(pid));
                         continue;
                     }
                     // Un processus encore illisible est revu au passage suivant.
                     let Some(path) = image_path(pid) else { continue };
-                    seen.insert(pid);
+                    seen.insert(pid, born_now(pid));
                     mine.push((pid, ppid, path));
                 }
                 let (spared, lost) = host.pass(&mine, born);
@@ -574,7 +621,7 @@ mod platform {
                     match rules.judge(&path, parent) {
                         (Verdict::Allow, app) => {
                             allowed.insert(pid, app);
-                            started2.lock().unwrap().insert(pid);
+                            started2.lock().unwrap().insert((pid, born(pid).unwrap_or(0)));
                         }
                         (Verdict::Deny, _) => {
                             let done = terminate(pid);
@@ -591,9 +638,16 @@ mod platform {
     /// Ferme ce qui a été ouvert pendant le prêt et reste après la remise
     /// en état de l'agent, hors KyberNow, Kyber, Steam (remis par l'agent sur
     /// le compte de l'hôte) et Windows.
-    pub fn close_started(started: &[u32], rules: &Rules) -> usize {
+    pub fn close_started(started: &[(u32, u64)], rules: &Rules) -> usize {
+        let session = console_session();
         let mut closed = 0;
-        for pid in started {
+        for (pid, at) in started {
+            // Toujours le même processus (même instant de création), dans la
+            // session du prêt : un identifiant repris par une app de l'hôte ou
+            // un service n'est jamais fermé (Admin a les droits de SYSTEM).
+            if *at == 0 || born(*pid) != Some(*at) || session.is_none() || session_of(*pid) != session {
+                continue;
+            }
             if let Some(path) = image_path(*pid)
                 && !rules.kept_at_end(&path)
                 && terminate(*pid)
@@ -1037,7 +1091,7 @@ mod platform {
                     match judge(&rules, path, parent, &mut cache) {
                         (true, app) => {
                             allowed.insert(pid, app);
-                            started2.lock().unwrap().insert(pid);
+                            started2.lock().unwrap().insert((pid, 0));
                         }
                         (false, _) => {
                             let done = unsafe { libc_kill(pid as i32, 9) } == 0;
@@ -1058,10 +1112,10 @@ mod platform {
 
     /// Ferme les apps ouvertes pendant le prêt qui restent après la remise en
     /// état de l'agent, sauf KyberNow, Kyber, Steam (pas ses jeux) et macOS.
-    pub fn close_started(started: &[u32], rules: &Rules) -> usize {
+    pub fn close_started(started: &[(u32, u64)], rules: &Rules) -> usize {
         let paths: HashMap<u32, String> = snapshot().into_iter().map(|(p, _, c)| (p, c)).collect();
         let mut closed = 0;
-        for pid in started {
+        for (pid, _) in started {
             let Some(path) = paths.get(pid) else { continue };
             let lower = path.to_ascii_lowercase();
             if !lower.contains(".app/") || lower.starts_with("/system/") || lower.contains("/steam.app/") {
@@ -1332,7 +1386,7 @@ mod platform {
                     match judge(&rules, path, parent, &apps) {
                         (true, app) => {
                             allowed.insert(pid, app);
-                            started2.lock().unwrap().insert(pid);
+                            started2.lock().unwrap().insert((pid, 0));
                         }
                         (false, _) => {
                             let done = unsafe { libc_kill(pid as i32, 9) } == 0;
@@ -1354,11 +1408,11 @@ mod platform {
     /// Ferme les apps ouvertes pendant le prêt qui restent après la remise en
     /// état de l'agent : les apps du bureau et les jeux, sauf KyberNow, Kyber
     /// et le client Steam (pas ses jeux).
-    pub fn close_started(started: &[u32], rules: &Rules) -> usize {
+    pub fn close_started(started: &[(u32, u64)], rules: &Rules) -> usize {
         let apps = desktop_apps(&application_dirs());
         let paths: HashMap<u32, String> = snapshot().into_iter().map(|(p, _, c)| (p, c)).collect();
         let mut closed = 0;
-        for pid in started {
+        for (pid, _) in started {
             let Some(path) = paths.get(pid) else { continue };
             let lower = path.to_ascii_lowercase();
             let name = Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -1416,7 +1470,7 @@ mod platform {
         None
     }
 
-    pub fn close_started(_started: &[u32], _rules: &Rules) -> usize {
+    pub fn close_started(_started: &[(u32, u64)], _rules: &Rules) -> usize {
         0
     }
 }
@@ -1431,6 +1485,7 @@ mod tests {
             dirs: vec!["c:\\program files\\kybernow\\".into(), "c:\\program files (x86)\\steam\\".into()],
             system: "c:\\windows\\".into(),
             steam: "c:\\program files (x86)\\steam\\".into(),
+            libraries: vec!["c:\\program files (x86)\\steam\\steamapps\\".into(), "e:\\steamlibrary\\steamapps\\".into()],
         }
     }
 
@@ -1465,6 +1520,13 @@ mod tests {
             // Une app hors liste.
             ("C:\\Program Files\\Mozilla Firefox\\firefox.exe", Other, Verdict::Deny),
             ("C:\\Users\\matthieu\\Downloads\\outil.exe", Other, Verdict::Deny),
+            // Un faux dossier steamapps, ou un dossier de Windows ouvert en écriture.
+            ("C:\\Users\\ami\\Downloads\\steamapps\\x.exe", Other, Verdict::Deny),
+            ("C:\\Users\\ami\\Downloads\\steamapps\\cmd.exe", Other, Verdict::Deny),
+            ("C:\\Windows\\Temp\\x.exe", Other, Verdict::Deny),
+            ("C:\\Windows\\Tasks\\x.exe", Other, Verdict::Deny),
+            ("C:\\Windows\\System32\\spool\\drivers\\color\\x.exe", Other, Verdict::Deny),
+            ("C:\\Windows\\SysWOW64\\Tasks\\x.exe", Other, Verdict::Deny),
         ] {
             assert_eq!(rules.judge(path, parent).0, verdict, "{path} ({parent:?})");
         }

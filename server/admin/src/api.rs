@@ -2697,6 +2697,19 @@ mod tests {
         assert_eq!(v, json!({ "hdr": [false] }));
     }
 
+    /// Un compte KyberNow fait l'hôte du prêt avec le droit Administrer, pas
+    /// avec Session seulement ; un compte Kyber appairé, comme avant.
+    #[tokio::test]
+    async fn the_lend_host_needs_the_admin_right_for_a_kybernow_account() {
+        let c = console_with_account();
+        let k = crate::accounts::attach_for_tests(&c.s);
+        let session = crate::accounts::token_headers(&c.s, &k, "acc_lea", "dev_1", &[Right::Session]);
+        assert!(crate::lend_api::host_get(State(c.s.clone()), session).await.is_err());
+        let admin = crate::accounts::token_headers(&c.s, &k, "acc_lea", "dev_1", &[Right::Admin]);
+        assert!(crate::lend_api::host_get(State(c.s.clone()), admin).await.is_ok());
+        assert!(crate::lend_api::host_get(State(c.s.clone()), basic("mac", "mot-de-passe-mac")).await.is_ok());
+    }
+
     /// Un compte KyberNow (docs/comptes.md) : le droit Session ouvre les
     /// routes `/api/stream/*` (et `prepare` donne un jeton de Kyber), le droit
     /// Administrer redémarre la Station avec un jeton qui ne sert qu'une fois.

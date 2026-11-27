@@ -969,6 +969,12 @@ pub async fn leave(State(s): State<AppState>, headers: HeaderMap, via: Option<ax
 
 /// L'hôte : un appareil appairé (compte Basic), ou la session d'Admin.
 fn host(s: &AppState, headers: &HeaderMap) -> LendResult<()> {
+    // Un compte KyberNow fait l'hôte du prêt avec le droit Administrer : le
+    // droit Session (le bureau) ne suffit pas pour prêter l'ordinateur à un
+    // tiers, accepter ses demandes ou le reprendre.
+    if let Some(found) = crate::accounts::authorize(s, headers, Some(kybernow_tunnel::access::Right::Admin), kybernow_tunnel::access::Use::Reusable, false) {
+        return found.map(|_| ()).map_err(|d| LendError::from(crate::api::ApiError::msg(d.status(), d.msg())));
+    }
     stream_user(s, headers).map(|_| ()).map_err(LendError::from)
 }
 
@@ -1075,6 +1081,7 @@ pub async fn host_get(State(s): State<AppState>, headers: HeaderMap) -> LendResu
 }
 
 pub async fn host_code(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> LendResult<Json<Value>> {
+    host(&s, &headers)?;
     let user = stream_user(&s, &headers).map_err(LendError::from)?;
     create_code(&s, json_body(&body)?, Some(&user))
 }

@@ -154,7 +154,7 @@ fn vdf_values(text: &str, key: &str) -> Vec<String> {
 }
 
 /// Les bibliothèques de Steam : son dossier, puis celles de `libraryfolders.vdf`.
-fn libraries(steam: &Path) -> Vec<PathBuf> {
+pub(crate) fn libraries(steam: &Path) -> Vec<PathBuf> {
     let mut libs = vec![steam.to_path_buf()];
     if let Ok(text) = std::fs::read_to_string(steam.join("steamapps").join("libraryfolders.vdf")) {
         for path in vdf_values(&text, "path") {
