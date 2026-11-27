@@ -94,6 +94,7 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
         didSet {
             // La barre s'ouvre pendant un glisser : le doigt qui se lève ne
             // passera plus par `held`, le clic ne reste pas enfoncé.
+            if touchesSuspended != oldValue { pointerLockChanged() }
             guard touchesSuspended, !oldValue else { return }
             releasePointerButtons()
         }
@@ -113,7 +114,33 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     /// Glissement depuis le bord haut (ouvrir la barre).
     public var onTopEdgeSwipe: (() -> Void)?
     /// La souris est-elle en mode brut (jeu) en ce moment.
-    public private(set) var isRelative = false
+    public private(set) var isRelative = false {
+        didSet { if isRelative != oldValue { pointerLockChanged() } }
+    }
+
+    // MARK: Verrouillage du pointeur (iPad, souris ou trackpad)
+
+    /// Partie sur console jouée au clavier et à la souris (`PlayStationKeyMouse`) :
+    /// le pointeur d'iPadOS est verrouillé, comme pour la souris des jeux.
+    public var consolePointerLock = false {
+        didSet { if consolePointerLock != oldValue { pointerLockChanged() } }
+    }
+
+    /// Le pointeur d'iPadOS doit être verrouillé : souris des jeux (relatif) ou
+    /// partie sur console, barre fermée, image sur l'appareil. Sinon, le
+    /// pointeur invisible atteignait un bord : Dock, sélecteur d'apps ou
+    /// Centre de contrôle s'ouvraient en plein jeu. iPadOS ne le verrouille
+    /// qu'en plein écran.
+    public var wantsPointerLock: Bool {
+        (isRelative || consolePointerLock) && !touchesSuspended && imageHost == nil
+    }
+
+    /// Le contrôleur hôte (`prefersPointerLocked`) le redemande au système.
+    public var onPointerLockChange: (() -> Void)?
+
+    private func pointerLockChanged() {
+        onPointerLockChange?()
+    }
     /// L'image est sur un autre écran : l'appareil n'est plus que le pupitre.
     public private(set) var imageHost: ImageHostView?
     /// Dernière position du trackpad (image sur l'écran externe : en relatif).
@@ -126,6 +153,9 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     /// Pointeur de l'ordinateur et position tenue par l'app, dans le cœur.
     let pointer = PointerLayer(queue: InputQueue.device, holdsPosition: true)
     private var pointerState = PointerLayer.State()
+    private let pendingPointer = PendingPointer()
+    /// L'image posée sur la couche : refaite seulement quand la forme change.
+    private var shownShape: CGImage?
     /// Une souris ou un trackpad a servi pendant cette session.
     private var mouseSeen = false
     /// Glisser en cours (bouton gauche tenu par un maintien).
@@ -155,9 +185,11 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
             self.mouseSeen = true
             self.updatePointerLayer()
         }
+        let pending = pendingPointer
         pointer.onChanged = { [weak self] state, _ in
+            guard pending.put(state) else { return }
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, let state = pending.take() else { return }
                 self.pointerState = state
                 self.updatePointerLayer()
             }
@@ -190,6 +222,7 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
         guard host !== imageHost else { return }
         imageHost?.onLayout = nil
         imageHost = host
+        defer { pointerLockChanged() }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if let host {
@@ -707,7 +740,10 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
         kynput_video_layout_host_to_local(layout, &hostPos, &local)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        pointerLayer.contents = shape.image
+        if shownShape !== shape.image {
+            shownShape = shape.image
+            pointerLayer.contents = shape.image
+        }
         pointerLayer.contentsScale = (imageHost?.window ?? window)?.screen.scale ?? 3
         pointerLayer.frame = PointerLayer.frame(shape: shape, local: CGPoint(x: local.x, y: local.y), factor: factor)
         pointerLayer.isHidden = false
@@ -781,5 +817,30 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
 extension StreamView: UIPointerInteractionDelegate {
     public func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
         .hidden()
+    }
+}
+
+/// Le dernier état du pointeur en attente du fil principal : un seul saut de
+/// file à la fois, quel que soit le nombre de mouvements entre deux images
+/// (avant : un bloc par mouvement et par écho de l'ordinateur).
+private final class PendingPointer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var state: PointerLayer.State?
+
+    /// `true` : aucun saut n'était en attente, il faut en lancer un.
+    func put(_ s: PointerLayer.State) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let idle = state == nil
+        state = s
+        return idle
+    }
+
+    func take() -> PointerLayer.State? {
+        lock.lock()
+        defer { lock.unlock() }
+        let s = state
+        state = nil
+        return s
     }
 }

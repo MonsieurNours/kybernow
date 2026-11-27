@@ -23,6 +23,9 @@ struct SessionView: View {
     @ObservedObject var session: SessionController
     @EnvironmentObject private var pads: GamepadBridge
     @State private var keyboardRow: KeyboardRow?
+    /// Le passage a fini de s'ouvrir : retiré de l'arbre (ses fonds animés sans
+    /// fin tournaient sous l'image, à opacité 0, toute la session).
+    @State private var passageGone = false
 
     private var revealed: Bool { session.revealedAt != nil }
     private var isReconnecting: Bool { if case .reconnecting = session.phase { return true } else { return false } }
@@ -37,7 +40,7 @@ struct SessionView: View {
                 StreamStage(view: session.streamView)
                     .ignoresSafeArea()
 
-                if session.phase != .ended {
+                if session.phase != .ended, !passageGone {
                     Passage(host: session.host, open: revealed, title: session.title,
                             button: session.isBorrower ? LendText.borrow : session.isWatching ? Share.watchWord(.action) : session.isGuest ? ShareText.joinButton : String(localized: "Se connecter"))
                         .allowsHitTesting(false)
@@ -105,6 +108,11 @@ struct SessionView: View {
             let row = KeyboardRow(session: session)
             keyboardRow = row
             session.streamView.keyboardAccessory = row.view
+        }
+        .onChange(of: revealed) { _, now in
+            guard now else { return }
+            // Après l'ouverture (1,5 s) : comme sur l'Apple TV.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.7) { passageGone = true }
         }
         .onDisappear {
             if session.streamView.keyboardAccessory === keyboardRow?.view { session.streamView.keyboardAccessory = nil }
@@ -271,11 +279,69 @@ struct SessionView: View {
 
 // MARK: - L'image
 
-/// La vue de session UIKit dans SwiftUI.
-struct StreamStage: UIViewRepresentable {
+/// La vue de session UIKit dans SwiftUI, dans un contrôleur qui demande le
+/// verrouillage du pointeur d'iPadOS quand la vue le veut (IOS-09).
+struct StreamStage: UIViewControllerRepresentable {
     let view: StreamView
-    func makeUIView(context: Context) -> StreamView { view }
-    func updateUIView(_ uiView: StreamView, context: Context) {}
+    func makeUIViewController(context: Context) -> PointerLockController { PointerLockController(stream: view) }
+    func updateUIViewController(_ controller: PointerLockController, context: Context) {}
+}
+
+/// Hôte de la vue de session : `prefersPointerLocked` suit `StreamView.wantsPointerLock`.
+/// iPadOS lit la préférence en descendant depuis le contrôleur racine de la
+/// fenêtre ; elle est redemandée ici et chez chaque parent à chaque bascule.
+final class PointerLockController: UIViewController {
+    let stream: StreamView
+    private var lockObserver: NSObjectProtocol?
+
+    init(stream: StreamView) {
+        self.stream = stream
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func loadView() {
+        let container = UIView()
+        container.backgroundColor = .black
+        stream.frame = container.bounds
+        stream.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.addSubview(stream)
+        view = container
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        stream.onPointerLockChange = { [weak self] in self?.updateLock() }
+        lockObserver = NotificationCenter.default.addObserver(forName: UIPointerLockState.didChangeNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, let scene = note.userInfo?[UIPointerLockState.sceneUserInfoKey] as? UIScene,
+                      scene === self.view.window?.windowScene else { return }
+                KyberLog.app.notice("pointeur de l'iPad \(scene.pointerLockState?.isLocked == true ? "verrouillé" : "libre", privacy: .public)")
+            }
+        }
+    }
+
+    deinit {
+        if let lockObserver { NotificationCenter.default.removeObserver(lockObserver) }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        updateLock()
+    }
+
+    override var prefersPointerLocked: Bool { stream.wantsPointerLock }
+
+    private func updateLock() {
+        var controller: UIViewController? = self
+        while let c = controller {
+            c.setNeedsUpdateOfPrefersPointerLocked()
+            controller = c.parent
+        }
+        view.window?.rootViewController?.setNeedsUpdateOfPrefersPointerLocked()
+    }
 }
 
 // MARK: - Le passage

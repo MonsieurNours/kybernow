@@ -155,6 +155,8 @@ final class PlayStationSession: ObservableObject {
             .sink { [weak self] n in self?.padsChanged(n) }
             .store(in: &bag)
         keyMouse.attach(play)
+        // Souris ou trackpad de l'iPad : pointeur verrouillé pendant la partie, barre fermée.
+        streamView.consolePointerLock = true
         keyMouse.onShortcut = { [weak self] key in self?.shortcut(key) ?? false }
         observe()
         if !play.start(address: address, registered: registered, settings: settings,
@@ -190,6 +192,7 @@ final class PlayStationSession: ObservableObject {
             padMode = false
         }
         keyMouse.suspended = open
+        streamView.consolePointerLock = !open
         play?.setCaptured(open)
         withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { barOpen = open }
     }
@@ -410,6 +413,7 @@ final class PlayStationSession: ObservableObject {
         GamepadBridge.shared.detachConsole()
         bag.removeAll()
         keyMouse.detach()
+        streamView.consolePointerLock = false
         guard let play else { return }
         self.play = nil
         let remote = self.remote
