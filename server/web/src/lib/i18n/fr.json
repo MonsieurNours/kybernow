@@ -68,7 +68,7 @@
       "tap": "Toucher pour le son",
       "click": "Cliquer pour le son",
       "mute": "Couper le son",
-      "unmute": "Remettre le son",
+      "unmute": "Rétablir le son",
       "on": "Son",
       "muted": "Muet"
     },
@@ -82,8 +82,8 @@
     },
     "mouse": {
       "auto": "Souris auto",
-      "game": "Souris jeu",
-      "desktop": "Souris bureau",
+      "game": "Souris des jeux",
+      "desktop": "Souris du bureau",
       "hint": "Auto : capturée seulement quand un jeu est en plein écran sur l'ordinateur"
     },
     "bar": {
