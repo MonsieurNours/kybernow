@@ -37,6 +37,7 @@ import CoreGraphics
 import CoreVideo
 import Metal
 import QuartzCore
+import os
 import simd
 
 /// Mesures de l'image, une fois par seconde.
@@ -128,16 +129,28 @@ final class VideoRenderer {
     var onUnsupportedFormat: ((OSType) -> Void)?
     var onStats: ((VideoStats) -> Void)?
     /// Latence de bout en bout (mesures de Kyber), si elles sont actives.
-    var latency: (any LatencyReporting)?
+    /// Posée depuis le fil principal, lue sur les fils du décodage et de la
+    /// présentation : sous son propre verrou (MAC-22).
+    var latency: (any LatencyReporting)? {
+        get { settings.withLockUnchecked { $0.latency } }
+        set { settings.withLockUnchecked { $0.latency = newValue } }
+    }
 
     /// Synchro verticale (macOS). Sans elle, l'image part dès qu'elle est prête.
-    var vsync = true {
-        didSet {
+    var vsync: Bool {
+        get { settings.withLockUnchecked { $0.vsync } }
+        set {
+            settings.withLockUnchecked { $0.vsync = newValue }
             #if os(macOS)
-            renderQueue.async { [self] in layer.displaySyncEnabled = vsync }
+            renderQueue.async { [self] in layer.displaySyncEnabled = newValue }
             #endif
         }
     }
+    private struct Settings {
+        var latency: (any LatencyReporting)?
+        var vsync = true
+    }
+    private let settings = OSAllocatedUnfairLock(uncheckedState: Settings())
 
     /// Garde « une image en vol » : l'image N+1 attend que l'écran ait montré N.
     /// `KN_INFLIGHT_GUARD=1` la remet (comparaison) ; sans elle, chaque image
