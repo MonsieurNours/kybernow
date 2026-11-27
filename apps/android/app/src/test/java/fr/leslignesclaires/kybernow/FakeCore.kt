@@ -31,6 +31,7 @@ open class FakeCore : Core.Source {
     override fun relayParts(addr: String): String? = null
     override fun relayLabel(addr: String) = addr.substringBefore('#')
     override fun looksLikeInvite(text: String) = text.contains("borrow")
+    override fun pyrowaveLoweredText(width: Int, height: Int, refresh: Int, mbps: Int) = "Définition ramenée à $width × $height pour tenir dans $mbps Mbit/s."
     override fun discoveryFound(json: String): String? {
         val o = JSONObject(json)
         val host = o.optJSONArray("addresses")?.optString(0)?.takeIf { it.isNotEmpty() } ?: return null

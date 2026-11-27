@@ -165,8 +165,10 @@ mod native {
     }
 }
 
-/// Résultat d'une image (`kn_pw_frame`).
+/// Résultat d'une image (`kn_pw_frame`). Sans la bibliothèque (armeabi-v7a),
+/// seule la perte est rendue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(feature = "pyrowave"), allow(dead_code))]
 pub enum Shown {
     /// Décodée et présentée, GPU terminé.
     Shown,

@@ -140,7 +140,6 @@
     <string name="pyrowave_may_stutter">L\'image peut saccader.</string>
     <string name="pyrowave_switch_hevc">Passer en HEVC</string>
     <string name="pyrowave_strained">Le réseau sature</string>
-    <string name="pyrowave_lowered" formatted="true">Définition ramenée à %1$d × %2$d pour tenir dans %3$d Mbit/s.</string>
     <string name="pyrowave_444_help">Avec PyroWave, presque sans coût : seul le débit monte.</string>
     <string name="pyrowave_not_offered" formatted="true">%1$s ne propose pas PyroWave.</string>
     <string name="pyrowave_no_decoder">Cet appareil ne sait pas décoder PyroWave.</string>

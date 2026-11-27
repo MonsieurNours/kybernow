@@ -97,6 +97,8 @@ object Native {
      * `{id, name, host, port, fingerprint}` (adresse choisie, empreinte sous sa forme normale), nul pour une annonce à ignorer.
      */
     @JvmStatic external fun discoveryFound(json: String): String?
+    /** « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » (`pyrowave::Lowered::text`). */
+    @JvmStatic external fun pyrowaveLoweredText(width: Int, height: Int, refresh: Int, mbps: Int): String
     /** Le texte ressemble à un lien d'invitation, lisible ou non. */
     @JvmStatic external fun looksLikeInvite(text: String): Boolean
 

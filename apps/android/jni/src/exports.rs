@@ -1091,3 +1091,21 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_profileSett
         give(&mut env, &json)
     })
 }
+
+/// « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. »
+/// (`pyrowave::Lowered::text`), les nombres de `onSecond` (18 à 21).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_pyrowaveLoweredText(
+    mut env: Env,
+    _: JClass,
+    width: jint,
+    height: jint,
+    refresh: jint,
+    mbps: jint,
+) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let n = |v: jint| v.max(0) as u32;
+        let l = kybernow_core::pyrowave::Lowered { width: n(width), height: n(height), refresh: n(refresh), mbps: n(mbps) };
+        give(&mut env, &l.text(i18n::current()))
+    })
+}

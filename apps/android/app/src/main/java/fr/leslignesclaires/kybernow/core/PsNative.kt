@@ -75,6 +75,14 @@ object PsNative {
     @JvmStatic external fun handoffDiscover(waitMs: Int): String
     /** `{"ok":true}` ou `{"error":"refused"|"unreachable"}`. */
     @JvmStatic external fun handoffSend(address: String, code: String, bundle: String): String
+    /** Le paquet à envoyer, mis en forme par le cœur (`Bundle`) ; nul s'il ne se lit pas. */
+    @JvmStatic external fun bundleNormalize(text: String): String?
+    /**
+     * Un paquet reçu rapproché de l'appareil (`playstation::bundle`) : `local` `[{id, psn_id}]`, `hosts` `[{id,
+     * fingerprint, address}]` → `{accounts: [{id, psn_id, name, new}], consoles: [{host_id, name, model, address,
+     * target, pairings, hosts}]}` ; nul si ce n'est pas un paquet.
+     */
+    @JvmStatic external fun bundlePlan(text: String, localJson: String, hostsJson: String): String?
 
     // États d'une partie ([PsListener.onPsState]).
     const val CONNECTING = 0

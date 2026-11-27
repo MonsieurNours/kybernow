@@ -140,7 +140,6 @@
     <string name="pyrowave_may_stutter">The picture may stutter.</string>
     <string name="pyrowave_switch_hevc">Switch to HEVC</string>
     <string name="pyrowave_strained">The network is saturated</string>
-    <string name="pyrowave_lowered" formatted="true">Resolution lowered to %1$d × %2$d to fit in %3$d Mbit/s.</string>
     <string name="pyrowave_444_help">With PyroWave, almost free: only the bitrate goes up.</string>
     <string name="pyrowave_not_offered" formatted="true">%1$s doesn\'t offer PyroWave.</string>
     <string name="pyrowave_no_decoder">This device can\'t decode PyroWave.</string>

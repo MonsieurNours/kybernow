@@ -1,6 +1,5 @@
 package fr.leslignesclaires.kybernow.playstation
 
-import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.core.PsNative
 import fr.leslignesclaires.kybernow.model.Host
 import org.json.JSONArray
@@ -41,7 +40,9 @@ object Handoff {
                     .put("pairings", pairings).put("stations", stations),
             )
         }
-        return JSONObject().put("from", from).put("accounts", accounts).put("consoles", consoles).toString()
+        val raw = JSONObject().put("from", from).put("accounts", accounts).put("consoles", consoles).toString()
+        // Mis en forme par le cœur (`Bundle`), le même paquet que les autres apps.
+        return PsNative.bundleNormalize(raw) ?: raw
     }
 
     /** Ce qu'un paquet reçu a apporté : les nombres du paquet (« {n} compte(s) et {n} console(s) reçus. »). */
@@ -53,47 +54,36 @@ object Handoff {
      * l'adresse ; inconnues, ignorées. Nul si le paquet ne se lit pas.
      */
     fun merge(store: PsStore, hosts: List<Host>, json: String): Received? = runCatching {
-        val o = JSONObject(json)
-        val accounts = o.optJSONArray("accounts") ?: JSONArray()
-        val consoles = o.optJSONArray("consoles") ?: JSONArray()
-        // Identifiant du compte dans le paquet → identifiant ici.
-        val ids = mutableMapOf<String, String>()
+        // Le cœur lit le paquet (formes tolérées, identifiants PSN vérifiés), rapproche ses comptes de ceux de
+        // l'appareil et ses Stations des ordinateurs (`playstation::bundle`) ; l'app range le résultat.
+        val local = JSONArray()
+        for (a in store.accounts.value) store.psnId(a.id)?.let { local.put(JSONObject().put("id", a.id).put("psn_id", it)) }
+        val known = JSONArray()
+        for (h in hosts) known.put(JSONObject().put("id", h.id).put("fingerprint", h.fingerprint ?: JSONObject.NULL).put("address", h.address))
+        val plan = JSONObject(PsNative.bundlePlan(json, local.toString(), known.toString()) ?: return@runCatching null)
+        val accounts = plan.getJSONArray("accounts")
+        val consoles = plan.getJSONArray("consoles")
         for (i in 0 until accounts.length()) {
             val a = accounts.getJSONObject(i)
-            // Toléré : `account` ou `account_id` à la place de `psn_id` (paquet de webOS).
-            val psn = listOf("psn_id", "account", "account_id").map { a.optString(it) }.firstOrNull { it.isNotEmpty() && PsNative.accountIdValid(it) } ?: continue
             val name = a.optString("name").takeIf { !a.isNull("name") && it.isNotEmpty() }
-            val kept = store.keep(psn, null, a.optString("id"))
+            val kept = store.keep(a.getString("psn_id"), null, a.getString("id"))
             // Un compte déjà là prend le nom du paquet seulement s'il n'en avait pas.
             if (name != null && kept.account.name == null) store.rename(kept.account.id, name)
-            ids[a.optString("id").uppercase()] = kept.account.id
         }
         for (i in 0 until consoles.length()) {
             val c = consoles.getJSONObject(i)
-            val hostId = c.optString("host_id").uppercase().takeIf { it.isNotEmpty() } ?: continue
-            val address = c.optJSONArray("addresses")?.let { a -> (0 until a.length()).map { a.getString(it) } }?.firstOrNull() ?: c.optString("address")
-            // Association en texte JSON (apps Apple) ou en objet ; toléré : un tableau `[{account, registered}]`.
-            val pairings = mutableMapOf<String, String>()
-            c.optJSONObject("pairings")?.let { p -> for (k in p.keys()) pairings[k] = p.get(k).toString() }
-            c.optJSONArray("pairings")?.let { p -> for (j in 0 until p.length()) p.optJSONObject(j)?.let { e -> e.opt("registered")?.let { r -> pairings[e.optString("account")] = r.toString() } } }
-            val model = c.optString("model", "PS5").uppercase()
-            for ((key, registered) in pairings) {
-                val account = ids[key.uppercase()] ?: continue
+            val hostId = c.getString("host_id")
+            val address = if (c.isNull("address")) "" else c.optString("address")
+            val target = if (c.isNull("target")) "" else c.optString("target")
+            val model = c.optString("model").ifEmpty { "PS5" }
+            val pairings = c.optJSONObject("pairings") ?: JSONObject()
+            for (account in pairings.keys()) {
                 val existing = store.consoleByHost(hostId)
                 if (existing != null && store.registered(existing, account) != null) continue
-                store.paired(hostId, c.optString("name"), model, address, c.optString("target"), registered, account)
+                store.paired(hostId, c.optString("name"), model, address, target, pairings.getString(account), account)
             }
-            val stations = c.optJSONArray("stations") ?: JSONArray()
-            for (j in 0 until stations.length()) {
-                // Toléré : l'identifiant de la Station seul (paquet de webOS).
-                val st = stations.optJSONObject(j) ?: JSONObject().put("id", stations.optString(j))
-                val fp = st.optString("fingerprint").takeIf { !st.isNull("fingerprint") && it.isNotEmpty() }
-                val h = hosts.firstOrNull { it.id == st.optString("id") }
-                    ?: fp?.let { f -> hosts.firstOrNull { Core.sameFingerprint(it.fingerprint, f) } }
-                    ?: hosts.firstOrNull { it.address == st.optString("address") }
-                    ?: continue
-                store.addStation(hostId, h.id)
-            }
+            val matched = c.optJSONArray("hosts") ?: JSONArray()
+            for (j in 0 until matched.length()) store.addStation(hostId, matched.getString(j))
         }
         Received(accounts.length(), consoles.length())
     }.getOrNull()

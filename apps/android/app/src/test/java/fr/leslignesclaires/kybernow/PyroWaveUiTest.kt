@@ -61,6 +61,10 @@ import fr.leslignesclaires.kybernow.session.Lowered
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35], application = Application::class, qualifiers = "fr-w914dp-h411dp-land-xxhdpi")
 class PyroWaveUiTest {
+    @org.junit.Before fun fakeCore() = FakeCore.install()
+
+    @org.junit.After fun realCore() = FakeCore.reset()
+
     @get:Rule val rule = createComposeRule()
 
     private val context get() = ApplicationProvider.getApplicationContext<Application>()
@@ -208,7 +212,8 @@ class PyroWaveUiTest {
         val ui = session({ statsOpen = true }, Actions())
         ui.state.second.value = Second(4.1, 1.0, 120, 0, 0, 0, 290.0, null, lowered = Lowered(1920, 1080, 120, 300))
         show(FormFactor.TABLET) { SessionOverlay(ui) }
-        rule.onNodeWithText("Définition ramenée à 1920\u00a0×\u00a01080 pour tenir dans 300\u00a0Mbit/s.").assertExists()
+        // Le texte du cœur (`pyrowave::Lowered::text`), ici celui du faux cœur.
+        rule.onNodeWithText("Définition ramenée à 1920 × 1080 pour tenir dans 300 Mbit/s.").assertExists()
     }
 
     @Test

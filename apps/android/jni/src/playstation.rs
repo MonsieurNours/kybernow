@@ -841,3 +841,42 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffSe
         give(&mut env, &s.to_string())
     })
 }
+
+// MARK: - Paquet de « Envoyer à un appareil » (`playstation::bundle`, WINAPP-54)
+
+/// Le paquet à envoyer, mis en forme par le cœur (`Bundle::parse` puis
+/// `to_json`) ; nul s'il ne se lit pas.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_bundleNormalize(mut env: Env, _: JClass, text: JString) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        match kybernow_core::playstation::bundle::Bundle::parse(&string(&mut env, &text)) {
+            Some(b) => give(&mut env, &b.to_json()),
+            None => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Un paquet reçu, rapproché de ce que l'appareil garde, prêt à ranger
+/// (`Bundle::parse`, `match_accounts`, `BundleStation::matches`) :
+/// `local_json` `[{id, psn_id}]` (les comptes de l'appareil), `hosts_json`
+/// `[{id, fingerprint, address}]` (ses ordinateurs). Rend `{"accounts":
+/// [{id, psn_id, name, new}], "consoles": [{host_id, name, model, address,
+/// target, pairings: {compte ici: association}, hosts: [ordinateurs]}]}`
+/// (associations de comptes absents du paquet laissées de côté), ou nul si
+/// ce n'est pas un paquet.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_bundlePlan(
+    mut env: Env,
+    _: JClass,
+    text: JString,
+    local_json: JString,
+    hosts_json: JString,
+) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let (text, local, hosts) = (string(&mut env, &text), string(&mut env, &local_json), string(&mut env, &hosts_json));
+        match crate::bundle::plan(&text, &local, &hosts) {
+            Some(v) => give(&mut env, &v.to_string()),
+            None => std::ptr::null_mut(),
+        }
+    })
+}

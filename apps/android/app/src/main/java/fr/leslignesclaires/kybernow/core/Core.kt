@@ -22,6 +22,7 @@ object Core {
         fun relayParts(addr: String): String?
         fun relayLabel(addr: String): String
         fun looksLikeInvite(text: String): Boolean
+        fun pyrowaveLoweredText(width: Int, height: Int, refresh: Int, mbps: Int): String
         fun discoveryFound(json: String): String?
         fun recordingClock(seconds: Long): String
         fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean): String
@@ -45,6 +46,7 @@ object Core {
         override fun relayParts(addr: String) = Native.relayParts(addr)
         override fun relayLabel(addr: String) = Native.relayLabel(addr)
         override fun looksLikeInvite(text: String) = Native.looksLikeInvite(text)
+        override fun pyrowaveLoweredText(width: Int, height: Int, refresh: Int, mbps: Int) = Native.pyrowaveLoweredText(width, height, refresh, mbps)
         override fun discoveryFound(json: String) = Native.discoveryFound(json)
         override fun recordingClock(seconds: Long) = Native.recordingClock(seconds)
         override fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean) = Native.profileSettings(profile, hevc, hevc444, av1)
@@ -167,6 +169,10 @@ object Core {
             .put("txt", JSONObject().apply { txt.forEach { (k, v) -> if (v != null) put(k, v) } })
         return ask("découverte", null) { discoveryFound(o.toString()) }?.let { runCatching { JSONObject(it) }.getOrNull() }
     }
+
+    /** PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » (le bandeau, et les Statistiques). */
+    fun pyrowaveLowered(width: Int, height: Int, refresh: Int, mbps: Int): String =
+        ask("définition ramenée", "") { pyrowaveLoweredText(width, height, refresh, mbps) }
 
     /** Le texte ressemble à un lien d'invitation, lisible ou non. */
     fun looksLikeInvite(text: String): Boolean = ask("lien d'invitation", false) { looksLikeInvite(text) }
