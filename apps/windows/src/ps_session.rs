@@ -1155,7 +1155,13 @@ fn command(c: usize) {
     }
 }
 
+/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+/// et notée au journal, `ffi_guard!` du cœur), le corps est `proc_body`.
 unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    kybernow_core::ffi_guard!({ unsafe { proc_body(hwnd, msg, wparam, lparam) } })
+}
+
+unsafe fn proc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         match msg {
             WM_APP_PS_STATE => {
@@ -1441,7 +1447,13 @@ impl Hint {
     }
 }
 
+/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+/// et notée au journal, `ffi_guard!` du cœur), le corps est `hint_proc_body`.
 unsafe extern "system" fn hint_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    kybernow_core::ffi_guard!({ unsafe { hint_proc_body(hwnd, msg, wparam, lparam) } })
+}
+
+unsafe fn hint_proc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         match msg {
             WM_PAINT => {

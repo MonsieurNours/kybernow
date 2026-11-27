@@ -206,7 +206,13 @@ pub fn enumerate() -> Vec<Monitor> {
 
     const MONITORINFOF_PRIMARY: u32 = 1;
 
+    /// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+    /// et notée au journal, `ffi_guard!` du cœur), le corps est `each_body`.
     unsafe extern "system" fn each(monitor: HMONITOR, _hdc: HDC, _rect: *mut RECT, data: LPARAM) -> BOOL {
+        kybernow_core::ffi_guard!({ unsafe { each_body(monitor, _hdc, _rect, data) } })
+    }
+
+    unsafe fn each_body(monitor: HMONITOR, _hdc: HDC, _rect: *mut RECT, data: LPARAM) -> BOOL {
         unsafe {
             let out = &mut *(data.0 as *mut Vec<Monitor>);
             let mut info = MONITORINFOEXW::default();

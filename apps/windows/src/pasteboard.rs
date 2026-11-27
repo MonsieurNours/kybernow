@@ -121,7 +121,13 @@ mod imp {
         }
     }
 
+    /// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+    /// et notée au journal, `ffi_guard!` du cœur), le corps est `wndproc_body`.
     unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        kybernow_core::ffi_guard!({ unsafe { wndproc_body(hwnd, msg, wparam, lparam) } })
+    }
+
+    unsafe fn wndproc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         if msg == WM_APP_JOB {
             let jobs: Vec<Job> = OWNER.get().and_then(|o| o.as_ref()).map(|o| std::mem::take(&mut *o.jobs.locked())).unwrap_or_default();
             for job in jobs {

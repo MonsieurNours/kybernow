@@ -379,7 +379,13 @@ fn hook_thread(me: Arc<HookThread>) {
     }
 }
 
+/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+/// et notée au journal, `ffi_guard!` du cœur), le corps est `ll_keyboard_body`.
 unsafe extern "system" fn ll_keyboard(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    kybernow_core::ffi_guard!({ unsafe { ll_keyboard_body(code, wparam, lparam) } })
+}
+
+unsafe fn ll_keyboard_body(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         let mine = MY_HOOK.with(|g| g.get()) == HOOK_GENERATION.load(Ordering::Relaxed);
         if code == HC_ACTION as i32 && mine {
@@ -2490,7 +2496,13 @@ impl App {
     }
 }
 
+/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+/// et notée au journal, `ffi_guard!` du cœur), le corps est `control_proc_body`.
 unsafe extern "system" fn control_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    kybernow_core::ffi_guard!({ unsafe { control_proc_body(hwnd, msg, wparam, lparam) } })
+}
+
+unsafe fn control_proc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         let app = || app_of_control(hwnd.0 as isize);
         match msg {
@@ -2640,7 +2652,13 @@ fn first_image(app: &Arc<App>, win: &Arc<ScreenWin>) {
     app.events.screen_visible(&win.key);
 }
 
+/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+/// et notée au journal, `ffi_guard!` du cœur), le corps est `screen_proc_body`.
 unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    kybernow_core::ffi_guard!({ unsafe { screen_proc_body(hwnd, msg, wparam, lparam) } })
+}
+
+unsafe fn screen_proc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         let found = app_of(hwnd.0 as isize);
         let Some((app, win)) = found else {

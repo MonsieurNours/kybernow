@@ -4522,10 +4522,7 @@ pub fn run(args: Vec<String>) {
     // Micro : celui choisi et le traitement voix, pour toutes les sessions.
     crate::micro::set_prefs(prefs.microphone.clone(), prefs.voice_processing.unwrap_or(true));
     *state.prefs.locked() = prefs;
-    let app = tauri::Builder::default()
-        .manage(state)
-        .register_uri_scheme_protocol(IMAGE_SCHEME, |ctx, request| serve_image(ctx.app_handle(), request.uri().path()))
-        .invoke_handler(tauri::generate_handler![
+    let commands: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
             snapshot,
             camera::session_camera,
             camera::session_camera_pick,
@@ -4651,7 +4648,19 @@ pub fn run(args: Vec<String>) {
             playstation::ps_handoff_discover,
             playstation::ps_handoff_send,
             playstation::ps_handoff_receive
-        ])
+    ]);
+    let app = tauri::Builder::default()
+        .manage(state)
+        .register_uri_scheme_protocol(IMAGE_SCHEME, |ctx, request| serve_image(ctx.app_handle(), request.uri().path()))
+        // Les commandes de l'interface : une panique d'une commande qui tourne
+        // sur le fil de l'interface (les commandes synchrones, qui appellent
+        // souvent le cœur) ne traverse pas WebView2, qui fermerait l'app ; elle
+        // est rattrapée et notée (`ffi::guard` du cœur). Les commandes
+        // `async` tournent dans leurs propres tâches.
+        .invoke_handler(move |invoke| {
+            let name = invoke.message.command().to_string();
+            kybernow_core::ffi::guard(&name, true, || commands(invoke))
+        })
         .setup(move |app| {
             let handle = app.handle().clone();
             // Langue connue de l'interface dès son premier affichage (ensuite : l'événement `lang`).

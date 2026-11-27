@@ -63,7 +63,13 @@ pub fn codec_name(fourcc: u32) -> &'static str {
     }
 }
 
+/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+/// et notée au journal, `ffi_guard!` du cœur), le corps est `get_format_hw_body`.
 unsafe extern "C" fn get_format_hw(_ctx: *mut AVCodecContext, fmts: *const AVPixelFormat) -> AVPixelFormat {
+    kybernow_core::ffi_guard!(AV_PIX_FMT_NONE => { unsafe { get_format_hw_body(_ctx, fmts) } })
+}
+
+unsafe fn get_format_hw_body(_ctx: *mut AVCodecContext, fmts: *const AVPixelFormat) -> AVPixelFormat {
     let mut p = fmts;
     let mut first = AV_PIX_FMT_NONE;
     unsafe {
