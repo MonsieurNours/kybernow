@@ -158,7 +158,7 @@ pub fn launched(prefs: &mut super::Prefs) -> bool {
     let updated = station_offer::app_updated(last.as_deref(), APP_VERSION);
     if prefs.last_launched.as_deref() != Some(APP_VERSION) {
         prefs.last_launched = Some(APP_VERSION.to_string());
-        super::save_prefs(prefs);
+        super::write_prefs(prefs);
     }
     updated
 }

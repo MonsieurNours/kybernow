@@ -100,7 +100,7 @@ impl Friend {
 
     /// La clé de son mot de passe dans le gestionnaire d'identifiants (`KyberNow:lend-<id>`).
     pub fn credential(&self) -> String {
-        format!("lend-{}", self.id)
+        credential_of(&self.id)
     }
 
     /// {hôte} des textes : le prénom de l'hôte, sinon le nom de l'ordinateur, sinon son adresse.
@@ -131,22 +131,20 @@ pub fn invite_name(invite: &Invite) -> Option<String> {
 }
 
 /// `friends.json` : la liste, vide si le fichier manque ou se lit mal.
+/// Nom du mot de passe d'un ordinateur emprunté dans le gestionnaire
+/// d'identifiants.
+pub fn credential_of(id: &str) -> String {
+    format!("lend-{id}")
+}
+
 pub fn load_friends(path: &Path) -> Vec<Friend> {
-    std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    crate::files::load_json(path).unwrap_or_default()
 }
 
 /// Écrit `friends.json` (posé sur le disque avant de remplacer l'ancien).
 pub fn save_friends(path: &Path, friends: &[Friend]) -> std::io::Result<()> {
-    use std::io::Write;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let tmp = path.with_extension("json.tmp");
-    let text = serde_json::to_string_pretty(friends).map_err(std::io::Error::other)?;
-    let mut f = std::fs::File::create(&tmp)?;
-    f.write_all(text.as_bytes())?;
-    f.sync_all()?;
-    std::fs::rename(&tmp, path)
+    let text = serde_json::to_vec_pretty(friends).map_err(std::io::Error::other)?;
+    crate::files::write_atomic(path, &text)
 }
 
 /// Ajoute ou remplace (même Station, même compte : même adresse, même port, même

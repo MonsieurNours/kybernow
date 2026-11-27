@@ -45,6 +45,9 @@ mod focus;
 mod follow;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod glyph;
+// Fichiers de l'app : dossier, écriture atomique, relecture (se teste sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod files;
 #[cfg(windows)]
 mod fonds;
 #[cfg(windows)]

@@ -83,7 +83,7 @@ impl Secrets for WinSecrets {
 }
 
 fn file_path() -> PathBuf {
-    std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("KyberNow").join("playstation.json")
+    crate::files::app_file("playstation.json")
 }
 
 fn ps(app: &AppHandle) -> &PsState {

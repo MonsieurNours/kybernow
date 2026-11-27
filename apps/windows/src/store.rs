@@ -245,44 +245,22 @@ pub struct Store {
 
 impl Store {
     pub fn load() -> Self {
-        let dir = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("KyberNow");
-        let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join("computers.json");
-        let computers = match std::fs::read_to_string(&path) {
-            Ok(text) => match serde_json::from_str(&text) {
-                Ok(list) => list,
-                Err(e) => {
-                    // Illisible : mis de côté plutôt qu'écrasé au prochain enregistrement.
-                    let aside = path.with_extension(format!(
-                        "json.{}.illisible",
-                        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
-                    ));
-                    log::error!("computers.json illisible ({e}) : mis de côté dans {}", aside.display());
-                    let _ = std::fs::rename(&path, &aside);
-                    Vec::new()
-                }
-            },
-            Err(_) => Vec::new(),
-        };
+        let path = crate::files::app_file("computers.json");
+        // Illisible : mis de côté plutôt qu'écrasé au prochain enregistrement.
+        let computers = crate::files::load_json(&path).unwrap_or_default();
         // Illisible : la liste revient de toute façon au prochain relevé des comptes.
-        let account_computers = std::fs::read_to_string(accounts_path(&path))
-            .ok()
-            .and_then(|t| serde_json::from_str::<AccountsFile>(&t).ok())
-            .map(|f| f.computers)
-            .unwrap_or_default();
+        let account_computers = crate::files::load_json::<AccountsFile>(&accounts_path(&path)).map(|f| f.computers).unwrap_or_default();
         Self { path, computers, account_computers }
     }
 
     /// Garde la dernière liste des ordinateurs des comptes (`accounts.json`).
     pub fn save_account_computers(&self) {
         let file = AccountsFile { computers: self.account_computers.clone() };
-        let Ok(text) = serde_json::to_string_pretty(&file) else { return };
-        write_atomic(&accounts_path(&self.path), &text);
+        crate::files::save_json(&accounts_path(&self.path), &file);
     }
 
     pub fn save(&self) {
-        let Ok(text) = serde_json::to_string_pretty(&self.computers) else { return };
-        write_atomic(&self.path, &text);
+        crate::files::save_json(&self.path, &self.computers);
     }
 
     pub fn get(&self, id: &str) -> Option<&Computer> {
@@ -340,25 +318,6 @@ impl Store {
 /// `accounts.json`, à côté de `computers.json`.
 fn accounts_path(computers: &std::path::Path) -> PathBuf {
     computers.with_file_name("accounts.json")
-}
-
-/// Écrit `text` dans `path`, posé sur le disque avant de remplacer l'ancien.
-fn write_atomic(path: &std::path::Path, text: &str) {
-    use std::io::Write;
-    let tmp = path.with_extension("json.tmp");
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let written = std::fs::File::create(&tmp).and_then(|mut f| {
-        f.write_all(text.as_bytes())?;
-        f.sync_all()
-    });
-    match written {
-        Ok(()) => {
-            if let Err(e) = std::fs::rename(&tmp, path) {
-                log::error!("{name} : {e}");
-            }
-        }
-        Err(e) => log::error!("{name} : {e}"),
-    }
 }
 
 pub fn new_id() -> String {

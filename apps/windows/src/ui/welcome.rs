@@ -29,13 +29,7 @@ fn has_account() -> bool {
 /// `f` sur l'état gardé, puis `app.json` enregistré.
 fn with_state<T>(app: &AppHandle, f: impl FnOnce(&mut WelcomeState) -> T) -> T {
     let state = app.state::<UiState>();
-    let (out, prefs) = {
-        let mut p = state.prefs.lock().unwrap();
-        let out = f(&mut p.welcome);
-        (out, p.clone())
-    };
-    save_prefs(&prefs);
-    out
+    update_prefs(&state, |p| f(&mut p.welcome))
 }
 
 fn current(app: &AppHandle) -> WelcomeView {

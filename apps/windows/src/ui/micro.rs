@@ -11,7 +11,7 @@ use kybernow_core::micro::{MicRefusal, MicState};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use super::{UiEvents, UiState, emit_computers, save_prefs, share};
+use super::{UiEvents, UiState, emit_computers, share, update_prefs};
 use crate::i18n::{self, t};
 
 /// Le micro d'une session : le choix de l'utilisateur, l'état dit par le cœur,
@@ -227,12 +227,10 @@ pub(crate) fn mic_settings(app: AppHandle) -> MicSettings {
 #[tauri::command(async)]
 pub(crate) fn set_mic_device(app: AppHandle, device: Option<String>) {
     let state = app.state::<UiState>();
-    let prefs = {
-        let mut p = state.prefs.lock().unwrap();
+    let prefs = update_prefs(&state, |p| {
         p.microphone = device.filter(|d| !d.is_empty());
         p.clone()
-    };
-    save_prefs(&prefs);
+    });
     crate::micro::set_prefs(prefs.microphone.clone(), prefs.voice_processing.unwrap_or(true));
 }
 
@@ -240,11 +238,9 @@ pub(crate) fn set_mic_device(app: AppHandle, device: Option<String>) {
 #[tauri::command(async)]
 pub(crate) fn set_mic_voice(app: AppHandle, on: bool) {
     let state = app.state::<UiState>();
-    let prefs = {
-        let mut p = state.prefs.lock().unwrap();
+    let prefs = update_prefs(&state, |p| {
         p.voice_processing = Some(on);
         p.clone()
-    };
-    save_prefs(&prefs);
+    });
     crate::micro::set_prefs(prefs.microphone.clone(), on);
 }

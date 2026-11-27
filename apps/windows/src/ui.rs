@@ -479,11 +479,29 @@ fn language_choice(p: &Prefs) -> &'static str {
 }
 
 fn prefs_path() -> std::path::PathBuf {
-    std::env::var_os("APPDATA").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir).join("KyberNow").join("app.json")
+    crate::files::app_file("app.json")
 }
 
+/// `app.json` ; illisible, il est mis de côté et noté au journal
+/// (`files::load_json`) avant de repartir des réglages par défaut.
 pub fn load_prefs() -> Prefs {
-    std::fs::read_to_string(prefs_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    crate::files::load_json(&prefs_path()).unwrap_or_default()
+}
+
+/// Modifie les réglages de l'app et écrit `app.json` sans lâcher le verrou :
+/// deux commandes presque simultanées ne peuvent plus écrire dans le désordre
+/// (le fichier est minuscule).
+pub(crate) fn update_prefs<T>(state: &UiState, f: impl FnOnce(&mut Prefs) -> T) -> T {
+    let mut p = state.prefs.lock().unwrap();
+    let out = f(&mut p);
+    write_prefs(&p);
+    out
+}
+
+/// Écrit `app.json` (atomique) ; l'appelant tient le verrou des réglages ou
+/// est seul (lancement).
+pub(crate) fn write_prefs(prefs: &Prefs) {
+    crate::files::save_json(&prefs_path(), prefs);
 }
 
 /// Installateur publié : un seul pour x64 et ARM64, il pose la version du
@@ -893,12 +911,7 @@ fn app_info(state: tauri::State<'_, UiState>) -> AppInfo {
 #[tauri::command(async)]
 fn set_open_at_login(app: AppHandle, on: bool) -> bool {
     let state = app.state::<UiState>();
-    let prefs = {
-        let mut p = state.prefs.lock().unwrap();
-        p.open_at_login = Some(on);
-        p.clone()
-    };
-    save_prefs(&prefs);
+    update_prefs(&state, |p| p.open_at_login = Some(on));
     login::set(on)
 }
 
@@ -906,12 +919,7 @@ fn set_open_at_login(app: AppHandle, on: bool) -> bool {
 #[tauri::command(async)]
 fn set_battery(app: AppHandle, battery: String) -> &'static str {
     let state = app.state::<UiState>();
-    let prefs = {
-        let mut p = state.prefs.lock().unwrap();
-        p.battery = Some(if battery == "garder" { "garder" } else { "alleger" }.into());
-        p.clone()
-    };
-    save_prefs(&prefs);
+    update_prefs(&state, |p| p.battery = Some(if battery == "garder" { "garder" } else { "alleger" }.into()));
     battery_choice(&state)
 }
 
@@ -939,20 +947,8 @@ fn check_update(app: AppHandle) -> Result<Option<Available>, String> {
 #[tauri::command(async)]
 fn set_channel(app: AppHandle, channel: Channel) -> Result<Option<Available>, String> {
     let state = app.state::<UiState>();
-    let prefs = {
-        let mut p = state.prefs.lock().unwrap();
-        p.channel = channel;
-        p.clone()
-    };
-    save_prefs(&prefs);
+    update_prefs(&state, |p| p.channel = channel);
     check_now(&app)
-}
-
-fn save_prefs(prefs: &Prefs) {
-    if let Some(dir) = prefs_path().parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let _ = std::fs::write(prefs_path(), serde_json::to_string_pretty(prefs).unwrap_or_default());
 }
 
 /// Langue choisie dans les réglages de l'app (`auto`, `fr`, `en`) : appliquée
@@ -961,13 +957,11 @@ fn save_prefs(prefs: &Prefs) {
 #[tauri::command(async)]
 fn set_language(app: AppHandle, language: String) -> &'static str {
     let state = app.state::<UiState>();
-    let prefs = {
-        let mut p = state.prefs.lock().unwrap();
+    let prefs = update_prefs(&state, |p| {
         p.language = language;
-        p.language = language_choice(&p).to_string();
+        p.language = language_choice(p).to_string();
         p.clone()
-    };
-    save_prefs(&prefs);
+    });
     let lang = i18n::apply(&prefs.language);
     log::info!("langue : {} ({})", prefs.language, lang.code());
     let update = {
@@ -989,7 +983,7 @@ fn set_language(app: AppHandle, language: String) -> &'static str {
 fn install_update(app: AppHandle) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     let state = app.state::<UiState>();
-    if !state.sessions.lock().unwrap().is_empty() {
+    if !can_quit(&state) {
         return Err(t("errors.session_open_install_later", &[]));
     }
     let u = state.update.lock().unwrap().clone().ok_or_else(|| t("errors.no_update", &[]))?;
@@ -1011,6 +1005,12 @@ fn install_update(app: AppHandle) -> Result<(), String> {
             let _ = a.emit_to("main", "update-progress", pct);
         }
     })?;
+    // Une session ou une partie a pu démarrer pendant le téléchargement :
+    // l'installateur fermerait l'app et la couperait.
+    if !can_quit(&state) {
+        log::info!("mise à jour {} prête, pas installée : une session a commencé entre-temps", u.version);
+        return Err(t("errors.session_open_install_later", &[]));
+    }
     log::info!("mise à jour {} vérifiée, installation", u.version);
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
@@ -3124,10 +3124,16 @@ fn show_home_if_idle(app: &AppHandle) {
 /// « Quitter » : l'app part quand la dernière session est finie et qu'aucune
 /// connexion ne se lance (une fenêtre de connexion restée sur un échec part
 /// avec elle).
+/// Rien que quitter couperait : ni session, ni connexion qui démarre, ni
+/// partie PlayStation (« Quitter », « Installer la mise à jour »). Une fenêtre
+/// de connexion restée sur un échec part avec l'app.
+fn can_quit(state: &UiState) -> bool {
+    state.sessions.lock().unwrap().is_empty() && state.launching.lock().unwrap().is_empty() && !state.ps.playing()
+}
+
 fn exit_when_idle(app: &AppHandle) {
     let state = app.state::<UiState>();
-    let done = state.sessions.lock().unwrap().is_empty() && state.launching.lock().unwrap().is_empty() && !state.ps.playing();
-    if done {
+    if can_quit(&state) {
         log::info!("quitter");
         app.exit(0);
     }
@@ -4327,15 +4333,10 @@ pub(crate) fn after_launch(app: &AppHandle, session: u64, cancelled: bool) {
 /// continue, une seule fois.
 fn first_close(app: &AppHandle) {
     let state = app.state::<UiState>();
-    let prefs = {
-        let mut p = state.prefs.lock().unwrap();
-        if p.close_hint {
-            return;
-        }
-        p.close_hint = true;
-        p.clone()
-    };
-    save_prefs(&prefs);
+    let first = update_prefs(&state, |p| !std::mem::replace(&mut p.close_hint, true));
+    if !first {
+        return;
+    }
     shell::notify(&t("notify.close_title", &[]), &t("notify.close_body", &[]), None);
 }
 
@@ -4348,15 +4349,14 @@ fn open_at_login_default(state: &UiState) {
         let first = p.open_at_login.is_none();
         if first {
             p.open_at_login = Some(true);
+            write_prefs(&p);
         }
-        first.then(|| p.clone())
+        first
     };
-    match first {
-        Some(prefs) => {
-            save_prefs(&prefs);
-            login::set(true);
-        }
-        None => login::refresh(),
+    if first {
+        login::set(true);
+    } else {
+        login::refresh();
     }
 }
 

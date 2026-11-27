@@ -110,7 +110,7 @@ impl Borrow {
 static SEQ: AtomicU64 = AtomicU64::new(1);
 
 fn friends_path() -> PathBuf {
-    std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("KyberNow").join("friends.json")
+    crate::files::app_file("friends.json")
 }
 
 impl LendState {
@@ -307,7 +307,7 @@ pub fn lend_remove(app: AppHandle, id: String) {
     if removed {
         state.lend.save();
     }
-    store::delete_password(&format!("lend-{id}"));
+    store::delete_password(&lending::credential_of(&id));
     state.lend.passwords.lock().unwrap().remove(&id);
     state.lend.seen.lock().unwrap().remove(&id);
     emit_friends(&app);

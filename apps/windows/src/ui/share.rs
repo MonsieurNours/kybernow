@@ -271,13 +271,10 @@ pub fn share_join(app: AppHandle, code: String, name: String, quality: String, l
         return Err(t("errors.four_at_most", &[]));
     }
     // Le prénom et la qualité de l'image sont retenus pour la fois suivante.
-    let prefs = {
-        let mut p = state.prefs.lock().unwrap();
+    update_prefs(&state, |p| {
         p.share_name = Some(name.clone());
         p.share_quality = Some(quality);
-        p.clone()
-    };
-    save_prefs(&prefs);
+    });
 
     let joining = match joining {
         Ok(j) => j,
@@ -669,12 +666,7 @@ pub fn share_quality(app: AppHandle, id: String, quality: String) -> Result<(), 
     }
     log::info!("[{}] qualité de l'image demandée : {}", guest.title, quality.as_str());
     *guest.quality.lock().unwrap() = quality;
-    let prefs = {
-        let mut p = state.prefs.lock().unwrap();
-        p.share_quality = Some(quality);
-        p.clone()
-    };
-    save_prefs(&prefs);
+    update_prefs(&state, |p| p.share_quality = Some(quality));
     Ok(())
 }
 

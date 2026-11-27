@@ -38,19 +38,18 @@ static BUSY: Mutex<()> = Mutex::new(());
 const BEFORE_SESSION: Duration = Duration::from_millis(1500);
 
 fn path() -> std::path::PathBuf {
-    std::env::var_os("APPDATA").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir).join("KyberNow").join("synced.json")
+    crate::files::app_file("synced.json")
 }
 
+/// `f` sur `synced.json` ; le fichier n'est réécrit (atomique) que si `f` l'a
+/// changé.
 fn with_file<T>(f: impl FnOnce(&mut SyncFile) -> T) -> T {
     let mut guard = FILE.lock().unwrap();
-    let file = guard.get_or_insert_with(|| std::fs::read_to_string(path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default());
+    let file = guard.get_or_insert_with(|| crate::files::load_json(&path()).unwrap_or_default());
+    let before = serde_json::to_vec(&*file).ok();
     let out = f(file);
-    if let Ok(text) = serde_json::to_string_pretty(&*file) {
-        let p = path();
-        let tmp = p.with_extension("json.tmp");
-        if std::fs::write(&tmp, text).is_ok() {
-            let _ = std::fs::rename(&tmp, &p);
-        }
+    if serde_json::to_vec(&*file).ok() != before {
+        crate::files::save_json(&path(), &*file);
     }
     out
 }
@@ -255,12 +254,7 @@ pub fn changed(app: &AppHandle, id: &str, before: &Settings) {
 #[tauri::command(async)]
 pub fn set_sync_settings(app: AppHandle, on: bool) -> bool {
     let state = app.state::<UiState>();
-    let prefs = {
-        let mut p = state.prefs.lock().unwrap();
-        p.sync_settings = Some(on);
-        p.clone()
-    };
-    save_prefs(&prefs);
+    update_prefs(&state, |p| p.sync_settings = Some(on));
     log::info!("réglages synchronisés : {}", if on { "allumés" } else { "coupés" });
     if on {
         std::thread::spawn(move || fetch_all(&app));
