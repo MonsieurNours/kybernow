@@ -76,10 +76,10 @@ index 7e1490e..2e5fbb3 100644
              guest_image: Default::default(),
          }
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index bfa8b68..7fefad0 100644
+index 26dfbfd..889a2e7 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
-@@ -1467,6 +1467,9 @@ struct RoleRequest {
+@@ -1495,6 +1495,9 @@ struct RoleRequest {
      user: String,
      role: ShareRole,
      rev: u64,
@@ -89,7 +89,7 @@ index bfa8b68..7fefad0 100644
  }
  
  /// `POST /kybernow/role`: a guest's new role, for its sessions (newer
-@@ -1477,7 +1480,12 @@ pub(crate) async fn post_role(
+@@ -1505,7 +1508,12 @@ pub(crate) async fn post_role(
      req: HttpRequest,
      body: web::Bytes,
  ) -> HttpResponse {
@@ -103,7 +103,7 @@ index bfa8b68..7fefad0 100644
          Ok(request) => request,
          Err(refusal) => return refusal,
      };
-@@ -1492,7 +1500,15 @@ pub(crate) async fn post_role(
+@@ -1520,7 +1528,15 @@ pub(crate) async fn post_role(
          .unwrap()
          .values_mut()
          .filter(|s| s.username == user)
@@ -120,7 +120,7 @@ index bfa8b68..7fefad0 100644
          .collect();
      info!(
          "\"{user}\" is now {role:?} (rev {rev}): {} sessions",
-@@ -1650,6 +1666,7 @@ mod tests {
+@@ -1670,6 +1686,7 @@ mod tests {
              rev,
              quality: ShareQuality::Host,
              hdr: false,
@@ -129,10 +129,10 @@ index bfa8b68..7fefad0 100644
      }
  
 diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
-index ae592eb..2fdddcc 100644
+index b4367c1..159b55f 100644
 --- a/kycontroller/src/kymux_controller/mod.rs
 +++ b/kycontroller/src/kymux_controller/mod.rs
-@@ -958,7 +958,9 @@ async fn start_session(
+@@ -961,7 +961,9 @@ async fn start_session(
              .with_session(&session_id, |s| Ok(crate::uplink::is_borrower(&s.username)))
              .unwrap_or(false);
          let guest = crate::kybernow::is_guest(ctrl, &session_id) && !borrower;
@@ -144,21 +144,21 @@ index ae592eb..2fdddcc 100644
          crate::uplink::Started::default()
      };
 diff --git a/kycontroller/src/uplink.rs b/kycontroller/src/uplink.rs
-index ae9526c..a06dfca 100644
+index 7bd84b2..abc30da 100644
 --- a/kycontroller/src/uplink.rs
 +++ b/kycontroller/src/uplink.rs
-@@ -5,7 +5,9 @@
- // can send (`["camera", "microphone"]`), read from the request's JSON beside
+@@ -6,7 +6,9 @@
  // kyctl-common's `StartRequest`, like `hdr` (an older app sends none). For
  // each kind whose sink sits next to kycontroller (`kybernow-camera`,
--// `kybernow-micro`), and never for a share guest, a kyproto data endpoint is
-+// `kybernow-micro`), and never for a share guest (except its microphone,
+ // `kybernow-micro`) and says its virtual device is ready (`--probe`,
+-// `--check`: `ready`), and never for a share guest, a kyproto data endpoint is
++// `--check`: `ready`), and never for a share guest (except its microphone,
 +// used only while its token or `POST /kybernow/role` gives it `mic`), a
 +// kyproto data endpoint is
  // registered; the response gives them in `uplink`
  // (`[{"kind": "camera", "endpoint": 12}]`). A data endpoint is a reliable
  // QUIC stream of its own each way: what goes up never waits behind the
-@@ -40,7 +42,7 @@ use kymux::{kyproto, types};
+@@ -41,7 +43,7 @@ use kymux::{kyproto, types};
  use log::{info, warn};
  use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
  use tokio::process::{Child, ChildStdin, Command};
@@ -167,7 +167,7 @@ index ae9526c..a06dfca 100644
  use uuid::Uuid;
  
  use crate::utils::Task;
-@@ -64,18 +66,22 @@ pub(crate) fn is_borrower(username: &str) -> bool {
+@@ -65,18 +67,22 @@ pub(crate) fn is_borrower(username: &str) -> bool {
      username.starts_with("kn-lend-")
  }
  
@@ -199,7 +199,7 @@ index ae9526c..a06dfca 100644
  }
  
  /// The sink of a kind: next to kycontroller, or in `KYBERNOW_SINKS_DIR`.
-@@ -110,16 +116,20 @@ pub(crate) async fn start(
+@@ -168,16 +174,20 @@ pub(crate) async fn start(
      connection: &kyproto::Connection,
      session: Uuid,
      guest: bool,
@@ -226,7 +226,7 @@ index ae9526c..a06dfca 100644
          let Some((kind, sink)) = kind_of(kind) else {
              info!("Uplink \"{kind}\": no sink on this computer");
              continue;
-@@ -130,7 +140,7 @@ pub(crate) async fn start(
+@@ -194,7 +204,7 @@ pub(crate) async fn start(
                  started.endpoints.push((kind.to_owned(), id));
                  started
                      .tasks
@@ -235,7 +235,7 @@ index ae9526c..a06dfca 100644
              }
              Err(err) => warn!("Uplink \"{kind}\": endpoint not registered: {err}"),
          }
-@@ -168,7 +178,29 @@ struct Sending {
+@@ -232,7 +242,29 @@ struct Sending {
      session: Uuid,
  }
  
@@ -265,7 +265,7 @@ index ae9526c..a06dfca 100644
      /// `Err` with the device that sends it already.
      fn take(kind: &'static str, session: Uuid, device: &str) -> Result<Self, String> {
          let mut senders = SENDERS.lock().unwrap();
-@@ -201,7 +233,7 @@ impl Drop for Sending {
+@@ -265,7 +297,7 @@ impl Drop for Sending {
  struct Sink {
      child: Child,
      stdin: ChildStdin,
@@ -274,7 +274,7 @@ index ae9526c..a06dfca 100644
      _output: Task,
  }
  
-@@ -227,7 +259,7 @@ impl Sink {
+@@ -291,7 +323,7 @@ impl Sink {
  
  async fn spawn_sink(
      path: &PathBuf,
@@ -283,7 +283,7 @@ index ae9526c..a06dfca 100644
      to_app: mpsc::Sender<types::DataPacket>,
  ) -> std::io::Result<Sink> {
      let mut child = Command::new(path)
-@@ -260,7 +292,13 @@ async fn spawn_sink(
+@@ -324,7 +356,13 @@ async fn spawn_sink(
      })
  }
  
@@ -298,7 +298,7 @@ index ae9526c..a06dfca 100644
      let (mut send, mut recv) = match endpoint.ready().await {
          Ok(protocol) => protocol,
          Err(err) => {
-@@ -280,6 +318,23 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
+@@ -344,6 +382,23 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
          }
      });
  
@@ -322,7 +322,7 @@ index ae9526c..a06dfca 100644
      let mut sink: Option<Sink> = None;
      loop {
          let packet = match recv.recv().await {
-@@ -293,7 +348,17 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
+@@ -357,7 +412,17 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
          let Some(&kind_byte) = packet.payload.first() else {
              continue;
          };
@@ -340,7 +340,7 @@ index ae9526c..a06dfca 100644
              START => {
                  if let Some(old) = sink.take() {
                      old.stop().await;
-@@ -305,7 +370,9 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
+@@ -369,7 +434,9 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
                      .and_then(serde_json::Value::as_str)
                      .unwrap_or_default()
                      .to_owned();
@@ -351,7 +351,7 @@ index ae9526c..a06dfca 100644
                      Ok(sending) => sending,
                      Err(other) => {
                          info!("Uplink \"{kind}\" refused: already sent by \"{other}\"");
-@@ -380,6 +447,14 @@ mod tests {
+@@ -472,6 +539,14 @@ mod tests {
          let request = serde_json::json!({"uplink": ["camera", 3, "microphone"]});
          assert_eq!(requested(&request), vec!["camera", "microphone"]);
          assert!(requested(&serde_json::json!({})).is_empty());
