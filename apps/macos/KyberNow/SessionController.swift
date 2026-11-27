@@ -1899,7 +1899,7 @@ final class SessionController: NSObject, ObservableObject {
         // Sans le clavier et la souris, rien ne part vers l'ordinateur : le
         // pointeur du Mac n'est plus capturé (souris des jeux) ; avec, le choix
         // de la barre reprend.
-        streamView.mouseMode = role.keyboardAndMouse ? host.settings.mouse.streamMode : .desktop
+        for view in allViews { view.mouseMode = role.keyboardAndMouse ? host.settings.mouse.streamMode : .desktop }
         if let text = ShareText.roleNotice(role, previous: previous) {
             showHint(.notice(text), after: 0, for: 4)
         }
@@ -2278,7 +2278,8 @@ final class SessionController: NSObject, ObservableObject {
 
     /// ⌃⌥⌘M : mode jeu si la souris est en mode bureau, et inversement.
     func toggleMouseCapture() {
-        setMouse(streamView.isRelative ? .desktop : .game)
+        // Capturée sur n'importe quel écran : ⌃⌥⌘M la libère (MAC-12).
+        setMouse(mouseCaptured ? .desktop : .game)
     }
 
     /// Le clavier et la souris de ce Mac partent vers l'ordinateur : une
@@ -2290,7 +2291,8 @@ final class SessionController: NSObject, ObservableObject {
         // Un invité sans le clavier et la souris n'a pas de souris à régler.
         guard hasKeyboardAndMouse else { return }
         commit { $0.settings.mouse = choice }
-        streamView.mouseMode = choice.streamMode
+        // Tous les écrans de la session, pas seulement le principal (MAC-12).
+        for view in allViews { view.mouseMode = choice.streamMode }
     }
 
     /// Ce que la session change de son ordinateur (profil, souris, dernière
