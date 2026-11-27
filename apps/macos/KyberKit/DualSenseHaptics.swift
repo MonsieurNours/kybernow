@@ -102,7 +102,7 @@ final class DualSenseHaptics: @unchecked Sendable {
             KyberLog.audio.notice("vibrations HD : pas de DualSense en USB, vibrations simples")
             return
         }
-        guard let unit = Self.open(found, owner: self) else {
+        guard let unit = Self.open(found) else {
             KyberLog.audio.error("vibrations HD : « \(found.name, privacy: .public) » ne s'ouvre pas, vibrations simples")
             return
         }
@@ -132,7 +132,7 @@ final class DualSenseHaptics: @unchecked Sendable {
     /// vibrations) envoyées aux voies 3 et 4 par la carte des voies ; si la
     /// carte des voies est refusée, toutes les voies de la manette, du
     /// silence sur les deux premières.
-    private static func open(_ found: Found, owner: DualSenseHaptics) -> Opened? {
+    private static func open(_ found: Found) -> Opened? {
         var desc = AudioComponentDescription(componentType: kAudioUnitType_Output, componentSubType: kAudioUnitSubType_HALOutput,
                                              componentManufacturer: kAudioUnitManufacturer_Apple, componentFlags: 0, componentFlagsMask: 0)
         guard let component = AudioComponentFindNext(nil, &desc) else { return nil }
@@ -157,9 +157,10 @@ final class DualSenseHaptics: @unchecked Sendable {
         )
         guard AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &format, UInt32(MemoryLayout.size(ofValue: format))) == noErr else { return nil }
 
-        var callback = AURenderCallbackStruct(inputProc: { refCon, _, _, _, frames, buffers in
+        // Le remplissage est tenu par le cœur (`kn_ps_haptics_fill`) : pas de
+        // contexte à passer au rappel (MAC-36).
+        var callback = AURenderCallbackStruct(inputProc: { _, _, _, _, frames, buffers in
             guard let buffers else { return noErr }
-            _ = refCon
             let list = UnsafeMutableAudioBufferListPointer(buffers)
             guard let buffer = list.first, let out = buffer.mData?.assumingMemoryBound(to: Float.self) else { return noErr }
             // Deux voies : la carte des voies les envoie aux voies 3 et 4 ;
@@ -167,7 +168,7 @@ final class DualSenseHaptics: @unchecked Sendable {
             let channels = max(1, Int(buffer.mNumberChannels))
             kn_ps_haptics_fill(out, UInt(frames), UInt(channels), UInt(channels >= 4 ? 2 : 0))
             return noErr
-        }, inputProcRefCon: Unmanaged.passUnretained(owner).toOpaque())
+        }, inputProcRefCon: nil)
         guard AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &callback, UInt32(MemoryLayout<AURenderCallbackStruct>.size)) == noErr else { return nil }
 
         // Petites demandes de la carte son de la manette (5 ms) : les

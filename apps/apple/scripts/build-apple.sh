@@ -65,6 +65,15 @@ trap 'rm -rf "$STAGE"' EXIT
 . "$ROOT/scripts/verrou.sh"
 kyber_verrou_sortie "$VENDOR" "apps/apple/scripts/build-apple.sh" || exit 1
 
+# Les correctifs client (remis à l'origine puis reposés, comme
+# build-apple-mobile.sh) : le cœur compile kyclient et kynput depuis ces
+# sources, qu'un build webOS ou de la Station a pu laisser autrement (TRANS-06).
+. "$ROOT/scripts/kyber-client-patches.sh"
+. "$MAC/scripts/client-patches.sh"
+PATCHES=()
+while IFS= read -r patch; do PATCHES+=("$patch"); done < <(mac_client_patches "$ROOT")
+kyber_apply_client_patches "$THIRD_PARTY/kyber-desktop/kysdk" "${PATCHES[@]}" || exit 1
+
 echo "==> kybernow-core + kybernow-apple ($TARGET)"
 # PyroWave demandé à Kyber (fonctionnalité kyber-pyrowave), par défaut comme
 # les autres apps ; KYBER_PYROWAVE=0 le coupe (build-kyclient.sh pareil).

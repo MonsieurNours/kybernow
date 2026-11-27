@@ -7,6 +7,13 @@ import os
 @_implementationOnly import CKyberNow
 
 public enum Core {
+    /// Manettes que voit le lecteur du cœur (une partie sur console ignore le
+    /// clavier dès qu'il y en a une) ; nil tant que son lecteur ne tourne pas.
+    public static var gamepadCount: Int? {
+        let n = kn_gamepads_count()
+        return n < 0 ? nil : Int(n)
+    }
+
     /// Branche le journal du cœur sur le journal unifié (catégorie `core`)
     /// et lui donne la langue de l'app. À appeler une fois au lancement.
     public static func install() {
@@ -30,15 +37,6 @@ public enum Core {
         kn_set_device_has_microphone(true)
         #endif
     }()
-
-    /// Langue choisie dans les réglages (`fr`, `en`) : messages du cœur et
-    /// `Accept-Language` vers la console.
-    public static func setLanguage(_ tag: String) {
-        kn_set_language(tag)
-    }
-
-    /// Maintenant, sur l'horloge des mesures de Kyber (µs).
-    static func nowMicros() -> Int64 { kn_now_micros() }
 
     /// Chaîne rendue par le cœur, libérée après lecture.
     static func take(_ p: UnsafeMutablePointer<CChar>?) -> String? {

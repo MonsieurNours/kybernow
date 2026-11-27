@@ -374,22 +374,6 @@ struct ConnectionSettings: Codable, Hashable {
         return min(max(Int(mbps), Self.minBitrate), Self.maxBitrate)
     }
 
-    var options: StreamOptions { options(width: 0, height: 0, refresh: 0) }
-
-    func options(width: Int, height: Int, refresh: Int) -> StreamOptions {
-        var o = StreamOptions()
-        o.codec = codec
-        o.yuv444 = yuv444
-        o.bitrate = UInt32(bitrate(width: width, height: height, refresh: refresh)) * 1_000_000
-        o.reliable = transport == .reliable
-        o.audio = audio != .off
-        o.yuv444 = yuv444 && Self.decodes444(codec)
-        o.vsync = vsync
-        o.clipboard = clipboard
-        o.gamepadAsXbox360 = gamepad == .xbox360
-        return o
-    }
-
     var profileLabel: String { Profile.label(profile) }
 
     /// La puce « HDR » de cet ordinateur sur un écran HDR ou non : cachée,
@@ -416,18 +400,6 @@ struct ConnectionSettings: Codable, Hashable {
         }
     }
 
-    /// Si le mode de l'écran de l'ordinateur change en session (un jeu qui
-    /// passe en 1080p) : Jeu laisse faire, Bureau le fait remettre ; sinon
-    /// (`default`), la console décide (son réglage « Si un jeu change la
-    /// définition ») : dit explicitement, pour qu'un profil changé en session
-    /// défasse le choix du précédent.
-    var modePolicy: String {
-        switch profile {
-        case .jeu?: return "follow"
-        case .bureau?: return "restore"
-        default: return "default"
-        }
-    }
 }
 
 extension ConnectionSettings {
@@ -747,6 +719,8 @@ final class HostStore: ObservableObject {
     /// Appelé après chaque ajout, modification ou retrait : l'app Mac publie
     /// ses ordinateurs dans iCloud pour l'Apple TV (CloudPublisher).
     var didSave: (([Host]) -> Void)?
+    /// Le mot de passe d'un ordinateur a changé (sans autre changement).
+    var passwordChanged: ((UUID) -> Void)?
     /// Présence des ordinateurs chez leur relais (accueil : « Hors de chez
     /// vous »), par relais : une connexion brève à chaque interrogation, donc
     /// une fois toutes les 30 s au plus, pour tous les ordinateurs d'un relais.
@@ -837,8 +811,9 @@ final class HostStore: ObservableObject {
             }
             if let relay = invited.relay { host.relay = relay }
             host.pairedByCode = true
-            update(host)
+            // Le mot de passe d'abord : `update` publie, avec lui.
             setPassword(invited.password, for: host.id)
+            update(host)
             Task { await refresh(host) }
             return host
         }
@@ -850,6 +825,13 @@ final class HostStore: ObservableObject {
         host.pairedByCode = true
         add(host, password: invited.password)
         return host
+    }
+
+    /// Même règle, l'une ou l'autre absente : jamais la même (MAC-20 : une seule
+    /// règle pour toutes les comparaisons de l'app, au lieu de `==`).
+    static func sameFingerprint(_ a: String?, _ b: String?) -> Bool {
+        guard let a, let b else { return false }
+        return sameFingerprint(a, b)
     }
 
     /// Deux empreintes d'Admin sont la même : sans `sha256:`, sans deux-points, sans casse.
@@ -893,6 +875,8 @@ final class HostStore: ObservableObject {
 
     private func setPassword(_ password: String, for id: UUID) {
         if demo { demoPasswords[id] = password } else { Keychain.set(password, for: id) }
+        // Le nouveau mot de passe repart vers iCloud (Apple TV, iPhone : MAC-13).
+        passwordChanged?(id)
     }
 
     /// Nouveau mot de passe (rubrique Station, « Mot de passe refusé ») :
@@ -941,12 +925,30 @@ final class HostStore: ObservableObject {
     /// Tous les ordinateurs sondés en même temps (aussi à l'ouverture du menu
     /// de la barre des menus, sur Mac).
     func refreshAll() async {
-        await withTaskGroup(of: Void.self) { group in
-            for host in hosts {
-                group.addTask { await self.refresh(host) }
+        // Un tour à la fois (menu de l'icône ouvert pendant le sondage
+        // régulier) : le suivant attend celui en cours (MAC-19).
+        if let pollRound { return await pollRound.value }
+        let round = Task {
+            await withTaskGroup(of: Void.self) { group in
+                for host in hosts {
+                    group.addTask { await self.refresh(host) }
+                }
             }
+            lastPoll = Date()
         }
-        lastPoll = Date()
+        pollRound = round
+        await round.value
+        if pollRound == round { pollRound = nil }
+    }
+
+    /// Le tour de sondage en cours.
+    private var pollRound: Task<Void, Never>?
+
+    /// L'état sondé, seulement pour un ordinateur encore là : retiré pendant
+    /// l'attente, rien n'est recréé pour lui (MAC-19).
+    private func setStatus(_ s: HostStatus, for id: UUID) {
+        guard host(id) != nil else { return }
+        status[id] = s
     }
 
     /// La console de l'ordinateur : sur le réseau, ou par son relais quand il
@@ -975,18 +977,19 @@ final class HostStore: ObservableObject {
         // Un ordinateur d'un compte pas vu sur le réseau : son état chez le relais.
         if host.account != nil, let accounts, !demo, !accounts.isOnNetwork(host) {
             let s = await accounts.awayStatus(host, previous: status[host.id])
-            if self.host(host.id) != nil { status[host.id] = s }
+            setStatus(s, for: host.id)
             return
         }
         guard let console = console(for: host, route: .direct) else { return }
         do {
             let info = try await console.info()
-            status[host.id] = HostStatus(online: true, info: info)
+            guard self.host(host.id) != nil else { return }
+            setStatus(HostStatus(online: true, info: info), for: host.id)
             // Mise à jour des Stations : demander à la Station de vérifier, quand c'est le moment (LinkUI.swift).
             stationCheckIfDue(host)
             // Le prêt de l'ordinateur (Station 0.9.0 et suivantes) : « Prêté à {prénom} » sur l'accueil.
             if info.lend?.available == true {
-                if let view = try? await console.lendState() { setLend(view, for: host.id) }
+                if let view = try? await console.lendState(), self.host(host.id) != nil { setLend(view, for: host.id) }
             } else {
                 setLend(nil, for: host.id)
             }
@@ -1022,19 +1025,19 @@ final class HostStore: ObservableObject {
             }
         } catch ConsoleError.http(404, _) {
             // Console d'une version précédente, sans /api/stream/info : elle répond, donc en ligne.
-            status[host.id] = HostStatus(online: true, info: nil)
+            setStatus(HostStatus(online: true, info: nil), for: host.id)
         } catch ConsoleError.http(401, _) {
             // Elle répond, mais refuse le compte.
-            status[host.id] = HostStatus(online: true, info: status[host.id]?.info, problem: .passwordRefused)
+            setStatus(HostStatus(online: true, info: status[host.id]?.info, problem: .passwordRefused), for: host.id)
         } catch ConsoleError.certificateChanged {
-            status[host.id] = HostStatus(online: true, info: status[host.id]?.info, problem: .certificateChanged)
+            setStatus(HostStatus(online: true, info: status[host.id]?.info, problem: .certificateChanged), for: host.id)
         } catch let ConsoleError.account(failure, message) {
             // Un ordinateur d'un compte : session de l'appareil fermée, ou
             // ordinateur qui n'est plus au compte (le compte le retire de l'accueil).
             accounts?.refused(host, failure: failure, message: message)
-            if self.host(host.id) != nil { status[host.id] = HostStatus(online: false, info: status[host.id]?.info) }
+            setStatus(HostStatus(online: false, info: status[host.id]?.info), for: host.id)
         } catch {
-            status[host.id] = await unreachableOnNetwork(host, explicit: explicit)
+            setStatus(await unreachableOnNetwork(host, explicit: explicit), for: host.id)
         }
     }
 
@@ -1149,25 +1152,66 @@ enum Keychain {
     static func get(_ id: UUID) -> String? { get(account: id.uuidString) }
     static func delete(_ id: UUID) { delete(account: id.uuidString) }
 
+    /// Les secrets déjà lus : le sondage (toutes les 8 s, chaque ordinateur)
+    /// ne repasse plus par le Trousseau sur le fil principal (MAC-14).
+    private static let cache = SecretCache()
+
     /// Secret rangé sous un nom (consoles PlayStation : association, compte PSN).
     static func set(_ password: String, account: String) {
-        SecItemDelete(query(account) as CFDictionary)
-        var item = query(account)
-        item[kSecValueData as String] = Data(password.utf8)
-        item[kSecAttrLabel as String] = "KyberNow"
-        SecItemAdd(item as CFDictionary, nil)
+        let status = KeychainWrite.upsert(query(account), data: Data(password.utf8), label: "KyberNow")
+        if status == errSecSuccess {
+            cache.set(password, for: account)
+        } else {
+            // L'ancien secret reste en place (rien n'est effacé avant d'écrire).
+            cache.set(nil, for: account)
+            KyberLog.app.error("Trousseau : \(status, privacy: .public)")
+        }
     }
 
     static func get(account: String) -> String? {
+        if let known = cache.get(account) { return known }
         var q = query(account)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data,
+              let secret = String(data: data, encoding: .utf8) else { return nil }
+        cache.set(secret, for: account)
+        return secret
     }
 
     static func delete(account: String) {
+        cache.set(nil, for: account)
         SecItemDelete(query(account) as CFDictionary)
+    }
+}
+
+/// Secrets lus ou écrits pendant ce lancement, pour tous les fils.
+final class SecretCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String: String] = [:]
+
+    func get(_ key: String) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        return values[key]
+    }
+
+    func set(_ value: String?, for key: String) {
+        lock.lock(); defer { lock.unlock() }
+        values[key] = value
+    }
+}
+
+/// Écriture dans le Trousseau sans effacer d'abord (MAC-14) : l'élément est
+/// mis à jour s'il existe, ajouté sinon. Un échec laisse l'ancien secret.
+enum KeychainWrite {
+    static func upsert(_ query: [String: Any], data: Data, label: String, extra: [String: Any] = [:]) -> OSStatus {
+        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        guard status == errSecItemNotFound else { return status }
+        var item = query
+        item[kSecValueData as String] = data
+        item[kSecAttrLabel as String] = label
+        for (key, value) in extra { item[key] = value }
+        return SecItemAdd(item as CFDictionary, nil)
     }
 }

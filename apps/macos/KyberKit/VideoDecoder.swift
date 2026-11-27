@@ -97,14 +97,17 @@ final class VideoDecoder {
         parameterSets.removeAll()
         av1Sequence = nil
         reset()
+        // Un autre encodeur peut repartir avec des `pts` plus bas : la garde
+        // repart de zéro à tout changement de codec (MAC-18), sinon chaque
+        // image était jetée sans bruit et l'image restait figée.
+        out.lock()
+        lastDelivered = nil
+        out.unlock()
         if c == .pyrowave {
             let decoder = pyrowave ?? PyroWaveDecoder()
             decoder.onFrame = { [weak self] frame in self?.deliver(frame) }
             pyrowave = decoder
             waitingKey = false
-            out.lock()
-            lastDelivered = nil
-            out.unlock()
         } else {
             pyrowave?.invalidate()
         }
@@ -259,7 +262,9 @@ final class VideoDecoder {
         lock.lock()
         defer { lock.unlock() }
         guard session != nil else { return }
-        if status == kVTInvalidSessionErr || status == kVTVideoDecoderMalfunctionErr, generation == self.generation {
+        // L'erreur d'une session déjà remplacée ne dit rien de la nouvelle (MAC-18).
+        guard generation == self.generation else { return }
+        if status == kVTInvalidSessionErr || status == kVTVideoDecoderMalfunctionErr {
             KyberLog.video.notice("session de décodage en panne (\(status)), recréée")
             rebuild()
         }

@@ -24,7 +24,7 @@ pub unsafe extern "C" fn kn_console_new_relay(
     pinned: *const c_char,
     route_json: *const c_char,
 ) -> *mut KnConsole {
-    let route = optional(route_json).and_then(|r| serde_json::from_str::<RelayRoute>(&r).ok());
+    let route = route_or_broken(optional(route_json));
     let console = Console::new(&text(host), port, &text(user), &text(password), optional(pinned)).with_relay(route);
     Box::into_raw(Box::new(KnConsole(std::sync::Arc::new(console))))
 }
@@ -112,5 +112,31 @@ pub unsafe extern "C" fn kn_relay_error_text(code: i32, name: *const c_char) -> 
     match relay::RelayError::from_code(code) {
         Some(e) => give(e.text(i18n::current(), Some(&name))),
         None => std::ptr::null_mut(),
+    }
+}
+
+/// La route donnée par l'app : une route illisible n'est jamais prise pour
+/// « pas de relais » (connexion directe, « injoignable ») ; elle devient une
+/// route vide, que le cœur refuse comme une erreur de relais (MAC-23).
+pub(crate) fn route_or_broken(route_json: Option<String>) -> Option<RelayRoute> {
+    route_json.map(|r| {
+        serde_json::from_str::<RelayRoute>(&r).unwrap_or_else(|e| {
+            log::error!("relais : route illisible ({e}), refusée");
+            RelayRoute { server: String::new(), station: String::new(), admin_fp: String::new() }
+        })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn route_illisible_jamais_directe() {
+        assert!(route_or_broken(None).is_none(), "sans route : direct");
+        let broken = route_or_broken(Some("pas du json".into())).expect("une route illisible reste une route");
+        assert!(broken.relay_addr().is_err(), "le cœur la refuse comme une erreur de relais");
+        let ok = route_or_broken(Some(r#"{"server":"r.example","station":"x","admin_fp":"ab"}"#.into())).unwrap();
+        assert_eq!(ok.server, "r.example");
     }
 }

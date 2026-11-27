@@ -9,12 +9,26 @@
 
 import AppKit
 import GameController
+import os
 
 final class RelativeMouse {
     /// Déplacement à envoyer (fil dédié), en comptes de la souris, y vers le bas.
-    var onMove: ((Int16, Int16) -> Void)?
+    /// Posé depuis le fil principal, appelé sur la file de la souris : sous
+    /// verrou, comme `active` (MAC-22).
+    var onMove: ((Int16, Int16) -> Void)? {
+        get { state.withLockUnchecked { $0.onMove } }
+        set { state.withLockUnchecked { $0.onMove = newValue } }
+    }
 
-    private(set) var active = false
+    private(set) var active: Bool {
+        get { state.withLockUnchecked { $0.active } }
+        set { state.withLockUnchecked { $0.active = newValue } }
+    }
+    private struct State {
+        var onMove: ((Int16, Int16) -> Void)?
+        var active = false
+    }
+    private let state = OSAllocatedUnfairLock(uncheckedState: State())
     private let queue = DispatchQueue(label: "fr.leslignesclaires.kybernow.mouse", qos: .userInteractive)
     private var remainder = (x: Float(0), y: Float(0))
     private var lastRaw = Date.distantPast
@@ -25,7 +39,8 @@ final class RelativeMouse {
         active = true
         CGAssociateMouseAndMouseCursorPosition(0)
         NSCursor.hide()
-        remainder = (0, 0)
+        // Le reste des fractions vit sur la file de la souris.
+        queue.async { [self] in remainder = (0, 0) }
         GCMouse.mice().forEach(attach)
         observer = NotificationCenter.default.addObserver(forName: .GCMouseDidConnect, object: nil, queue: .main) { [weak self] note in
             if let mouse = note.object as? GCMouse { self?.attach(mouse) }

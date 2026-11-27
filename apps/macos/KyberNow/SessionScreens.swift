@@ -112,6 +112,19 @@ final class ScreenSurface {
         backdrop.removeFromSuperview()
         guard owned, let window else { return }
         delegate?.onClose = nil
+        // En plein écran (espaces séparés) : sortie d'abord, puis fermeture,
+        // 3 s au plus (une sortie refusée pendant une transition) ; retirée
+        // en plein écran, la fenêtre laissait un espace noir ou figé.
+        guard window.styleMask.contains(.fullScreen) else { return drop(window) }
+        delegate?.onExitFullScreen = { self.drop(window) }
+        window.toggleFullScreen(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.drop(window) }
+    }
+
+    /// Une fois : retenue forte rompue (`onExitFullScreen` vidé), fenêtre fermée.
+    private func drop(_ window: NSWindow) {
+        guard window.isVisible || window.delegate != nil else { return }
+        delegate?.onExitFullScreen = nil
         window.delegate = nil
         window.orderOut(nil)
         window.close()

@@ -9,6 +9,7 @@ import AVFoundation
 @_implementationOnly import CKyberNow
 import CoreMedia
 import VideoToolbox
+import os
 
 /// Une caméra de l'appareil, telle que la liste du menu la montre.
 public struct CameraChoice: Identifiable, Hashable, Sendable {
@@ -29,6 +30,18 @@ public enum CameraState: Equatable, Sendable {
 }
 
 /// Pourquoi la caméra ne part pas (avis de docs/link-ui.md).
+/// Avis de la caméra qui ne viennent pas du cœur (docs/webcam.md).
+public enum CameraText {
+    /// `kn_camera_start` refusé.
+    public static var notStarted: String {
+        String(localized: "La caméra n'a pas pu démarrer sur l'ordinateur.", bundle: .kyberKit)
+    }
+    /// Ni « started » ni « failed » de la Station dans le délai.
+    public static var noAnswer: String {
+        String(localized: "L'ordinateur ne répond pas : la caméra est éteinte.", bundle: .kyberKit)
+    }
+}
+
 public enum CameraProblem: Error, Equatable, Sendable {
     case denied
     case inUse
@@ -50,13 +63,37 @@ public enum CameraProblem: Error, Equatable, Sendable {
 public final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
     /// Une image encodée : données Annex B, pts en µs, image clé. Rend
     /// `KN_CAMERA_SENT`, `KN_CAMERA_WANT_KEYFRAME` ou `KN_CAMERA_OFF`.
-    var send: ((UnsafeRawBufferPointer, UInt64, Bool) -> Int32)?
+    /// Posées depuis le fil principal, lues sur les fils de la capture et de
+    /// VideoToolbox : sous verrou (IOS-12, une caméra changée en plein envoi).
+    var send: ((UnsafeRawBufferPointer, UInt64, Bool) -> Int32)? {
+        get { hooks.withLockUnchecked { $0.send } }
+        set { hooks.withLockUnchecked { $0.send = newValue } }
+    }
     /// Le débit visé par le cœur (bit/s), relu chaque seconde.
-    var targetBitrate: (() -> UInt32)?
+    var targetBitrate: (() -> UInt32)? {
+        get { hooks.withLockUnchecked { $0.targetBitrate } }
+        set { hooks.withLockUnchecked { $0.targetBitrate = newValue } }
+    }
     /// Un problème en cours de route (caméra débranchée, prise par une autre app).
-    var onProblem: ((CameraProblem) -> Void)?
+    var onProblem: ((CameraProblem) -> Void)? {
+        get { hooks.withLockUnchecked { $0.onProblem } }
+        set { hooks.withLockUnchecked { $0.onProblem = newValue } }
+    }
     /// L'app est passée en arrière-plan (iPhone, iPad) : la capture s'interrompt.
-    var onInterrupted: ((Bool) -> Void)?
+    var onInterrupted: ((Bool) -> Void)? {
+        get { hooks.withLockUnchecked { $0.onInterrupted } }
+        set { hooks.withLockUnchecked { $0.onInterrupted = newValue } }
+    }
+
+    private struct Hooks {
+        var send: ((UnsafeRawBufferPointer, UInt64, Bool) -> Int32)?
+        var targetBitrate: (() -> UInt32)?
+        var onProblem: ((CameraProblem) -> Void)?
+        var onInterrupted: ((Bool) -> Void)?
+    }
+    private let hooks = OSAllocatedUnfairLock(uncheckedState: Hooks())
+    /// L'encodeur n'a pas pu être créé : dit une fois par ouverture, pas à chaque image.
+    private var encoderFailed = false
 
     private let queue = DispatchQueue(label: "fr.leslignesclaires.kybernow.camera")
     private var session: AVCaptureSession?
@@ -215,6 +252,7 @@ public final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBuffer
         self.device = device
         wantKeyframe = true
         firstPTS = nil
+        encoderFailed = false
         session.startRunning()
         let dims = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
         let w = resolution1080 ? min(1920, Int(dims.width)) : min(1280, Int(dims.width))
@@ -328,7 +366,10 @@ public final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBuffer
         let w = CVPixelBufferGetWidth(pixels), h = CVPixelBufferGetHeight(pixels)
         if compression == nil || encodedSize != (w, h) {
             guard makeEncoder(width: w, height: h) else {
-                onProblem?(.noEncoder)
+                if !encoderFailed {
+                    encoderFailed = true
+                    onProblem?(.noEncoder)
+                }
                 return
             }
             wantKeyframe = true
@@ -337,22 +378,34 @@ public final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBuffer
         guard let compression else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         if firstPTS == nil { firstPTS = pts }
+        // L'origine des horodatages, prise ici (file de la capture) : le
+        // rappel de l'encodeur vient d'un fil de VideoToolbox (MAC-22, IOS-12).
+        let first = firstPTS ?? pts
         let options: CFDictionary? = wantKeyframe ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary : nil
         wantKeyframe = false
         VTCompressionSessionEncodeFrame(compression, imageBuffer: pixels, presentationTimeStamp: pts, duration: .invalid,
                                         frameProperties: options, infoFlagsOut: nil) { [weak self] status, _, encoded in
             guard status == noErr, let encoded, let self else { return }
-            self.deliver(encoded)
+            self.deliver(encoded, first: first)
         }
     }
 
     /// AVCC (longueur sur 4 octets) vers Annex B (code de départ), avec SPS et
     /// PPS devant chaque image clé.
-    private func deliver(_ sample: CMSampleBuffer) {
-        guard let block = CMSampleBufferGetDataBuffer(sample) else { return }
+    private func deliver(_ sample: CMSampleBuffer, first: CMTime) {
+        guard var block = CMSampleBufferGetDataBuffer(sample) else { return }
+        // Un tampon en plusieurs morceaux est d'abord rendu contigu (MAC-30).
+        if !CMBlockBufferIsRangeContiguous(block, atOffset: 0, length: 0) {
+            var flat: CMBlockBuffer?
+            guard CMBlockBufferCreateContiguous(allocator: kCFAllocatorDefault, sourceBuffer: block, blockAllocator: kCFAllocatorDefault,
+                                                customBlockSource: nil, offsetToData: 0, dataLength: 0, flags: 0, blockBufferOut: &flat) == noErr,
+                  let flat else { return }
+            block = flat
+        }
         let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[CFString: Any]]
         let key = !(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
         var out = Data()
+        out.reserveCapacity(CMBlockBufferGetDataLength(block) + 256)
         let start: [UInt8] = [0, 0, 0, 1]
         if key, let format = CMSampleBufferGetFormatDescription(sample) {
             var count = 0
@@ -385,7 +438,7 @@ public final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBuffer
             }
         }
         let pts = CMSampleBufferGetPresentationTimeStamp(sample)
-        let since = firstPTS.map { CMTimeSubtract(pts, $0) } ?? .zero
+        let since = CMTimeSubtract(pts, first)
         let us = UInt64(max(0, CMTimeGetSeconds(since)) * 1_000_000)
         let result = out.withUnsafeBytes { send?($0, us, key) ?? Int32(KN_CAMERA_OFF) }
         if result == Int32(KN_CAMERA_WANT_KEYFRAME) {

@@ -302,7 +302,10 @@ pub struct KnPsPlay {
 /// `settings_json` : les réglages de la console (`kn_ps_default_settings`,
 /// tels que l'app les garde ; vide ou illisible : Auto), HDR compris ;
 /// `hevc_decoder` : l'appareil décode le H.265 (Auto en profite). À terminer
-/// par `kn_ps_stop`, qui libère.
+/// par `kn_ps_stop`, qui attend les fils de la partie puis libère (hors du
+/// fil principal). `video_packet` est obligatoire : sans lui, nul (voulu, la
+/// partie n'a pas de sens sans image). `userdata` reste à l'app jusqu'au
+/// retour de `kn_ps_stop` (MAC-40).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_ps_start(
     address: *const c_char,
@@ -315,10 +318,13 @@ pub unsafe extern "C" fn kn_ps_start(
         return std::ptr::null_mut();
     };
     let cb = *cb;
+    // La partie s'arrête en attendant ses fils (`kn_ps_stop`) : l'app garde
+    // elle-même son `userdata`, rien à rendre ici.
+    let owner = crate::Owner::new(cb.userdata, None);
     let sink = |packet_cb: KnPacketCb| -> Option<Arc<dyn PacketHandler>> {
         let f = packet_cb?;
         let stream = STREAMS.fetch_add(1, Ordering::Relaxed);
-        Some(Arc::new(Sink { cb: f, userdata: cb.userdata, stream, screen: 0 }))
+        Some(Arc::new(Sink { cb: f, userdata: cb.userdata, stream, screen: 0, _owner: owner.clone() }))
     };
     let Some(video) = sink(cb.video_packet) else { return std::ptr::null_mut() };
     let audio = sink(cb.audio_packet);

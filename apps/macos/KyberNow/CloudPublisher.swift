@@ -134,6 +134,9 @@ final class CloudPublisher: ObservableObject {
 
     /// Après chaque changement des ordinateurs (HostStore.didSave), et au lancement.
     func publish(_ hosts: [Host]) {
+        // Les ordinateurs d'un compte restent sur cet appareil, quel que soit
+        // l'appelant (au lancement aussi, MAC-04).
+        let hosts = hosts.filter { $0.account == nil }
         self.hosts = hosts
         guard enabled else { state = .off; return }
         guard Self.entitled else { state = .unavailable; return }
@@ -141,29 +144,52 @@ final class CloudPublisher: ObservableObject {
         let mine = Set(hosts.map(\.id))
         let before = published
         // Retirés de ce Mac : plus dans la liste ni dans le Trousseau iCloud.
-        for id in before.subtracting(mine) {
-            CloudKeychain.delete(id)
-            copied.remove(id)
+        let removed = before.subtracting(mine)
+        removed.forEach { copied.remove($0) }
+        // Les mots de passe à recopier, lus ici (en mémoire après la première
+        // lecture) ; le Trousseau iCloud, synchrone et parfois lent, est écrit
+        // sur sa propre file, jamais sur le fil principal (MAC-25).
+        let pending = hosts.filter { !copied.contains($0.id) }.compactMap { host in
+            Keychain.get(host.id).map { (id: host.id, name: host.name, password: $0) }
         }
-        // Un mot de passe refusé n'empêche pas la liste de partir : réessayé au
-        // prochain changement.
-        var failure: OSStatus?
-        for host in hosts where !copied.contains(host.id) {
-            guard let password = Keychain.get(host.id) else { continue }
-            let status = CloudKeychain.set(password, for: host.id)
-            if status == errSecSuccess {
-                copied.insert(host.id)
-            } else {
-                KyberLog.app.error("Trousseau iCloud : \(status, privacy: .public) pour \(host.name, privacy: .public)")
-                failure = status
-            }
-        }
+        pending.forEach { copied.insert($0.id) }
 
         let from = deviceName
         let others = cloudList.filter { !mine.contains($0.id) && !before.contains($0.id) }
         write(others + hosts.map { CloudHost($0, from: from) })
         published = mine
-        state = failure.map { .failed(CloudKeychain.message($0)) } ?? .published(hosts.count)
+        state = .published(hosts.count)
+        guard !removed.isEmpty || !pending.isEmpty else { return }
+        Self.keychain.async {
+            removed.forEach(CloudKeychain.delete)
+            // Un mot de passe refusé n'empêche pas la liste de partir : réessayé
+            // au prochain changement.
+            var refused: [UUID] = []
+            var failure: OSStatus?
+            for item in pending {
+                let status = CloudKeychain.set(item.password, for: item.id)
+                guard status != errSecSuccess else { continue }
+                KyberLog.app.error("Trousseau iCloud : \(status, privacy: .public) pour \(item.name, privacy: .public)")
+                refused.append(item.id)
+                failure = status
+            }
+            guard let failure else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                refused.forEach { self.copied.remove($0) }
+                self.state = .failed(CloudKeychain.message(failure))
+            }
+        }
+    }
+
+    /// Écritures dans le Trousseau iCloud, dans l'ordre, hors du fil principal.
+    nonisolated static let keychain = DispatchQueue(label: "fr.leslignesclaires.kybernow.icloud-keychain", qos: .utility)
+
+    /// Nouveau mot de passe d'un ordinateur : recopié dans le Trousseau
+    /// iCloud au lieu d'être tenu pour déjà fait (MAC-13).
+    func passwordChanged(_ id: UUID) {
+        copied.remove(id)
+        if enabled { publish(hosts) }
     }
 
     /// Synchro coupée : ce Mac retire ses ordinateurs et leurs mots de passe
@@ -172,7 +198,7 @@ final class CloudPublisher: ObservableObject {
         state = .off
         guard Self.entitled else { return }
         let mine = published
-        for id in mine { CloudKeychain.delete(id) }
+        Self.keychain.async { mine.forEach(CloudKeychain.delete) }
         write(cloudList.filter { !mine.contains($0.id) })
         published = []
         copied = []

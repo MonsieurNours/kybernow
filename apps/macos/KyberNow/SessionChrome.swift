@@ -19,8 +19,10 @@ final class ChromeHostingView: NSHostingView<SessionChrome> {
         if session.chromeCapturesAll { return super.hitTest(point) }
         let local = convert(point, from: superview)
         let fromTop = isFlipped ? local.y : bounds.height - local.y
-        // L'avis d'une demande (« Léa demande à rejoindre. ») prend les clics : il ouvre le panneau du partage.
-        if case .request? = session.hint, !session.barVisible,
+        // L'avis d'une demande (« Léa demande à rejoindre. », « Léa veut
+        // emprunter l'ordinateur ») prend les clics : il ouvre le panneau du
+        // partage ou du prêt (MAC-11).
+        if session.hint?.takesClick == true, !session.barVisible,
            session.hintRect.insetBy(dx: -4, dy: -4).contains(CGPoint(x: local.x, y: fromTop)) {
             return super.hitTest(point)
         }

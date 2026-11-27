@@ -624,7 +624,7 @@ private struct Shelf: View {
         discovery.found.compactMap { f in
             guard let c = resolved[f.id] else { return nil }
             let known = app.store.hosts.contains { h in
-                (f.fingerprint != nil && h.consoleFingerprint == f.fingerprint) || (h.address == c.address && h.consolePort == c.port)
+                HostStore.sameFingerprint(h.consoleFingerprint, f.fingerprint) || (h.address == c.address && h.consolePort == c.port)
             }
             return known ? nil : (f, c)
         }

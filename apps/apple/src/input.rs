@@ -110,7 +110,11 @@ pub unsafe extern "C" fn kn_pointer_new(holds_position: bool, callbacks: KnPoint
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_pointer_free(p: *mut KnPointer) {
     if !p.is_null() {
-        drop(unsafe { Box::from_raw(p) });
+        let p = unsafe { Box::from_raw(p) };
+        // La couche vit encore dans les chaînes qui l'ont clonée : son rappel
+        // est remplacé d'abord (sous son verrou : un appel en cours finit
+        // avant), plus rien n'atteint l'objet de l'app (MAC-01).
+        p.layer.set_on_changed(|_, _| {});
     }
 }
 
@@ -288,6 +292,10 @@ pub struct KnInputCallbacks {
     /// Lire le texte demande l'accord de l'utilisateur (iOS) : il n'est lu
     /// que quand l'ordinateur le demande.
     pub pasteboard_reading_asks_user: bool,
+    /// Rend `userdata` quand la chaîne n'est plus tenue par personne (Kyber,
+    /// le fil des minuteries, l'app), d'un fil quelconque ; nul : l'app le
+    /// rend elle-même. Ajouté en dernier (MAC-01).
+    pub release_userdata: Option<unsafe extern "C" fn(userdata: *mut c_void)>,
 }
 
 unsafe impl Send for KnInputCallbacks {}
@@ -309,6 +317,14 @@ pub const KN_MOUSE_SIDE: u32 = 3;
 pub const KN_MOUSE_EXTRA: u32 = 4;
 
 struct Callbacks(KnInputCallbacks);
+
+impl Drop for Callbacks {
+    fn drop(&mut self) {
+        if let Some(release) = self.0.release_userdata {
+            unsafe { release(self.0.userdata) };
+        }
+    }
+}
 
 impl InputPlatform for Callbacks {
     fn rumble(&self, r: GamepadRumble) {
@@ -601,14 +617,14 @@ pub unsafe extern "C" fn kn_input_release_all(i: *const KnInput) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_modifier(i: *const KnInput, id: u16, pressed: bool) -> bool {
     let mut changed = false;
-    with(i, |p| changed = p.held().lock().unwrap().modifier(id, pressed));
+    with(i, |p| changed = p.held().lock().unwrap_or_else(|e| e.into_inner()).modifier(id, pressed));
     changed
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_modifier_held(i: *const KnInput, id: u16) -> bool {
     let mut held = false;
-    with(i, |p| held = p.held().lock().unwrap().modifiers().contains(&id));
+    with(i, |p| held = p.held().lock().unwrap_or_else(|e| e.into_inner()).modifiers().contains(&id));
     held
 }
 
@@ -617,7 +633,7 @@ pub unsafe extern "C" fn kn_input_modifier_held(i: *const KnInput, id: u16) -> b
 pub unsafe extern "C" fn kn_input_held_modifiers(i: *const KnInput, out: *mut u16, cap: usize) -> usize {
     let mut n = 0;
     with(i, |p| {
-        for id in p.held().lock().unwrap().modifiers() {
+        for id in p.held().lock().unwrap_or_else(|e| e.into_inner()).modifiers() {
             if n == cap || out.is_null() {
                 break;
             }
@@ -631,7 +647,7 @@ pub unsafe extern "C" fn kn_input_held_modifiers(i: *const KnInput, out: *mut u1
 /// Les modificateurs repartent de zéro (service d'entrées neuf sur l'ordinateur).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_forget_modifiers(i: *const KnInput) {
-    with(i, |p| p.held().lock().unwrap().forget_modifiers());
+    with(i, |p| p.held().lock().unwrap_or_else(|e| e.into_inner()).forget_modifiers());
 }
 
 /// La fenêtre retrouve le clavier : `held` (codes de la plateforme) sont les
@@ -642,7 +658,7 @@ pub unsafe extern "C" fn kn_input_resync_modifiers(i: *const KnInput, held: *con
     let held = if held.is_null() || count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(held, count) } };
     let mut n = 0;
     with(i, |p| {
-        p.held().lock().unwrap().resync_modifiers(held, |id| {
+        p.held().lock().unwrap_or_else(|e| e.into_inner()).resync_modifiers(held, |id| {
             if n < cap && !out.is_null() {
                 unsafe { *out.add(n) = id };
                 n += 1;
@@ -681,21 +697,6 @@ pub unsafe extern "C" fn kn_input_network_connected(i: *const KnInput) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_set_gamepad_captured(i: *const KnInput, captured: bool) {
     with(i, |p| p.set_gamepad_captured(captured));
-}
-
-/// Plusieurs ordinateurs à la fois : la chaîne de cette image active ou non
-/// (voir `kn_session_set_active`, qui la tient d'une image à l'autre et que
-/// le registre `kn_focus_*` appelle). D'ordinaire, rien à appeler ici : la
-/// session retrouve la chaîne créée dans `input_pipeline`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_input_set_active(i: *const KnInput, active: bool) {
-    with(i, |p| p.set_active(active));
-}
-
-/// La chaîne de cette image est active (vrai par défaut).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_input_is_active(i: *const KnInput) -> bool {
-    unsafe { i.as_ref() }.is_none_or(|i| i.pipeline.is_active())
 }
 
 /// Fin de l'image : plus rien ne part, l'ordinateur relâche tout.
@@ -768,7 +769,7 @@ struct ComboDriver {
 
 impl ComboDriver {
     fn wake(&self, stop: bool) {
-        let mut w = self.woken.lock().unwrap();
+        let mut w = self.woken.lock().unwrap_or_else(|e| e.into_inner());
         w.0 = true;
         w.1 |= stop;
         self.cvar.notify_one();
@@ -806,7 +807,7 @@ pub extern "C" fn kn_combo_new(callbacks: KnComboCallbacks) -> *mut KnCombo {
             combo.poll();
             let wait = combo.next_deadline().map(|at| at.saturating_sub(clock.now()));
             drop(combo);
-            let mut w = d.woken.lock().unwrap();
+            let mut w = d.woken.lock().unwrap_or_else(|e| e.into_inner());
             if !w.0 {
                 w = match wait {
                     Some(t) => d.cvar.wait_timeout(w, t).unwrap().0,
@@ -829,6 +830,9 @@ pub extern "C" fn kn_combo_new(callbacks: KnComboCallbacks) -> *mut KnCombo {
 pub unsafe extern "C" fn kn_combo_free(c: *mut KnCombo) {
     if !c.is_null() {
         let c = unsafe { Box::from_raw(c) };
+        // Le fil de la combinaison peut tenir encore la combinaison : son
+        // rappel est coupé d'abord (sous son verrou), MAC-01.
+        c.combo.set_on_formed(|_| {});
         c.driver.wake(true);
     }
 }
@@ -903,6 +907,26 @@ pub unsafe extern "C" fn kn_pointer_resend_held(p: *const KnPointer) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static CHANGES: AtomicU32 = AtomicU32::new(0);
+    unsafe extern "C" fn changed(_: *mut c_void, _: *const KnPointerState, _: bool, _: bool) {
+        CHANGES.fetch_add(1, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn couche_liberee_ne_rappelle_plus() {
+        let p = unsafe { kn_pointer_new(false, KnPointerCallbacks { userdata: std::ptr::null_mut(), on_changed: Some(changed) }) };
+        // Une chaîne d'entrées garde son clone de la couche.
+        let clone = unsafe { &*p }.layer.clone();
+        let hide = |visible| kybernow_core::input::pointer_layer::RemoteCursor { visible, image: None, position: (10, 20) };
+        clone.remote_cursor_changed(hide(false));
+        let before = CHANGES.load(Ordering::SeqCst);
+        assert!(before >= 1, "la couche rappelle tant qu'elle est à l'app");
+        unsafe { kn_pointer_free(p) };
+        clone.remote_cursor_changed(hide(true));
+        assert_eq!(CHANGES.load(Ordering::SeqCst), before, "libérée : plus de rappel vers l'objet de l'app (MAC-01)");
+    }
 
     #[test]
     fn commande_face_a_un_mac() {

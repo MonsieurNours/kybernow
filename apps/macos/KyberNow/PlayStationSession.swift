@@ -87,7 +87,12 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
     @Published private(set) var muted = false
     @Published private(set) var isFullScreen = false
     /// Une manette branchée : pas de « Prendre la souris » ni d'invitation à cliquer.
-    @Published private(set) var padConnected = !GCController.controllers().isEmpty
+    @Published private(set) var padConnected = PlayStationSession.padsSeen
+    /// Une manette tient la partie : celles du lecteur du cœur, qui décide du
+    /// clavier (MAC-24) ; avant qu'il tourne, celles de GameController.
+    static var padsSeen: Bool {
+        Core.gamepadCount.map { $0 > 0 } ?? !GCController.controllers().isEmpty
+    }
     /// Images par seconde demandées à la console (réglages).
     let requestedFps: Int
     /// Rectangle de la barre et bouton de fermeture du panneau, dans la vue
@@ -483,16 +488,28 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
     private func observe() {
         let center = NotificationCenter.default
         for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.updateChrome() }
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                MainActor.assumeIsolated {
+                    // Spotlight, ⌘Espace : la fenêtre peut garder le clavier,
+                    // rien ne doit rester tenu sur la console (MAC-17).
+                    if note.name == NSApplication.didResignActiveNotification { self?.input.releaseAll() }
+                    self?.updateChrome()
+                }
             })
         }
         for name in [Notification.Name.GCControllerDidConnect, .GCControllerDidDisconnect] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    self.padConnected = !GCController.controllers().isEmpty
+                    // Ce que voit le cœur (SDL), qui décide du clavier ; SDL la
+                    // voit un peu après GameController : relu aussi 1 s plus tard.
+                    self.padConnected = Self.padsSeen
                     self.padFocus = min(self.padFocus, self.barItems.count - 1)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                        guard let self else { return }
+                        self.padConnected = Self.padsSeen
+                        self.padFocus = min(self.padFocus, self.barItems.count - 1)
+                    }
                 }
             })
         }
@@ -507,6 +524,8 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
             connectStep = 0
         case let .streaming(w, h, hdr):
             KyberLog.app.notice("PlayStation : image \(w)x\(h) \(hdr ? "HDR" : "SDR", privacy: .public)")
+            // Le lecteur du cœur tourne maintenant : ses manettes font foi.
+            padConnected = Self.padsSeen
             if revealed {
                 // Partie reprise après une coupure : l'image revient seule.
                 phase = .streaming
@@ -584,10 +603,26 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         input.play = nil
         stopPlay()
         streamView.detach()
-        window?.delegate = nil
-        window?.orderOut(nil)
-        window?.close()
-        window = nil
+        // En plein écran : sortie d'abord (sinon un espace noir reste), puis
+        // fermeture ; 3 s au plus. La session se retient jusque-là.
+        if let window, window.styleMask.contains(.fullScreen) {
+            closingWindow = { self.dropWindow() }
+            window.toggleFullScreen(nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.dropWindow() }
+        } else {
+            dropWindow()
+        }
+    }
+
+    /// Une fois sortie du plein écran (ou tout de suite) : fenêtre fermée, fin dite.
+    private var closingWindow: (() -> Void)?
+    private func dropWindow() {
+        closingWindow = nil
+        guard let window else { return }
+        self.window = nil
+        window.delegate = nil
+        window.orderOut(nil)
+        window.close()
         onEnd(self, end)
     }
 
@@ -623,6 +658,7 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         MainActor.assumeIsolated {
             isFullScreen = false
             onFullScreen(false)
+            closingWindow?()
         }
     }
 

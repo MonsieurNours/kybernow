@@ -37,7 +37,10 @@ final class ImmersiveKeyboard {
     private init() {
         // Ce qui peut allumer le mode (premier plan, plein écran) ; au retour
         // des Réglages Système, l'autorisation vient peut-être d'être donnée.
-        let names: [Notification.Name] = [NSApplication.didBecomeActiveNotification, NSWindow.didBecomeKeyNotification,
+        // Au second plan, le crochet est retiré : les frappes des autres apps
+        // ne passent plus par le fil principal de KyberNow.
+        let names: [Notification.Name] = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+                                          NSWindow.didBecomeKeyNotification,
                                           NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification]
         observers = names.map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
@@ -70,9 +73,9 @@ final class ImmersiveKeyboard {
     }
 
     /// Pose ou retire le crochet : posé tant qu'une session pourrait vouloir
-    /// le mode et que l'app est autorisée.
+    /// le mode, que l'app est au premier plan et autorisée.
     func refresh() {
-        let want = anySessionWants() && Self.trusted
+        let want = NSApp.isActive && anySessionWants() && Self.trusted
         if want, tap == nil { install() }
         if !want, tap != nil { remove() }
         if tap == nil { unmarkAll() }
@@ -119,9 +122,19 @@ final class ImmersiveKeyboard {
         // Les autres vues ne sont plus en mode immersif.
         for m in marked where m.view !== target { m.view?.immersive = false }
         marked.removeAll { $0.view == nil || $0.view !== target }
-        // Un relâchement va à la vue qui a pris l'appui (pour un modificateur,
-        // l'événement suivant de la même touche est son relâchement).
-        if type == .keyUp || type == .flagsChanged, let view = held.removeValue(forKey: code)?.view {
+        // Un modificateur : appui ou relâchement d'après son bit (gauche et
+        // droite à part), jamais d'après l'alternance (un ⌘ appuyé dans une
+        // autre app puis relâché ici n'est pas un appui).
+        let press: Bool
+        switch type {
+        case .keyDown: press = true
+        case .keyUp: press = false
+        default: press = SessionRules.modifierPressed(code: code, flags: cg.flags.rawValue) ?? (held[code] == nil)
+        }
+        // Un relâchement va à la vue qui a pris l'appui ; un relâchement
+        // dont l'appui n'est pas passé ici reste au système.
+        if !press {
+            guard let view = held.removeValue(forKey: code)?.view else { return false }
             if let event = NSEvent(cgEvent: cg) { view.deliverImmersive(event) }
             return true
         }
@@ -136,7 +149,8 @@ final class ImmersiveKeyboard {
             marked.append(WeakView(view: view))
         }
         guard let event = NSEvent(cgEvent: cg) else { return false }
-        if type != .keyUp { held[code] = WeakView(view: view) }
+        // Verr. Maj et fn basculent : pas de relâchement à attendre.
+        if SessionRules.modifierPressed(code: code, flags: cg.flags.rawValue) != nil || type == .keyDown { held[code] = WeakView(view: view) }
         view.deliverImmersive(event)
         return true
     }

@@ -9,10 +9,28 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 KIT="$HERE/../../KyberKit"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+# Une compilation ratée arrête l'essai (MAC-39 : `| grep error || true`
+# laissait lancer un binaire absent ou d'avant).
+compile() {
+    local log
+    if ! log="$(swiftc "$@" 2>&1)"; then
+        echo "$log" | grep -E "error" >&2 || echo "$log" >&2
+        echo "Compilation de l'essai ratée." >&2
+        exit 1
+    fi
+}
 SIZE="${1:-1920x1080}"
 PIX=yuv420p; [ "${2:-}" = 444 ] && PIX=yuv444p
 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=$SIZE:rate=60" -frames:v 8 -pix_fmt "$PIX" \
     -c:v libx265 -preset ultrafast -x265-params "log-level=none:bframes=0:aud=1:repeat-headers=1:keyint=60:info=0" -f hevc "$WORK/s.hevc"
-swiftc -O -o "$WORK/fullscreen" "$HERE/main.swift" "$KIT/AV1.swift" "$KIT/MetalSurface.swift" "$KIT/VideoDecoder.swift" "$KIT/VideoRenderer.swift" "$KIT/LatencyReporting.swift" \
-    -I "$KIT/../Vendor/include" -L "$KIT/../Vendor/Frameworks" -lkyclient.0.1 -Xlinker -rpath -Xlinker "$KIT/../Vendor/Frameworks" 2>&1 | grep error || true
+# Le port Metal de PyroWave (VideoDecoder passe le format pwv1 à PyroWaveDecoder).
+PW="$HERE/../../PyroWave"
+for f in pyrowave_common.mm pyrowave_decoder.mm pyrowave_bitstream.cpp; do
+    clang++ -std=c++17 -O2 -fobjc-arc -c "$PW/upstream/$f" -o "$WORK/$f.o"
+done
+compile -O -o "$WORK/fullscreen" "$HERE/main.swift" "$KIT/AV1.swift" "$KIT/MetalSurface.swift" "$KIT/VideoDecoder.swift" "$KIT/VideoRenderer.swift" "$KIT/LatencyReporting.swift" \
+    "$KIT/PyroWaveDecoder.swift" "$HERE/../common/hdr-stub.swift" "$KIT/HDRVideoLayer.swift" "$KIT/Upscaler.swift" "$KIT/DecoderCapabilities.swift" "$WORK"/pyrowave_*.o -lc++ -framework IOSurface \
+    -I "$KIT/../Vendor/include" -I "$PW/module" -L "$KIT/../Vendor/Frameworks" -lkyclient.0.1 -Xlinker -rpath -Xlinker "$KIT/../Vendor/Frameworks"
+# Essai d'affichage réel (fenêtres à l'écran) : KYBERNOW_COMPILE_ONLY=1 s'arrête après la compilation.
+[ "${KYBERNOW_COMPILE_ONLY:-0}" = 1 ] && { echo "fullscreen : compilé"; exit 0; }
 "$WORK/fullscreen" "$WORK/s.hevc"

@@ -76,16 +76,11 @@ public struct ChainTimes: Sendable, Equatable {
 
     public init() {}
 
-    public var all: [Double] { [capture, encode, send, network, decode, display] }
-    public var sum: Double { all.reduce(0, +) }
 }
 
+/// Les octets reçus et les trous du flux partent au cœur directement depuis
+/// les paquets (`SessionEngine`), pas par le rendu (MAC-36).
 protocol LatencyReporting: AnyObject {
-    /// Paquet d'image reçu de Kyber (fil réseau).
-    func received(bytes: Int)
-    /// Trou dans le flux.
-    func hole()
-    func keyframeRequested()
     /// Image remplacée par une plus récente avant d'être montrée.
     func skipped(pts: UInt64)
     /// Image `pts` reçue, décodée puis montrée (µs, `monotonicMicros`).

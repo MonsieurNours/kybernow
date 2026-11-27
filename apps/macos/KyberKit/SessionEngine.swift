@@ -400,7 +400,7 @@ public final class SessionEngine: @unchecked Sendable {
     /// Multi-écrans : les écrans pris par la session (principal en premier)
     /// et ceux que l'ordinateur n'a pas pu créer, à chaque démarrage de
     /// l'image ; avant que leurs images arrivent. Les vues de ces écrans
-    /// doivent être enregistrées (`register`) dans ce rappel.
+    /// doivent être données (`setScreenViews`) dans ce rappel.
     public var onScreens: (([StreamScreen], [Int]) -> Void)?
     /// Multi-écrans : la première image d'un écran est décodée.
     public var onScreenImage: ((Int) -> Void)?
@@ -445,7 +445,6 @@ public final class SessionEngine: @unchecked Sendable {
     /// sur le fil principal ; la capture suit déjà (captée tant que `capturing`).
     public var onMicrophone: ((MicState) -> Void)?
     /// L'état du micro au dernier changement (fil principal).
-    public private(set) var microphoneState: MicState = .off
 
     // MARK: Caméra de l'appareil (docs/webcam.md)
 
@@ -571,6 +570,15 @@ public final class SessionEngine: @unchecked Sendable {
 
         platform = KnPlatform()
         platform.userdata = Unmanaged.passRetained(self).toOpaque()
+        // Rendu par le cœur quand plus rien ne peut rappeler (session finie,
+        // dernier flux lâché par Kyber), sur le fil principal (MAC-01).
+        platform.release_userdata = { ud in
+            guard let ud else { return }
+            let bits = UInt(bitPattern: ud)
+            DispatchQueue.main.async {
+                Unmanaged<SessionEngine>.fromOpaque(UnsafeMutableRawPointer(bitPattern: bits)!).release()
+            }
+        }
         platform.window_handle = UInt64(UInt(bitPattern: Unmanaged.passUnretained(view.videoView).toOpaque()))
         platform.has_audio = p.audioChannels > 0
         platform.input_pipeline = { ud in SessionEngine.from(ud).makeInputPipeline() }
@@ -850,6 +858,9 @@ public final class SessionEngine: @unchecked Sendable {
         guard cameraOffered else { return }
         cameraID = id
         cameraResolution1080 = resolution1080
+        cameraRequest += 1
+        let request = cameraRequest
+        cameraStartTimeout?.cancel()
         setCameraState(.starting)
         camera.send = { [weak self] bytes, pts, key in
             guard let self, let s = self.live, let base = bytes.baseAddress else { return Int32(KN_CAMERA_OFF) }
@@ -868,14 +879,34 @@ public final class SessionEngine: @unchecked Sendable {
             DispatchQueue.main.async { self?.setCameraState(interrupted ? .paused : .sending) }
         }
         Task { @MainActor in
-            switch await camera.open(id: id, resolution1080: resolution1080) {
+            let opened = await camera.open(id: id, resolution1080: resolution1080)
+            // Éteinte pendant l'ouverture (demande d'accès du premier usage,
+            // fin de session) : la capture ne repart pas (MAC-15, IOS-11). Une
+            // autre caméra demandée entre-temps : c'est son ouverture qui compte.
+            guard request == cameraRequest else { return }
+            guard cameraState != .off, live != nil else {
+                camera.close()
+                return
+            }
+            switch opened {
             case let .success((w, h)):
                 guard let s = live, kn_camera_start(s, false, UInt32(w), UInt32(h), resolution1080, ConsoleClient.thisDevice["name"] as? String ?? "") else {
+                    // Refusée par le cœur (session qui finit, ordinateur qui ne la
+                    // propose plus) : on le dit, au lieu de repasser muet à « éteinte ».
                     camera.close()
                     setCameraState(.off)
+                    onCameraNotice?(CameraText.notStarted)
                     return
                 }
                 startCameraPolling()
+                // Ni « started » ni « failed » de la Station en 10 s : éteinte, et dit.
+                let timeout = DispatchWorkItem { [weak self] in
+                    guard let self, request == self.cameraRequest, self.cameraState == .starting else { return }
+                    self.cameraOff()
+                    self.onCameraNotice?(CameraText.noAnswer)
+                }
+                cameraStartTimeout = timeout
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.cameraStartLimit, execute: timeout)
             case let .failure(problem):
                 cameraProblem(problem)
             }
@@ -884,6 +915,9 @@ public final class SessionEngine: @unchecked Sendable {
 
     /// « Éteindre la caméra » (et fin de session).
     public func cameraOff() {
+        cameraRequest += 1
+        cameraStartTimeout?.cancel()
+        cameraStartTimeout = nil
         camera.close()
         cameraTimer?.cancel()
         cameraTimer = nil
@@ -897,6 +931,13 @@ public final class SessionEngine: @unchecked Sendable {
         guard cameraState != .off, resolution1080 != cameraResolution1080 else { return }
         cameraOn(id: cameraID, resolution1080: resolution1080)
     }
+
+    /// Numéro de la dernière demande (allumer, éteindre) : une ouverture
+    /// dépassée par une autre demande ne fait plus rien.
+    private var cameraRequest = 0
+    /// « Caméra… » sans réponse de la Station : éteinte au bout de ce délai.
+    private var cameraStartTimeout: DispatchWorkItem?
+    static let cameraStartLimit: TimeInterval = 10
 
     /// La ligne « Caméra » des statistiques (nil : éteinte).
     public var cameraStatsLine: String? {
@@ -1031,7 +1072,6 @@ public final class SessionEngine: @unchecked Sendable {
     /// Le cœur dit l'état du micro : la capture démarre ou s'arrête, puis l'app le sait.
     private func microphoneChanged(_ state: MicState) {
         guard !ended else { return }
-        microphoneState = state
         #if os(macOS) || os(iOS)
         if state.capturing, microphoneCapture == nil {
             let capture = MicrophoneCapture { [weak self] samples, count, rate in
@@ -1058,12 +1098,6 @@ public final class SessionEngine: @unchecked Sendable {
         microphoneCapture?.stop()
         microphoneCapture = nil
         #endif
-    }
-
-    /// Un écran au moins a été en HDR pendant la session (« HDR » de la dernière session).
-    public var hdrUsed: Bool {
-        guard let s = live else { return false }
-        return kn_session_hdr_used(s)
     }
 
     /// Les écrans de la session en HDR, au démarrage de l'image (rappel
@@ -1112,14 +1146,6 @@ public final class SessionEngine: @unchecked Sendable {
         if let s = live { kn_session_set_link_mbps(s, mbps ?? 0) }
     }
 
-    /// Multi-écrans : la vue qui montre l'écran `screen` de cet appareil
-    /// (fil principal). Celle donnée à `init` sert aux écrans sans vue.
-    public func register(_ view: StreamView, screen: Int) {
-        lock.lock()
-        screenViews[screen] = view
-        lock.unlock()
-    }
-
     /// Multi-écrans : toutes les vues d'un coup, par écran de cet appareil
     /// (fil principal) ; les vues qui n'y sont plus sont détachées.
     public func setScreenViews(_ views: [Int: StreamView]) {
@@ -1130,17 +1156,6 @@ public final class SessionEngine: @unchecked Sendable {
         for v in old where v !== view && !views.values.contains(where: { $0 === v }) {
             v.detach()
             v.surface.show(nil)
-        }
-    }
-
-    /// Multi-écrans : plus aucune vue pour cet écran (fenêtre fermée).
-    public func unregister(screen: Int) {
-        lock.lock()
-        let old = screenViews.removeValue(forKey: screen)
-        lock.unlock()
-        if let old, old !== view {
-            old.detach()
-            old.surface.show(nil)
         }
     }
 
@@ -1247,14 +1262,6 @@ public final class SessionEngine: @unchecked Sendable {
         if let s, !renderers.isEmpty { kn_session_request_keyframe(s) }
     }
 
-    public func setVolume(_ volume: Float) {
-        lock.lock()
-        self.volume = volume
-        let players = Array(audios.values)
-        lock.unlock()
-        players.forEach { $0.volume = volume }
-    }
-
     /// Latence de la session : médiane des secondes et 95e centile, en ms.
     public var sessionLatency: (median: Double, p95: Double)? {
         guard let s = live else { return nil }
@@ -1314,9 +1321,8 @@ public final class SessionEngine: @unchecked Sendable {
         }
     }
 
-    /// Fin : la vue est détachée, les décodeurs arrêtés ; la session du cœur
-    /// et cet objet vivent encore 30 s, le temps que Kyber finisse de livrer
-    /// (et de fermer) ses flux.
+    /// Fin : la vue est détachée, les décodeurs arrêtés ; cet objet vit
+    /// jusqu'à ce que Kyber ait fermé ses flux (`release_userdata`).
     private func finish() {
         lock.lock()
         guard !ended else {
@@ -1335,7 +1341,6 @@ public final class SessionEngine: @unchecked Sendable {
         let audios = Array(self.audios.values)
         let input = self.input
         self.input = nil
-        let ud = platform.userdata
         var views = [view]
         for v in screenViews.values where !views.contains(where: { $0 === v }) { views.append(v) }
         lock.unlock()
@@ -1349,9 +1354,12 @@ public final class SessionEngine: @unchecked Sendable {
             videos.forEach { $0.stop() }
             audios.forEach { $0.stop() }
         }
+        // La session du cœur est rendue 30 s plus tard (un fil de la caméra
+        // ou du son a pu lire son adresse juste avant) ; cet objet, lui, est
+        // rendu par le cœur (`release_userdata`) quand plus rien ne peut le
+        // rappeler, Kyber eût-il gardé un flux plus longtemps (MAC-01).
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
             if let s { kn_session_free(s) }
-            if let ud { Unmanaged<SessionEngine>.fromOpaque(ud).release() }
         }
     }
 
@@ -1408,7 +1416,8 @@ public final class SessionEngine: @unchecked Sendable {
         lock.unlock()
         let input = InputPipeline(displayID: display.id, hostSize: CGSize(width: display.width, height: display.height), pointer: primaryView.pointer, clipboard: clipboard)
         if !screens.isEmpty { input.setScreens(inputScreens(screens)) }
-        input.gamepad.onCombo = { [weak self] in DispatchQueue.main.async { self?.onGamepadCombo?() } }
+        // Déjà sur le fil principal (InputCore) : un seul saut avant la barre (MAC-30).
+        input.gamepad.onCombo = { [weak self] in self?.onGamepadCombo?() }
         input.gamepad.onNavigate = { [weak self] key in DispatchQueue.main.async { self?.onGamepadNavigate?(key) } }
         // Une seule image à la fois : deux chaînes d'entrées se disputeraient
         // les manettes (SDL n'en sert qu'une).
@@ -1419,6 +1428,12 @@ public final class SessionEngine: @unchecked Sendable {
         self.input = input
         lock.unlock()
         DispatchQueue.main.async { [self] in
+            // Session finie entre-temps : la vue, déjà détachée, le reste
+            // (sinon la souris relative pourrait se rallumer à la fermeture).
+            lock.lock()
+            let over = ended
+            lock.unlock()
+            if over { return }
             guard !screens.isEmpty else {
                 view.attach(input: input, hostSize: CGSize(width: display.width, height: display.height))
                 return
@@ -1546,6 +1561,11 @@ public final class SessionEngine: @unchecked Sendable {
             return nil
         }
         pipeline.renderer.vsync = vsync
+        // Blanc SDR réglé pour cet écran (calibrage HDR, couche `linear`) :
+        // celui de l'écran de la session ; plusieurs écrans : 203 nits (MAC-36).
+        if primaryScreen == nil, let white = params?.screenLuminance?.sdrWhite, white > 0 {
+            pipeline.renderer.sdrWhite = white
+        }
         pipeline.renderer.paused = occluded || (primaryScreen != nil && occludedScreens.contains(screen))
         if primaryScreen != nil { pipeline.renderer.label = "écran \(screen)" }
         pipeline.renderer.topMarker = topMarker
@@ -1630,7 +1650,7 @@ public final class SessionEngine: @unchecked Sendable {
         if let p = audios[stream] { return p }
         let player = AudioPlayer()
         player.volume = volume
-        player.onStats = { [weak self] stats in DispatchQueue.main.async { self?.onAudioStats?(stats) } }
+        player.onStats = { [weak self] stats in self?.onAudioStats?(stats) }
         // Son coupé ou rendu par la session (registre des sessions, plusieurs ordinateurs).
         if let session { kn_session_attach_audio(session, player.core) }
         audios[stream] = player
@@ -1660,16 +1680,6 @@ public final class SessionEngine: @unchecked Sendable {
 // MARK: - Latence : le rendu parle au cœur
 
 extension SessionEngine: LatencyReporting {
-    func received(bytes: Int) {
-        if let s = live { kn_session_bytes_received(s, UInt(bytes)) }
-    }
-
-    func hole() {
-        if let s = live { kn_session_hole(s) }
-    }
-
-    func keyframeRequested() {}
-
     func skipped(pts: UInt64) {
         if let s = live { kn_session_frame_skipped(s, pts) }
     }

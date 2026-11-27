@@ -113,6 +113,7 @@ final class AppModel: ObservableObject {
         }
         #endif
         store.didSave = { [cloud] in cloud.publish($0) }
+        store.passwordChanged = { [cloud] in cloud.passwordChanged($0) }
         cloud.publish(store.hosts)
         // Les comptes PlayStation et leurs associations, dans les deux sens.
         cloud.attach(playstation: playstation)
@@ -281,7 +282,7 @@ final class AppModel: ObservableObject {
     }
 
     private func known(_ c: Candidate) -> Bool {
-        store.hosts.contains { ($0.consoleFingerprint != nil && $0.consoleFingerprint == c.expected) || ($0.address == c.address && $0.consolePort == c.port) }
+        store.hosts.contains { HostStore.sameFingerprint($0.consoleFingerprint, c.expected) || ($0.address == c.address && $0.consolePort == c.port) }
     }
 
     /// « Se connecter » : la session de cet ordinateur dans sa fenêtre. Déjà

@@ -37,6 +37,7 @@ import CoreGraphics
 import CoreVideo
 import Metal
 import QuartzCore
+import os
 import simd
 
 /// Mesures de l'image, une fois par seconde.
@@ -128,16 +129,28 @@ final class VideoRenderer {
     var onUnsupportedFormat: ((OSType) -> Void)?
     var onStats: ((VideoStats) -> Void)?
     /// Latence de bout en bout (mesures de Kyber), si elles sont actives.
-    var latency: (any LatencyReporting)?
+    /// Posée depuis le fil principal, lue sur les fils du décodage et de la
+    /// présentation : sous son propre verrou (MAC-22).
+    var latency: (any LatencyReporting)? {
+        get { settings.withLockUnchecked { $0.latency } }
+        set { settings.withLockUnchecked { $0.latency = newValue } }
+    }
 
     /// Synchro verticale (macOS). Sans elle, l'image part dès qu'elle est prête.
-    var vsync = true {
-        didSet {
+    var vsync: Bool {
+        get { settings.withLockUnchecked { $0.vsync } }
+        set {
+            settings.withLockUnchecked { $0.vsync = newValue }
             #if os(macOS)
-            renderQueue.async { [self] in layer.displaySyncEnabled = vsync }
+            renderQueue.async { [self] in layer.displaySyncEnabled = newValue }
             #endif
         }
     }
+    private struct Settings {
+        var latency: (any LatencyReporting)?
+        var vsync = true
+    }
+    private let settings = OSAllocatedUnfairLock(uncheckedState: Settings())
 
     /// Garde « une image en vol » : l'image N+1 attend que l'écran ait montré N.
     /// `KN_INFLIGHT_GUARD=1` la remet (comparaison) ; sans elle, chaque image
@@ -237,7 +250,8 @@ final class VideoRenderer {
 
     /// Branche la couche vidéo de la surface (nil : tout passe par Metal).
     func attachVideo(_ layer: HDRVideoLayer?) {
-        renderQueue.sync {
+        // Sans attendre la file de rendu, comme `attach(to:)` (MAC-27).
+        renderQueue.async { [self] in
             if video !== layer { video?.clear() }
             video = layer
             apply(chain, edr: appliedEDR, to: self.layer)
@@ -436,9 +450,13 @@ final class VideoRenderer {
 
     /// Dessine dans `layer` à partir de cet appel (nil : dans une couche à soi, hors écran).
     func attach(to layer: CAMetalLayer?) {
-        renderQueue.sync {
-            self.layer = layer ?? CAMetalLayer()
-            configure(self.layer)
+        // Sans attendre : la file de rendu peut être dans `nextDrawable`
+        // jusqu'à 1 s (fenêtre cachée, transition plein écran) ; le fil
+        // principal ne s'y bloque plus (MAC-27). La couche change à l'image suivante.
+        let next = layer ?? CAMetalLayer()
+        renderQueue.async { [self] in
+            self.layer = next
+            configure(next)
         }
     }
 
@@ -1005,12 +1023,21 @@ final class VideoRenderer {
         blit.synchronize(resource: target)
         blit.endEncoding()
         #endif
+        // Fil principal (fin de session) : 250 ms au plus. Un GPU occupé ou
+        // perdu laisse la fin sans dernière image plutôt que de figer l'app (MAC-25).
+        let done = DispatchSemaphore(value: 0)
+        commands.addCompletedHandler { _ in done.signal() }
         commands.commit()
-        commands.waitUntilCompleted()
+        guard done.wait(timeout: .now() + 0.25) == .success, commands.status == .completed else { return nil }
         let rowBytes = tw * 4
-        var bytes = [UInt8](repeating: 0, count: rowBytes * th)
-        target.getBytes(&bytes, bytesPerRow: rowBytes, from: MTLRegionMake2D(0, 0, tw, th), mipmapLevel: 0)
-        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+        // Lu directement dans le `Data` (une copie au lieu de deux).
+        var data = Data(count: rowBytes * th)
+        data.withUnsafeMutableBytes { raw in
+            if let base = raw.baseAddress {
+                target.getBytes(base, bytesPerRow: rowBytes, from: MTLRegionMake2D(0, 0, tw, th), mipmapLevel: 0)
+            }
+        }
+        guard let provider = CGDataProvider(data: data as CFData) else { return nil }
         return CGImage(width: tw, height: th, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: rowBytes,
                        space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo(rawValue: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.noneSkipFirst.rawValue),
                        provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)

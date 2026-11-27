@@ -107,6 +107,8 @@ public final class StreamView: NSView {
         return layer
     }()
     private var windowObservers: [NSObjectProtocol] = []
+    /// Veille, écrans éteints, changement d'utilisateur (centre de NSWorkspace).
+    private var workspaceObservers: [NSObjectProtocol] = []
 
     private var input: InputPipeline?
     private var layout: OpaquePointer?
@@ -137,6 +139,7 @@ public final class StreamView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     deinit {
+        workspaceObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
         if let layout { kynput_video_layout_unref(layout) }
     }
 
@@ -245,12 +248,13 @@ public final class StreamView: NSView {
             }
         }
         if change.shape { applyCursorShape() }
-        updatePointerLayer()
+        // L'état reçu, sans relire le cœur à chaque mouvement (MAC-30).
+        updatePointerLayer(state)
     }
 
     /// Pointeur de l'ordinateur dessiné par l'app, en mode jeu seulement.
-    private func updatePointerLayer() {
-        let state = pointer.state
+    private func updatePointerLayer(_ known: PointerLayer.State? = nil) {
+        let state = known ?? pointer.state
         guard relative.active, !state.remoteHidden, let shape = state.shape, let host = state.remotePosition, let layout else {
             pointerLayer.isHidden = true
             return
@@ -261,7 +265,8 @@ public final class StreamView: NSView {
         var local = kynput_Position(x: 0, y: 0)
         kynput_video_layout_host_to_local(layout, &hostPos, &local)
         // La position annoncée est la pointe (point actif) ; vue non retournée : y vers le haut.
-        pointerLayer.contents = shape.image
+        // L'image seulement quand la forme change, pas à chaque mouvement.
+        if (pointerLayer.contents as AnyObject?) !== (shape.image as AnyObject) { pointerLayer.contents = shape.image }
         pointerLayer.contentsScale = window?.backingScaleFactor ?? 2
         pointerLayer.frame = PointerLayer.frame(shape: shape, local: CGPoint(x: local.x, y: local.y), factor: factor, flippedHeight: bounds.height)
         pointerLayer.isHidden = false
@@ -308,6 +313,14 @@ public final class StreamView: NSView {
         windowObservers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             self?.keyboardLost()
         })
+        // Veille, écrans éteints, verrouillage ou autre utilisateur : l'app
+        // peut garder le focus jusque-là, rien ne doit rester tenu (MAC-10).
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspaceObservers.forEach(workspace.removeObserver)
+        workspaceObservers = [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification,
+                              NSWorkspace.sessionDidResignActiveNotification].map { name in
+            workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.keyboardLost() }
+        }
     }
 
     // MARK: - Tout relâcher
@@ -535,6 +548,9 @@ public final class StreamView: NSView {
     }
 
     public override func rightMouseDown(with event: NSEvent) {
+        // La bande réservée à la barre ne clique jamais sur l'ordinateur
+        // (MAC-09) ; les relâchements passent toujours.
+        if !relative.active, inReservedBand(event) { return }
         if handledAsPen(event) { return }
         sendPosition(event); mouseButton(.right, pressed: true)
     }
@@ -554,6 +570,7 @@ public final class StreamView: NSView {
     }
 
     public override func otherMouseDown(with event: NSEvent) {
+        if !relative.active, inReservedBand(event) { return }
         if let b = otherButton(event) { mouseButton(b, pressed: true) }
     }
 
@@ -562,6 +579,7 @@ public final class StreamView: NSView {
     }
 
     public override func scrollWheel(with event: NSEvent) {
+        if !relative.active, inReservedBand(event) { return }
         // Une encoche de molette = 1.0 ; un trackpad donne des pixels (même
         // réglage que le client Kyber : 16 pixels par encoche).
         let dy = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / 16 : event.scrollingDeltaY

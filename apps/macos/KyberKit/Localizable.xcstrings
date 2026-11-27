@@ -1,22 +1,6 @@
 {
   "sourceLanguage" : "fr",
   "strings" : {
-    "%@ (code %d)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ (code %d)"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ (code %d)"
-          }
-        }
-      }
-    },
     "%@ en attente : l'ordinateur ne voit que quatre manettes" : {
       "localizations" : {
         "en" : {
@@ -97,6 +81,38 @@
         }
       }
     },
+    "L'ordinateur ne répond pas : la caméra est éteinte." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer isn't answering: the camera is off."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'ordinateur ne répond pas : la caméra est éteinte."
+          }
+        }
+      }
+    },
+    "La caméra n'a pas pu démarrer sur l'ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The camera couldn't start on the computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La caméra n'a pas pu démarrer sur l'ordinateur."
+          }
+        }
+      }
+    },
     "Manette" : {
       "localizations" : {
         "en" : {
@@ -113,22 +129,6 @@
         }
       }
     },
-    "abonnement aux événements" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "event subscription"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "abonnement aux événements"
-          }
-        }
-      }
-    },
     "aucun décodeur matériel" : {
       "localizations" : {
         "en" : {
@@ -141,102 +141,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "aucun décodeur matériel"
-          }
-        }
-      }
-    },
-    "configuration de la connexion" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "connection setup"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "configuration de la connexion"
-          }
-        }
-      }
-    },
-    "configuration de la session" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "session setup"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "configuration de la session"
-          }
-        }
-      }
-    },
-    "configuration des entrées" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "input setup"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "configuration des entrées"
-          }
-        }
-      }
-    },
-    "configuration du son" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "sound setup"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "configuration du son"
-          }
-        }
-      }
-    },
-    "configuration vidéo" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "video setup"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "configuration vidéo"
-          }
-        }
-      }
-    },
-    "connexion impossible" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cannot connect"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "connexion impossible"
           }
         }
       }
@@ -273,22 +177,6 @@
         }
       }
     },
-    "création du client" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "client creation"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "création du client"
-          }
-        }
-      }
-    },
     "démarrage de l'image" : {
       "localizations" : {
         "en" : {
@@ -321,86 +209,6 @@
         }
       }
     },
-    "erreur côté ordinateur (image)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "error on the computer (picture)"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "erreur côté ordinateur (image)"
-          }
-        }
-      }
-    },
-    "erreur côté ordinateur (son)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "error on the computer (sound)"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "erreur côté ordinateur (son)"
-          }
-        }
-      }
-    },
-    "erreur côté ordinateur (écrans)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "error on the computer (displays)"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "erreur côté ordinateur (écrans)"
-          }
-        }
-      }
-    },
-    "erreur du serveur de streaming" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "streaming server error"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "erreur du serveur de streaming"
-          }
-        }
-      }
-    },
-    "identifiant ou mot de passe refusé" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "username or password rejected"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "identifiant ou mot de passe refusé"
-          }
-        }
-      }
-    },
     "image illisible" : {
       "localizations" : {
         "en" : {
@@ -413,54 +221,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "image illisible"
-          }
-        }
-      }
-    },
-    "l'ordinateur n'a pas pu démarrer l'image" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "the computer could not start the picture"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "l'ordinateur n'a pas pu démarrer l'image"
-          }
-        }
-      }
-    },
-    "l'ordinateur ne répond pas" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "the computer is not responding"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "l'ordinateur ne répond pas"
-          }
-        }
-      }
-    },
-    "l'ordinateur ne répond plus" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "the computer stopped responding"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "l'ordinateur ne répond plus"
           }
         }
       }
@@ -481,22 +241,6 @@
         }
       }
     },
-    "le certificat de l'ordinateur a changé" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "the computer's certificate has changed"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "le certificat de l'ordinateur a changé"
-          }
-        }
-      }
-    },
     "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur" : {
       "localizations" : {
         "en" : {
@@ -509,22 +253,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur"
-          }
-        }
-      }
-    },
-    "lecteur vidéo" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "video player"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "lecteur vidéo"
           }
         }
       }
@@ -557,38 +285,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "session impossible"
-          }
-        }
-      }
-    },
-    "session terminée" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "session ended"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "session terminée"
-          }
-        }
-      }
-    },
-    "vérification du certificat" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "certificate check"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "vérification du certificat"
           }
         }
       }

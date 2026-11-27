@@ -101,7 +101,16 @@ final class SessionController: NSObject, ObservableObject {
     @Published private(set) var stationRestarting = false
     /// Rappel affiché quelques secondes, sur un événement de la session (jamais à
     /// l'arrivée de l'image, sauf les manettes indisponibles).
-    enum Hint: Equatable { case mouse, fallback(String), notice(String), request(String), lendRequest(String), gamepads(String) }
+    enum Hint: Equatable {
+        case mouse, fallback(String), notice(String), request(String), lendRequest(String), gamepads(String)
+        /// Les avis d'une demande se choisissent (panneau du partage, du prêt).
+        var takesClick: Bool {
+            switch self {
+            case .request, .lendRequest: return true
+            default: return false
+            }
+        }
+    }
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre
     /// 3840 × 2160 » dans la barre (le cœur le propose et le retire).
     @Published private(set) var modeRestoreOffer: String?
@@ -324,8 +333,6 @@ final class SessionController: NSObject, ObservableObject {
     private var compositing: AnyCancellable?
     /// Le passage (accueil ouvert en deux) sort de la composition une fois ouvert.
     private var sceneHide: Task<Void, Never>?
-    /// Fenêtre occultée (autre espace, réduite, recouverte) : rendu arrêté, débit baissé.
-    private var occlusionObserver: NSObjectProtocol?
     private var occluded = false
     private static let occludedBitrate: UInt32 = 20_000_000
     /// Délai entre le démarrage du flux et l'apparition : le décodeur et la
@@ -771,7 +778,10 @@ final class SessionController: NSObject, ObservableObject {
     /// ouvert (son animation dure 1,1 s). Hors flux, tout revient.
     private func updateCompositing() {
         let streaming = phase == .streaming
+        // Le bandeau PyroWave et le voyant de la caméra (indicateur de
+        // confidentialité, docs/link-ui.md) sont dans cette couche (MAC-05).
         let needed = !streaming || barVisible || padMode || hint != nil || statsPanel || screenOfferShown
+            || pyrowaveBanner || cameraState == .sending
         if chrome?.isHidden == needed { chrome?.isHidden = !needed }
         // Trait de repère de la barre, tracé dans l'image : là où le geste qui
         // ouvre la barre est possible (app au premier plan, session active,
@@ -1764,6 +1774,11 @@ final class SessionController: NSObject, ObservableObject {
     /// Les états du cœur : l'image n'apparaît qu'après `revealDelay`, les
     /// fins voulues et les fins en erreur se séparent ici.
     private func phaseChanged(_ p: SessionEngine.Phase) {
+        // Après `end()` : un état déjà en file (connexion, reprise, image) ne
+        // fait pas revivre la session ; seule sa fin dans le cœur compte.
+        var incomingIsEnded = false
+        if case .ended = p { incomingIsEnded = true }
+        if SessionRules.ignoresAfterEnd(ending: phase == .ending || phase == .ended, incomingIsEnded: incomingIsEnded) { return }
         if case .failed = phase {
             // Échec dit par l'app (registre plein…) : la session du cœur finit
             // quand même ; plus rien à attendre d'elle (fin de l'app).
@@ -1799,7 +1814,7 @@ final class SessionController: NSObject, ObservableObject {
             }
             phase = .starting
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealDelay) { [weak self] in
-                guard let self, self.revealedAt == nil, self.engineStreaming, self.engine != nil else { return }
+                guard let self, self.revealedAt == nil, self.engineStreaming, self.engine != nil, self.phase == .starting else { return }
                 // Dès la première image, l'image seule : ni capsule, ni barre, ni chiffre.
                 self.revealedAt = Date()
                 self.phase = .streaming
@@ -1884,7 +1899,7 @@ final class SessionController: NSObject, ObservableObject {
         // Sans le clavier et la souris, rien ne part vers l'ordinateur : le
         // pointeur du Mac n'est plus capturé (souris des jeux) ; avec, le choix
         // de la barre reprend.
-        streamView.mouseMode = role.keyboardAndMouse ? host.settings.mouse.streamMode : .desktop
+        for view in allViews { view.mouseMode = role.keyboardAndMouse ? host.settings.mouse.streamMode : .desktop }
         if let text = ShareText.roleNotice(role, previous: previous) {
             showHint(.notice(text), after: 0, for: 4)
         }
@@ -2112,7 +2127,13 @@ final class SessionController: NSObject, ObservableObject {
         // Les moitiés se referment, puis la fenêtre se ferme tout de suite ; la
         // console vérifie la remise en état en arrière-plan (onReport).
         scene.close(over: revealedAt != nil ? last : nil, home: homeImage) { [weak self] in self?.finish() }
+        // Secours : une animation que le serveur d'affichage ne joue pas
+        // (fenêtre occultée, autre espace, écran en veille) ne rend jamais
+        // sa complétion ; la fin ne l'attend pas plus de 1,5 s (`finish` ne
+        // passe qu'une fois). Sans lui, l'image restait figée, sans bouton.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.finish() }
         withAnimation(.easeInOut(duration: 0.3)) { phase = .ending }
+        engineStreaming = false
         clearScreenOffer()
         streamView.detach()
         engine?.stop()
@@ -2191,14 +2212,20 @@ final class SessionController: NSObject, ObservableObject {
     }
 
     private func showHint(_ which: Hint, after delay: TimeInterval = 1.6, for duration: TimeInterval = 3.4) {
+        // Chaque rappel a son numéro : le même rappel reposé reste sa durée
+        // entière, la minuterie du précédent ne l'efface plus (MAC-24).
+        hintGeneration += 1
+        let generation = hintGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            withAnimation(.easeOut(duration: 0.35)) { self?.hint = which }
+            guard let self, self.hintGeneration == generation else { return }
+            withAnimation(.easeOut(duration: 0.35)) { self.hint = which }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay + duration) { [weak self] in
-            guard self?.hint == which else { return }
-            withAnimation(.easeIn(duration: 0.35)) { self?.hint = nil }
+            guard let self, self.hintGeneration == generation, self.hint == which else { return }
+            withAnimation(.easeIn(duration: 0.35)) { self.hint = nil }
         }
     }
+    private var hintGeneration = 0
 
     /// « Manettes indisponibles sur cet ordinateur. » (docs/link-ui.md) : une
     /// fois par session, à l'arrivée de l'image si une manette est branchée,
@@ -2257,7 +2284,8 @@ final class SessionController: NSObject, ObservableObject {
 
     /// ⌃⌥⌘M : mode jeu si la souris est en mode bureau, et inversement.
     func toggleMouseCapture() {
-        setMouse(streamView.isRelative ? .desktop : .game)
+        // Capturée sur n'importe quel écran : ⌃⌥⌘M la libère (MAC-12).
+        setMouse(mouseCaptured ? .desktop : .game)
     }
 
     /// Le clavier et la souris de ce Mac partent vers l'ordinateur : une
@@ -2269,7 +2297,8 @@ final class SessionController: NSObject, ObservableObject {
         // Un invité sans le clavier et la souris n'a pas de souris à régler.
         guard hasKeyboardAndMouse else { return }
         commit { $0.settings.mouse = choice }
-        streamView.mouseMode = choice.streamMode
+        // Tous les écrans de la session, pas seulement le principal (MAC-12).
+        for view in allViews { view.mouseMode = choice.streamMode }
     }
 
     /// Ce que la session change de son ordinateur (profil, souris, dernière
@@ -2304,8 +2333,6 @@ final class SessionController: NSObject, ObservableObject {
         // Seules les moitiés du passage restent à l'écran pendant la fermeture.
         chrome?.removeFromSuperview()
         chrome = nil
-        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
-        occlusionObserver = nil
         screenObservers.forEach { NotificationCenter.default.removeObserver($0) }
         screenObservers = []
         activeObservers.forEach { NotificationCenter.default.removeObserver($0) }
@@ -2321,12 +2348,19 @@ final class SessionController: NSObject, ObservableObject {
 
     /// La fenêtre de la session se ferme ; en plein écran, après en être
     /// sortie (3 s au plus : une sortie refusée pendant une transition).
+    ///
+    /// Le contrôleur se retient lui-même jusque-là : le gestionnaire l'a déjà
+    /// retiré (`onFinish`) et le cœur a pu le dire fini. Libéré avant la
+    /// sortie du plein écran, il ne fermait jamais sa fenêtre : elle restait
+    /// par-dessus tout, figée sur l'accueil photographié, et l'accueil ne
+    /// revenait pas (« l'app ne répond plus » en fin de session).
     private func closeWindow() {
         guard let window else { return }
         guard window.styleMask.contains(.fullScreen) else { return dropWindow() }
-        windowDelegate.onExitFullScreen = { [weak self] in self?.dropWindow() }
+        // Retenue forte, rompue par `dropWindow` (qui vide `onExitFullScreen`).
+        windowDelegate.onExitFullScreen = { self.dropWindow() }
         window.toggleFullScreen(nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.dropWindow() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.dropWindow() }
     }
 
     private func dropWindow() {

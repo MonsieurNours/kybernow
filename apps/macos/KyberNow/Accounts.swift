@@ -126,15 +126,13 @@ enum AccountKeychain {
     }
 
     static func set(_ secret: String, for key: String) {
-        SecItemDelete(query(key) as CFDictionary)
-        var item = query(key)
-        item[kSecValueData as String] = Data(secret.utf8)
-        item[kSecAttrLabel as String] = "KyberNow"
+        var extra: [String: Any] = [:]
         #if !os(macOS)
         // Ni sauvegarde vers un autre appareil : la session reste à celui-ci.
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        extra[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         #endif
-        let status = SecItemAdd(item as CFDictionary, nil)
+        // Mis à jour sans effacer d'abord : un échec garde la session d'avant (MAC-14).
+        let status = KeychainWrite.upsert(query(key), data: Data(secret.utf8), label: "KyberNow", extra: extra)
         if status != errSecSuccess { KyberLog.app.error("comptes : Trousseau, \(status, privacy: .public)") }
     }
 

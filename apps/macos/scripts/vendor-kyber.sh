@@ -15,6 +15,23 @@ OUT="$HERE/Vendor"
 
 [ -d "$APP" ] || { echo "Client Kyber introuvable : lancez build-macos.sh -p dans $KYBER" >&2; exit 1; }
 
+# Réécrire les bibliothèques sous l'app ouverte fait planter VLC à la session
+# suivante (docs/build-notes.md) : même règle que build-kyclient.sh (dans un
+# worktree git, KYBERNOW_IGNORE_RUNNING=1 laisse faire), et une seule
+# construction à la fois dans ce Vendor/ (TRANS-18).
+other_checkout() {
+    local dir common
+    dir="$(git -C "$ROOT" rev-parse --path-format=absolute --git-dir 2>/dev/null)" || return 1
+    common="$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+    [ "$dir" != "$common" ]
+}
+if ! { [ "${KYBERNOW_IGNORE_RUNNING:-0}" = 1 ] && other_checkout; } && pgrep -x "KyberNow( Link)?" >/dev/null; then
+    echo "KyberNow est ouvert : quittez l'app avant de remplacer ses bibliothèques (Vendor/ ; dans un worktree : KYBERNOW_IGNORE_RUNNING=1)." >&2
+    exit 1
+fi
+. "$ROOT/scripts/verrou.sh"
+kyber_verrou_sortie "$OUT" "vendor-kyber.sh" || exit 1
+
 rm -rf "$OUT" && mkdir -p "$OUT/include" "$OUT/Frameworks"
 cp "$KYBER/rootfs-arm64-macos/include/kyclient/kyclient.h" "$KYBER/rootfs-arm64-macos/include/kynput/kynput.h" "$OUT/include/"
 # Décodeur Opus (le son est décodé par l'app, voir kyber-patches/0001).

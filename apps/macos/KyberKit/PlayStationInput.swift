@@ -116,6 +116,14 @@ public final class PlayStationInputView: NSView {
            window?.isKeyWindow == true, onShortcut?(key) == true {
             return true
         }
+        // En jeu, ⌘ peut tenir un bouton : ⌘W, ⌘Q… vont à la manette, pas aux
+        // menus de l'app (MAC-17, comme StreamView). Barre ouverte ou clavier
+        // de la console : les raccourcis de l'app restent.
+        if !suspended, !consoleKeyboard, event.type == .keyDown, window?.firstResponder === self,
+           !flags.contains(StreamView.reservedModifiers) {
+            keyDown(with: event)
+            return true
+        }
         return super.performKeyEquivalent(with: event)
     }
 
@@ -145,9 +153,22 @@ public final class PlayStationInputView: NSView {
             return
         }
         guard !suspended, let flag = Keymap.modifierFlags[code], let usage = Keymap.hid(keyCode: code) else { return }
-        // Le drapeau seul ne dit pas quel côté : la touche est tenue si son
-        // drapeau est levé et qu'elle ne l'était pas.
-        let down = event.modifierFlags.contains(flag) && !heldModifiers.contains(code)
+        // Verr. Maj : une bascule, un seul événement ; le bouton qui lui est
+        // affecté est appuyé puis relâché, comme une frappe (MAC-17).
+        if Keymap.isLock(usage) {
+            play?.key(usage: usage, pressed: true)
+            play?.key(usage: usage, pressed: false)
+            return
+        }
+        // Le bit du côté dit si cette touche-ci est enfoncée ; sans bit de
+        // côté (événements synthétiques), le drapeau, en bascule.
+        let raw = event.modifierFlags.rawValue
+        let down: Bool
+        if let side = Keymap.sideBit(code), raw & Keymap.sideBits(of: flag) != 0 {
+            down = raw & side != 0
+        } else {
+            down = event.modifierFlags.contains(flag) && !heldModifiers.contains(code)
+        }
         if down { heldModifiers.insert(code) } else { heldModifiers.remove(code) }
         play?.key(usage: usage, pressed: down)
     }

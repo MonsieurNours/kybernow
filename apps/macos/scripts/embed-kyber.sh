@@ -30,7 +30,16 @@ fi
 # 1. Copie de travail : seuls les fichiers plus récents dans Vendor/ sont
 #    recopiés (--update ; une copie signée est datée d'une seconde après sa
 #    source).
-CHANGED=$(rsync -a --update --delete --exclude '.signed' --out-format='%n' "$SRC/" "$STAGE/" | grep '\.dylib$' || true)
+#    Une bibliothèque remplacée par une autre de date égale ou plus ancienne
+#    (Vendor refait depuis un autre arbre) échappait à --update : son
+#    contenu est comparé (empreintes des sources, .sources), et sa copie
+#    retirée pour être recopiée (MAC-40).
+(cd "$SRC" && find . -maxdepth 2 -name '*.dylib' -type f -exec shasum {} + | sort -k2) > "$STAGE/.sources.new"
+if [ -f "$STAGE/.sources" ]; then
+    comm -13 "$STAGE/.sources" "$STAGE/.sources.new" | awk '{print $2}' | while read -r f; do rm -f "$STAGE/$f"; done
+fi
+CHANGED=$(rsync -a --update --delete --exclude '.signed' --exclude '.sources*' --out-format='%n' "$SRC/" "$STAGE/" | grep '\.dylib$' || true)
+mv "$STAGE/.sources.new" "$STAGE/.sources"
 if [ ! -f "$STAMP" ] || [ "$(cat "$STAMP")" != "$MODE" ]; then
     CHANGED=$(cd "$STAGE" && find . -maxdepth 2 -name '*.dylib' -type f | sed 's|^\./||')
 fi
@@ -49,4 +58,4 @@ fi
 # 2. Dans l'app : seulement ce qui diffère (taille ou heure), en place
 #    jamais pour un fichier identique.
 # Les frameworks intégrés par Xcode (KyberKit, Sparkle) ne viennent pas de Vendor/ : on n'y touche pas.
-rsync -a --delete --exclude '*.framework' --exclude '.signed' "$STAGE/" "$DST/"
+rsync -a --delete --exclude '*.framework' --exclude '.signed' --exclude '.sources*' "$STAGE/" "$DST/"

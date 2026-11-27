@@ -22,10 +22,9 @@
 # PyroWave (docs/pyrowave-client-apple.md) : le décodeur est dans l'app
 # (KyberKit) et la capacité `pyrowave` part toujours au cœur. Mais le
 # correctif kyclient 0025 (`VideoCodec::PyroWave`, `fallback_codec`) et la
-# fonctionnalité `pyrowave` du cœur (`kyber-pyrowave` de kybernow-apple) ne
-# sont posés qu'avec --kyber-pyrowave, comme build-native.sh d'Android, tant
-# qu'ils ne sont pas allumés pour toutes les apps : third_party/ est partagé.
-# Sans eux, le cœur ne demande jamais PyroWave à Kyber.
+# fonctionnalité `pyrowave` du cœur (`kyber-pyrowave` de kybernow-apple) sont
+# posés par défaut, comme pour les autres apps ; --sans-pyrowave (ou
+# KYBER_PYROWAVE=0) les retire. Sans eux, le cœur ne demande jamais PyroWave à Kyber.
 #
 # Cibles de rang 3 pour tvOS : Rust nightly et -Zbuild-std ; iOS : stable.
 # S'arrête à la première erreur sans toucher à Vendor/. Déploiement 18.0.
@@ -74,6 +73,14 @@ if [ "$PLATFORM" = tvos ]; then
         exit 1
     }
     kyber_toolchain_check nightly
+    # Le nightly utilisé doit être celui de KYBER_NIGHTLY (date de son
+    # commit) : un `rustup update` en mettait un autre sans que rien ne le
+    # dise, et la bibliothèque tvOS sortait d'un autre compilateur (TRANS-04).
+    used=$(rustup run nightly rustc --version 2>/dev/null | sed -n 's/.* \([0-9-]*\))$/\1/p')
+    if [ "$used" != "$KYBER_NIGHTLY" ]; then
+        echo "Rust nightly du $used, attendu celui du $KYBER_NIGHTLY (scripts/kyber-toolchain.sh) : réinstallez-le ou mettez KYBER_NIGHTLY à jour." >&2
+        exit 1
+    fi
 fi
 
 for target in "${TARGETS[@]}"; do
@@ -87,13 +94,9 @@ done
 # cœur compile contre cette API), PyroWave (0025) seulement avec --kyber-pyrowave.
 KYSDK="$KYBER/kysdk"
 . "$ROOT/scripts/kyber-client-patches.sh"
-PATCHES=("$ROOT"/apps/macos/kyber-patches/*.patch)
-for patch in "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
-    case "$(basename "$patch")" in
-        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue ;;
-    esac
-    PATCHES+=("$patch")
-done
+. "$ROOT/apps/macos/scripts/client-patches.sh"
+PATCHES=()
+while IFS= read -r patch; do PATCHES+=("$patch"); done < <(KYBER_PYROWAVE="$KYBER_PYROWAVE" mac_client_patches "$ROOT")
 kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
 FEATURES=()
 if [ "$KYBER_PYROWAVE" = 1 ]; then

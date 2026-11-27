@@ -207,8 +207,6 @@ final class PyroWaveDecoder {
 
     deinit { teardown() }
 
-    var available: Bool { gpu != nil }
-
     // MARK: - Paquets
 
     /// Paquet de configuration du contrat : (re)crée le décodeur s'il change.
@@ -256,7 +254,10 @@ final class PyroWaveDecoder {
             note(\.failures, "image illisible (\(String(cString: pyrowave_result_to_string(pushed))))")
             return
         }
-        guard pyrowave_decoder_decode_is_ready(decoder, false) || pyrowave_decoder_decode_is_ready(decoder, true) else {
+        // Image entière seulement (MAC-24) : une image incomplète est sautée,
+        // comme le disent docs/pyrowave.md et l'essai (la suivante, toujours
+        // image clé, répare tout de suite) ; l'accepter montrait des trous.
+        guard pyrowave_decoder_decode_is_ready(decoder, false) else {
             note(\.incomplete, "image incomplète, sautée")
             return
         }
@@ -277,8 +278,16 @@ final class PyroWaveDecoder {
                           Unmanaged.passUnretained(chroma.0).toOpaque(),
                           Unmanaged.passUnretained(chroma.1).toOpaque())
         let decoded = pyrowave_decoder_decode_gpu_buffer(decoder, Unmanaged.passUnretained(commands).toOpaque(), &outputs)
-        guard decoded == PYROWAVE_SUCCESS, let pass = commands.makeComputeCommandEncoder() else {
+        guard decoded == PYROWAVE_SUCCESS else {
             note(\.failures, "décodage refusé (\(String(cString: pyrowave_result_to_string(decoded))))")
+            return
+        }
+        // Décodage accepté : l'emplacement d'envoi attend désormais ce tampon
+        // (`slot->consumer`). Il est validé quoi qu'il arrive, sinon le
+        // quatrième envoi suivant attendrait pour toujours (MAC-02).
+        guard let pass = commands.makeComputeCommandEncoder() else {
+            commands.commit()
+            note(\.failures, "passe d'entrelacement refusée, image sautée")
             return
         }
         pass.setComputePipelineState(gpu.interleave)

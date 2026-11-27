@@ -13,6 +13,16 @@ KIT="$HERE/../../KyberKit"
 PW="$HERE/../../PyroWave"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+# Une compilation ratée arrête l'essai (MAC-39 : `| grep error || true`
+# laissait lancer un binaire absent ou d'avant).
+compile() {
+    local log
+    if ! log="$(swiftc "$@" 2>&1)"; then
+        echo "$log" | grep -E "error" >&2 || echo "$log" >&2
+        echo "Compilation de l'essai ratée." >&2
+        exit 1
+    fi
+}
 cd "$WORK"
 
 # Le port PyroWave, compilé comme dans KyberKit (ARC, C++17).
@@ -21,8 +31,8 @@ for f in pyrowave_common.mm pyrowave_decoder.mm pyrowave_encoder.mm pyrowave_bit
 done
 SWIFT=(-O -I "$PW/module" -framework Metal -framework IOSurface -lc++ ./*.o "$HERE/common.swift"
        "$KIT/PyroWaveDecoder.swift" "$KIT/VideoDecoder.swift" "$KIT/AV1.swift")
-swiftc "${SWIFT[@]}" -o encode "$HERE/encode/main.swift" 2>&1 | grep error: || true
-swiftc "${SWIFT[@]}" -o bench "$HERE/bench/main.swift" 2>&1 | grep error: || true
+compile "${SWIFT[@]}" -o encode "$HERE/encode/main.swift"
+compile "${SWIFT[@]}" -o bench "$HERE/bench/main.swift"
 
 SIZES=("${1:-2560x1440}")
 [ $# -eq 0 ] && SIZES=(2560x1440 3840x2160)

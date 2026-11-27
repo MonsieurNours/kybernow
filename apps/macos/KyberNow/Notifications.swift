@@ -84,7 +84,8 @@ final class Notifier: NSObject {
     /// Une version de la Station est prête : une fois par version et par ordinateur.
     func checkStationUpdates() {
         guard let app, !NSApp.isActive else { return }
-        var announced = app.defaults.dictionary(forKey: Self.announcedKey) as? [String: String] ?? [:]
+        let before = app.defaults.dictionary(forKey: Self.announcedKey) as? [String: String] ?? [:]
+        var announced = before
         for host in app.store.hosts {
             guard let station = app.store.status[host.id]?.info?.station, station.updateAvailable,
                   let v = station.updateVersion, station.installable || station.requiresSetup,
@@ -103,7 +104,8 @@ final class Notifier: NSObject {
                 post(.stationSetup, host: host.id, title: title, body: StationText.requiresSetup(v))
             }
         }
-        app.defaults.set(announced, forKey: Self.announcedKey)
+        // Écrit seulement quand une annonce part (pas à chaque état sondé, MAC-28).
+        if announced != before { app.defaults.set(announced, forKey: Self.announcedKey) }
     }
 
     /// Fin d'un réveil : en ligne, ou toujours rien au bout de 2 min.

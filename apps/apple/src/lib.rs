@@ -21,7 +21,6 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Mode, PairStatus, StationError};
 use kybernow_core::focus::{self, FocusId};
-use kybernow_core::gamepads;
 use kybernow_core::i18n::{self, Lang};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::{self, Second};
@@ -113,7 +112,7 @@ impl log::Log for Logger {
         if !self.enabled(record.metadata()) {
             return;
         }
-        let Some(cb) = *LOG_CB.lock().unwrap() else { return };
+        let Some(cb) = *LOG_CB.lock().unwrap_or_else(|e| e.into_inner()) else { return };
         let target = CString::new(record.target().replace('\0', " ")).unwrap_or_default();
         let message = CString::new(record.args().to_string().replace('\0', " ")).unwrap_or_default();
         unsafe { cb(record.level() as u32, target.as_ptr(), message.as_ptr()) };
@@ -125,7 +124,7 @@ impl log::Log for Logger {
 /// Branche le journal du cœur (à appeler une fois, avant tout le reste).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_set_log_callback(cb: KnLogCb) {
-    *LOG_CB.lock().unwrap() = cb;
+    *LOG_CB.lock().unwrap_or_else(|e| e.into_inner()) = cb;
     static ONCE: OnceLock<()> = OnceLock::new();
     ONCE.get_or_init(|| {
         let _ = log::set_logger(&LOGGER);
@@ -236,6 +235,19 @@ fn console_result<T: serde::Serialize>(r: Result<T, ConsoleError>, out: *mut *mu
 pub unsafe extern "C" fn kn_console_info(c: *const KnConsole, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
     let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
     console_result(c.0.info(), out, error)
+}
+
+/// Manettes que voit le lecteur du cœur en ce moment (SDL sur Mac, celles
+/// données par l'app ailleurs). Une partie sur console ignore le clavier et
+/// la souris dès qu'il y en a une : l'app suit ce nombre, pas GameController (MAC-24).
+/// −1 : le lecteur SDL du cœur ne tourne pas encore (Mac, hors partie).
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_gamepads_count() -> i32 {
+    use kybernow_core::gamepads;
+    if gamepads::sdl_compiled() && !gamepads::sdl_running() {
+        return -1;
+    }
+    gamepads::global().pads().len() as i32
 }
 
 /// L'ordinateur crée les manettes de l'appareil, d'après `info_json`
@@ -556,6 +568,36 @@ struct Sink {
     userdata: *mut c_void,
     stream: u64,
     screen: u32,
+    /// Le `userdata` reste à la plateforme tant qu'un flux peut rappeler (MAC-01).
+    _owner: Arc<Owner>,
+}
+
+/// Le `userdata` d'une plateforme (l'objet Swift, retenu par `passRetained`),
+/// partagé par tous ceux qui peuvent le rappeler : la plateforme de la
+/// session, chaque flux que Kyber garde. Le dernier rend l'objet par
+/// `release_userdata` (MAC-01 : Kyber gardait un flux plus de 30 s après la
+/// fin, et son `Drop` rappelait un objet déjà libéré). Sans `release_userdata`
+/// (une app d'avant), rien n'est rendu : l'app libère elle-même, comme avant.
+pub(crate) struct Owner {
+    userdata: *mut c_void,
+    release: Option<unsafe extern "C" fn(userdata: *mut c_void)>,
+}
+
+unsafe impl Send for Owner {}
+unsafe impl Sync for Owner {}
+
+impl Owner {
+    pub(crate) fn new(userdata: *mut c_void, release: Option<unsafe extern "C" fn(userdata: *mut c_void)>) -> Arc<Self> {
+        Arc::new(Self { userdata, release })
+    }
+}
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        if let Some(release) = self.release {
+            unsafe { release(self.userdata) };
+        }
+    }
 }
 
 unsafe impl Send for Sink {}
@@ -973,10 +1015,15 @@ pub struct KnPlatform {
     /// « Caméra » apparaît ou disparaît ; allumée, la caméra repart d'elle-même
     /// quand le flux revient (`kn_camera_*`).
     pub on_camera_offer: Option<unsafe extern "C" fn(userdata: *mut c_void, offered: bool)>,
+    /// Rend `userdata` quand plus rien ne peut le rappeler (la session finie
+    /// et le dernier flux lâché par Kyber), d'un fil quelconque ; nul : l'app
+    /// le garde et le rend elle-même. Ajouté en dernier.
+    pub release_userdata: Option<unsafe extern "C" fn(userdata: *mut c_void)>,
 }
 
 struct ApplePlatform {
     cb: KnPlatform,
+    owner: Arc<Owner>,
     streams: AtomicU64,
     /// Raison d'un échec, donnée juste avant `Status::Ending` (`on_ending`).
     ending_error: Mutex<Option<String>>,
@@ -989,7 +1036,7 @@ impl ApplePlatform {
     fn sink(&self, cb: KnPacketCb, screen: u32) -> Option<Arc<dyn PacketHandler>> {
         let cb = cb?;
         let stream = self.streams.fetch_add(1, Ordering::Relaxed) + 1;
-        Some(Arc::new(Sink { cb, userdata: self.cb.userdata, stream, screen }))
+        Some(Arc::new(Sink { cb, userdata: self.cb.userdata, stream, screen, _owner: self.owner.clone() }))
     }
 }
 
@@ -1127,7 +1174,7 @@ impl Platform for ApplePlatform {
         };
         let (error, report): (Option<String>, Option<EndReport>) = match status {
             Status::Ended { error, report } => (error.clone(), report.clone()),
-            Status::Ending => (self.ending_error.lock().unwrap().take(), None),
+            Status::Ending => (self.ending_error.lock().unwrap_or_else(|e| e.into_inner()).take(), None),
             _ => (None, None),
         };
         let error_c = error.map(|e| CString::new(e.replace('\0', " ")).unwrap_or_default());
@@ -1237,7 +1284,7 @@ impl Platform for ApplePlatform {
 
     /// Gardée pour `KN_STATUS_ENDING`, qui suit tout de suite.
     fn on_ending(&self, error: Option<&str>) {
-        *self.ending_error.lock().unwrap() = error.map(str::to_string);
+        *self.ending_error.lock().unwrap_or_else(|e| e.into_inner()) = error.map(str::to_string);
     }
 
     fn on_notice(&self, notice: &Notice) {
@@ -1380,7 +1427,8 @@ pub unsafe extern "C" fn kn_session_start(
             return std::ptr::null_mut();
         }
     };
-    let platform = Arc::new(ApplePlatform { cb: *cb, streams: AtomicU64::new(0), ending_error: Mutex::new(None) });
+    let owner = Owner::new(cb.userdata, cb.release_userdata);
+    let platform = Arc::new(ApplePlatform { cb: *cb, owner, streams: AtomicU64::new(0), ending_error: Mutex::new(None) });
     let session = match screens {
         Some(screens) => Session::start_with_screens(params, screens, platform),
         None => Session::start(params, platform),
@@ -1437,12 +1485,6 @@ pub unsafe extern "C" fn kn_session_keyframe_lost(s: *const KnSession) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_keyframe_recovered(s: *const KnSession) {
     with(s, |s| s.keyframe_recovered());
-}
-
-/// Aucune image depuis le démarrage du flux (plateforme qui tient sa propre veille).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_no_image(s: *const KnSession) {
-    with(s, |s| s.no_image());
 }
 
 /// Autres réglages pendant la session (profil depuis la barre), même JSON que
@@ -1721,16 +1763,6 @@ pub unsafe extern "C" fn kn_screens_extra_session_window(screens_json: *const c_
     true
 }
 
-/// Index de l'écran principal dans `list` (même JSON que `screens`) : celui
-/// où s'affiche l'écran de connexion. -1 si illisible ou vide.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_screens_primary_index(screens_json: *const c_char) -> i32 {
-    match serde_json::from_str::<Screens>(&text(screens_json)) {
-        Ok(s) if !s.list.is_empty() => screens::primary_index(&s.list) as i32,
-        _ => -1,
-    }
-}
-
 /// Image `pts` reçue, décodée puis montrée (µs, `kn_now_micros`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_frame_displayed(s: *const KnSession, pts: u64, received: i64, decoded: i64, at: i64) {
@@ -1756,38 +1788,6 @@ pub unsafe extern "C" fn kn_session_hole(s: *const KnSession) {
 }
 
 // MARK: - Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md)
-
-/// La session devient active (vrai) ou passe derrière une autre : pas
-/// active, rien ne part de l'appareil vers son ordinateur (clavier, souris,
-/// texte, touches et axes des manettes), ce qu'elle tenait est relâché, ses
-/// manettes sont au repos, la souris relative est coupée, le presse-papiers
-/// est en pause et les vibrations sont ignorées ; de nouveau active, le
-/// contenu du presse-papiers de l'appareil est renvoyé à l'ordinateur. Tenu
-/// d'une image à l'autre. Active par défaut ; le registre (`kn_focus_*`)
-/// s'en charge pour les sessions inscrites.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_set_active(s: *const KnSession, active: bool) {
-    with(s, |s| s.set_active(active));
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_is_active(s: *const KnSession) -> bool {
-    with(s, |s| s.is_active()).unwrap_or(true)
-}
-
-/// Son de la session coupé (vrai) ou rendu, fondu de 20 ms, sur chaque
-/// `KnAudio` donné par `kn_session_attach_audio`. Tenu d'une image à
-/// l'autre. Pas coupé par défaut ; le registre s'en charge pour les
-/// sessions inscrites (sauf « Garder le son »).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_set_muted(s: *const KnSession, muted: bool) {
-    with(s, |s| s.set_muted(muted));
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_is_muted(s: *const KnSession) -> bool {
-    with(s, |s| s.is_muted()).unwrap_or(false)
-}
 
 /// Le moteur de son de la session (le son va à Swift, qui le donne à son
 /// `KnAudio` : le cœur ne le voit pas passer). À appeler pour chaque
@@ -1817,13 +1817,6 @@ pub extern "C" fn kn_set_device_has_microphone(has: bool) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_set_microphone(s: *const KnSession, on: bool) {
     with(s, |s| s.set_microphone(on));
-}
-
-/// L'état du micro maintenant, en JSON (comme `on_microphone`) ; à libérer
-/// par `kn_string_free`. Nul sans session.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_microphone(s: *const KnSession) -> *mut c_char {
-    with(s, |s| give(s.microphone().to_json())).unwrap_or(std::ptr::null_mut())
 }
 
 /// Échantillons du micro, flottants mono (`count`), à `rate_hz` (n'importe
@@ -1910,18 +1903,6 @@ pub extern "C" fn kn_focus_max() -> u32 {
     focus::MAX_SESSIONS as u32
 }
 
-/// Mac : le lecteur de manettes du cœur, sur son fil SDL, gardé pour toute
-/// la vie de l'app, manettes ouvertes dès l'appel (diode de joueur, mode
-/// HIDAPI). Inutile d'ordinaire : le lecteur démarre avec la première chaîne
-/// d'entrées et se ferme 5 s après la dernière ; seulement pour lire les
-/// manettes hors session. Faux sur l'Apple TV, l'iPhone et l'iPad (pas de
-/// SDL : leurs manettes passent par GameController dans l'app), si libkynput
-/// a encore son lecteur SDL, ou si SDL n'a pas pu s'ouvrir.
-#[unsafe(no_mangle)]
-pub extern "C" fn kn_gamepads_start_sdl() -> bool {
-    gamepads::start_sdl()
-}
-
 /// Latence de la session : médiane des secondes et 95e centile (ms). Faux
 /// sans mesure.
 #[unsafe(no_mangle)]
@@ -1952,5 +1933,34 @@ mod tests {
         assert!(available("{}") && available("illisible"), "Station d'avant ou réponse illisible : disponibles");
         assert!(!available(r#"{"os": "macOS 26.1", "gamepads": {"available": false, "reason": "entitlement"}}"#));
         assert!(available(r#"{"gamepads": {"available": true}}"#));
+    }
+
+    static RELEASED: AtomicU64 = AtomicU64::new(0);
+    static CLOSED: AtomicU64 = AtomicU64::new(0);
+    unsafe extern "C" fn release(ud: *mut c_void) {
+        assert_eq!(ud as usize, 0x1234);
+        RELEASED.fetch_add(1, Ordering::SeqCst);
+    }
+    unsafe extern "C" fn packet(ud: *mut c_void, p: *const KnPacket) {
+        assert_eq!(ud as usize, 0x1234);
+        // Le `userdata` est encore là quand le flux se ferme (MAC-01).
+        assert_eq!(RELEASED.load(Ordering::SeqCst), 0);
+        if unsafe { (*p).kind } == KN_PACKET_CLOSED {
+            CLOSED.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn userdata_rendu_au_dernier_detenteur() {
+        let owner = Owner::new(0x1234 as *mut c_void, Some(release));
+        let sink = Sink { cb: packet, userdata: 0x1234 as *mut c_void, stream: 1, screen: 0, _owner: owner.clone() };
+        drop(owner);
+        assert_eq!(RELEASED.load(Ordering::SeqCst), 0, "un flux tenu par Kyber garde le userdata");
+        drop(sink);
+        assert_eq!(CLOSED.load(Ordering::SeqCst), 1, "le flux dit sa fermeture");
+        assert_eq!(RELEASED.load(Ordering::SeqCst), 1, "rendu une fois, après la fermeture du dernier flux");
+        // Sans `release_userdata` (app d'avant) : rien n'est rendu.
+        drop(Owner::new(0x1234 as *mut c_void, None));
+        assert_eq!(RELEASED.load(Ordering::SeqCst), 1);
     }
 }

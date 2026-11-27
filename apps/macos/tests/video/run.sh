@@ -14,6 +14,16 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 KIT="$HERE/../../KyberKit"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+# Une compilation ratée arrête l'essai (MAC-39 : `| grep error || true`
+# laissait lancer un binaire absent ou d'avant).
+compile() {
+    local log
+    if ! log="$(swiftc "$@" 2>&1)"; then
+        echo "$log" | grep -E "error" >&2 || echo "$log" >&2
+        echo "Compilation de l'essai ratée." >&2
+        exit 1
+    fi
+}
 cd "$WORK"
 
 for f in yuv420p yuv444p; do
@@ -58,10 +68,10 @@ done
 SOURCES=("$HERE/common.swift" "$KIT/AV1.swift" "$KIT/VideoDecoder.swift" "$KIT/PyroWaveDecoder.swift" "$KIT/DecoderCapabilities.swift" "$KIT/VideoRenderer.swift" "$KIT/Upscaler.swift" "$KIT/LatencyReporting.swift")
 LINK=(-I "$KIT/../Vendor/include" -I "$PW/module" -L "$KIT/../Vendor/Frameworks" -lkyclient.0.1 -Xlinker -rpath -Xlinker "$KIT/../Vendor/Frameworks"
       ./pyrowave_*.o -lc++ -framework IOSurface)
-swiftc -O -o decode "$HERE/decode/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true
-swiftc -O -o color "$HERE/color/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true
-swiftc -O -o recovery "$HERE/recovery/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true
-swiftc -O -o av1 "$HERE/av1/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true
+compile -O -o decode "$HERE/decode/main.swift" "${SOURCES[@]}" "${LINK[@]}"
+compile -O -o color "$HERE/color/main.swift" "${SOURCES[@]}" "${LINK[@]}"
+compile -O -o recovery "$HERE/recovery/main.swift" "${SOURCES[@]}" "${LINK[@]}"
+compile -O -o av1 "$HERE/av1/main.swift" "${SOURCES[@]}" "${LINK[@]}"
 ./decode
 ./color
 ./recovery ir.hevc

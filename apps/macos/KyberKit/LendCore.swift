@@ -94,9 +94,6 @@ public struct LendTarget: Sendable, Equatable {
     public let port: UInt16
     public let fingerprint: String?
 
-    /// Une route par le relais est connue : l'emprunt marche aussi hors de chez soi.
-    public var hasRelay: Bool { routeJSON != nil }
-
     /// Une Station du réseau (« Ajouter un ordinateur » › « Avec un compte d'ami »).
     public init(host: String, port: UInt16, fingerprint: String?) {
         var j: [String: Any] = ["host": host, "port": Int(port)]

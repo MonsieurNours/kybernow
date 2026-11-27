@@ -95,9 +95,6 @@ public struct GamepadRumble: Sendable {
 /// chaque manette, tenues par le cœur : pour un pont de manettes qui la suit
 /// lui-même avant d'envoyer (GameController sur Apple TV et iOS).
 final class PadCombo: @unchecked Sendable {
-    static let buttons: Set<PadButton> = [.leftShoulder, .rightShoulder, .start, .back]
-    /// Les six axes à remettre au repos à la capture.
-    static let axes: [PadAxis] = PadAxis.allCases
 
     /// Combinaison formée pour cette manette, sur la file donnée.
     var onFormed: ((UInt32) -> Void)?
@@ -138,17 +135,6 @@ final class PadCombo: @unchecked Sendable {
         kn_combo_button(core, id, button.core, down)
     }
 
-    static func navigationKey(_ button: PadButton) -> PadKey? {
-        switch button {
-        case .dpadLeft: return .left
-        case .dpadRight: return .right
-        case .dpadUp: return .up
-        case .dpadDown: return .down
-        case .a: return .accept
-        case .b: return .back
-        default: return nil
-        }
-    }
 }
 
 /// Règles Auto / Bureau / Jeu (le cœur), avec la veille du plein écran.
@@ -485,7 +471,16 @@ final class InputPipeline: @unchecked Sendable {
             pasteboard_text: Self.pasteboardText,
             pasteboard_set_text: Self.pasteboardSetText,
             pasteboard_has_text: Self.pasteboardHasText,
-            pasteboard_reading_asks_user: Self.pasteboardReadingAsksUser
+            pasteboard_reading_asks_user: Self.pasteboardReadingAsksUser,
+            // La boîte est rendue par le cœur quand plus rien ne tient la
+            // chaîne (Kyber, fil des minuteries), sur le fil principal (MAC-01).
+            release_userdata: { ud in
+                guard let ud else { return }
+                let bits = UInt(bitPattern: ud)
+                DispatchQueue.main.async {
+                    Unmanaged<Callbacks>.fromOpaque(UnsafeMutableRawPointer(bitPattern: bits)!).release()
+                }
+            }
         )
         core = kn_input_new(options, pointer.core, callbacks)
         gamepad.owner = self
@@ -520,9 +515,20 @@ final class InputPipeline: @unchecked Sendable {
     private static let pasteboardChangeCount: (@convention(c) (UnsafeMutableRawPointer?) -> UInt64)? = { _ in
         UInt64(max(0, UIPasteboard.general.changeCount))
     }
+    // Lire le texte peut afficher « Autoriser à coller ? » et bloquer le fil
+    // appelant pendant l'alerte : jamais le fil de kynput (pointeur,
+    // vibrations, image figés, IOS-15). La lecture se fait sur le fil
+    // principal et se garde pour ce contenu (`changeCount`) ; la première
+    // demande après une copie ailleurs ne rend rien, la suivante le texte.
     private static let pasteboardText: (@convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutablePointer<CChar>?)? = { _ in
-        guard UIPasteboard.general.hasStrings, let text = UIPasteboard.general.string else { return nil }
-        return strdup(text)
+        guard UIPasteboard.general.hasStrings else { return nil }
+        if Thread.isMainThread {
+            return UIPasteboard.general.string.map { strdup($0) }
+        }
+        let count = UIPasteboard.general.changeCount
+        if let text = PasteboardRead.cached(count) { return strdup(text) }
+        DispatchQueue.main.async { PasteboardRead.read() }
+        return nil
     }
     private static let pasteboardSetText: (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void)? = { _, text in
         guard let text else { return }
@@ -535,6 +541,22 @@ final class InputPipeline: @unchecked Sendable {
         UIPasteboard.general.hasStrings
     }
     private static let pasteboardReadingAsksUser = true
+
+    /// Le texte lu sur le fil principal, pour le contenu en cours.
+    private enum PasteboardRead {
+        private static let lock = NSLock()
+        nonisolated(unsafe) private static var last: (count: Int, text: String)?
+
+        static func cached(_ count: Int) -> String? {
+            lock.withLock { last.flatMap { $0.count == count ? $0.text : nil } }
+        }
+
+        static func read() {
+            let count = UIPasteboard.general.changeCount
+            guard cached(count) == nil, let text = UIPasteboard.general.string else { return }
+            lock.withLock { last = (count, text) }
+        }
+    }
     #else
     // Pas de presse-papiers sur l'Apple TV.
     private static let pasteboardChangeCount: (@convention(c) (UnsafeMutableRawPointer?) -> UInt64)? = nil
@@ -545,11 +567,9 @@ final class InputPipeline: @unchecked Sendable {
     #endif
 
     deinit {
+        // La boîte des rappels part avec le dernier détenteur de la chaîne
+        // (`release_userdata`), plus après un délai fixe.
         kn_input_free(core)
-        let ud = Unmanaged.passUnretained(box).toOpaque()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            Unmanaged<Callbacks>.fromOpaque(ud).release()
-        }
     }
 
     /// La chaîne kynput avec une référence prise, pour la session.
@@ -584,14 +604,18 @@ final class InputPipeline: @unchecked Sendable {
     /// `mouse(on:x:y:)` à l'écran de Kyber de leur écran.
     func setScreens(_ screens: [Screen]) {
         let pointers = screens.compactMap(\.pointer)
-        screensLock.lock()
-        screenPointers = pointers
-        screensLock.unlock()
         var list = screens.map { s in
             KnInputScreen(screen: UInt32(s.index), display_id: s.displayID, host_width: UInt32(max(0, s.hostSize.width)),
                           host_height: UInt32(max(0, s.hostSize.height)), pointer: s.pointer?.core)
         }
+        // Le cœur détourne d'abord les paquets du curseur vers les nouvelles
+        // couches ; les anciennes ne sont lâchées qu'ensuite (MAC-01).
         list.withUnsafeMutableBufferPointer { kn_input_set_screens(core, $0.baseAddress, UInt($0.count)) }
+        screensLock.lock()
+        let previous = screenPointers
+        screenPointers = pointers
+        screensLock.unlock()
+        withExtendedLifetime(previous) {}
     }
 
     /// Multi-écrans : position absolue sur l'écran `index` de l'appareil, en
