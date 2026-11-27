@@ -508,12 +508,13 @@ impl Accounts {
         Ok(self.stations.send(&pending.station, self.attached_msg(account, owner, None)))
     }
 
-    /// Détache depuis la console (le propriétaire, ou un Propriétaire ou
-    /// Administrateur de l'organisation) : la Station le sait si elle est connectée.
+    /// Détache depuis la console (le propriétaire, ou un Propriétaire de
+    /// l'organisation : REL-12) : la Station le sait si elle est connectée.
     pub fn detach_by_account(&self, station: &str, account: &Account) -> Result<bool> {
         let row = self.db().station(station)?;
         let Some(row) = row else { return Ok(false) };
-        if row.account != Some(account.id) && !self.org_manager(account, row.org) {
+        let org_owner = self.org_manager(account, row.org) && row.org.is_some_and(|o| self.db().org_role(o, account.id).ok().flatten() == Some(super::orgs::Role::Owner));
+        if row.account != Some(account.id) && !org_owner {
             return Ok(false);
         }
         let done = self.db().detach_station(station, None)?;

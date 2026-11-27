@@ -74,3 +74,27 @@ fn quitter_l_equipe_retire_les_droits_sur_ses_ordinateurs() {
     assert!(db.granted_rights(bob, "st-org", T0).unwrap().is_empty(), "l'ordinateur de l'équipe n'est plus ouvert");
     assert_eq!(db.granted_rights(bob, "st-ana", T0).unwrap(), session, "celui d'Ana, hors de l'équipe, reste");
 }
+
+#[test]
+fn un_administrateur_ne_sort_pas_un_ordinateur_de_l_equipe() {
+    // REL-12 : déplacer ou détacher un ordinateur de l'équipe, c'est aux Propriétaires.
+    let w = world(false);
+    let (ana, bob, st) = {
+        let db = w.acc.db();
+        let ana = db.create_account("ana@exemple.org", "Ana", "h", "fr", Some(0), T0).unwrap().unwrap();
+        let bob = db.create_account("bob@exemple.org", "Bob", "h", "fr", Some(0), T0).unwrap().unwrap();
+        let org = db.create_org("Atelier", Kind::Team, ana, T0).unwrap();
+        db.set_member(org.id, bob, Role::Admin, T0).unwrap();
+        db.attach_station_to_org("st-org", "Rendu", org.id, Some(ana), None, T0).unwrap();
+        for a in [ana, bob] {
+            let key = crate::accounts::store::NewPasskey { credential: format!("cle-{a}").into_bytes(), public_key: b"k".to_vec(), alg: -7, counter: 0 };
+            db.add_passkey(a, &key, "Clé", "", T0).unwrap();
+        }
+        (db.account(ana).unwrap().unwrap(), db.account(bob).unwrap().unwrap(), db.station("st-org").unwrap().unwrap())
+    };
+    assert!(w.acc.may_move(&ana, &st));
+    assert!(!w.acc.may_move(&bob, &st), "un Administrateur ne déplace pas");
+    assert!(!w.acc.detach_by_account("st-org", &bob).unwrap(), "ni ne détache");
+    assert!(w.acc.db().station("st-org").unwrap().is_some());
+    assert!(w.acc.detach_by_account("st-org", &ana).unwrap());
+}

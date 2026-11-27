@@ -157,13 +157,14 @@ pub enum MoveRefusal {
 
 impl Accounts {
     /// Ce compte peut-il proposer de déplacer cette Station (son propriétaire, ou
-    /// Propriétaire ou Administrateur de sa famille ou de son équipe, double
-    /// authentification ou pas encore) ?
+    /// Propriétaire de sa famille ou de son équipe, double authentification ou pas
+    /// encore) ? Un Administrateur ne sort pas un ordinateur de l'équipe : les
+    /// Propriétaires le perdraient (REL-12).
     pub fn may_move(&self, account: &Account, station: &StationRow) -> bool {
         if station.account == Some(account.id) {
             return true;
         }
-        station.org.is_some_and(|o| self.db().org_role(o, account.id).ok().flatten().is_some_and(|r| r.manages()))
+        station.org.is_some_and(|o| self.db().org_role(o, account.id).ok().flatten() == Some(super::orgs::Role::Owner))
     }
 
     /// Les destinations proposées : « Moi » (sauf la sienne) et les familles et

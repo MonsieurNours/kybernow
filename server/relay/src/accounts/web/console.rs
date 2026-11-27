@@ -401,7 +401,9 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
         online: acc.stations.online(&station.id),
         rows,
         manage: standing.manage,
-        can_detach: station.account == Some(account.id) || acc.org_manager(account, station.org),
+        // Un Propriétaire de l'équipe seulement, pas un Administrateur (REL-12).
+        can_detach: station.account == Some(account.id)
+            || (acc.org_manager(account, station.org) && station.org.is_some_and(|o| acc.db().org_role(o, account.id).ok().flatten() == Some(super::super::orgs::Role::Owner))),
         my_rights: standing.rights.clone(),
         admin_needs_2fa: standing.admin_needs_2fa,
         targets,
