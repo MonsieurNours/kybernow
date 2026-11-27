@@ -36,7 +36,13 @@ final class StatusController: NSObject, NSMenuDelegate {
         menu.autoenablesItems = false
         item.menu = menu
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
+        // Toutes les 2 s menu ouvert, toutes les 6 s sinon : chaque relevé lance
+        // deux launchctl et un appel à Admin (STMAC-14).
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.ticks += 1
+            if self.menuOpen || self.ticks % 3 == 0 { self.refresh() }
+        }
     }
 
     // MARK: État
@@ -44,6 +50,8 @@ final class StatusController: NSObject, NSMenuDelegate {
     /// Un relevé à la fois : Admin bloqué rend un relevé plus long (~5 s)
     /// que l'intervalle (2 s), la file grossirait sans fin (STMAC-14).
     private var polling = false
+    private var ticks = 0
+    private var menuOpen = false
 
     private func refresh() {
         dispatchPrecondition(condition: .onQueue(.main))
@@ -123,6 +131,9 @@ final class StatusController: NSObject, NSMenuDelegate {
     }
 
     // MARK: Menu
+
+    func menuWillOpen(_ menu: NSMenu) { menuOpen = true }
+    func menuDidClose(_ menu: NSMenu) { menuOpen = false }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         build(menu)
