@@ -59,6 +59,43 @@ impl Bucket {
     }
 }
 
+/// Un débit plafonné sans verrou (REL-34), pour chaque paquet relayé : l'algorithme GCRA, une
+/// seule heure théorique d'arrivée (en ns depuis `start`) avancée par compare-and-swap.
+#[derive(Debug)]
+pub struct AtomicRate {
+    start: Instant,
+    /// Nanosecondes par octet (× 1024, pour garder la précision aux débits élevés).
+    ns_per_byte_1024: u64,
+    /// Ce qu'on laisse passer d'un coup : une seconde de débit.
+    burst_ns: u64,
+    tat: std::sync::atomic::AtomicU64,
+}
+
+impl AtomicRate {
+    pub fn new(bytes_per_sec: u64, now: Instant) -> AtomicRate {
+        let bytes_per_sec = bytes_per_sec.max(1);
+        AtomicRate { start: now, ns_per_byte_1024: 1_000_000_000u64 * 1024 / bytes_per_sec, burst_ns: 1_000_000_000, tat: std::sync::atomic::AtomicU64::new(0) }
+    }
+
+    /// `len` octets passent-ils ?
+    pub fn take(&self, len: usize, now: Instant) -> bool {
+        use std::sync::atomic::Ordering;
+        let now_ns = now.saturating_duration_since(self.start).as_nanos() as u64;
+        let cost = (len as u64).saturating_mul(self.ns_per_byte_1024) / 1024;
+        let mut tat = self.tat.load(Ordering::Relaxed);
+        loop {
+            let next = tat.max(now_ns).saturating_add(cost);
+            if next.saturating_sub(now_ns) > self.burst_ns {
+                return false;
+            }
+            match self.tat.compare_exchange_weak(tat, next, Ordering::Relaxed, Ordering::Relaxed) {
+                Ok(_) => return true,
+                Err(seen) => tat = seen,
+            }
+        }
+    }
+}
+
 /// Un seau par clé (adresse, réseau).
 #[derive(Debug)]
 pub struct Buckets<K> {
@@ -245,6 +282,27 @@ impl Banlist {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn debit_plafonne_sans_verrou() {
+        // REL-34 : 1000 octets/s, une seconde d'avance permise.
+        let t0 = Instant::now();
+        let rate = AtomicRate::new(1000, t0);
+        assert!(rate.take(1000, t0), "une seconde d'avance");
+        assert!(!rate.take(100, t0), "puis plus rien");
+        assert!(rate.take(500, t0 + Duration::from_millis(500)), "le débit revient");
+        assert!(!rate.take(10, t0 + Duration::from_millis(500)));
+        // Plusieurs fils à la fois : jamais plus que permis.
+        let rate = std::sync::Arc::new(AtomicRate::new(1000, t0));
+        let passed: usize = (0..8)
+            .map(|_| {
+                let r = rate.clone();
+                std::thread::spawn(move || (0..100).filter(|_| r.take(10, t0)).count())
+            })
+            .map(|h| h.join().unwrap())
+            .sum();
+        assert_eq!(passed, 100, "1000 octets d'un coup, 10 par paquet");
+    }
 
     #[test]
     fn seau_a_jetons() {

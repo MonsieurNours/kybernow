@@ -26,7 +26,7 @@ use crate::accounts::stations::StationLink;
 use crate::certs::CertStore;
 use crate::codes::Codes;
 use crate::config::Config;
-use crate::limits::{Banlist, Bucket, Buckets, LookupLimiter};
+use crate::limits::{AtomicRate, Banlist, Bucket, Buckets, LookupLimiter};
 use crate::metrics::{Dg, Dir, Gauges, Leg, Metrics};
 
 /// Version du relais, donnée dans `welcome` et `/v1/health`.
@@ -67,6 +67,8 @@ pub struct StationPeer {
     pending: Mutex<HashMap<u64, Pending>>,
     /// Ses adresses d'Admin sur le réseau et « Admin à distance » (`hello`, `admin_status`), en mémoire seulement.
     admin: Mutex<(Vec<String>, bool)>,
+    /// Retirée de la table ou remplacée : ses paquets ne passent plus (lu sans verrou à chaque paquet, REL-34).
+    gone: std::sync::atomic::AtomicBool,
 }
 
 /// Les adresses d'Admin sur le réseau données par une Station : 4 au plus, `http(s)://hôte[:port]`.
@@ -102,6 +104,8 @@ pub struct ClientPeer {
     all_streams: AtomicUsize,
     /// Ses messages de contrôle (REL-19).
     msgs: Mutex<Bucket>,
+    /// Retiré de la table ou remplacé (REL-34), comme pour une Station.
+    gone: std::sync::atomic::AtomicBool,
     /// La dernière fois qu'il avait un flux ou une connexion en cours (ou
     /// son arrivée) : sa place se libère après `client_idle_secs` sans.
     last_active: Mutex<Instant>,
@@ -271,7 +275,7 @@ pub struct Hub {
     station_hellos: Mutex<Buckets<IpAddr>>,
     web_clients: AtomicUsize,
     next_media: AtomicU64,
-    cap: Option<Mutex<Bucket>>,
+    cap: Option<AtomicRate>,
     /// Port écrit dans les liens (réglé une fois le port lié).
     pub link_port: AtomicU16,
     /// Les comptes KyberNow (`[accounts] enabled`), servis sous `/compte/…`.
@@ -334,8 +338,8 @@ impl Hub {
     pub fn new(cfg: Arc<Config>, certs: Arc<CertStore>, banlist: Arc<Banlist>, accounts: Option<Arc<Accounts>>) -> Arc<Hub> {
         let now = Instant::now();
         let cap = (cfg.global_cap_mbps > 0).then(|| {
-            let bytes_per_sec = (cfg.global_cap_mbps * 1_000_000 / 8).min(u64::from(u32::MAX)) as u32;
-            Mutex::new(Bucket::new(bytes_per_sec, Duration::from_secs(1), now))
+            // Sans verrou : il est pris à chaque paquet (REL-34).
+            AtomicRate::new(cfg.global_cap_mbps * 1_000_000 / 8, now)
         });
         let hub = Arc::new(Hub {
             lookups: Mutex::new(LookupLimiter::new(&cfg.limits, now)),
@@ -496,9 +500,11 @@ impl Hub {
             flows: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
             admin: Mutex::new((clean_admin_lan(hello.admin_lan.clone()), hello.remote_admin)),
+            gone: std::sync::atomic::AtomicBool::new(false),
         });
         let old = self.stations.lock().unwrap().insert(id.clone(), peer.clone());
         if let Some(old) = old {
+            old.gone.store(true, Ordering::Release);
             let _ = old.ctl.send(Msg::error(None, ErrorCode::Replaced, None));
             old.conn.close("remplacée");
             self.drop_station_flows(&old);
@@ -641,12 +647,13 @@ impl Hub {
         }
     }
 
+    /// Toujours dans la table (ni retirée ni remplacée) : un drapeau, sans verrou ni hachage (REL-34).
     fn is_current_station(&self, peer: &Arc<StationPeer>) -> bool {
-        self.stations.lock().unwrap().get(&peer.id).is_some_and(|p| Arc::ptr_eq(p, peer))
+        !peer.gone.load(Ordering::Acquire)
     }
 
     fn is_current_client(&self, peer: &Arc<ClientPeer>) -> bool {
-        self.clients.lock().unwrap().get(&peer.id).is_some_and(|p| Arc::ptr_eq(p, peer))
+        !peer.gone.load(Ordering::Acquire)
     }
 
     /// Prévient les clients de cette Station qu'elle part ou revient.
@@ -680,6 +687,7 @@ impl Hub {
             if current {
                 map.remove(&peer.id);
             }
+            peer.gone.store(true, Ordering::Release);
             current
         };
         self.drop_station_flows(peer);
@@ -718,6 +726,7 @@ impl Hub {
             streams: AtomicUsize::new(0),
             all_streams: AtomicUsize::new(0),
             msgs: Mutex::new(Bucket::new(CLIENT_MSGS_BURST, CLIENT_MSGS_PERIOD, Instant::now())),
+            gone: std::sync::atomic::AtomicBool::new(false),
             last_active: Mutex::new(Instant::now()),
         });
         // Admis, et ceux qui lui cèdent leur place, sous le même verrou : deux
@@ -733,11 +742,17 @@ impl Hub {
                         .collect();
                     let limits = &self.cfg.limits;
                     admit(&seats, ip_key(ip), limits.clients_per_station, limits.clients_per_station_per_ip)
-                        .map(|ids| ids.iter().filter_map(|i| map.remove(i)).collect::<Vec<_>>())
+                        .map(|ids| ids.iter().filter_map(|i| map.remove(i)).inspect(|c| c.gone.store(true, Ordering::Release)).collect::<Vec<_>>())
                 }
                 None => Ok(Vec::new()),
             };
-            evicted.map(|evicted| (map.insert(id.clone(), peer.clone()), evicted))
+            evicted.map(|evicted| {
+                let old = map.insert(id.clone(), peer.clone());
+                if let Some(o) = &old {
+                    o.gone.store(true, Ordering::Release);
+                }
+                (old, evicted)
+            })
         };
         let (old, evicted) = match admitted {
             Ok(a) => a,
@@ -919,6 +934,7 @@ impl Hub {
             if current {
                 map.remove(&peer.id);
             }
+            peer.gone.store(true, Ordering::Release);
             current
         };
         self.drop_client_flows(peer);
@@ -965,7 +981,7 @@ impl Hub {
                 })
                 .map(|c| c.id.clone())
                 .collect();
-            ids.iter().filter_map(|i| map.remove(i)).collect()
+            ids.iter().filter_map(|i| map.remove(i)).inspect(|c| c.gone.store(true, Ordering::Release)).collect()
         };
         for peer in gone {
             self.metrics.limit_hit("client_idle");
@@ -1040,7 +1056,7 @@ impl Hub {
     }
 
     fn capped(&self, len: usize) -> bool {
-        self.cap.as_ref().is_some_and(|b| b.lock().unwrap().take_n(len as f64, Instant::now()).is_err())
+        self.cap.as_ref().is_some_and(|b| !b.take(len, Instant::now()))
     }
 
     fn deliver(&self, media: Option<MediaSender>, flow: u64, payload: &Bytes, dir: Dir) {
