@@ -78,7 +78,8 @@ sealed class Route {
     data object AppSettings : Route()
     data object Gamepads : Route()
     /** « Rejoindre avec un code » (KyberNow Share) ; [link] : un lien ou un QR code `kybernow://join` qui donne la Station et le code. */
-    data class Join(val link: ShareLink? = null) : Route()
+    /** « Rejoindre avec un code » ; [unreadable] : un lien `kybernow://join` illisible (« Ce lien de partage est illisible. »). */
+    data class Join(val link: ShareLink? = null, val unreadable: Boolean = false) : Route()
     /**
      * Comptes KyberNow, Android TV : le code à approuver depuis le téléphone, sur [relay] ; [back] : l'écran d'où l'on
      * vient (l'accueil, les réglages de l'app).
@@ -231,7 +232,7 @@ class MainActivity : AppCompatActivity() {
                         onConsolePaired = { c -> model.select(c.id); route = Route.Home },
                     )
                     is Route.ConsoleSettings -> ConsoleSettingsScreen(r.id, onBack = { route = Route.Home }, onRemoved = { route = Route.Home })
-                    is Route.Join -> JoinScreen(r.link, onBack = { route = Route.Home }, onJoined = ::joined, onBorrowed = ::borrowed, onInvited = ::invited)
+                    is Route.Join -> JoinScreen(r.link, unreadable = r.unreadable, onBack = { route = Route.Home }, onJoined = ::joined, onBorrowed = ::borrowed, onInvited = ::invited)
                     is Route.HostSettings -> HostSettingsScreen(model, r.id, onBack = { route = Route.Home }, onRemoved = { route = Route.Home })
                     Route.AppSettings -> AppSettingsScreen(
                         onBack = { route = Route.Home }, onGamepads = { route = Route.Gamepads },
@@ -381,6 +382,8 @@ class MainActivity : AppCompatActivity() {
         }
         // `kybernow://join?host=…&port=…&fp=…&code=…` : « Rejoindre avec un code », la Station et le code remplis.
         Share.parseLink(data.toString())?.let { route = Route.Join(it); return }
+        // Un lien de partage abîmé (`kybernow://join…` que le cœur ne lit pas) : « Ce lien de partage est illisible. »
+        if (data.scheme.equals("kybernow", ignoreCase = true) && data.host.equals("join", ignoreCase = true)) { route = Route.Join(unreadable = true); return }
         // `kybernow://borrow?host=…&port=…&fp=…&login=…` : le lien d'invitation d'un compte d'ami (prêt de l'ordinateur).
         Lend.parseInvite(data.toString())?.let { route = Route.Add(invite = it); return }
         // Un lien d'invitation abîmé (coupé dans un message, recopié à la main) : « Ce lien d'invitation est illisible. »

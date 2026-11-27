@@ -90,7 +90,7 @@
     <string name="add_user">Identifiant</string>
     <string name="add_password">Mot de passe</string>
     <string name="add_save">Enregistrer</string>
-    <string name="add_by_code_instead">Par un code</string>
+    <string name="add_by_code_instead">Avec un code</string>
     <string name="add_account_refused">Admin refuse ce compte.</string>
     <string name="add_certificate_mismatch">Le certificat n\'est pas celui annoncé : ajout arrêté.</string>
     <string name="add_code_help">Cet appareil affiche un code : acceptez-le dans KyberNow Admin (Appareils Link, ou le panneau de l\'icône près de l\'horloge). Il reçoit un accès à lui, révocable.</string>
@@ -386,7 +386,7 @@
     <string name="session_pad_bar">La manette pilote la barre, le jeu ne reçoit rien ; B la ferme.</string>
     <string name="session_ended_title">La session s\'est arrêtée</string>
     <string name="session_not_restored">Les écrans ou le son de l\'ordinateur n\'ont pas été rétablis : voyez KyberNow Admin.</string>
-    <string name="session_back_home">Retour à l\'accueil</string>
+    <string name="session_back_home">Revenir à l\'accueil</string>
     <string name="capsule_reconnecting" formatted="true">Reconnexion… (%1$d sur %2$d)</string>
     <string name="capsule_relaunched">L\'image a été relancée</string>
     <string name="capsule_mode_changed" formatted="true">L\'ordinateur est passé en %1$d × %2$d</string>
@@ -662,6 +662,8 @@
     <string name="lend_remove_confirm" formatted="true">Retirer l\'ordinateur de %1$s de cet appareil ?</string>
     <string name="lend_remove_confirm_elided" formatted="true">Retirer l\'ordinateur d\'%1$s de cet appareil ?</string>
     <string name="lend_invite_unreadable">Ce lien d\'invitation est illisible.</string>
+    <string name="share_link_unreadable">Ce lien de partage est illisible.</string>
+    <string name="share_unavailable">Le partage n\'est pas disponible pour le moment : réessayez dans un instant.</string>
     <string name="lend_password_needed">Entrez votre mot de passe pour emprunter.</string>
     <string name="lend_end_eyebrow">KyberNow Share</string>
     <string name="lend_end_left">Vous avez rendu l\'ordinateur.</string>

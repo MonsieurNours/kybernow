@@ -119,6 +119,7 @@ private enum class Way { CODE, QR }
 @Composable
 fun JoinScreen(
     link: ShareLink?,
+    unreadable: Boolean = false,
     onBack: () -> Unit,
     onJoined: (ShareFound) -> Unit,
     onBorrowed: (Loan, BorrowAsk) -> Unit = { _, _ -> },
@@ -129,7 +130,8 @@ fun JoinScreen(
     val scope = rememberCoroutineScope()
     val hasCamera = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
     var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    val unreadableText = stringResource(R.string.share_link_unreadable)
+    var error by remember { mutableStateOf(if (unreadable) unreadableText else null) }
     // La demande en attente de l'accord de l'hôte, et le travail qui l'attend.
     var waiting by remember { mutableStateOf<PendingJoin?>(null) }
     var work by remember { mutableStateOf<Job?>(null) }
@@ -142,6 +144,7 @@ fun JoinScreen(
     var inviteError by remember { mutableStateOf<String?>(null) }
     // Le cœur écrit les refus ; ce texte ne sert que s'il n'en donne aucun.
     val unreachable = stringResource(R.string.add_unreachable)
+    val shareUnavailable = stringResource(R.string.share_unavailable)
     // Avec un lien, la Station est donnée : on ne cherche rien sur le réseau (rien ne part avant « Rejoindre »).
     LaunchedEffect(link) { if (link == null) app.discovery.start() }
     // L'écran se ferme (Retour, la session s'ouvre ailleurs) pendant l'attente : la demande quitte la liste de l'hôte.
@@ -219,7 +222,10 @@ fun JoinScreen(
                             app.guestQuality = quality
                             onJoined(answer.found)
                         }
-                        is JoinReply.Refused -> { busy = false; error = answer.message.ifBlank { unreachable } }
+                        is JoinReply.Refused -> {
+                            busy = false
+                            error = if (answer.kind == Share.UNAVAILABLE) shareUnavailable else answer.message.ifBlank { unreachable }
+                        }
                         // Jamais : `waitForHost` n'en rend pas.
                         is JoinReply.Pending -> { busy = false; error = unreachable }
                         // Un code d'invitation : « Ajouter {ordinateur} », le mot de passe de l'invitation.

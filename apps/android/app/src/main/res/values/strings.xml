@@ -662,6 +662,8 @@
     <string name="lend_remove_confirm" formatted="true">Remove %1$s\'s computer from this device?</string>
     <string name="lend_remove_confirm_elided" formatted="true">Remove %1$s\'s computer from this device?</string>
     <string name="lend_invite_unreadable">This invitation link can\'t be read.</string>
+    <string name="share_link_unreadable">This share link cannot be read.</string>
+    <string name="share_unavailable">Sharing is not available right now: try again in a moment.</string>
     <string name="lend_password_needed">Enter your password to borrow.</string>
     <string name="lend_end_eyebrow">KyberNow Share</string>
     <string name="lend_end_left">You gave back the computer.</string>
@@ -764,7 +766,7 @@
     <string name="ps_cant_display">The console can\'t stream what it\'s showing.</string>
     <string name="ps_rest_mode">Put the console in rest mode</string>
     <string name="ps_end_in_use">The console is already being played remotely by another device.</string>
-    <string name="ps_end_not_paired">The console no longer recognizes this device: pair it again.</string>
+    <string name="ps_end_not_paired">The console no longer recognises this device: pair it again.</string>
     <string name="ps_end_unreachable">The console isn\'t answering.</string>
     <string name="ps_end_remote">The console ended the session.</string>
     <string name="ps_mute">Mute</string>

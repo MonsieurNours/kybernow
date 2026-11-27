@@ -376,3 +376,16 @@ class ShareTest {
         assertNull(state.share.value)
     }
 }
+
+/** Les refus de « Rejoindre » lus par leur code, jamais au texte (docs/link-ui.md, « Partage »). */
+@org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk = [35], application = android.app.Application::class)
+class JoinRefusalTest {
+    @Test
+    fun aTransient503_isSharingUnavailable() {
+        val r = fr.leslignesclaires.kybernow.core.Share.readJoin("""{"code":-503,"error":"HTTP 503"}""") as fr.leslignesclaires.kybernow.core.JoinReply.Refused
+        org.junit.Assert.assertEquals(fr.leslignesclaires.kybernow.core.Share.UNAVAILABLE, r.kind)
+        val other = fr.leslignesclaires.kybernow.core.Share.readJoin("""{"code":-500,"error":"HTTP 500"}""") as fr.leslignesclaires.kybernow.core.JoinReply.Refused
+        org.junit.Assert.assertEquals("other", other.kind)
+    }
+}
