@@ -17,7 +17,7 @@
   let account = $state<string | null>(null)
 
   onMount(() => {
-    streamUser()
+    streamUser(info?.stream_user)
       .then((user) => (account = user))
       .catch(() => {})
   })

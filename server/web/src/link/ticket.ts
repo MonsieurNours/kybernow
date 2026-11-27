@@ -40,8 +40,19 @@ export function ticket(): Promise<Ticket> {
   return p
 }
 
-/** Le compte de streaming, d'après le jeton de la page (sans en signer un nouveau s'il y en a un). */
-export async function streamUser(): Promise<string> {
+/**
+ * Le compte de streaming (WEB-14). `known` : celui que donne déjà `/api/stream/info` (`stream_user`). Sinon
+ * `/api/session` (`stream_user`, sans signer de jeton) ; une Station qui ne le donne pas encore (0.11.7) : celui du
+ * jeton de la page, sans en signer un nouveau s'il y en a un.
+ */
+export async function streamUser(known?: string | null): Promise<string> {
+  if (known) return known
+  try {
+    const { res, data } = await send('GET', '/api/session')
+    if (res.ok && typeof data?.stream_user === 'string' && data.stream_user) return data.stream_user
+  } catch {
+    // Le jeton, ci-dessous.
+  }
   return (await ticket()).user
 }
 

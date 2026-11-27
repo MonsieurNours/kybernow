@@ -1,8 +1,9 @@
 // État partagé entre les pages.
 
-import { api, type Field, type FieldValue, type LendView, type PendingAccess, type ShareView, type Status } from './api'
+import { api, ApiError, type Field, type FieldValue, type LendView, type PendingAccess, type ShareView, type Status } from './api'
 import { list, t } from './i18n/index.svelte'
 import { Generation } from './poll'
+import { NetworkError } from './http'
 
 export const app = $state({
   status: null as Status | null,
@@ -14,7 +15,8 @@ export const app = $state({
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 
 export function notify(kind: 'ok' | 'error', text: string) {
-  app.toast = { kind, text }
+  // Le même avis déjà à l'écran : il reste, sans clignoter ni s'empiler (WEB-07).
+  if (app.toast?.kind !== kind || app.toast.text !== text) app.toast = { kind, text }
   clearTimeout(toastTimer)
   toastTimer = setTimeout(() => (app.toast = null), kind === 'error' ? 6000 : 3000)
 }
@@ -60,7 +62,13 @@ export function accessReason(pending: PendingAccess[]): string {
   return list(parts) || t('store.applyAccounts')
 }
 
+/** Le texte d'une erreur pour un toast. Une erreur du navigateur (réseau coupé, délai, annulation : « Failed to fetch »,
+ * « Load failed »…, en anglais) devient « La Station ne répond pas… » dans la langue de la console (WEB-07). */
 export function errorText(e: unknown): string {
+  if (e instanceof ApiError || e instanceof NetworkError) return e.message
+  if (e instanceof TypeError || (e instanceof DOMException && (e.name === 'AbortError' || e.name === 'TimeoutError' || e.name === 'NetworkError'))) {
+    return t('common.unreachable')
+  }
   return e instanceof Error ? e.message : String(e)
 }
 

@@ -85,6 +85,8 @@ export interface StationInfo {
 /** `GET /api/stream/info` : ce que l'accueil et les réglages montrent de l'ordinateur. */
 export interface Info {
   hostname: string | null
+  /** Le compte de streaming de la Station (WEB-14), quand Admin le donne ; sinon lu par `streamUser`. */
+  stream_user?: string | null
   os?: string | null
   gpu: string | null
   virtual_display: { available: boolean; active: boolean }
