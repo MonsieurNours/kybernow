@@ -141,6 +141,17 @@ impl RecordingState {
 }
 
 impl RecordingState {
+    /// Menu de l'icône de l'app Windows (barre des tâches) : « Enregistrer la
+    /// session », « Arrêter l'enregistrement (02:14) ». Employé par
+    /// `apps/windows/src/ui/recording.rs` (pas de code mort).
+    pub fn menu_item(&self, lang: Lang) -> String {
+        if self.active {
+            tr(lang, "recording.stop_menu", &[("time", &self.clock())])
+        } else {
+            tr(lang, "recording.record_menu", &[])
+        }
+    }
+
     /// Pour les ponts des apps (C, JNI, Tauri, client web) : l'état et les
     /// textes de link-ui dans `lang`, `{time}` (à remplir chaque seconde par
     /// [`clock`] de `elapsed` plus le temps passé depuis) et `{shortcut}`
