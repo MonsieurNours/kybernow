@@ -23,9 +23,6 @@ use std::time::{Duration, Instant};
 
 use super::gkcrypt::{BLOCK_SIZE, GMAC_SIZE, GkCrypt, KeyState};
 
-/// Port du flux.
-pub const PORT: u16 = 9296;
-
 const A_RWND: u32 = 0x19000;
 const STREAMS: u16 = 0x64;
 const HEADER_SIZE: usize = 0x10;
