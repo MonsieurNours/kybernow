@@ -106,6 +106,10 @@ struct SessionView: View {
             keyboardRow = row
             session.streamView.keyboardAccessory = row.view
         }
+        .onDisappear {
+            if session.streamView.keyboardAccessory === keyboardRow?.view { session.streamView.keyboardAccessory = nil }
+            keyboardRow = nil
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             session.keyboardHidden()
         }
@@ -183,7 +187,12 @@ struct SessionView: View {
                     StateCapsule(icon: "warning", tint: Theme.warn, title: note, detail: nil) { EmptyView() }
                 } else if let note = session.notice {
                     let capsule = StateCapsule(icon: session.noticeIcon, title: note, detail: nil) {
-                        if let offer = session.modeRestoreOffer {
+                        if session.noticeOpensSettings {
+                            Button("Ouvrir les Réglages") {
+                                if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                            }
+                            .buttonStyle(GlassButton(height: 44, fontSize: 14))
+                        } else if let offer = session.modeRestoreOffer {
                             Button(offer) { session.restoreMode() }.buttonStyle(GlassButton(height: 44, fontSize: 14))
                         }
                     }
@@ -1382,12 +1391,16 @@ final class KeyboardRow {
         host.view.frame = CGRect(x: 0, y: 0, width: 400, height: 52)
         host.view.autoresizingMask = [.flexibleWidth]
         host.sizingOptions = []
+        // Le contrôleur vit avec la rangée (gardée en @State par la vue de
+        // session), pas avec sa vue : la vue de la rangée tient la session
+        // (sa rangée observe les touches tenues), et la vue de la session la
+        // tient comme accessoire du clavier ; la session la lâche à sa fin
+        // (`SessionController.tearDown`), sinon chaque session restait en mémoire.
+        self.host = host
         view = host.view
-        // La vue garde son contrôleur en vie.
-        objc_setAssociatedObject(view, &KeyboardRow.key, host, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 
-    nonisolated(unsafe) private static var key = 0
+    private let host: UIHostingController<KeyboardRowView>
 }
 
 private struct KeyboardRowView: View {

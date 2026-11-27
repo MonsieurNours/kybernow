@@ -36,9 +36,25 @@ final class SessionController: ObservableObject {
         case ending
         case ended
         case failed(String)
+
+        var stage: SessionStage {
+            switch self {
+            case .preparing: .preparing
+            case .connecting: .connecting
+            case .starting: .starting
+            case .streaming: .streaming
+            case .reconnecting: .reconnecting
+            case .ending: .ending
+            case .ended: .ended
+            case .failed: .failed
+            }
+        }
     }
 
-    @Published private(set) var phase: Phase = .preparing
+    /// La veille est retenue tant que la session vit (`SessionRules.keepsAwake`).
+    @Published private(set) var phase: Phase = .preparing {
+        didSet { SleepGuard.hold(self, SessionRules.keepsAwake(phase.stage)) }
+    }
     @Published private(set) var host: Host
     /// Instant où l'image est apparue (le passage s'ouvre).
     @Published private(set) var revealedAt: Date?
@@ -77,6 +93,8 @@ final class SessionController: ObservableObject {
     @Published private(set) var noticeOpensShare = false
     /// La capsule est une demande d'emprunt : la choisir ouvre le panneau du prêt.
     @Published private(set) var noticeOpensLend = false
+    /// L'avis porte « Ouvrir les Réglages » (caméra ou micro refusés).
+    @Published private(set) var noticeOpensSettings = false
     @Published private(set) var fallbackNote: String?
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre 2622 × 1206 ».
     @Published private(set) var modeRestoreOffer: String?
@@ -502,7 +520,10 @@ final class SessionController: ObservableObject {
 
     /// Le bouton « Caméra » : allume ou éteint la caméra.
     func toggleCamera() {
-        guard let engine, cameraOffered else { return }
+        guard let engine, cameraOffered else {
+            KyberLog.app.notice("caméra : bouton sans offre de l'ordinateur")
+            return
+        }
         if cameraState == .off {
             cameras = CameraCapture.cameras()
             let id = Self.cameraChoice.flatMap { id in cameras.contains { $0.id == id } ? id : nil }
@@ -563,7 +584,7 @@ final class SessionController: ObservableObject {
         guard on else { return applyMicrophone(false) }
         MicrophoneAccess.request { [weak self] granted in
             guard let self else { return }
-            guard granted else { return self.show(notice: MicText.permission, for: 6) }
+            guard granted else { return self.show(notice: MicText.permission, for: 6, opensSettings: true) }
             self.applyMicrophone(true)
         }
     }
@@ -620,7 +641,9 @@ final class SessionController: ObservableObject {
         configureView()
         observeApp()
         if ExternalDisplay.shared.scene != nil { useExternal(true, adapt: false) }
-        externalWatch = ExternalDisplay.shared.$scene.dropFirst().sink { [weak self] scene in
+        // Après la mise à jour : `@Published` émet avant l'affectation, et
+        // `useExternal` relit l'écran (mode et HDR de la TV branchée).
+        externalWatch = ExternalDisplay.shared.$scene.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] scene in
             self?.useExternal(scene != nil, adapt: true)
         }
         padsWatch = GamepadBridge.shared.$pads.receive(on: RunLoop.main).sink { [weak self] pads in
@@ -689,6 +712,7 @@ final class SessionController: ObservableObject {
         engine.onNotice = { [weak self] in self?.notice($0) }
         engine.onCameraOffer = { [weak self] offered in
             guard let self else { return }
+            KyberLog.app.notice("caméra : \(offered ? "proposée" : "plus proposée", privacy: .public) par l'ordinateur")
             cameraOffered = offered
             if offered {
                 cameras = CameraCapture.cameras()
@@ -698,8 +722,16 @@ final class SessionController: ObservableObject {
                 }
             }
         }
-        engine.onCameraState = { [weak self] in self?.cameraState = $0 }
-        engine.onCameraNotice = { [weak self] text in self?.show(notice: text, for: 4) }
+        engine.onCameraState = { [weak self] state in
+            KyberLog.app.notice("caméra : \(String(describing: state), privacy: .public)")
+            self?.cameraState = state
+        }
+        engine.onCameraNotice = { [weak self] text in
+            KyberLog.app.notice("caméra : avis « \(text, privacy: .public) »")
+            // Accès refusé : l'avis mène aux Réglages (docs/link-ui.md, « Caméra de l'appareil »).
+            let denied = [AVAuthorizationStatus.denied, .restricted].contains(AVCaptureDevice.authorizationStatus(for: .video))
+            self?.show(notice: text, for: denied ? 6 : 4, opensSettings: denied)
+        }
         engine.onDisplays = { [weak self] in self?.screens = $0 }
         engine.onShownDisplay = { [weak self] in self?.shownDisplay = $0.id }
         engine.onMode = { [weak self] mode, virtualDisplay in
@@ -782,7 +814,7 @@ final class SessionController: ObservableObject {
         params.hdrOffer = isVisitor ? nil : store.status[host.id]?.info?.hdr
         // Le micro retenu pour cet ordinateur, si le système le permet encore.
         params.microphone = settings.microphone && MicrophoneAccess.status == .granted
-        if settings.microphone, MicrophoneAccess.status == .denied { show(notice: MicText.permission, for: 6) }
+        if settings.microphone, MicrophoneAccess.status == .denied { show(notice: MicText.permission, for: 6, opensSettings: true) }
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux, \(settings.consoleProfile, privacy: .public)")
         // Joignable par le relais seulement (ou relais forcé pour essayer) : la radio
         // cellulaire s'allume d'abord, par une requête de l'app vers le relais.
@@ -897,7 +929,7 @@ final class SessionController: ObservableObject {
         } + [
             center.addObserver(forName: UIScene.willDeactivateNotification, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
-                    guard let self, self.isSessionScene(note.object), self.phase == .streaming else { return }
+                    guard let self, self.isSessionScene(note.object), SessionRules.reactsToBackground(self.phase.stage) else { return }
                     KyberLog.app.notice("fenêtre de la session inactive : image figée")
                     self.streamView.releaseAll()
                     self.engine?.setBitrateCap(Self.backgroundBitrate)
@@ -917,6 +949,12 @@ final class SessionController: ObservableObject {
             center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.route = AudioRoute.current }
             },
+            // Appel, Siri, alarme : à la fin de l'interruption, la session audio
+            // repart et le micro allumé reprend sa capture.
+            center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+                let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+                MainActor.assumeIsolated { self?.audioInterrupted(raw.flatMap(AVAudioSession.InterruptionType.init(rawValue:))) }
+            },
             center.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
                     guard let self, let c = note.object as? GCController, c.extendedGamepad != nil else { return }
@@ -926,6 +964,19 @@ final class SessionController: ObservableObject {
                 }
             },
         ]
+    }
+
+    private func audioInterrupted(_ type: AVAudioSession.InterruptionType?) {
+        switch type {
+        case .began:
+            KyberLog.app.notice("son interrompu (appel, Siri, alarme)")
+        case .ended:
+            KyberLog.app.notice("fin de l'interruption du son : session audio reprise")
+            try? AVAudioSession.sharedInstance().setActive(true)
+            if micOn { engine?.microphoneSettingsChanged() }
+        default:
+            break
+        }
     }
 
     /// La scène de la fenêtre de la session (pas celle de l'écran externe).
@@ -1075,6 +1126,8 @@ final class SessionController: ObservableObject {
         case .relaunched:
             show(notice: String(localized: "L'image a été relancée"), for: 4)
         case let .modeChanged(width, height, back):
+            streamMode = (width, height, streamMode.refresh)
+            modeLabel = "\(width) × \(height) · \(streamMode.refresh) Hz"
             var text = back ? String(localized: "L'ordinateur est revenu en \(width) × \(height)") : String(localized: "L'ordinateur est passé en \(width) × \(height)")
             if let offer = modeRestoreOffer { text += String(localized: " · « \(offer) » dans la barre") }
             show(notice: text)
@@ -1099,12 +1152,13 @@ final class SessionController: ObservableObject {
 
     /// Capsule en haut de l'image pendant quelques secondes (`opensShare` : la choisir
     /// ouvre le panneau du partage).
-    func show(notice text: String, for seconds: TimeInterval = 5, icon: String? = nil, opensShare: Bool = false, opensLend: Bool = false) {
+    func show(notice text: String, for seconds: TimeInterval = 5, icon: String? = nil, opensShare: Bool = false, opensLend: Bool = false, opensSettings: Bool = false) {
         withAnimation(.easeOut(duration: 0.3)) {
             notice = text
             noticeIcon = icon
             noticeOpensShare = opensShare
             noticeOpensLend = opensLend
+            noticeOpensSettings = opensSettings
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
             guard self?.notice == text else { return }
@@ -1113,6 +1167,7 @@ final class SessionController: ObservableObject {
                 self?.noticeIcon = nil
                 self?.noticeOpensShare = false
                 self?.noticeOpensLend = false
+                self?.noticeOpensSettings = false
             }
         }
     }
@@ -1350,7 +1405,12 @@ final class SessionController: ObservableObject {
         }
     }
 
-    func keyboardHidden() { keyboardShown = false }
+    /// Le clavier de l'écran s'est replié : les touches collantes (Ctrl, Alt,
+    /// ⊞) ne restent pas enfoncées sur l'ordinateur.
+    func keyboardHidden() {
+        keyboardShown = false
+        streamView.releaseStickyModifiers()
+    }
 
     func tap(_ usage: UInt16) { streamView.tap(usage: usage) }
     func toggleSticky(_ usage: UInt16) { streamView.toggleSticky(usage) }
@@ -1599,12 +1659,7 @@ final class SessionController: ObservableObject {
             phase = .ending
             barOpen = false
         }
-        leaveExternal()
-        streamView.detach()
-        engine?.stop()
-        observers.forEach(NotificationCenter.default.removeObserver)
-        observers = []
-        padsWatch = nil
+        tearDown()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.finish() }
     }
 
@@ -1629,12 +1684,7 @@ final class SessionController: ObservableObject {
     private func fail(_ message: String) {
         KyberLog.app.error("session : \(message, privacy: .public)")
         GamepadBridge.shared.onMenuRequest = nil
-        leaveExternal()
-        streamView.detach()
-        engine?.stop()
-        observers.forEach(NotificationCenter.default.removeObserver)
-        observers = []
-        padsWatch = nil
+        tearDown()
         withAnimation(Theme.easeOut) {
             barOpen = false
             phase = .failed(message)
@@ -1642,4 +1692,18 @@ final class SessionController: ObservableObject {
     }
 
     func dismissFailure() { finish() }
+
+    /// Ce que `end()` et `fail()` défont tous les deux : écran externe, entrées,
+    /// moteur, observateurs, et la rangée du clavier (qui tient ce contrôleur :
+    /// sans la lâcher, chaque session restait en mémoire).
+    private func tearDown() {
+        leaveExternal()
+        streamView.detach()
+        streamView.keyboardAccessory = nil
+        keyboardShown = false
+        engine?.stop()
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
+        padsWatch = nil
+    }
 }

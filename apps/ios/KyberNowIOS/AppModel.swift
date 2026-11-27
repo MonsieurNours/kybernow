@@ -296,7 +296,8 @@ final class AppModel: ObservableObject {
     // MARK: - iCloud
 
     private func importCloud(_ list: [CloudHost]) {
-        guard prefs.icloudSync else { return }
+        // Démonstration : les ordinateurs d'iCloud n'entrent pas dans le magasin de démo.
+        guard prefs.icloudSync, !store.demo else { return }
         for c in list where store.host(c.id) == nil {
             if let password = cloud.password(for: c.id) {
                 store.add(cloud.host(c), password: password)
@@ -315,7 +316,8 @@ final class AppModel: ObservableObject {
     /// `mobileDataOK` : l'accord est donné (alerte de l'accueil), la session
     /// part même en données mobiles.
     func connect(_ id: UUID, mobileDataOK: Bool = false, synced: Bool = false) {
-        guard session == nil, let host = store.host(id) else { return }
+        // Une session à la fois : pas d'ordinateur pendant une partie sur console.
+        guard session == nil, consoleSession == nil, let host = store.host(id) else { return }
         if !mobileDataOK, !prefs.allowCellular, onMobileData {
             watchAfterMobileData = nil
             mobileDataAsk = id
@@ -352,7 +354,7 @@ final class AppModel: ObservableObject {
     /// d'invité spectateur, étapes titrées « Regarder {nom} ». Une session à
     /// la fois, comme « Se connecter » (même question en données mobiles).
     func watch(_ id: UUID, mobileDataOK: Bool = false) {
-        guard session == nil, let host = store.host(id) else { return }
+        guard session == nil, consoleSession == nil, let host = store.host(id) else { return }
         if !mobileDataOK, !prefs.allowCellular, onMobileData {
             mobileDataAsk = id
             watchAfterMobileData = id
