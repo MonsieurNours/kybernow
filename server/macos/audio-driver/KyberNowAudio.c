@@ -132,7 +132,13 @@ static bool SupportedRate(Float64 r) {
 static Float32 gMicRing[kRingFrames];
 /// Image (temps d'échantillon) de fin de ce qui a été joué dans l'anneau.
 static Float64 gMicWrittenUntil = 0.0;
-static UInt32 gMicIORunning = 0;
+/// Clients en marche, par appareil (STMAC-15) : « Micro KyberNow » ne se dit
+/// en marche que s'il l'est, pas parce que la sortie cachée tourne. L'horloge
+/// reste commune aux deux.
+static UInt32 gMicIORunning = 0, gMicFeedIORunning = 0;
+/// Horloge du micro : son propre verrou, pour que les fils temps réel du micro
+/// et de la sortie KyberNow ne s'attendent pas l'un l'autre.
+static pthread_mutex_t gMicIOMutex = PTHREAD_MUTEX_INITIALIZER;
 static UInt64 gMicAnchorHostTime = 0;
 static UInt64 gMicNumberTimeStamps = 0;
 static Float64 gMicHostTicksPerFrame = 0.0;
@@ -141,8 +147,8 @@ static bool gMicActive = true, gMicFeedActive = true;
 static OSStatus Mic_GetPropertyDataSize(AudioObjectID id, const AudioObjectPropertyAddress *a, UInt32 *out);
 static OSStatus Mic_GetPropertyData(AudioObjectID id, const AudioObjectPropertyAddress *a, UInt32 inDataSize, UInt32 *outSize, void *outData);
 static OSStatus Mic_SetPropertyData(AudioObjectID id, const AudioObjectPropertyAddress *a, UInt32 inDataSize, const void *inData);
-static OSStatus Mic_StartIO(void);
-static OSStatus Mic_StopIO(void);
+static OSStatus Mic_StartIO(AudioObjectID id);
+static OSStatus Mic_StopIO(AudioObjectID id);
 static OSStatus Mic_GetZeroTimeStamp(Float64 *outSampleTime, UInt64 *outHostTime, UInt64 *outSeed);
 static OSStatus Mic_DoIO(AudioObjectID stream, UInt32 op, UInt32 frames, const AudioServerPlugInIOCycleInfo *info, void *main);
 
@@ -629,13 +635,15 @@ static OSStatus KN_SetPropertyData(AudioServerPlugInDriverRef d, AudioObjectID i
 static OSStatus KN_StartIO(AudioServerPlugInDriverRef d, AudioObjectID id, UInt32 client) {
     (void)client;
     if (d != gDriverRef || !IsDevice(id)) return kAudioHardwareBadObjectError;
-    if (IsMicDevice(id)) return Mic_StartIO();
+    if (IsMicDevice(id)) return Mic_StartIO(id);
     pthread_mutex_lock(&gStateMutex);
     if (gIORunning == 0) {
+        // Aucune E/S en cours : l'anneau se vide sans le verrou de l'horloge,
+        // que les fils temps réel prennent (STMAC-15).
+        memset(gRing, 0, sizeof(gRing));
         pthread_mutex_lock(&gIOMutex);
         gNumberTimeStamps = 0;
         gAnchorHostTime = mach_absolute_time();
-        memset(gRing, 0, sizeof(gRing));
         pthread_mutex_unlock(&gIOMutex);
     }
     gIORunning++;
@@ -646,7 +654,7 @@ static OSStatus KN_StartIO(AudioServerPlugInDriverRef d, AudioObjectID id, UInt3
 static OSStatus KN_StopIO(AudioServerPlugInDriverRef d, AudioObjectID id, UInt32 client) {
     (void)client;
     if (d != gDriverRef || !IsDevice(id)) return kAudioHardwareBadObjectError;
-    if (IsMicDevice(id)) return Mic_StopIO();
+    if (IsMicDevice(id)) return Mic_StopIO(id);
     pthread_mutex_lock(&gStateMutex);
     if (gIORunning > 0) gIORunning--;
     pthread_mutex_unlock(&gStateMutex);
@@ -792,7 +800,7 @@ static OSStatus Mic_GetPropertyDataSize(AudioObjectID id, const AudioObjectPrope
 
 static OSStatus Mic_GetPropertyData(AudioObjectID id, const AudioObjectPropertyAddress *a, UInt32 inDataSize, UInt32 *outSize, void *outData) {
     pthread_mutex_lock(&gStateMutex);
-    UInt32 running = gMicIORunning;
+    UInt32 running = id == kObjectMicFeed ? gMicFeedIORunning : gMicIORunning;
     bool micActive = gMicActive, feedActive = gMicFeedActive;
     pthread_mutex_unlock(&gStateMutex);
     if (IsMicDevice(id)) {
@@ -911,33 +919,36 @@ static OSStatus Mic_SetPropertyData(AudioObjectID id, const AudioObjectPropertyA
     return kAudioHardwareUnknownPropertyError;
 }
 
-static OSStatus Mic_StartIO(void) {
+static OSStatus Mic_StartIO(AudioObjectID id) {
     pthread_mutex_lock(&gStateMutex);
-    if (gMicIORunning == 0) {
-        pthread_mutex_lock(&gIOMutex);
+    // Horloge et anneau communs : remis à zéro quand aucun des deux ne tournait.
+    if (gMicIORunning == 0 && gMicFeedIORunning == 0) {
+        gMicWrittenUntil = 0.0;
+        memset(gMicRing, 0, sizeof(gMicRing));
+        pthread_mutex_lock(&gMicIOMutex);
         struct mach_timebase_info tb;
         mach_timebase_info(&tb);
         gMicHostTicksPerFrame = (1e9 * (Float64)tb.denom / (Float64)tb.numer) / kMicRate;
         gMicNumberTimeStamps = 0;
         gMicAnchorHostTime = mach_absolute_time();
-        gMicWrittenUntil = 0.0;
-        memset(gMicRing, 0, sizeof(gMicRing));
-        pthread_mutex_unlock(&gIOMutex);
+        pthread_mutex_unlock(&gMicIOMutex);
     }
-    gMicIORunning++;
+    if (id == kObjectMicFeed) gMicFeedIORunning++;
+    else gMicIORunning++;
     pthread_mutex_unlock(&gStateMutex);
     return 0;
 }
 
-static OSStatus Mic_StopIO(void) {
+static OSStatus Mic_StopIO(AudioObjectID id) {
     pthread_mutex_lock(&gStateMutex);
-    if (gMicIORunning > 0) gMicIORunning--;
+    UInt32 *running = id == kObjectMicFeed ? &gMicFeedIORunning : &gMicIORunning;
+    if (*running > 0) (*running)--;
     pthread_mutex_unlock(&gStateMutex);
     return 0;
 }
 
 static OSStatus Mic_GetZeroTimeStamp(Float64 *outSampleTime, UInt64 *outHostTime, UInt64 *outSeed) {
-    pthread_mutex_lock(&gIOMutex);
+    pthread_mutex_lock(&gMicIOMutex);
     UInt64 now = mach_absolute_time();
     Float64 ticksPerRing = gMicHostTicksPerFrame * (Float64)kRingFrames;
     UInt64 next = gMicAnchorHostTime + (UInt64)((Float64)(gMicNumberTimeStamps + 1) * ticksPerRing);
@@ -945,7 +956,7 @@ static OSStatus Mic_GetZeroTimeStamp(Float64 *outSampleTime, UInt64 *outHostTime
     *outSampleTime = (Float64)(gMicNumberTimeStamps * kRingFrames);
     *outHostTime = gMicAnchorHostTime + (UInt64)((Float64)gMicNumberTimeStamps * ticksPerRing);
     *outSeed = 1;
-    pthread_mutex_unlock(&gIOMutex);
+    pthread_mutex_unlock(&gMicIOMutex);
     return 0;
 }
 
