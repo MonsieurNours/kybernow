@@ -200,6 +200,18 @@ pub fn navigation(url: &str, origin: &str) -> Navigation {
     if url.starts_with("https://") || url.starts_with("http://") { Navigation::External } else { Navigation::Block }
 }
 
+/// Adresse qu'on peut confier au navigateur par défaut : `https://` suivi d'un
+/// hôte, sans espace, guillemet, caractère de contrôle ni `\\`, et bornée. Ce
+/// n'est jamais un chemin ni une commande (elle part par `ShellExecuteW`, mais
+/// on refuse aussi ce qu'un shell interpréterait).
+pub fn openable_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else { return false };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    !host.is_empty()
+        && url.len() <= 2048
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '\\' | '<' | '>' | '^' | '`' | '|'))
+}
+
 /// Un `etat` tiré au hasard (le retour n'est pris que s'il le porte).
 pub fn new_state() -> String {
     let mut bytes = [0u8; 16];
@@ -458,6 +470,16 @@ fn write_credential(target: &str, user: &str, blob: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adresses_ouvrables() {
+        assert!(openable_url("https://share.kybernow.app/aide?a=1&b=2"));
+        assert!(openable_url("https://x/?a&calc.exe"));
+        for bad in ["http://x", "https://", "https:///a", "file:///c:/x", "https://x/a b", "https://x/\"a", "https://x/|calc", "https://x/^", "https://x\\y"] {
+            assert!(!openable_url(bad), "{bad}");
+        }
+        assert!(!openable_url(&format!("https://x/{}", "a".repeat(3000))));
+    }
 
     #[test]
     fn adresses() {

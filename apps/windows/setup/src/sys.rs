@@ -196,10 +196,21 @@ pub fn run(program: &str, args: &[&str]) -> Result<Output> {
         .with_context(|| format!("lancement de {program}"))
 }
 
-/// Ouvre une page web dans le navigateur.
+/// Ouvre une page web dans le navigateur par défaut, par `ShellExecuteW`
+/// (verbe `open`) : jamais par `cmd.exe`, qui exécuterait ce qui suit un `&`
+/// de l'adresse.
 pub fn open_url(url: &str) {
-    if url.starts_with("https://") {
-        let _ = Command::new(system32("cmd.exe")).args(["/C", "start", "", url]).spawn();
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    if !crate::account::openable_url(url) {
+        log(&format!("adresse refusée, pas ouverte : {}", url.chars().take(80).collect::<String>()));
+        return;
+    }
+    let (verb, target) = (wide("open"), wide(url));
+    let r = unsafe { ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), target.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL) };
+    // Plus de 32 : ouvert (convention de ShellExecute).
+    if (r as isize) <= 32 {
+        log(&format!("ouverture de l'adresse impossible ({})", r as isize));
     }
 }
 
