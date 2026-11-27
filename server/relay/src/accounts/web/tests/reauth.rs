@@ -70,3 +70,24 @@ fn secret_totp_illisible_refuse() {
     assert!(html(&r).contains("Code incorrect"), "plus jamais ouverte");
     assert_eq!(location(&ana.get("/compte?lang=fr")), "/compte/code?lang=fr");
 }
+
+#[test]
+fn inscription_sur_une_adresse_prise_ne_change_pas_le_compte_d_un_autre() {
+    // REL-05 : la victime s'inscrit sans vérifier ; un tiers s'inscrit avec son adresse puis « change d'adresse ».
+    let w = world(true);
+    let mut victim = w.browser_at("192.0.2.30");
+    victim.post("/compte/inscription?lang=fr", &[("name", "Léa"), ("email", "lea@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
+    let mut thief = w.browser_at("198.51.100.66");
+    let r = thief.post("/compte/inscription?lang=fr", &[("name", "X"), ("email", "lea@exemple.org"), ("password", "un autre mot long"), ("conditions", "1")]);
+    assert_eq!(location(&r), "/compte/verifier?lang=fr", "même réponse qu'une inscription");
+    let r = thief.post("/compte/verifier?lang=fr", &[("action", "changer"), ("email", "voleur@exemple.org")]);
+    assert_eq!(r.status, 200);
+    assert!(w.acc.db().account_by_email("lea@exemple.org").unwrap().is_some(), "le compte de Léa garde son adresse");
+    assert!(w.outbox.last_to("voleur@exemple.org").is_none(), "aucun code ne part chez le tiers");
+    // Léa, elle, peut encore changer d'adresse et vérifier.
+    let r = victim.post("/compte/verifier?lang=fr", &[("action", "changer"), ("email", "lea.martin@exemple.org")]);
+    assert_eq!(r.status, 200);
+    let code: String = between(&w.mail("lea.martin@exemple.org").text, "    ", "\n").chars().filter(char::is_ascii_digit).collect();
+    let r = victim.post("/compte/verifier?lang=fr", &[("action", "code"), ("code", &code)]);
+    assert_eq!(location(&r), "/compte/bienvenue?lang=fr");
+}

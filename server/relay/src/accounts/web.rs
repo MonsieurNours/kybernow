@@ -348,21 +348,37 @@ impl<'a> Cx<'a> {
 
     /// L'adresse en attente de vérification (cookie signé, 24 h).
     fn pending(&self) -> Option<String> {
+        self.pending_with_owner().map(|(email, _)| email)
+    }
+
+    /// L'adresse attendue et le compte que ce navigateur a créé ou ouvert (REL-05) : `Some(0)`
+    /// quand l'adresse était déjà prise (ce navigateur n'en est pas le titulaire), `None` pour un
+    /// cookie d'avant ce changement (`adresse.échéance.signature`).
+    fn pending_with_owner(&self) -> Option<(String, Option<i64>)> {
         let value = self.req.cookie(PENDING_COOKIE)?;
-        let mut parts = value.split('.');
-        let (email, exp, sig) = (parts.next()?, parts.next()?, parts.next()?);
-        let data = format!("attente:{email}.{exp}");
+        let parts: Vec<&str> = value.split('.').collect();
+        let (email, owner, exp, sig, data) = match parts.as_slice() {
+            [email, owner, exp, sig] => (*email, Some(owner.parse::<i64>().ok()?), *exp, *sig, format!("attente:{email}.{owner}.{exp}")),
+            [email, exp, sig] => (*email, None, *exp, *sig, format!("attente:{email}.{exp}")),
+            _ => return None,
+        };
         if !self.acc.keys.check(data.as_bytes(), sig) || exp.parse::<i64>().ok()? <= self.now {
             return None;
         }
-        String::from_utf8(unb64(email)?).ok()
+        Some((String::from_utf8(unb64(email)?).ok()?, owner))
     }
 
-    fn set_pending(&mut self, email: &str) {
+    /// `owner` : le compte créé ou ouvert par ce navigateur (0 : l'adresse appartient à un autre).
+    fn set_pending(&mut self, email: &str, owner: i64) {
         let email = b64(email.as_bytes());
         let exp = self.now + VERIFY_SECS;
-        let sig = self.acc.keys.sign(format!("attente:{email}.{exp}").as_bytes());
-        self.cookies.push(set_cookie(PENDING_COOKIE, &format!("{email}.{exp}.{sig}"), Some(VERIFY_SECS)));
+        let sig = self.acc.keys.sign(format!("attente:{email}.{owner}.{exp}").as_bytes());
+        self.cookies.push(set_cookie(PENDING_COOKIE, &format!("{email}.{owner}.{exp}.{sig}"), Some(VERIFY_SECS)));
+    }
+
+    /// Ce navigateur attend-il la vérification de ce compte-là ?
+    fn pending_owns(&self, account: &Account) -> bool {
+        matches!(self.pending_with_owner(), Some((email, owner)) if email == account.email && owner.is_none_or(|o| o == account.id))
     }
 
     fn mail(&self, to: &str, lang: Lang, message: Message<'_>) {
@@ -644,7 +660,7 @@ fn sign_in(mut cx: Cx<'_>) -> Reply {
             return cx.page(200, page);
         }
         cx.send_verification(&account);
-        cx.set_pending(&account.email);
+        cx.set_pending(&account.email, account.id);
         let q = cx.q();
         return cx.redirect(format!("/compte/verifier{q}"));
     }
@@ -772,6 +788,10 @@ fn sign_up(mut cx: Cx<'_>, post: bool) -> Reply {
     }
     let hash = acc.hasher.hash(&password);
     let created = acc.db().create_account(&email, &name, &hash, cx.lang.code(), None, cx.now);
+    let owner = match &created {
+        Ok(Some(id)) => *id,
+        _ => 0,
+    };
     match created {
         Ok(Some(id)) => {
             cx.audit(Some(id), "inscription");
@@ -791,7 +811,8 @@ fn sign_up(mut cx: Cx<'_>, post: bool) -> Reply {
             return cx.failed();
         }
     }
-    cx.set_pending(&email);
+    // Adresse prise : le même cookie (la même réponse), mais il ne vaut pour aucun compte (REL-05).
+    cx.set_pending(&email, owner);
     let q = cx.q();
     cx.redirect(format!("/compte/verifier{q}"))
 }
@@ -804,7 +825,7 @@ fn verified(mut cx: Cx<'_>, account: &Account) -> Reply {
     drop(db);
     cx.audit(Some(account.id), "adresse_verifiee");
     let q = cx.q();
-    if cx.pending().as_deref() == Some(account.email.as_str()) {
+    if cx.pending_owns(account) {
         cx.cookies.push(clear_cookie(PENDING_COOKIE));
         cx.open_session(account.id, true);
         // Une page retenue avant l'inscription (un lien d'accès) : on y revient.
@@ -866,7 +887,10 @@ fn verify_post(mut cx: Cx<'_>) -> Reply {
             if let Err(wait) = limit {
                 return cx.limited(wait, |cx, n| pages::verify(&cx.view(), &email, Some(n), true));
             }
-            if let Some(account) = unverified() {
+            // Seulement le compte que ce navigateur a créé (REL-05) : pas celui d'un autre, en attente sur la même adresse.
+            let mine = unverified().filter(|a| cx.pending_with_owner().is_some_and(|(_, owner)| owner == Some(a.id)));
+            let owner = mine.as_ref().map(|a| a.id).unwrap_or(0);
+            if let Some(account) = mine {
                 let changed = acc.db().set_email(account.id, &new_email).unwrap_or(false);
                 if changed {
                     cx.audit(Some(account.id), "adresse_changee");
@@ -878,7 +902,7 @@ fn verify_post(mut cx: Cx<'_>) -> Reply {
                     cx.send_taken(&new_email);
                 }
             }
-            cx.set_pending(&new_email);
+            cx.set_pending(&new_email, owner);
             let page = pages::verify(&cx.view(), &new_email, Some(Notice::Resent), false);
             cx.page(200, page)
         }
