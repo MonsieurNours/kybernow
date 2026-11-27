@@ -1,6 +1,8 @@
 <!doctype html>
-<!-- Image de partage du site (1200 × 630), rendue par scripts/site-seo.py avec Chrome sans fenêtre.
-     ?lang=fr ou ?lang=en. Polices et images reprises de site/. -->
+<!-- Images de partage du site (1200 × 630), rendues par scripts/site-seo.py avec Chrome sans fenêtre.
+     ?lang=fr|en&p=accueil|jeu|pro|share|telecharger|technologie|guide. Même style que les héros de la refonte :
+     texte à gauche, photo de la rubrique à droite fondue dans le noir, couleur de l'univers (Spectre, Glacier pour Travailler).
+     Polices, photos et logos repris de site/. -->
 <html>
 <head>
 <meta charset="utf-8">
@@ -8,55 +10,94 @@
 @font-face { font-family: "Archivo"; src: url("../../site/fonts/Archivo-wdth-wght.woff2") format("woff2"); font-weight: 100 900; font-stretch: 62% 125%; }
 @font-face { font-family: "Martian Mono"; src: url("../../site/fonts/MartianMono-wdth-wght.woff2") format("woff2"); font-weight: 100 800; font-stretch: 75% 112.5%; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+:root { --sig: #9A8CFF; --sigs: 109 91 255; }
+:root.pro { --sig: #5CC8E8; --sigs: 31 166 209; }
 html, body { width: 1200px; height: 630px; overflow: hidden; background: #05070A; }
 body { position: relative; font-family: "Archivo", sans-serif; color: #E3EDF0; -webkit-font-smoothing: antialiased; }
-/* Fond : grille discrète et halo violet derrière le symbole */
-.bg { position: absolute; inset: 0;
-  background:
-    radial-gradient(520px 420px at 930px 300px, rgb(109 91 255 / .30), transparent 70%),
-    radial-gradient(900px 500px at 0 630px, rgb(20 27 35 / .9), transparent 70%),
-    linear-gradient(rgb(227 237 240 / .035) 1px, transparent 1px) 0 0 / 48px 48px,
-    linear-gradient(90deg, rgb(227 237 240 / .035) 1px, transparent 1px) 0 0 / 48px 48px,
-    #05070A; }
-.mark { position: absolute; right: 70px; top: 115px; width: 400px; height: 400px; }
-.copy { position: absolute; left: 72px; top: 64px; width: 700px; height: 502px; display: flex; flex-direction: column; }
-.logo { height: 34px; width: auto; align-self: flex-start; }
-.label { margin-top: 44px; display: flex; align-items: center; gap: 14px; font: 500 15px/1 "Martian Mono", monospace; letter-spacing: .12em; text-transform: uppercase; color: #8A99A3; }
-.label::before { content: ""; width: 26px; height: 2px; border-radius: 2px; background: #9A8CFF; }
-.beta { font: 500 13px/1 "Martian Mono", monospace; letter-spacing: .08em; padding: 7px 9px; border-radius: 6px; color: #9A8CFF; background: rgb(154 140 255 / .14); box-shadow: inset 0 0 0 1.5px rgb(154 140 255 / .45); }
-h1 { margin-top: 24px; font-stretch: 125%; font-weight: 380; font-size: 58px; line-height: 1.04; letter-spacing: -.02em; }
-h1 strong { font-weight: 720; }
-p { margin-top: 24px; font-size: 23px; line-height: 1.38; color: #B4C2C9; max-width: 640px; }
-p b { color: #E3EDF0; font-weight: 600; }
-.foot { margin-top: auto; display: flex; gap: 28px; align-items: center; font: 500 15px/1 "Martian Mono", monospace; letter-spacing: .06em; color: #8A99A3; }
+
+/* Photo à droite, fondue vers la gauche comme sur les héros */
+.ph { position: absolute; top: 0; right: 0; bottom: 0; width: 640px; overflow: hidden; }
+.ph img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ph::after { content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, #05070A 0%, rgb(5 7 10 / .82) 18%, rgb(5 7 10 / .25) 46%, rgb(5 7 10 / 0) 70%),
+              linear-gradient(0deg, rgb(5 7 10 / .55), transparent 30%); }
+/* Accueil : les deux univers, l'un au-dessus de l'autre */
+.ph.duo img { height: 50%; }
+.ph.duo img + img { top: 50%; }
+.ph.duo .rule { position: absolute; left: 0; right: 0; top: calc(50% - 1px); height: 2px; z-index: 1;
+  background: linear-gradient(90deg, transparent 20%, #9A8CFF 55%, #5CC8E8); }
+/* Sans photo : le symbole allumé dans un halo */
+.mk { position: absolute; right: 90px; top: 125px; width: 380px; height: 380px; }
+.halo { position: absolute; inset: 0;
+  background: radial-gradient(520px 440px at 900px 315px, rgb(var(--sigs) / .30), transparent 70%),
+              linear-gradient(rgb(227 237 240 / .03) 1px, transparent 1px) 0 0 / 48px 48px,
+              linear-gradient(90deg, rgb(227 237 240 / .03) 1px, transparent 1px) 0 0 / 48px 48px; }
+
+.copy { position: absolute; left: 72px; top: 62px; bottom: 58px; width: 590px; display: flex; flex-direction: column; z-index: 2; }
+.top { display: flex; align-items: center; gap: 14px; }
+.logo { height: 30px; width: auto; }
+.beta { font: 500 12px/1 "Martian Mono", monospace; letter-spacing: .1em; padding: 6px 8px; border-radius: 5px; color: var(--sig);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--sig) 55%, transparent); text-transform: uppercase; }
+.mid { margin: auto 0; }
+.k { display: flex; align-items: center; gap: 14px; font: 500 15px/1 "Martian Mono", monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--sig); }
+.k::before { content: ""; width: 26px; height: 2px; border-radius: 2px; background: var(--sig); }
+h1 { margin-top: 22px; font-stretch: 125%; font-weight: 760; letter-spacing: -.015em; line-height: 1.03; font-size: 54px; text-wrap: balance; }
+h1 em { font-style: normal; color: var(--sig); }
+p { margin-top: 22px; font-size: 23px; line-height: 1.4; color: #B4C2C9; max-width: 540px; text-wrap: pretty; }
+.foot { display: flex; gap: 22px; align-items: center; font: 500 15px/1 "Martian Mono", monospace; letter-spacing: .06em; color: #8A99A3; }
 .foot .url { color: #E3EDF0; }
 .foot i { width: 5px; height: 5px; border-radius: 50%; background: #2B3742; }
 </style>
 </head>
 <body>
-<div class="bg"></div>
-<img class="mark" src="../../brand/v2/mark/kybernow-mark-now-lit-dark.svg" alt="">
+<div id="art"></div>
 <div class="copy">
-  <img class="logo" src="../../brand/v2/logo/kybernow-logo-dark.svg" alt="KyberNow">
-  <div class="label"><span data-t="label"></span><span class="beta" data-t="beta"></span></div>
-  <h1 data-t="title"></h1>
-  <p data-t="text"></p>
-  <div class="foot"><span class="url">www.kybernow.app</span><i></i><span data-t="platforms"></span></div>
+  <div class="top"><img class="logo" id="logo" alt="KyberNow"><span class="beta" data-t="beta"></span></div>
+  <div class="mid">
+    <div class="k" data-t="k"></div>
+    <h1 data-t="title"></h1>
+    <p data-t="text"></p>
+  </div>
+  <div class="foot"><span class="url">www.kybernow.app</span><i></i><span data-t="foot"></span></div>
 </div>
 <script>
-const T = {
-  fr: { label: 'Jeu et bureau à distance', beta: 'Bêta',
-        title: 'Votre PC,<br><strong>sur tous<br>vos écrans.</strong>',
-        text: "Jouez et travaillez sur votre ordinateur depuis tous vos appareils. L'alternative <b>libre et gratuite</b> à Sunshine&nbsp;+&nbsp;Moonlight.",
-        platforms: 'Gratuit · Libre · Sans compte' },
-  en: { label: 'Remote play and desktop', beta: 'Beta',
-        title: 'Your PC,<br><strong>on every<br>screen.</strong>',
-        text: 'Play and work on your computer from all your devices. The <b>free, open&#8209;source</b> alternative to Sunshine&nbsp;+&nbsp;Moonlight.',
-        platforms: 'Free · Open source · No account' },
+const S = '../../site/assets/img/';
+// Textes repris des héros et des descriptions des pages ; photos des mêmes rubriques.
+const P = {
+  accueil: { art: ['duo', S + 'scenes/salon-duo-{lang}.webp', S + 'pro/ipad.webp'],
+    fr: { k: 'Jouer · Travailler', title: 'Votre ordinateur <em>sur tous vos écrans.</em>', text: 'Jouez et travaillez dessus depuis la télé, une tablette, un autre ordinateur ou un navigateur.' },
+    en: { k: 'Play · Work', title: 'Your computer <em>on all your screens.</em>', text: 'Play and work on it from the TV, a tablet, another computer or a web browser.' } },
+  jeu: { art: ['photo', S + 'scenes/salon-duo-{lang}.webp'],
+    fr: { k: 'Jouer', title: 'Les jeux de votre ordinateur, <em>sur la télé du salon.</em>', text: 'Votre manette, l’écran le plus proche, en 4K et en HDR. L’image arrive en moins de 10&nbsp;ms.' },
+    en: { k: 'Play', title: 'Your computer’s games, <em>on the living&#8209;room TV.</em>', text: 'Your controller, the nearest screen, in 4K and HDR. The picture reaches you in under 10&nbsp;ms.' } },
+  pro: { art: ['photo', S + 'pro/ipad.webp'], cls: 'pro',
+    fr: { k: 'Travailler', title: 'Votre station de travail, <em>sur votre iPad.</em>', text: 'Depuis un portable, une tablette ou un autre ordinateur, sur la machine restée au bureau.' },
+    en: { k: 'Work', title: 'Your workstation, <em>on your iPad.</em>', text: 'From a laptop, a tablet or another computer, on the machine you left at the office.' } },
+  share: { art: ['photo', S + 'scenes/salon-amis.webp'],
+    fr: { k: 'KyberNow Share', title: 'Votre ordinateur, <em>partagé avec qui vous voulez.</em>', text: 'Un code à six chiffres, et vous décidez de tout.' },
+    en: { k: 'KyberNow Share', title: 'Your computer, <em>shared with whoever you choose.</em>', text: 'A six-digit code, and you decide everything.' } },
+  telecharger: { art: ['photo', S + 'scenes/canape-{lang}.webp'],
+    fr: { k: 'Télécharger', title: 'Installez <em>KyberNow.</em>', text: 'KyberNow Station sur l’ordinateur à retrouver, KyberNow Link sur chaque écran.' },
+    en: { k: 'Download', title: 'Install <em>KyberNow.</em>', text: 'KyberNow Station on the computer you want to reach, KyberNow Link on every screen.' } },
+  technologie: { art: ['mark'],
+    fr: { k: 'Technologie', title: 'Comment fonctionne <em>KyberNow.</em>', text: 'Le trajet d’une image de votre ordinateur à votre écran, en 9,4&nbsp;ms sur un réseau local.' },
+    en: { k: 'Technology', title: 'How <em>KyberNow</em> works.', text: 'How a frame gets from your computer to your screen, in 9.4&nbsp;ms on a local network.' } },
+  guide: { art: ['mark'],
+    fr: { k: 'Guide', title: 'Le guide de <em>KyberNow.</em>', text: 'Installer, connecter vos appareils, partager votre ordinateur, étape par étape.' },
+    en: { k: 'Guide', title: 'The <em>KyberNow</em> guide.', text: 'Install, connect your devices, share your computer, step by step.' } },
 };
-const t = T[new URLSearchParams(location.search).get('lang')] || T.fr;
-document.documentElement.lang = t === T.en ? 'en' : 'fr';
+const q = new URLSearchParams(location.search);
+const lang = q.get('lang') === 'en' ? 'en' : 'fr';
+const page = P[q.get('p')] || P.accueil;
+const t = Object.assign({ beta: lang === 'en' ? 'Beta' : 'Bêta', foot: lang === 'en' ? 'Free · Open source' : 'Gratuit · Libre' }, page[lang]);
+document.documentElement.lang = lang;
+if (page.cls) document.documentElement.classList.add(page.cls);
+document.getElementById('logo').src = S + 'logo/logo-' + (page.cls === 'pro' ? 'glacier' : 'spectre') + '.svg';
 for (const el of document.querySelectorAll('[data-t]')) el.innerHTML = t[el.dataset.t];
+const art = document.getElementById('art'), [kind, ...src] = page.art;
+const img = s => '<img src="' + s.replace('{lang}', lang) + '" alt="">';
+if (kind === 'mark') art.innerHTML = '<div class="halo"></div><img class="mk" src="../../brand/v2/mark/kybernow-mark-now-lit-dark.svg" alt="">';
+else art.innerHTML = '<div class="ph' + (kind === 'duo' ? ' duo' : '') + '">' + src.map(img).join('') + (kind === 'duo' ? '<span class="rule"></span>' : '') + '</div>';
 </script>
 </body>
 </html>

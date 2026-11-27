@@ -5,7 +5,9 @@
     scripts/site-seo.py images     # images de partage et icône iPhone/iPad, rendues par Chrome sans fenêtre
     scripts/site-seo.py faq        # données structurées FAQPage des guides, tirées des <details> de leur FAQ
 
-Images : scripts/site-og/card.html (?lang=fr|en) -> site/assets/og/kybernow-{fr,en}.jpg (1200 × 630),
+Images : scripts/site-og/card.html (?lang=fr|en&p=RUBRIQUE) -> site/assets/og/{RUBRIQUE}-{fr,en}.jpg (1200 × 630),
+une par rubrique (accueil -> kybernow-{fr,en}.jpg, jeu, pro, share, telecharger, technologie, guide) ; chaque page
+pointe vers celle de sa rubrique (og:image, twitter:image), les mentions légales vers celle de l'accueil,
 scripts/site-og/touch-icon.html -> site/apple-touch-icon.png (180 × 180),
 scripts/site-og/video-poster.html -> site/assets/video/presentation-poster.jpg (1920 × 1080, image d'attente
 de la vidéo de présentation). Il faut Google Chrome (ou CHROME=<chemin d'un Chromium>) et Pillow.
@@ -19,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SITE = ROOT / 'site'
 SRC = ROOT / 'scripts' / 'site-og'
+OG_PAGES = ('accueil', 'jeu', 'pro', 'share', 'telecharger', 'technologie', 'guide')
 CHROME = os.environ.get('CHROME', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
 
 
@@ -41,10 +44,11 @@ def shot(page: Path, query: str, size: tuple[int, int]):
 def images():
     og = SITE / 'assets' / 'og'
     og.mkdir(parents=True, exist_ok=True)
-    for lang in ('fr', 'en'):
-        dst = og / f'kybernow-{lang}.jpg'
-        shot(SRC / 'card.html', f'?lang={lang}', (1200, 630)).save(dst, 'JPEG', quality=90, optimize=True, progressive=True)
-        print(f'{dst.relative_to(ROOT)} : {dst.stat().st_size // 1024} Ko')
+    for p in OG_PAGES:
+        for lang in ('fr', 'en'):
+            dst = og / f"{'kybernow' if p == 'accueil' else p}-{lang}.jpg"
+            shot(SRC / 'card.html', f'?lang={lang}&p={p}', (1200, 630)).save(dst, 'JPEG', quality=88, optimize=True, progressive=True)
+            print(f'{dst.relative_to(ROOT)} : {dst.stat().st_size // 1024} Ko')
     dst = SITE / 'apple-touch-icon.png'
     shot(SRC / 'touch-icon.html', '', (180, 180)).save(dst, 'PNG', optimize=True)
     print(f'{dst.relative_to(ROOT)} : {dst.stat().st_size // 1024} Ko')
