@@ -272,7 +272,7 @@
         const r = c?.getBoundingClientRect()
         return [
           `positions page ${injected.count} · sorties ${diag.outside} · dernière ${diag.lastX},${diag.lastY} · toile ${r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}` : '—'}`,
-          `capture ${document.pointerLockElement ? 'oui' : 'non'} · pointeur de l'ordinateur ${isRemoteCursorHidden() ? 'masqué' : 'visible'} · transport ${s.plan?.protocol ?? '—'} · moteur ${isFixedEngine() ? 'corrigé' : 'd’origine'}${engineInputs() ? ', entrées par le moteur' : ''}`,
+          `capture ${document.pointerLockElement ? 'oui' : 'non'} · pointeur de l'ordinateur ${isRemoteCursorHidden() ? 'masqué' : 'visible'} · transport ${s.plan?.protocol ?? '—'} · moteur ${isFixedEngine() ? 'corrigé' : "d'origine"}${engineInputs() ? ', entrées par le moteur' : ''}`,
         ]
       },
     )

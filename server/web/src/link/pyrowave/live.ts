@@ -101,7 +101,7 @@ class LiveDecoder {
       note(gap + 1, 0)
       if (!this.lostReported) {
         this.lostReported = true
-        console.warn('KyberNow : PyroWave, carte graphique perdue ; relance de l’image')
+        console.warn("KyberNow : PyroWave, carte graphique perdue ; relance de l'image")
         gpuLost()
       }
       return false
