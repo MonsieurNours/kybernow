@@ -18,8 +18,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-/// Profils, dans le vocabulaire du cœur (`Profile::parse`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// Profils, dans le vocabulaire du cœur (`Profile::parse`). Un profil inconnu (fichier écrit par une version plus
+/// récente) se lit comme Jeu, au lieu de rendre tout le fichier illisible.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Profile {
     #[default]
@@ -29,6 +30,13 @@ pub enum Profile {
     /// Les réglages choisis par le test des conditions (docs/profil-auto.md), gardés pour l'ordinateur
     /// (`HostSettings::auto`).
     Auto,
+}
+
+impl<'de> Deserialize<'de> for Profile {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let id = String::deserialize(d)?;
+        Ok(Profile::ALL.into_iter().find(|p| p.id() == id).unwrap_or_default())
+    }
 }
 
 impl Profile {
@@ -599,6 +607,28 @@ pub struct Store {
     pub welcome: crate::welcome::WelcomeState,
     #[serde(skip)]
     path: Option<PathBuf>,
+    /// Fichier trouvé illisible au lancement : le nom sous lequel il a été mis de côté (l'app prévient), ou
+    /// `Some("")` s'il n'a pas pu l'être (rien n'est alors écrit, pour ne pas l'effacer).
+    #[serde(skip)]
+    pub damaged: Option<String>,
+}
+
+/// Met de côté un fichier illisible : `kybernow.json.bad-<secondes Unix>` à côté. Rend le nom donné, ou `""` si
+/// le renommage a échoué.
+fn set_aside(path: &std::path::Path, why: &str) -> String {
+    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let name = format!("{}.bad-{at}", path.file_name().and_then(|n| n.to_str()).unwrap_or("kybernow.json"));
+    let aside = path.with_file_name(&name);
+    match std::fs::rename(path, &aside) {
+        Ok(()) => {
+            log::warn!("{} illisible ({why}) : mis de côté sous {name}, l'app repart d'un fichier neuf", path.display());
+            name
+        }
+        Err(e) => {
+            log::warn!("{} illisible ({why}), pas mis de côté ({e}) : rien ne sera écrit", path.display());
+            String::new()
+        }
+    }
 }
 
 /// Ce que l'app garde d'un ordinateur pour la mise à jour de sa Station : le même JSON que `station_offer::Memory` du
@@ -641,8 +671,29 @@ impl Store {
     }
 
     pub fn load() -> Self {
-        let path = Self::dir().join("kybernow.json");
-        let mut s: Store = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        Self::load_from(Self::dir().join("kybernow.json"))
+    }
+
+    /// Lit le fichier `path`. Absent : un fichier neuf. Illisible (tronqué, ou écrit par une version plus récente
+    /// qu'on ne sait pas lire) : jamais réécrit vide. Il est renommé en `kybernow.json.bad-<secondes Unix>`, à côté,
+    /// et l'app part d'un fichier neuf en le disant (`damaged`) ; si le renommage échoue, l'app ne sauvegarde rien
+    /// de la session plutôt que de l'écraser.
+    pub fn load_from(path: PathBuf) -> Self {
+        let mut damaged = None;
+        let mut s: Store = match std::fs::read(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Store::default(),
+            Err(e) => {
+                damaged = Some(set_aside(&path, &e.to_string()));
+                Store::default()
+            }
+            Ok(b) => match serde_json::from_slice(&b) {
+                Ok(s) => s,
+                Err(e) => {
+                    damaged = Some(set_aside(&path, &e.to_string()));
+                    Store::default()
+                }
+            },
+        };
         if s.device_id.is_empty() {
             s.device_id = new_id();
         }
@@ -654,8 +705,12 @@ impl Store {
                 h.settings.set_transport(t);
             }
         }
-        s.path = Some(path);
-        s.save();
+        let keep = damaged.as_deref() != Some("");
+        s.damaged = damaged;
+        if keep {
+            s.path = Some(path);
+            s.save();
+        }
         s
     }
 
@@ -1113,5 +1168,61 @@ impl PsStore {
             c.addresses.truncate(4);
         }
         c
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dir(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("kn-webos-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn asides(d: &std::path::Path) -> Vec<PathBuf> {
+        std::fs::read_dir(d).unwrap().flatten().map(|e| e.path()).filter(|p| p.to_string_lossy().contains(".bad-")).collect()
+    }
+
+    #[test]
+    fn fichier_illisible_mis_de_cote() {
+        let d = dir("illisible");
+        let path = d.join("kybernow.json");
+        let truncated = br#"{"device_id":"tv","hosts":[{"id":"a","address":"192.168.1.2""#;
+        std::fs::write(&path, truncated).unwrap();
+        let s = Store::load_from(path.clone());
+        let aside = asides(&d);
+        assert_eq!(aside.len(), 1, "le fichier illisible est gardé à côté");
+        assert_eq!(std::fs::read(&aside[0]).unwrap(), truncated);
+        assert!(s.damaged.as_deref().is_some_and(|n| n.starts_with("kybernow.json.bad-")));
+        assert!(s.hosts.is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn fichier_d_une_version_plus_recente() {
+        let d = dir("futur");
+        let path = d.join("kybernow.json");
+        let json = r#"{"device_id":"tv","hosts":[{"id":"a","name":"PC","address":"192.168.1.2","port":47990,"settings":{"profile":"nouveau"},"champ_futur":1}]}"#;
+        std::fs::write(&path, json).unwrap();
+        let s = Store::load_from(path.clone());
+        assert!(s.damaged.is_none());
+        assert_eq!(s.hosts.len(), 1, "un profil inconnu ne rend pas le fichier illisible");
+        assert_eq!(s.hosts[0].settings.profile, Profile::Jeu);
+        assert!(asides(&d).is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn fichier_absent() {
+        let d = dir("absent");
+        let path = d.join("kybernow.json");
+        let s = Store::load_from(path.clone());
+        assert!(s.damaged.is_none());
+        assert!(!s.device_id.is_empty());
+        assert!(path.exists(), "un fichier neuf est écrit");
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

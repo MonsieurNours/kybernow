@@ -229,7 +229,17 @@ pub fn run(args: &[String]) {
     let store = Store::load();
     i18n::set_english(i18n::resolve(&store.app.language, &sdl::locale()));
     kybernow_core::i18n::set_current(if i18n::english() { kybernow_core::i18n::Lang::En } else { kybernow_core::i18n::Lang::Fr });
+    let damaged = store.damaged.clone();
     let mut app = App::new(store);
+    // Fichier de l'app illisible (WEBOS-01) : mis de côté, pas effacé ; l'utilisateur est prévenu.
+    match damaged.as_deref() {
+        Some("") => app.toast(tr(
+            "Fichier de l'app illisible : rien ne sera enregistré pour ne pas l'effacer",
+            "App file unreadable: nothing will be saved so it is not erased",
+        )),
+        Some(name) => app.toast(format!("{} {name}", tr("Fichier de l'app illisible, mis de côté :", "App file unreadable, set aside:"))),
+        None => {}
+    }
     let (panel, refresh) = sdl::panel();
     let decoder = ndl::available();
     app.tv = system::tv(panel, refresh, decoder, ndl::hdr_capable());
