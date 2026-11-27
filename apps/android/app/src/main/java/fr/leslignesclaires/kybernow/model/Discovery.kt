@@ -44,15 +44,19 @@ class Discovery(private val context: Context) {
     private var listener: NsdManager.DiscoveryListener? = null
     private var jmdns: JmDNS? = null
 
+    /** Chaque recherche a son numéro : une résolution finie après l'arrêt n'ajoute plus rien (AND-20). */
+    @Volatile private var generation = 0
+
     fun start() {
         if (listener != null) return
+        generation++
         lock = wifi?.createMulticastLock("kybernow")?.apply { setReferenceCounted(false); acquire() }
         val l = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) {}
             override fun onDiscoveryStopped(serviceType: String) {}
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {}
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {}
-            override fun onServiceFound(info: NsdServiceInfo) = resolve(info)
+            override fun onServiceFound(info: NsdServiceInfo) = resolve(info, generation)
             override fun onServiceLost(info: NsdServiceInfo) {
                 main.post { _found.value = _found.value.filterNot { it.serviceName == info.serviceName } }
             }
@@ -64,6 +68,9 @@ class Discovery(private val context: Context) {
     fun stop() {
         listener?.let { runCatching { nsd.stopServiceDiscovery(it) } }
         listener = null
+        // De retour sur un autre réseau, « Sur le réseau » ne montre plus les ordinateurs de l'ancien (AND-20).
+        generation++
+        _found.value = emptyList()
         lock?.release()
         lock = null
         resolver.execute {
@@ -74,7 +81,7 @@ class Discovery(private val context: Context) {
 
     // Une résolution à la fois (NsdManager refuse les résolutions simultanées avant Android 14).
     @Suppress("DEPRECATION")
-    private fun resolve(info: NsdServiceInfo) {
+    private fun resolve(info: NsdServiceInfo, gen: Int) {
         resolver.execute {
             val done = CountDownLatch(1)
             var resolved: NsdServiceInfo? = null
@@ -100,7 +107,7 @@ class Discovery(private val context: Context) {
                 port = s.port,
                 fingerprint = txt["fp"]?.takeIf { it.isNotBlank() },
             )
-            main.post { _found.value = _found.value.filterNot { it.serviceName == a.serviceName } + a }
+            main.post { if (gen == generation) _found.value = _found.value.filterNot { it.serviceName == a.serviceName } + a }
         }
     }
 

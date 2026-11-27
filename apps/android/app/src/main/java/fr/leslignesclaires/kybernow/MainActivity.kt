@@ -104,7 +104,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        handle(intent)
+        // Recréée (langue changée…) : le lien qui l'avait ouverte est déjà traité, il ne se rejoue pas (AND-24).
+        if (savedInstanceState == null) handle(intent)
         val app = KyberNowApp.instance
         // Au premier lancement, et une fois après la mise à jour qui l'apporte, sans compte : l'accueil en trois écrans
         // (pas par-dessus un lien qui ouvre un autre écran).

@@ -242,6 +242,7 @@
     <string name="settings_mac_enter">Saisir l\'adresse MAC</string>
     <string name="settings_mac_help">Pour une Station qui ne la donne pas encore : l\'adresse matérielle de la carte réseau de l\'ordinateur, envoyée en plus de celles qu\'Admin donne.</string>
     <string name="settings_mac">Adresse MAC</string>
+    <string name="settings_mac_invalid">Cette adresse MAC n\'est pas valable : 12 chiffres et lettres de A à F, comme 3C:7C:3F:1A:2B:4C.</string>
     <string name="last_title">Dernière session</string>
     <string name="last_median">médiane</string>
     <string name="last_p95" formatted="true">95 %% des images sous %1$s ms</string>

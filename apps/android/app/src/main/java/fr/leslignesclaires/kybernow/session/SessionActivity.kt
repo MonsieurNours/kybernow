@@ -135,6 +135,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private var sessionMode = Triple(1920, 1080, 60)
     private var tv = false
     private var relative = false
+    private val relativeMotion = RelativeMotion()
     private var mouseSeen = false
     /** Le dernier appui venait d'une souris (et pas d'un doigt ni d'une touche) : voir [share]. */
     private var mouseClick = false
@@ -433,7 +434,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     }
 
     private fun start() {
-        val screen = Screen.of(display ?: return)
+        // Sans écran (fenêtre pas encore posée) : pas d'écran noir sans issue, on revient à l'accueil (AND-24).
+        val screen = Screen.of(display ?: run { finishSession(); return })
         hdrScreen = HdrScreen.of(display)
         val settings = settingsJson(ui.profile)
         val g = guest
@@ -1490,12 +1492,22 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                         return@launch
                     }
                     app.handOverLoan(reply.loan, ask)
+                    // `singleTask` : la demande arrive à cette activité même (`onNewIntent`), qui se refait avec le nouveau
+                    // prêt. Avant, `finishSession()` la fermait aussitôt et rien ne s'ouvrait (AND-11).
                     startActivity(Intent(this@SessionActivity, SessionActivity::class.java).putExtra(EXTRA_BORROW, true))
-                    finishSession()
                 }
                 is BorrowReply.Refused -> ui.comeBack = ComeBack(ComeBack.Step.FAILED, reply.message.ifBlank { getString(R.string.add_unreachable) })
                 is BorrowReply.Pending -> ui.comeBack = ComeBack(ComeBack.Step.FAILED, getString(R.string.add_unreachable))
             }
+        }
+    }
+
+    /** « Revenir » : la nouvelle session d'emprunt, dans cette activité refaite (l'ancienne session a fini). */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_BORROW, false)) {
+            setIntent(intent)
+            recreate()
         }
     }
 
@@ -1535,7 +1547,12 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (want == relative) return
         relative = want
         Native.inputSetRelative(handle, want)
-        if (want) surfaceView.requestPointerCapture() else surfaceView.releasePointerCapture()
+        relativeMotion.reset()
+        if (want) {
+            surfaceView.requestPointerCapture()
+            // Chaque déplacement brut tout de suite, sans attendre l'image suivante d'Android.
+            surfaceView.requestUnbufferedDispatch(InputDevice.SOURCE_MOUSE_RELATIVE)
+        } else surfaceView.releasePointerCapture()
         surfaceView.pointerIcon = PointerIcon.getSystemIcon(this, PointerIcon.TYPE_NULL)
     }
 
@@ -1544,7 +1561,13 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (!ui.keyboardMouseAllowed()) return true
         val h = handle
         when (e.actionMasked) {
-            MotionEvent.ACTION_MOVE -> Native.inputMouseMove(h, e.x.roundToInt(), e.y.roundToInt())
+            // Android regroupe les déplacements bruts : l'historique compte aussi, et les fractions sont gardées pour le
+            // suivant (AND-13 : avant, seul le dernier échantillon partait, arrondi).
+            MotionEvent.ACTION_MOVE -> {
+                for (i in 0 until e.historySize) relativeMotion.add(e.getHistoricalX(i), e.getHistoricalY(i))
+                relativeMotion.add(e.x, e.y)
+                relativeMotion.take { dx, dy -> Native.inputMouseMove(h, dx, dy) }
+            }
             MotionEvent.ACTION_BUTTON_PRESS -> Native.inputMouseButton(h, button(e.actionButton), true)
             MotionEvent.ACTION_BUTTON_RELEASE -> Native.inputMouseButton(h, button(e.actionButton), false)
             MotionEvent.ACTION_SCROLL -> Native.inputWheel(h, e.getAxisValue(MotionEvent.AXIS_HSCROLL), -e.getAxisValue(MotionEvent.AXIS_VSCROLL))

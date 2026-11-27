@@ -25,4 +25,11 @@ class MdnsLookupTest {
 
     @Test
     fun otherName() = assertNull(MdnsLookup.parseA(response(), "pc-atelier.local"))
+
+    /** Réponse tronquée à chaque octet (étiquette ou pointeur coupés) : jamais d'exception, la recherche continue (AND-24). */
+    @Test
+    fun truncatedResponsesNeverThrow() {
+        val full = response()
+        for (n in 0 until full.size) assertNull(MdnsLookup.parseA(full.copyOf(n), "pc-de-matthieu.local"))
+    }
 }

@@ -786,3 +786,32 @@ class TouchInput(private val out: PointerOut, private val toHost: (Float, Float)
         const val HOLD_DIRECT_MS = 350L
     }
 }
+
+/**
+ * Souris capturée (déplacements bruts) : les échantillons regroupés par Android additionnés, et les fractions de
+ * pixel gardées pour le déplacement suivant (AND-13), pour qu'un mouvement lent ne s'annule pas à l'arrondi.
+ */
+class RelativeMotion {
+    private var x = 0f
+    private var y = 0f
+
+    fun add(dx: Float, dy: Float) {
+        x += dx
+        y += dy
+    }
+
+    /** Les pixels entiers accumulés (s'il y en a), le reste gardé. */
+    inline fun take(send: (Int, Int) -> Unit) {
+        val ix = wholeX()
+        val iy = wholeY()
+        if (ix != 0 || iy != 0) send(ix, iy)
+    }
+
+    @PublishedApi internal fun wholeX(): Int = x.toInt().also { x -= it }
+    @PublishedApi internal fun wholeY(): Int = y.toInt().also { y -= it }
+
+    fun reset() {
+        x = 0f
+        y = 0f
+    }
+}

@@ -53,7 +53,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import fr.leslignesclaires.kybernow.KyberNowApp
 import fr.leslignesclaires.kybernow.R
-import fr.leslignesclaires.kybernow.core.ConsoleClient
 import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.core.Native
 import fr.leslignesclaires.kybernow.model.MicInputs
@@ -697,6 +696,7 @@ private fun WakeRow(host: Host, actions: HostSettingsActions) {
     val s = LocalScale.current
     var mac by remember(host.id) { mutableStateOf(host.mac ?: "") }
     var manual by remember(host.id) { mutableStateOf(host.mac != null) }
+    var macInvalid by remember(host.id) { mutableStateOf(false) }
     val target = host.wakeTargets.firstOrNull()
     Column(Modifier.panel().fillMaxWidth().padding(s.dp(16f)), verticalArrangement = Arrangement.spacedBy(s.dp(10f))) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -710,10 +710,16 @@ private fun WakeRow(host: Host, actions: HostSettingsActions) {
             GlassButton(stringResource(R.string.settings_mac_enter), { manual = true })
         } else {
             Body(stringResource(R.string.settings_mac_help), size = 13f, color = Kn.muted)
-            OutlinedTextField(mac, { mac = it.uppercase() }, label = { Text(stringResource(R.string.settings_mac)) }, singleLine = true, modifier = Modifier.fillMaxWidth(), colors = colors())
+            OutlinedTextField(mac, { mac = it.uppercase(); macInvalid = false }, label = { Text(stringResource(R.string.settings_mac)) }, singleLine = true, modifier = Modifier.fillMaxWidth(), colors = colors())
+            if (macInvalid) Body(stringResource(R.string.settings_mac_invalid), size = 13f, color = Kn.warn)
             GlassButton(stringResource(R.string.add_save), {
-                val clean = mac.filter { it.isLetterOrDigit() }
-                actions.saveMac(if (clean.length == 12) clean.chunked(2).joinToString(":") else null)
+                // Vide : l'adresse saisie est retirée. Sinon, lue par le cœur : une adresse qui ne vaut rien n'est pas
+                // gardée (« Prêt » promettait un réveil qui n'envoyait rien, AND-21).
+                if (mac.isBlank()) actions.saveMac(null)
+                else {
+                    val parsed = Native.wakeParseMac(mac)
+                    if (parsed == null) macInvalid = true else { mac = parsed; actions.saveMac(parsed) }
+                }
             })
         }
     }

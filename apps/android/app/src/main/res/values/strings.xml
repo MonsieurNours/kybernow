@@ -242,6 +242,7 @@
     <string name="settings_mac_enter">Enter the MAC address</string>
     <string name="settings_mac_help">For a Station that does not give it yet: the hardware address of the computer\'s network card, sent as well as those Admin gives.</string>
     <string name="settings_mac">MAC address</string>
+    <string name="settings_mac_invalid">This MAC address is not valid: 12 digits and letters from A to F, like 3C:7C:3F:1A:2B:4C.</string>
     <string name="last_title">Last session</string>
     <string name="last_median">median</string>
     <string name="last_p95" formatted="true">95%% of frames under %1$s ms</string>

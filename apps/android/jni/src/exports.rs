@@ -321,6 +321,18 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_adminUrl(mu
 
 // MARK: - Réveil par le réseau
 
+/// Une adresse MAC tapée à la main, lue par le cœur (`wake::parse_mac` :
+/// séparateurs au choix, ni adresse nulle ni de groupe) : `AA:BB:CC:DD:EE:FF`,
+/// ou nul si elle ne vaut rien (AND-21).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_wakeParseMac(mut env: Env, _: JClass, text: JString) -> jstring {
+    let text = string(&mut env, &text);
+    match wake::parse_mac(&text) {
+        Some(m) => give(&mut env, &m.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")),
+        None => std::ptr::null_mut(),
+    }
+}
+
 /// Réveille un ordinateur (Wake-on-LAN) : `targets_json`, les cartes gardées
 /// par l'app pour cet ordinateur (`wake` de `consoleInfo`, une liste ; une
 /// cible seule, par exemple `{"mac": "…", "ipv4": "…"}` d'une adresse saisie,

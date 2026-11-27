@@ -71,11 +71,15 @@ object MdnsLookup {
                 when {
                     len == 0 -> { if (end < 0) end = i + 1; break }
                     len and 0xC0 == 0xC0 -> {
+                        // Réponse tronquée : un pointeur sans son second octet (AND-24).
+                        if (i + 1 >= m.size) { if (end < 0) end = m.size; break }
                         if (end < 0) end = i + 2
                         i = ((len and 0x3F) shl 8) or (m[i + 1].toInt() and 0xFF)
                         if (++jumps > 20) break
                     }
                     else -> {
+                        // Étiquette qui dépasse du paquet (réponse tronquée) : le nom s'arrête là.
+                        if (i + 1 + len > m.size) { if (end < 0) end = m.size; break }
                         labels += String(m, i + 1, len)
                         i += 1 + len
                     }

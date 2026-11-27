@@ -617,7 +617,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         _borrowErrors.value = _borrowErrors.value - id
         _borrowing.value = _borrowing.value + (id to BorrowStep.Preparing)
         val ask = Borrowing.ask(getApplication(), ShareTarget(b.address, b.port, b.fingerprint), b.route, kn.guestName, login = b.login, password = pw)
-        borrowJobs[id] = viewModelScope.launch {
+        lateinit var job: kotlinx.coroutines.Job
+        job = viewModelScope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
             try {
                 val first = Lend.borrow(ask)
                 val reply = if (first is BorrowReply.Pending) {
@@ -634,11 +635,17 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     is BorrowReply.Pending -> {}
                 }
             } finally {
-                _borrowing.value = _borrowing.value - id
-                borrowJobs.remove(id)
+                // `Lend.borrow` ne s'annule pas : ce `finally` peut venir jusqu'à 30 s après « Annuler ». Une nouvelle demande
+                // du même ordinateur a pu partir entre-temps : elle garde son état (AND-17).
+                if (borrowJobs[id] === job) {
+                    _borrowing.value = _borrowing.value - id
+                    borrowJobs.remove(id)
+                }
                 checkFriend(b)
             }
         }
+        borrowJobs[id] = job
+        job.start()
     }
 
     /** « Annuler » l'attente de l'hôte (ou la préparation) : la demande est retirée chez l'hôte. */
@@ -812,7 +819,13 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         _waking.value = _waking.value + id
         viewModelScope.launch {
             val code = withContext(Dispatchers.IO) { Native.wake(WakeTarget.toJson(targets)) }
-            if (code != 0) android.util.Log.w("KyberNow", "réveil : aucun paquet parti ($code)")
+            if (code != 0) {
+                // Rien n'est parti : pas deux minutes de « Réveil de l'ordinateur… » pour rien, on réessaie tout de suite (AND-21).
+                android.util.Log.w("KyberNow", "réveil : aucun paquet parti ($code)")
+                _waking.value = _waking.value - id
+                retry(id)
+                return@launch
+            }
             val start = System.currentTimeMillis()
             while (System.currentTimeMillis() - start < 120_000) {
                 delay(2000)

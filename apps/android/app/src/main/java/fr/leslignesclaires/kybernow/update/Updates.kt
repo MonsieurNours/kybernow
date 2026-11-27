@@ -116,7 +116,8 @@ class Updates(private val context: Context) {
         job = scope.launch {
             val json = runCatching { JSONObject(Native.updateCheck(BuildConfig.VERSION_NAME, _beta.value)) }.getOrNull()
             prefs.edit().putLong("last_check", System.currentTimeMillis()).apply()
-            _state.value = when {
+            // Un champ absent ou d'un autre type ne fait pas tomber l'app (AND-24) : la recherche échoue, simplement.
+            _state.value = runCatching { when {
                 json == null -> UpdateState.Failed("?", null)
                 json.has("error") -> UpdateState.Failed(json.getString("error"), null)
                 json.has("available") -> {
@@ -128,7 +129,7 @@ class Updates(private val context: Context) {
                     else UpdateState.Available(version, a.optString("notes"), a.optString("page"), a.getLong("size"))
                 }
                 else -> UpdateState.UpToDate(System.currentTimeMillis())
-            }
+            } }.getOrElse { UpdateState.Failed(it.message ?: "?", null) }
             Log.i(TAG, "mise à jour : ${_state.value}")
         }
     }

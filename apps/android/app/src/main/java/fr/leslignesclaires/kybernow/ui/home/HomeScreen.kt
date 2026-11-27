@@ -294,9 +294,11 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
             hdrScreen = hdrScreen.hdr, hdrDecoder = PsHdr.decoder,
         )
     }
-    DisposableEffect(Unit) {
+    // Au premier plan seulement : l'accueil reste composé pendant une session, et la recherche diffusait toutes les 3 s
+    // sur le Wi-Fi, verrou de multidiffusion tenu, pendant le streaming (AND-19).
+    androidx.lifecycle.compose.LifecycleStartEffect(Unit) {
         ps.start()
-        onDispose { ps.stop() }
+        onStopOrDispose { ps.stop() }
     }
     HomeContent(
         HomeState(

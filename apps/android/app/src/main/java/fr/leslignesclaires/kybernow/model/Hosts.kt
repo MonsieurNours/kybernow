@@ -411,10 +411,7 @@ class HostStore(private val context: Context) {
         get() = prefs.getString("selected", null)
         set(v) = prefs.edit().putString("selected", v).apply()
 
-    private fun load(): List<Host> = runCatching {
-        val a = JSONArray(prefs.getString("list", "[]"))
-        (0 until a.length()).map { Host.parse(a.getJSONObject(it)) }
-    }.getOrDefault(emptyList())
+    private fun load(): List<Host> = parseEach(prefs.getString("list", "[]")) { Host.parse(it) }
 
     private fun save(list: List<Host>) {
         val a = JSONArray()
@@ -427,10 +424,7 @@ class HostStore(private val context: Context) {
 
     // MARK: - Ordinateurs prêtés par des amis
 
-    private fun loadBorrowed(): List<BorrowedComputer> = runCatching {
-        val a = JSONArray(prefs.getString("borrowed", "[]"))
-        (0 until a.length()).map { BorrowedComputer.parse(a.getJSONObject(it)) }
-    }.getOrDefault(emptyList())
+    private fun loadBorrowed(): List<BorrowedComputer> = parseEach(prefs.getString("borrowed", "[]")) { BorrowedComputer.parse(it) }
 
     private fun saveBorrowed(list: List<BorrowedComputer>) {
         val a = JSONArray()

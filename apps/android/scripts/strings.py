@@ -293,6 +293,7 @@ S = [
 ("settings_mac_enter", "Saisir l'adresse MAC", "Enter the MAC address"),
 ("settings_mac_help", "Pour une Station qui ne la donne pas encore : l'adresse matérielle de la carte réseau de l'ordinateur, envoyée en plus de celles qu'Admin donne.", "For a Station that does not give it yet: the hardware address of the computer's network card, sent as well as those Admin gives."),
 ("settings_mac", "Adresse MAC", "MAC address"),
+("settings_mac_invalid", "Cette adresse MAC n'est pas valable : 12 chiffres et lettres de A à F, comme 3C:7C:3F:1A:2B:4C.", "This MAC address is not valid: 12 digits and letters from A to F, like 3C:7C:3F:1A:2B:4C."),
 # Statistiques (docs/link-ui.md, « Statistiques »)
 ("last_title", "Dernière session", "Last session"),
 ("last_median", "médiane", "median"),
