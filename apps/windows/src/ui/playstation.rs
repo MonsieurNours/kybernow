@@ -33,6 +33,7 @@ use kybernow_core::playstation::psn;
 use kybernow_core::playstation::regist::{self, PsnId, RegistError, Registered, TargetName};
 use kybernow_core::playstation::remote::{Remote, RemoteError};
 use kybernow_core::playstation::settings::PlaySettings;
+use kybernow_core::share::format_code;
 use kybernow_core::relay::RouteInfo;
 
 use super::{UiState, console_via, emit_sessions, show_action, show_home_if_idle};
@@ -327,7 +328,7 @@ pub fn ps_login(app: AppHandle) -> Result<Option<KeptAccount>, String> {
 /// « Saisir l'identifiant à la main ».
 #[tauri::command(async)]
 pub fn ps_account_manual(app: AppHandle, psn_id: String, name: String) -> Result<KeptAccount, String> {
-    let Some(id) = consoles::valid_psn_id(&psn_id) else { return Err(t("ps.bad_account_id", &[])) };
+    let Some(id) = kybernow_core::playstation::bundle::valid_psn_id(&psn_id) else { return Err(t("ps.bad_account_id", &[])) };
     kept_account(&app, &id, Some(&name))
 }
 
@@ -1111,7 +1112,7 @@ pub fn ps_handoff_send(app: AppHandle, address: String, name: String, code: Stri
         computers.iter().find(|c| c.id == id).map(|c| BundleStation { id: c.id.clone(), name: c.name.clone(), address: c.host.clone(), fingerprint: c.fingerprint.clone() })
     };
     let bundle = with(&app, |c| c.bundle(&device_name(&app), &WinSecrets, &station));
-    let json = serde_json::to_string(&bundle).map_err(|e| e.to_string())?;
+    let json = bundle.to_json();
     let digits: String = code.chars().filter(char::is_ascii_digit).collect();
     log::info!("PlayStation : envoi de {} compte(s) et {} console(s) à un appareil", bundle.accounts.len(), bundle.consoles.len());
     match handoff::send(to, &digits, &json) {
@@ -1142,7 +1143,8 @@ fn received_text(accounts: usize, consoles: usize) -> String {
 }
 
 /// « Recevoir d'un autre appareil » : commence (`on`) ou arrête l'attente ;
-/// rend le code à 6 chiffres. La suite par `ps-handoff`.
+/// rend le code à 6 chiffres tel qu'il se montre (« 123 456 »,
+/// `share::format_code` du cœur). La suite par `ps-handoff`.
 #[tauri::command(async)]
 pub fn ps_handoff_receive(app: AppHandle, on: bool) -> Result<Option<String>, String> {
     let p = ps(&app);
@@ -1165,7 +1167,7 @@ pub fn ps_handoff_receive(app: AppHandle, on: bool) -> Result<Option<String>, St
         while !stop.load(Ordering::Relaxed) {
             match receiver.next(Duration::from_millis(500)) {
                 Some(handoff::Event::Received(json)) => {
-                    let Ok(bundle) = serde_json::from_str::<Bundle>(&json) else {
+                    let Some(bundle) = Bundle::parse(&json) else {
                         log::warn!("PlayStation : paquet reçu illisible");
                         continue;
                     };
@@ -1174,7 +1176,7 @@ pub fn ps_handoff_receive(app: AppHandle, on: bool) -> Result<Option<String>, St
                     let _ = a.emit_to("main", "ps-handoff", HandoffEvent::Received { text: received_text(accounts, consoles) });
                 }
                 Some(handoff::Event::NewCode(code)) => {
-                    let _ = a.emit_to("main", "ps-handoff", HandoffEvent::NewCode { code });
+                    let _ = a.emit_to("main", "ps-handoff", HandoffEvent::NewCode { code: format_code(&code) });
                 }
                 Some(handoff::Event::Expired) => {
                     let _ = a.emit_to("main", "ps-handoff", HandoffEvent::Expired);
@@ -1189,22 +1191,16 @@ pub fn ps_handoff_receive(app: AppHandle, on: bool) -> Result<Option<String>, St
             *r = None;
         }
     });
-    Ok(Some(code))
+    Ok(Some(format_code(&code)))
 }
 
 /// Un paquet reçu, fusionné ; ses Stations reliées aux ordinateurs de l'app
-/// par l'identifiant, sinon l'empreinte, sinon l'adresse.
+/// par `BundleStation::matches` (identifiant, empreinte d'Admin, adresse).
 fn merge(app: &AppHandle, bundle: &Bundle) -> (usize, usize) {
     let state = app.state::<UiState>();
     let computers = state.with_store(|s| s.computers.clone());
-    let station = |s: &BundleStation| {
-        computers
-            .iter()
-            .find(|c| c.id == s.id)
-            .or_else(|| s.fingerprint.as_ref().and_then(|fp| computers.iter().find(|c| c.fingerprint.as_deref() == Some(fp.as_str()))))
-            .or_else(|| (!s.address.is_empty()).then(|| computers.iter().find(|c| c.host == s.address)).flatten())
-            .map(|c| c.id.clone())
-    };
+    // La règle du cœur : même identifiant, même empreinte d'Admin, ou même adresse.
+    let station = |s: &BundleStation| computers.iter().find(|c| s.matches(&c.id, c.fingerprint.as_deref(), &c.host)).map(|c| c.id.clone());
     let counts = with(app, |c| c.merge(&mut WinSecrets, bundle, &station));
     save(app);
     emit_state(app);

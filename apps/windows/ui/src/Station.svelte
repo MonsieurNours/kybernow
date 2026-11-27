@@ -19,8 +19,8 @@
   import { t } from './lib/i18n/index.svelte'
 
   let { computer, accountName = null, onremoved }: { computer: Computer; accountName?: string | null; onremoved: () => void } = $props()
-  /** Le relais d'un ordinateur d'un compte, tel qu'on le montre (sans empreinte). */
-  const relayLabel = $derived(computer.account ? computer.account.relay.split('#')[0] : '')
+  /** Le relais d'un ordinateur d'un compte, tel qu'on le montre (sans empreinte, mis en forme par l'app). */
+  const relayLabel = $derived(computer.relay_label)
 
   type Kind = 'restart' | 'update'
 

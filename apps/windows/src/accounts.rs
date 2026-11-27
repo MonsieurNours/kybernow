@@ -38,12 +38,6 @@ pub fn several_relays(accounts: &[Account]) -> bool {
     accounts.iter().any(|a| a.relay != accounts[0].relay)
 }
 
-/// Même empreinte d'Admin, sans égard à la casse ni aux espaces (comme le cœur).
-pub fn same_fingerprint(a: &str, b: &str) -> bool {
-    let (a, b) = (a.trim(), b.trim());
-    !a.is_empty() && a.eq_ignore_ascii_case(b)
-}
-
 /// Un compte dans les réglages de l'app (« Comptes ») : jamais son jeton.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AccountView {
@@ -240,12 +234,5 @@ mod tests {
         assert_eq!(o["p1"], "Account · share.kybernow.app");
         assert!(several_relays(&[lea.clone(), compte("relais.exemple.org:9443", "acc_9", "", "")]));
         assert!(!several_relays(&[lea.clone(), compte("share.kybernow.app", "acc_9", "", "")]));
-    }
-
-    #[test]
-    fn empreintes() {
-        assert!(same_fingerprint(" sha256:AA ", "sha256:aa"));
-        assert!(!same_fingerprint("", ""));
-        assert!(!same_fingerprint("sha256:aa", "sha256:ab"));
     }
 }

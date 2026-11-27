@@ -390,7 +390,15 @@ const offerOf = (c: (typeof computers)[number]): StationOffer => {
   return { banner: { kind: away ? 'away' : 'update', version }, chip }
 }
 /** Les ordinateurs tels que l'app les envoie (copie JSON, avec leur `offer`). */
-const computerViews = () => structuredClone(computers).map((c) => ({ ...c, offer: offerOf(c) }))
+/** L'empreinte telle que l'app la met en forme (`console::short_fingerprint` du cœur : « 7C41 E09B AABB CCDD »). */
+const shortFp = (f: string | null | undefined) => (f ?? '').replace(/^sha256:/i, '').replace(/[^0-9a-f]/gi, '').slice(0, 16).toUpperCase().match(/.{1,4}/g)?.join(' ') ?? ''
+const computerViews = () =>
+  structuredClone(computers).map((c) => ({
+    ...c,
+    fingerprint_short: shortFp(c.fingerprint),
+    relay_label: (c as { account?: { relay: string } | null }).account?.relay.split('#')[0] ?? '',
+    offer: offerOf(c),
+  }))
 /** Un appareil est en session sur Bureau-Salon (`?maj=session`) : refusé tant qu'on ne force pas. */
 const stationInSession = (a: Record<string, unknown>) => majFlags.includes('session') && a.id === 'a1' && !a.force
 let noticeTaken = false
@@ -1249,7 +1257,8 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   },
   probe_address: async (a) => {
     await sleep(500)
-    return { host: a.host, port: a.port, name: null, fingerprint: 'sha256:9f:3a:c2:71:0d:5e:88:b4' }
+    const fingerprint = 'sha256:9f:3a:c2:71:0d:5e:88:b4'
+    return { host: a.host, port: a.port, name: null, fingerprint, fingerprint_short: shortFp(fingerprint) }
   },
   parse_link: (a) => {
     const m = String(a.link).match(/^kybernow:\/\/([^:/?]+):(\d+)/)
@@ -1904,7 +1913,7 @@ const psCommands: Record<string, (a: Record<string, unknown>) => unknown> = {
       psHandoffTimer = null
       emit('ps-handoff', (flags.get('recevoir') === 'expire' ? { event: 'expired' } : { event: 'received', text: t('mock.ps_received') }) satisfies PsHandoffEvent)
     }, 6000)
-    return '482913'
+    return '482 913'
   },
   // La barre d'une partie : le son, la souris, le plein écran changent ; « Se déconnecter » et la veille la ferment.
   session_command: (a) => {

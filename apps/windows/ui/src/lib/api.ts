@@ -198,6 +198,10 @@ export type Computer = {
   port: number
   user: string
   fingerprint: string | null
+  /** L'empreinte telle que link-ui la montre (« 7C41 E09B AABB CCDD », l'app la met en forme) ; vide sans empreinte. */
+  fingerprint_short: string
+  /** Le relais d'un ordinateur d'un compte, tel qu'on le montre (sans empreinte) ; vide sinon. */
+  relay_label: string
   os: string
   gpu: string | null
   settings: Settings
@@ -335,7 +339,8 @@ export const stationBannerFor = (c: { offer?: StationOffer | null } | null | und
 
 export type Found = { id: string; name: string; host: string; port: number; fingerprint: string | null }
 
-export type Candidate = { host: string; port: number; name: string | null; fingerprint: string | null }
+/** `fingerprint_short` : l'empreinte à comparer à celle d'Admin (« 7C41 E09B AABB CCDD », donnée par l'app). */
+export type Candidate = { host: string; port: number; name: string | null; fingerprint: string | null; fingerprint_short?: string }
 
 export type ThisPc = {
   name: string
@@ -827,10 +832,6 @@ export function moment(at: number, now = Date.now()) {
   return t('time.on_day', { day: date.toLocaleDateString(locale, { day: 'numeric', month: 'long' }) })
 }
 
-/** Les quatre premiers groupes de l'empreinte d'Admin, comme Admin les montre (« 7C41 E09B AABB CCDD »). */
-export const fingerprintGroups = (fp: string | null) =>
-  (fp ?? '').replace(/^sha256:/, '').replaceAll(':', '').toUpperCase().match(/.{1,4}/g) ?? []
-
 /** Noms des profils tels que le côté Rust les écrit (« Bureau · HEVC 4:4:4 » : barre, et dernière session de la 0.4.x). */
 const profileNames: Record<string, string> = { Jeu: 'jeu', Bureau: 'bureau', Max: 'max', Auto: 'auto', Personnalisé: 'custom' }
 
@@ -1089,6 +1090,7 @@ export type PsSettingsView = { id: string; name: string; model: PsModel; setting
 /** Un appareil qui attend un envoi (`ps_handoff_discover`) : `platform` `macos`, `ios`, `ipados`, `tvos`, `windows`, `linux`, `steamdeck`, `raspberrypi`, `android`, `androidtv`, `webos` ; `address` « ip:port ». */
 export type PsWaiting = { name: string; platform: string; address: string }
 /** Événement `ps-handoff` (attente d'un envoi, « Recevoir d'un autre appareil ») : reçu (`text` : « 2 comptes et 1 console reçus. »), nouveau code (après 3 échecs), expiré (5 min). */
+/** `code` : déjà mis en forme par l'app (« 482 913 », `format_code` du cœur). */
 export type PsHandoffEvent = { event: 'received'; text: string } | { event: 'new_code'; code: string } | { event: 'expired' }
 /** Barre d'une partie (dans `bar-shown`, champ `console`, et événement `ps-bar`) : `pad` une manette est branchée (pas de « Prendre la souris ») ; `captured` souris prise ; `muted` ; `fullscreen` ; `pad_mode` la barre est pilotée par la manette (ouverte par Options + Create + L1 + R1). */
 export type PsBar = { id: string; name: string; pad: boolean; captured: boolean; muted: boolean; fullscreen: boolean; pad_mode: boolean }
@@ -1157,9 +1159,6 @@ const platformNames: Record<string, string> = {
   webos: 'LG',
 }
 export const psPlatform = (p: string) => platformNames[p] ?? p
-
-/** « 482 913 » : un code à 6 chiffres, en deux groupes de trois. */
-export const psGroupCode = (code: string) => code.replace(/^(\d{3})(\d{3})$/, '$1 $2')
 
 /** Identifiant de compte saisi à la main : 8 octets en base64 (12 caractères). */
 export function psValidId(id: string) {

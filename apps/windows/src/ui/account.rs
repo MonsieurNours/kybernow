@@ -273,7 +273,7 @@ pub(super) fn paired_of(c: &Computer) -> Paired {
 fn seen_on_network(app: &AppHandle, fingerprint: Option<&str>) -> Option<Found> {
     let fp = fingerprint?;
     let found = app.state::<UiState>().discovery.get()?.list();
-    found.into_iter().find(|f| f.fingerprint.as_deref().is_some_and(|x| rules::same_fingerprint(x, fp)))
+    found.into_iter().find(|f| kybernow_core::console::same_fingerprint_opt(f.fingerprint.as_deref(), Some(fp)))
 }
 
 /// Ce que le compte dit de l'ordinateur, sur son entrée de l'accueil : le nom

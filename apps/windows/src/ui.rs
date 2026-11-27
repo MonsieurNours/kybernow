@@ -157,6 +157,12 @@ fn serve_image(app: &AppHandle, path: &str) -> tauri::http::Response<Vec<u8>> {
 pub struct ComputerView {
     #[serde(flatten)]
     computer: Computer,
+    /// L'empreinte d'Admin telle que link-ui la montre (« 7C41 E09B AABB CCDD »,
+    /// `console::short_fingerprint`, TRANS-34) ; vide sans empreinte.
+    fingerprint_short: String,
+    /// Le relais d'un ordinateur d'un compte, tel qu'on le montre
+    /// (`account::relay_label`, sans empreinte) ; vide sinon.
+    relay_label: String,
     online: Option<bool>,
     /// Joignable seulement par le relais (état « Hors de chez vous », docs/relais.md).
     away: bool,
@@ -191,6 +197,18 @@ pub struct Candidate {
     pub port: u16,
     pub name: Option<String>,
     pub fingerprint: Option<String>,
+    /// L'empreinte à comparer à celle qu'Admin affiche (« 7C41 E09B AABB
+    /// CCDD », `console::short_fingerprint`) ; rendue par l'interface sans
+    /// être relue.
+    #[serde(default, skip_deserializing)]
+    pub fingerprint_short: String,
+}
+
+impl Candidate {
+    fn new(host: String, port: u16, name: Option<String>, fingerprint: Option<String>) -> Self {
+        let fingerprint_short = fingerprint.as_deref().map(console::short_fingerprint).unwrap_or_default();
+        Self { host, port, name, fingerprint, fingerprint_short }
+    }
 }
 
 struct Pairing {
@@ -602,7 +620,9 @@ impl UiState {
                 let via_relay = l.away || relayed.contains(&c.id);
                 let lend = l.lend.as_ref().and_then(crate::lending::HomeLend::of);
                 let origin = origins.remove(&c.id);
-                ComputerView { computer: c, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending, lend, origin, offer }
+                let fingerprint_short = c.fingerprint.as_deref().map(console::short_fingerprint).unwrap_or_default();
+                let relay_label = c.account.as_ref().map(|a| kybernow_core::account::relay_label(&a.relay)).unwrap_or_default();
+                ComputerView { computer: c, fingerprint_short, relay_label, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending, lend, origin, offer }
             })
             .collect()
     }
@@ -772,8 +792,32 @@ fn emit_computers(app: &AppHandle) {
     let views = state.views();
     shell::update_jump_list(views.iter().map(|v| (v.computer.id.clone(), v.computer.name.clone())).collect());
     let _ = app.emit_to("main", "computers", views);
+    // Un ordinateur ajouté ou retiré : la Station trouvée sur le réseau part ou revient.
+    emit_discovered(app);
     emit_bar_computers(app);
     tray::refresh();
+}
+
+/// Les Stations trouvées sur le réseau qui ne sont pas déjà à l'accueil :
+/// même adresse et même port qu'un ordinateur, ou la même empreinte d'Admin
+/// qu'un ordinateur d'un compte (la règle du cœur, `console::same_fingerprint`,
+/// TRANS-34 : préfixe, deux-points, espaces et casse ignorés).
+fn fresh_found(state: &UiState) -> Vec<Found> {
+    let list = state.discovery.get().map(|d| d.list()).unwrap_or_default();
+    state.with_store(|s| {
+        list.into_iter()
+            .filter(|f| {
+                !s.computers.iter().any(|c| {
+                    (c.host == f.host && c.port == f.port) || (c.account.is_some() && console::same_fingerprint_opt(c.fingerprint.as_deref(), f.fingerprint.as_deref()))
+                })
+            })
+            .collect()
+    })
+}
+
+/// La liste des Stations trouvées pour l'accueil (`fresh_found`).
+fn emit_discovered(app: &AppHandle) {
+    let _ = app.emit_to("main", "discovered", fresh_found(&app.state::<UiState>()));
 }
 
 /// Les sessions ont changé (une de plus, une de moins) : l'accueil (« Afficher
@@ -1547,7 +1591,7 @@ fn snapshot(app: AppHandle, state: tauri::State<'_, UiState>) -> Snapshot {
     sessions.extend(playstation::session_ids(&app));
     Snapshot {
         computers: state.views(),
-        discovered: state.discovery.get().map(|d| d.list()).unwrap_or_default(),
+        discovered: fresh_found(&state),
         this_pc: state.this_pc.locked().clone(),
         sessions,
         version: env!("CARGO_PKG_VERSION").into(),
@@ -1561,12 +1605,7 @@ fn probe_address(host: String, port: u16) -> Result<Candidate, String> {
     let console = Console::new(host.trim(), port, "", "", None);
     let info = console.probe().map_err(|e| e.to_string())?;
     let fingerprint = console.fingerprint_seen().ok_or_else(|| t("errors.no_certificate", &[]))?;
-    Ok(Candidate {
-        host: host.trim().into(),
-        port,
-        name: info.map(|i| i.hostname).filter(|n| !n.is_empty()),
-        fingerprint: Some(fingerprint),
-    })
+    Ok(Candidate::new(host.trim().into(), port, info.map(|i| i.hostname).filter(|n| !n.is_empty()), Some(fingerprint)))
 }
 
 fn percent_decode(s: &str) -> String {
@@ -1612,7 +1651,7 @@ pub fn parse_link_text(link: &str) -> Result<Candidate, String> {
             _ => {}
         }
     }
-    Ok(Candidate { host, port, name, fingerprint })
+    Ok(Candidate::new(host, port, name, fingerprint))
 }
 
 #[tauri::command(async)]
@@ -4679,9 +4718,7 @@ pub fn run(args: Vec<String>) {
                 let _ = h.emit_to("main", "this-pc", pc);
             });
             let h = handle.clone();
-            let d = discovery::start(move |list| {
-                let _ = h.emit_to("main", "discovered", list);
-            });
+            let d = discovery::start(move |_| emit_discovered(&h));
             let _ = handle.state::<UiState>().discovery.set(d);
             let h = handle.clone();
             std::thread::spawn(move || poll(h));

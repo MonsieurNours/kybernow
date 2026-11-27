@@ -102,6 +102,7 @@
     onpairedlater,
   }: {
     computers: Computer[]
+    /** Les Stations trouvées sur le réseau, sans celles déjà à l'accueil (l'app les écarte, règle d'empreinte du cœur). */
     discovered: Found[]
     thisPc: ThisPc | null
     battery: Battery
@@ -182,10 +183,7 @@
   let accountMenu = $state(false)
   const chosenAccount = $derived(selectedConsole ? (selectedConsole.accounts.find((a) => a.id === selectedConsole!.chosen) ?? selectedConsole.accounts[0] ?? null) : null)
 
-  /** Même empreinte d'Admin, sans égard à la casse ni aux espaces. */
-  const sameFp = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase()
   // Un ordinateur d'un compte vu sur le réseau n'est pas « Sur le réseau » à ajouter : même empreinte d'Admin.
-  const fresh = $derived(discovered.filter((f) => !computers.some((c) => (c.host === f.host && c.port === f.port) || (!!c.account && sameFp(c.fingerprint, f.fingerprint)))))
 
   const stateOf = (c: Computer, searching = false) =>
     c.waking && !c.online
@@ -574,7 +572,7 @@
           </span>
         </button>
       {/each}
-      {#each fresh as f (f.id)}
+      {#each discovered as f (f.id)}
         <button class="card found" aria-label={t('home.add_named', { name: f.name })} onclick={() => onadd(f)}>
           <span class="label">
             <span class="name">{f.name}</span>
