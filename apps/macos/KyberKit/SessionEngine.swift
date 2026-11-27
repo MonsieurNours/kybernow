@@ -445,7 +445,6 @@ public final class SessionEngine: @unchecked Sendable {
     /// sur le fil principal ; la capture suit déjà (captée tant que `capturing`).
     public var onMicrophone: ((MicState) -> Void)?
     /// L'état du micro au dernier changement (fil principal).
-    public private(set) var microphoneState: MicState = .off
 
     // MARK: Caméra de l'appareil (docs/webcam.md)
 
@@ -1073,7 +1072,6 @@ public final class SessionEngine: @unchecked Sendable {
     /// Le cœur dit l'état du micro : la capture démarre ou s'arrête, puis l'app le sait.
     private func microphoneChanged(_ state: MicState) {
         guard !ended else { return }
-        microphoneState = state
         #if os(macOS) || os(iOS)
         if state.capturing, microphoneCapture == nil {
             let capture = MicrophoneCapture { [weak self] samples, count, rate in
@@ -1562,6 +1560,11 @@ public final class SessionEngine: @unchecked Sendable {
             return nil
         }
         pipeline.renderer.vsync = vsync
+        // Blanc SDR réglé pour cet écran (calibrage HDR, couche `linear`) :
+        // celui de l'écran de la session ; plusieurs écrans : 203 nits (MAC-36).
+        if primaryScreen == nil, let white = params?.screenLuminance?.sdrWhite, white > 0 {
+            pipeline.renderer.sdrWhite = white
+        }
         pipeline.renderer.paused = occluded || (primaryScreen != nil && occludedScreens.contains(screen))
         if primaryScreen != nil { pipeline.renderer.label = "écran \(screen)" }
         pipeline.renderer.topMarker = topMarker
@@ -1676,16 +1679,6 @@ public final class SessionEngine: @unchecked Sendable {
 // MARK: - Latence : le rendu parle au cœur
 
 extension SessionEngine: LatencyReporting {
-    func received(bytes: Int) {
-        if let s = live { kn_session_bytes_received(s, UInt(bytes)) }
-    }
-
-    func hole() {
-        if let s = live { kn_session_hole(s) }
-    }
-
-    func keyframeRequested() {}
-
     func skipped(pts: UInt64) {
         if let s = live { kn_session_frame_skipped(s, pts) }
     }
