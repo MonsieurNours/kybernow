@@ -273,7 +273,12 @@
     "unknownRequest": "This request is no longer waiting.",
     "noLend": "No loan in progress.",
     "unknownFriend": "This friend account no longer exists.",
-    "unknownApp": "This app is no longer allowed."
+    "unknownApp": "This app is no longer allowed.",
+    "steamKept": "A previous loan's Steam accounts aren't put back yet.",
+    "steamBadFiles": "Unreadable Steam files.",
+    "steamNotNow": "The host's Steam accounts are put back at the end of the loan.",
+    "steamNone": "No Steam account to put back.",
+    "steamAgentOnly": "Reserved to KyberNow Station's console agent."
   },
   "macos": {
     "station": {

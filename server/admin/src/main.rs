@@ -29,6 +29,7 @@ mod launch;
 mod lend;
 mod lend_api;
 mod lend_last;
+mod lend_steam;
 mod lend_sys;
 mod local_token;
 mod logs;

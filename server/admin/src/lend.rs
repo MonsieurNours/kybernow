@@ -751,6 +751,33 @@ pub struct Loan {
 }
 
 impl Loan {
+    /// Un prêt en mise en place, pour les essais.
+    #[cfg(test)]
+    pub fn for_tests(id: &str) -> Loan {
+        Loan {
+            id: id.to_string(),
+            secret: random_hex(32),
+            cookie: None,
+            who: Who::new("Léa", "ipad", "ios", false, Kind::Code, None),
+            since: now_secs(),
+            until: None,
+            steam: Steam::Friend,
+            phase: Phase::Preparing,
+            notice: None,
+            display: None,
+            display_hdr: false,
+            last_beat: Instant::now(),
+            connected: true,
+            beaten: false,
+            end_reason: None,
+            console_ready: false,
+            console_beat: None,
+            console_restarts: 0,
+            request: None,
+            image_error: None,
+        }
+    }
+
     pub fn secret(&self) -> &str {
         &self.secret
     }

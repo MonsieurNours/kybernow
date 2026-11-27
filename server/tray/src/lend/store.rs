@@ -3,7 +3,11 @@
 //! plein prêt soit réparé au prochain `--console` ou au démarrage de l'icône :
 //! les fenêtres réduites (et leur place), Steam (s'il tournait, la connexion
 //! automatique, les fichiers mis de côté). Et la mise de côté des fichiers de
-//! Steam elle-même. Sans Windows, pour les essais sur le Mac.
+//! Steam elle-même : sous Windows, leur contenu est confié à Admin (SYSTEM,
+//! [`Keeper`]) et les originaux effacés, pour que l'ami, qui joue avec le
+//! même compte, ne puisse pas les lire (STWIN-14) ; sur Mac et sous Linux,
+//! Admin tourne avec ce même compte : ils sont renommés à côté. Sans
+//! Windows, pour les essais sur le Mac.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -37,6 +41,19 @@ pub struct Steam {
     pub auto_login: Option<String>,
     /// Fichiers mis de côté, et s'ils existaient avant le prêt.
     pub files: Vec<(PathBuf, bool)>,
+    /// Leur contenu est gardé par Admin (Windows), pas renommé à côté.
+    pub held: bool,
+}
+
+/// Admin qui garde le contenu des fichiers de Steam de l'hôte pendant le
+/// prêt (Windows : `/api/local/lend/console/steam/*`).
+pub trait Keeper {
+    /// Les confie à Admin (sur son disque avant la réponse).
+    fn keep(&self, lend: &str, files: &[(String, Vec<u8>)]) -> anyhow::Result<()>;
+    /// Ce qu'Admin garde pour ce prêt ; `Ok(None)` : rien (déjà remis).
+    fn back(&self, lend: &str) -> anyhow::Result<Option<Vec<(String, Vec<u8>)>>>;
+    /// Remis : Admin peut les oublier.
+    fn restored(&self, lend: &str);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +81,7 @@ impl Saved {
                 "was_running": s.was_running,
                 "auto_login": s.auto_login,
                 "files": s.files.iter().map(|(p, existed)| json!({"path": p.to_string_lossy(), "existed": existed})).collect::<Vec<_>>(),
+                "held": s.held,
             })),
         })
     }
@@ -89,6 +107,8 @@ impl Saved {
                 .flatten()
                 .filter_map(|f| Some((PathBuf::from(f["path"].as_str()?), f["existed"].as_bool()?)))
                 .collect(),
+            // Un état d'avant la 0.11.8 : fichiers renommés à côté.
+            held: s.get("held").and_then(Value::as_bool).unwrap_or(false),
         });
         Some(Saved {
             lend: v["lend"].as_str()?.to_string(),
@@ -143,10 +163,11 @@ pub fn existing(files: &[PathBuf]) -> Vec<(PathBuf, bool)> {
     files.iter().map(|p| (p.clone(), p.is_file())).collect()
 }
 
-/// Met de côté les fichiers de l'utilisateur (déplacés, pas copiés : l'ami
-/// ne doit pas voir les comptes retenus). Jamais par-dessus une copie de côté
+/// Mac et Linux : met de côté les fichiers de l'utilisateur (déplacés, pas
+/// copiés : Steam de l'ami ne doit pas voir les comptes retenus). Jamais par-dessus une copie de côté
 /// déjà là (un prêt d'avant pas remis en état : ce sont peut-être les seuls
 /// fichiers de l'utilisateur) : rien ne bouge, erreur.
+#[cfg_attr(windows, allow(dead_code))]
 pub fn put_aside(files: &[(PathBuf, bool)]) -> io::Result<()> {
     if let Some((path, _)) = files.iter().find(|(path, _)| aside(path).exists()) {
         return Err(io::Error::new(io::ErrorKind::AlreadyExists, format!("{} existe déjà", aside(path).display())));
@@ -183,6 +204,53 @@ pub fn put_back(files: &[(PathBuf, bool)]) -> io::Result<()> {
     first
 }
 
+/// Le nom d'un fichier de Steam, tel qu'Admin le garde (`config.vdf`).
+pub fn name(path: &Path) -> String {
+    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// Le contenu des fichiers de l'utilisateur qui existent, à confier à Admin.
+pub fn contents(files: &[(PathBuf, bool)]) -> io::Result<Vec<(String, Vec<u8>)>> {
+    files.iter().filter(|(path, existed)| *existed && path.is_file()).map(|(path, _)| Ok((name(path), std::fs::read(path)?))).collect()
+}
+
+/// Efface les fichiers listés (après les avoir confiés à Admin ; ou, à la
+/// fin, ceux de l'ami quand Admin ne répond pas). Va jusqu'au bout, et rend
+/// la première erreur.
+pub fn remove(files: &[(PathBuf, bool)]) -> io::Result<()> {
+    let mut first = Ok(());
+    for (path, _) in files {
+        if path.exists()
+            && let Err(e) = std::fs::remove_file(path)
+            && first.is_ok()
+        {
+            first = Err(e);
+        }
+    }
+    first
+}
+
+/// Réécrit les fichiers de l'utilisateur rendus par Admin, par-dessus ce que
+/// l'ami a laissé (fichier écrit à côté, puis renommé) ; un fichier qui
+/// n'existait pas avant le prêt est effacé (il tient les comptes de l'ami).
+pub fn write_back(files: &[(PathBuf, bool)], kept: &[(String, Vec<u8>)]) -> io::Result<()> {
+    let mut first = Ok(());
+    for (path, existed) in files {
+        let result = match kept.iter().find(|(n, _)| *n == name(path)) {
+            Some((_, data)) => {
+                let tmp = aside(path);
+                std::fs::write(&tmp, data).and_then(|()| std::fs::rename(&tmp, path))
+            }
+            None if !existed && path.exists() => std::fs::remove_file(path),
+            None => Ok(()),
+        };
+        if first.is_ok() {
+            first = result;
+        }
+    }
+    first
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,9 +275,14 @@ mod tests {
                 was_running: true,
                 auto_login: Some("matthieu".into()),
                 files: vec![(PathBuf::from(r"C:\Steam\config\loginusers.vdf"), true), (PathBuf::from(r"C:\Steam\config\config.vdf"), false)],
+                held: true,
             }),
         };
         assert_eq!(Saved::from_json(&saved.to_json()), Some(saved.clone()));
+        // L'état d'un agent d'avant la 0.11.8 : fichiers renommés à côté.
+        let mut old = saved.to_json();
+        old["steam"].as_object_mut().unwrap().remove("held");
+        assert!(!Saved::from_json(&old).unwrap().steam.unwrap().held);
         let none = Saved { steam: None, windows: vec![], ..saved };
         assert_eq!(Saved::from_json(&none.to_json()), Some(none));
         let dir = temp("etat");
@@ -257,6 +330,37 @@ mod tests {
         assert_eq!(put_aside(&existing(&files)).unwrap_err().kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(std::fs::read_to_string(aside(&files[0])).unwrap(), "seule copie de l'utilisateur");
         assert_eq!(std::fs::read_to_string(&files[0]).unwrap(), "comptes de l'ami d'avant");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Windows (STWIN-14) : le contenu confié à Admin, rien laissé à côté.
+    #[test]
+    fn fichiers_de_steam_gardes_par_admin() {
+        let dir = temp("garde");
+        let files = steam_files(&dir, Some(&dir.join("local")));
+        std::fs::create_dir_all(dir.join("local").join("Steam")).unwrap();
+        std::fs::write(&files[0], "comptes de l'utilisateur").unwrap();
+        std::fs::write(&files[2], "jeton de l'utilisateur").unwrap();
+        let noted = existing(&files);
+        let kept = contents(&noted).unwrap();
+        assert_eq!(kept, [("loginusers.vdf".to_string(), b"comptes de l'utilisateur".to_vec()), ("local.vdf".to_string(), b"jeton de l'utilisateur".to_vec())]);
+        remove(&noted).unwrap();
+        assert!(files.iter().all(|f| !f.exists() && !aside(f).exists()), "rien sur le disque pendant le prêt");
+        // L'ami se connecte : Steam écrit ses fichiers, dont config.vdf.
+        for f in &files {
+            std::fs::write(f, "de l'ami").unwrap();
+        }
+        write_back(&noted, &kept).unwrap();
+        assert_eq!(std::fs::read_to_string(&files[0]).unwrap(), "comptes de l'utilisateur");
+        assert!(!files[1].exists(), "config.vdf n'existait pas avant le prêt");
+        assert_eq!(std::fs::read_to_string(&files[2]).unwrap(), "jeton de l'utilisateur");
+        assert!(files.iter().all(|f| !aside(f).exists()));
+        // Admin injoignable à la fin : les fichiers de l'ami partent quand même.
+        for f in &files {
+            std::fs::write(f, "de l'ami").unwrap();
+        }
+        remove(&noted).unwrap();
+        assert!(files.iter().all(|f| !f.exists()));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

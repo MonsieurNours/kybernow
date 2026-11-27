@@ -273,7 +273,12 @@
     "unknownRequest": "Cette demande n'est plus en attente.",
     "noLend": "Aucun prêt en cours.",
     "unknownFriend": "Ce compte d'ami n'existe plus.",
-    "unknownApp": "Cette app n'est plus permise."
+    "unknownApp": "Cette app n'est plus permise.",
+    "steamKept": "Les comptes Steam d'un prêt d'avant ne sont pas encore remis.",
+    "steamBadFiles": "Fichiers de Steam illisibles.",
+    "steamNotNow": "Les comptes Steam de l'hôte se remettent à la fin du prêt.",
+    "steamNone": "Aucun compte Steam à remettre.",
+    "steamAgentOnly": "Réservé à l'agent de console de KyberNow Station."
   },
   "macos": {
     "station": {

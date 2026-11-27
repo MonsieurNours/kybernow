@@ -47,7 +47,7 @@ use wry::{WebContext, WebView, WebViewBuilder};
 
 use super::store::{self, Saved};
 use super::system::{self, Born, Hooks};
-use super::{App, Cover, CoverKey, Display, Last, Machine, Notice, Pad, Phase, Reply, Step, View, base64, clock_at, countdown, cover_key, cover_text, end_text, left, notice_text, ring, steam, wall_clock};
+use super::{App, Cover, CoverKey, Display, Last, Machine, Notice, Pad, Phase, Reply, Step, View, base64, unbase64, clock_at, countdown, cover_key, cover_text, end_text, left, notice_text, ring, steam, wall_clock};
 use crate::console::{self, Client};
 use crate::i18n::{self, Lang, tr};
 
@@ -249,13 +249,63 @@ pub fn repair_at_start() {
     system::release(lock);
 }
 
+/// Admin, qui garde le contenu des comptes Steam de l'hôte pendant un prêt
+/// (`/api/local/lend/console/steam/*`, Windows ; STWIN-14).
+struct AdminKeeper(Client);
+
+impl AdminKeeper {
+    fn new() -> AdminKeeper {
+        AdminKeeper(Client::new())
+    }
+
+    fn call(&self, route: &str, body: &Value) -> Result<crate::http::Reply> {
+        let port = console::port().context("KyberNow Admin introuvable")?;
+        self.0.local("POST", port, &format!("{ROUTE}/steam/{route}"), Some(body), Duration::from_secs(20))
+    }
+}
+
+impl store::Keeper for AdminKeeper {
+    fn keep(&self, lend: &str, files: &[(String, Vec<u8>)]) -> Result<()> {
+        let files: Vec<Value> = files.iter().map(|(name, data)| json!({ "name": name, "data": base64(data) })).collect();
+        let reply = self.call("keep", &json!({ "lend": lend, "files": files }))?;
+        if reply.status >= 300 {
+            anyhow::bail!("Admin refuse ({}) : {}", reply.status, String::from_utf8_lossy(&reply.body));
+        }
+        Ok(())
+    }
+
+    fn back(&self, lend: &str) -> Result<Option<Vec<(String, Vec<u8>)>>> {
+        let reply = self.call("back", &json!({ "lend": lend }))?;
+        if reply.status == 404 {
+            return Ok(None);
+        }
+        if reply.status >= 300 {
+            anyhow::bail!("Admin refuse ({}) : {}", reply.status, String::from_utf8_lossy(&reply.body));
+        }
+        let v: Value = serde_json::from_slice(&reply.body).context("réponse d'Admin illisible")?;
+        let files = v["files"].as_array().context("réponse d'Admin sans fichiers")?;
+        files
+            .iter()
+            .map(|f| Some((f["name"].as_str()?.to_string(), unbase64(f["data"].as_str()?)?)))
+            .collect::<Option<Vec<_>>>()
+            .map(Some)
+            .context("fichiers d'Admin illisibles")
+    }
+
+    fn restored(&self, lend: &str) {
+        if let Err(e) = self.call("restored", &json!({ "lend": lend })) {
+            system::log(&format!("comptes de Steam remis, Admin pas prévenu : {e:#}"));
+        }
+    }
+}
+
 /// Remise en état depuis l'état gardé : Steam, fenêtres, barre des tâches,
 /// curseur. L'état est effacé, sauf la part de Steam qui n'a pas pu être
 /// remise (réessayée au prochain démarrage de l'icône). Vrai si Steam est remis.
 fn finish(path: Option<&std::path::Path>, mut saved: Saved) -> bool {
     let steam_ok = match &saved.steam {
         None => true,
-        Some(s) => steam::restore(s).inspect_err(|e| system::log(&format!("Steam pas remis : {e:#}"))).is_ok(),
+        Some(s) => steam::restore(&saved.lend, s, &AdminKeeper::new()).inspect_err(|e| system::log(&format!("Steam pas remis : {e:#}"))).is_ok(),
     };
     // Après un redémarrage, les numéros de fenêtres ne valent plus rien.
     if (saved.boot - system::boot_time()).abs() < 120 {
@@ -508,7 +558,7 @@ impl Pilot {
         if v.steam_friend {
             let path = self.path.clone();
             let mut on_disk = saved.clone();
-            let switched = steam::switch(&exe, &mut |s| {
+            let switched = steam::switch(&exe, &v.lend, &AdminKeeper::new(), &mut |s| {
                 on_disk.steam = Some(s.clone());
                 path.as_deref().map_or(Ok(()), |p| store::save(p, &on_disk))
             });

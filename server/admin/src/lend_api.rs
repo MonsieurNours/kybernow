@@ -1485,6 +1485,81 @@ pub async fn console_ended(State(s): State<AppState>, ConnectInfo(peer): Connect
     Ok(Json(json!({ "ok": true })))
 }
 
+/// Les routes des comptes Steam : le jeton local et le vrai agent de console
+/// (`lend_steam::caller_is_agent`), jamais un autre programme de la session.
+fn steam_agent_only(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> LendResult<()> {
+    console_only(s, peer, headers)?;
+    if !crate::lend_steam::caller_is_agent(peer) {
+        return Err(LendError::new(StatusCode::FORBIDDEN, "agent_only", Msg::new("lend.steamAgentOnly")));
+    }
+    Ok(())
+}
+
+/// Les fichiers peuvent-ils sortir d'Admin ? Pas tant que l'ami joue : pendant
+/// la remise en état (il est déjà coupé), une fois le prêt fini, ou pendant la
+/// mise en place d'un nouveau prêt s'ils sont d'un prêt d'avant.
+fn steam_back_allowed(loan: Option<&lend::Loan>, kept_lend: &str) -> bool {
+    match loan {
+        None => true,
+        Some(l) if l.phase == lend::Phase::Ending => true,
+        Some(l) => l.id != kept_lend && l.phase == lend::Phase::Preparing,
+    }
+}
+
+/// `POST /api/local/lend/console/steam/keep` `{"lend", "files": [{"name", "data"}]}` :
+/// l'agent confie les comptes Steam de l'hôte avant de les effacer (« Son
+/// compte Steam », mise en place du prêt).
+pub async fn console_steam_keep(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, body: Bytes) -> LendResult<Json<Value>> {
+    steam_agent_only(&s, peer, &headers)?;
+    let kept = crate::lend_steam::parse(&json_body(&body)?).map_err(|_| LendError::new(StatusCode::BAD_REQUEST, "bad_files", Msg::new("lend.steamBadFiles")))?;
+    match s.lend.loan() {
+        Some(l) if l.id == kept.lend && l.phase != lend::Phase::Ending => {}
+        _ => return Err(LendError::new(StatusCode::CONFLICT, "no_lend", Msg::new("lend.noLend"))),
+    }
+    let data_dir = s.data_dir.clone();
+    let names: Vec<String> = kept.files.iter().map(|(n, _)| n.clone()).collect();
+    match tokio::task::spawn_blocking(move || crate::lend_steam::keep(&data_dir, &kept)).await {
+        Ok(Ok(())) => {
+            tracing::info!("prêt : comptes Steam de l'hôte gardés par Admin ({})", names.join(", "));
+            Ok(Json(json!({ "ok": true })))
+        }
+        Ok(Err(crate::lend_steam::KeepError::AlreadyKept)) => Err(LendError::new(StatusCode::CONFLICT, "already_kept", Msg::new("lend.steamKept"))),
+        _ => Err(LendError::new(StatusCode::INTERNAL_SERVER_ERROR, "io", Msg::new("lend.steamBadFiles"))),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct SteamLendBody {
+    lend: String,
+}
+
+/// `POST /api/local/lend/console/steam/back` `{"lend"}` : les comptes Steam
+/// de l'hôte, pour que l'agent les réécrit ; gardés jusqu'à `restored`.
+pub async fn console_steam_back(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<SteamLendBody>) -> LendResult<Json<Value>> {
+    steam_agent_only(&s, peer, &headers)?;
+    let data_dir = s.data_dir.clone();
+    let kept = tokio::task::spawn_blocking(move || crate::lend_steam::load(&data_dir)).await.ok().flatten();
+    let Some(kept) = kept.filter(|k| k.lend == body.lend) else {
+        return Err(LendError::new(StatusCode::NOT_FOUND, "none", Msg::new("lend.steamNone")));
+    };
+    if !steam_back_allowed(s.lend.loan().as_ref(), &kept.lend) {
+        return Err(LendError::new(StatusCode::CONFLICT, "lending", Msg::new("lend.steamNotNow")));
+    }
+    Ok(Json(crate::lend_steam::answer(&kept)))
+}
+
+/// `POST /api/local/lend/console/steam/restored` `{"lend"}` : l'agent a remis
+/// les comptes Steam de l'hôte ; Admin les oublie.
+pub async fn console_steam_restored(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<SteamLendBody>) -> LendResult<Json<Value>> {
+    steam_agent_only(&s, peer, &headers)?;
+    let data_dir = s.data_dir.clone();
+    let lend = body.lend.clone();
+    if tokio::task::spawn_blocking(move || crate::lend_steam::forget(&data_dir, &lend)).await.unwrap_or(false) {
+        tracing::info!("prêt : comptes Steam de l'hôte remis par l'agent");
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
 /// L'icône d'une app permise, pour le lanceur.
 pub async fn console_icon(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Path(name): Path<String>) -> Response {
     if let Err(e) = console_only(&s, peer, &headers) {
@@ -1635,6 +1710,73 @@ mod tests {
         let mut h = HeaderMap::new();
         h.insert(LEND_HEADER, secret.parse().unwrap());
         h
+    }
+
+    fn token_headers(s: &AppState) -> HeaderMap {
+        if !s.data_dir.join(crate::local_token::FILE).exists() {
+            s.local_token.renew();
+        }
+        let token = std::fs::read_to_string(s.data_dir.join(crate::local_token::FILE)).unwrap();
+        let mut h = HeaderMap::new();
+        h.insert(crate::local_token::HEADER, token.trim().parse().unwrap());
+        h
+    }
+
+    /// STWIN-14 : les comptes Steam de l'hôte gardés par Admin pendant le
+    /// prêt, rendus seulement pendant la remise en état, oubliés une fois remis.
+    #[tokio::test]
+    async fn comptes_steam_gardes_par_admin() {
+        use base64::Engine;
+        let (s, dir) = station();
+        let Json(view) = local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.ok().unwrap();
+        let code = view["code"]["code"].as_str().unwrap().to_string();
+        let (status, lent) = body(borrow(State(s.clone()), peer(50), HeaderMap::new(), None, borrow_code(&code, "Léa", "ipad")).await).await;
+        assert_eq!(status, StatusCode::OK, "{lent}");
+        let lend_id = lent["lend"].as_str().unwrap().to_string();
+        let b64 = |d: &[u8]| base64::engine::general_purpose::STANDARD.encode(d);
+        let keep_body = |lend: &str| Bytes::from(json!({ "lend": lend, "files": [{ "name": "config.vdf", "data": b64(b"jetons de l'hote") }] }).to_string());
+        let lend_body = |lend: &str| Json(serde_json::from_value::<SteamLendBody>(json!({ "lend": lend })).unwrap());
+        // Sans le jeton local, ou depuis le réseau : refusé.
+        assert!(console_steam_keep(State(s.clone()), local(), HeaderMap::new(), keep_body(&lend_id)).await.is_err());
+        assert!(console_steam_keep(State(s.clone()), peer(50), token_headers(&s), keep_body(&lend_id)).await.is_err());
+        // Un autre prêt que celui en cours : refusé ; le bon : gardé.
+        let other = console_steam_keep(State(s.clone()), local(), token_headers(&s), keep_body("autre")).await.err().unwrap();
+        assert_eq!(other.code, "no_lend");
+        assert!(console_steam_keep(State(s.clone()), local(), token_headers(&s), keep_body(&lend_id)).await.is_ok());
+        assert!(crate::lend_steam::path(&dir).is_file());
+        // Pendant le prêt, rien ne sort d'Admin.
+        let refused = console_steam_back(State(s.clone()), local(), token_headers(&s), lend_body(&lend_id)).await.err().unwrap();
+        assert_eq!((refused.status, refused.code), (StatusCode::CONFLICT, "lending"));
+        // Remise en état : rendus (et gardés tant que l'agent n'a pas dit les avoir remis).
+        s.lend.ending(Some(&lend_id), Reason::Left).unwrap();
+        let Json(back) = console_steam_back(State(s.clone()), local(), token_headers(&s), lend_body(&lend_id)).await.ok().unwrap();
+        assert_eq!(back["files"][0]["name"], "config.vdf");
+        assert_eq!(base64::engine::general_purpose::STANDARD.decode(back["files"][0]["data"].as_str().unwrap()).unwrap(), b"jetons de l'hote");
+        assert!(crate::lend_steam::path(&dir).is_file());
+        // Fin du prêt (Admin a pu tomber entre-temps) : toujours là, rendus.
+        finish(&s, &lend_id, Reason::Left).await;
+        assert!(console_steam_back(State(s.clone()), local(), token_headers(&s), lend_body(&lend_id)).await.is_ok());
+        let none = console_steam_back(State(s.clone()), local(), token_headers(&s), lend_body("autre")).await.err().unwrap();
+        assert_eq!(none.code, "none");
+        assert!(console_steam_restored(State(s.clone()), local(), token_headers(&s), lend_body(&lend_id)).await.is_ok());
+        assert!(!crate::lend_steam::path(&dir).exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn comptes_steam_d_un_pret_d_avant() {
+        let loan = |id: &str, phase: lend::Phase| {
+            let mut l = lend::Loan::for_tests(id);
+            l.phase = phase;
+            l
+        };
+        assert!(steam_back_allowed(None, "l1"));
+        assert!(steam_back_allowed(Some(&loan("l1", lend::Phase::Ending)), "l1"));
+        assert!(!steam_back_allowed(Some(&loan("l1", lend::Phase::Lent)), "l1"));
+        assert!(!steam_back_allowed(Some(&loan("l1", lend::Phase::Preparing)), "l1"));
+        // Nouveau prêt en mise en place, fichiers du prêt d'avant : rendus d'abord.
+        assert!(steam_back_allowed(Some(&loan("l2", lend::Phase::Preparing)), "l1"));
+        assert!(!steam_back_allowed(Some(&loan("l2", lend::Phase::Lent)), "l1"));
     }
 
     #[tokio::test]

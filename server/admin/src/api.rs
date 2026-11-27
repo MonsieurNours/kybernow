@@ -70,6 +70,13 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/local/lend/console/give-back", post(lend_api::console_give_back))
         .route("/api/local/lend/console/take-back", post(lend_api::console_take_back))
         .route("/api/local/lend/console/ended", post(lend_api::console_ended))
+        // Les comptes Steam de l'hôte, gardés par Admin pendant le prêt (Windows, STWIN-14).
+        .route(
+            "/api/local/lend/console/steam/keep",
+            post(lend_api::console_steam_keep).layer(axum::extract::DefaultBodyLimit::max(4 * crate::lend_steam::MAX_BYTES)),
+        )
+        .route("/api/local/lend/console/steam/back", post(lend_api::console_steam_back))
+        .route("/api/local/lend/console/steam/restored", post(lend_api::console_steam_restored))
         .route("/api/local/lend/icons/{name}", get(lend_api::console_icon))
         .route("/api/schema", get(schema_route))
         .route("/api/config", get(config).put(update_config))
