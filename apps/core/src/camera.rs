@@ -194,6 +194,8 @@ struct Inner {
     frames: VecDeque<Instant>,
     dropped: u64,
     events: VecDeque<CameraEvent>,
+    /// START pas encore parti (file pleine) : renvoyé avant toute image.
+    start_pending: bool,
 }
 
 /// La caméra d'une session.
@@ -228,6 +230,7 @@ impl CameraLink {
                 frames: VecDeque::new(),
                 dropped: 0,
                 events: VecDeque::new(),
+                start_pending: false,
             }),
         }
     }
@@ -326,6 +329,13 @@ impl CameraLink {
         }
         if i.uplink.is_none() {
             return FrameOutcome::Off;
+        }
+        if i.start_pending {
+            let Some(s) = i.settings.clone() else { return FrameOutcome::Off };
+            if !Self::send_start(&mut i, &s) {
+                i.want_key = true;
+                return FrameOutcome::WantKeyframe;
+            }
         }
         if i.want_key && !key {
             return FrameOutcome::WantKeyframe;
@@ -455,9 +465,12 @@ impl CameraLink {
     fn send_start(i: &mut Inner, s: &CameraSettings) -> bool {
         let mut payload = vec![START];
         payload.extend_from_slice(serde_json::to_string(s).unwrap_or_default().as_bytes());
-        // START ne doit pas se perdre : la file vient d'être vidée par une
-        // image lâchée au pire ; un refus ici, c'est un flux fermé.
-        Self::send(i, payload) == UplinkSend::Sent
+        // START ne doit pas se perdre (l'ordinateur ne lance son aide qu'à
+        // sa réception) : la file pleine (images encore en route, une autre
+        // caméra choisie), il est renvoyé avant l'image suivante.
+        let sent = Self::send(i, payload) == UplinkSend::Sent;
+        i.start_pending = !sent;
+        sent
     }
 
     fn trim(i: &mut Inner, now: Instant) {
@@ -673,6 +686,26 @@ mod tests {
         assert_eq!(c.frame_rotated(&[9], 0, true, 3), FrameOutcome::Sent);
         let media = peer.sent.try_recv().unwrap();
         assert_eq!(media[1], FLAG_KEY | (3 << ROTATION_SHIFT));
+    }
+
+    /// Une autre caméra choisie pendant que la file est pleine : START est
+    /// renvoyé avant l'image suivante, jamais perdu.
+    #[test]
+    fn start_pas_perdu_file_pleine() {
+        let c = CameraLink::new();
+        let (up, mut peer) = Uplink::pair(KIND, 2);
+        c.set_uplink(Some(up));
+        assert!(c.start(settings(CameraResolution::P720)));
+        assert_eq!(c.frame(&[0], 0, true), FrameOutcome::Sent);
+        // File pleine (START + une image) : le nouveau START ne part pas.
+        assert!(!c.start(settings(CameraResolution::P1080)));
+        assert_eq!(c.frame(&[1], 1, true), FrameOutcome::WantKeyframe, "pas d'image avant START");
+        while peer.sent.try_recv().is_ok() {}
+        assert_eq!(c.frame(&[2], 2, true), FrameOutcome::Sent);
+        let start = peer.sent.try_recv().unwrap();
+        assert_eq!(start[0], START, "START d'abord");
+        assert!(String::from_utf8_lossy(&start[1..]).contains("1080p"));
+        assert_eq!(peer.sent.try_recv().unwrap()[0], MEDIA);
     }
 
     #[test]
