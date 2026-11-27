@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.11.8
+
+- **Station Windows : plus de fenêtre noire quand le micro ou la caméra s'allume, pour de bon.** La 0.11.7 annonçait ce correctif, mais ses aides du micro et de la caméra sont parties dans leur ancienne version : une fenêtre de terminal s'ouvrait encore sur le bureau du PC. La 0.11.8 les livre corrigées, et la publication vérifie désormais qu'elles s'ouvrent sans fenêtre.
+
 ## 0.11.7
 
 Première version stable depuis la 0.11.4 : elle réunit tout ce que les bêtas 0.11.5 et 0.11.6 ont apporté, avec leurs correctifs.

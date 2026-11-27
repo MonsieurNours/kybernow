@@ -203,6 +203,10 @@ SYSTEME = {
 }
 
 
+# Exécutables de la surcouche qui ne doivent jamais ouvrir de fenêtre de terminal.
+SANS_FENETRE = {"kybernow-micro.exe", "kybernow-camera.exe"}
+
+
 def est_systeme(dll):
     d = dll.lower()
     if d.startswith("api-ms-win-") or d.startswith("ext-ms-"):
@@ -225,6 +229,12 @@ def cmd_pe(objdump, dossiers):
             non(f"{n} : illisible par {os.path.basename(objdump)}")
             continue
         vus += 1
+        # Aides lancées dans la session de l'utilisateur pendant une connexion :
+        # en sous-système console, Windows leur ouvre une fenêtre de terminal.
+        if n.lower() in SANS_FENETRE:
+            m = re.search(r"^Subsystem\s+([0-9a-fA-F]+)", out.stdout, re.M)
+            if not m or int(m.group(1), 16) != 2:
+                non(f"{n} : sous-système {m.group(1) if m else 'inconnu'}, attendu 2 (Windows, sans fenêtre de terminal)")
         for dll in re.findall(r"DLL Name:\s*(\S+)", out.stdout):
             if not est_systeme(dll) and dll.lower() not in livrees:
                 non(f"{os.path.basename(dossiers[0])}/{n} dépend de {dll}, ni de Windows ni livrée")

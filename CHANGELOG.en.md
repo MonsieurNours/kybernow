@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.11.8
+
+- **Windows Station: no more black window when the micro or camera turns on, for real.** 0.11.7 announced this fix, but its micro and camera helpers shipped in their old version: a terminal window still opened on the PC's desktop. 0.11.8 ships them fixed, and the release now checks that they start without a window.
+
 ## 0.11.7
 
 First stable release since 0.11.4: it brings together everything the 0.11.5 and 0.11.6 betas added, with their fixes.

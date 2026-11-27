@@ -330,7 +330,7 @@ done
 
 # Ce que les arbres recompileront d'eux-mêmes (rien à faire ; dit pour la durée).
 STATION_STAMP="$(arbre_dir station-windows)/third_party/payload/kyber-overlay.stamp"
-OVERLAY_WANT="$(cat server/kyber-patches/*.patch server/kyber-patches/build.sh server/kyber-patches/pyrowave.sh apps/macos/kyber-patches/*.patch apps/webos/kyber-patches/*.patch | shasum -a 256 | cut -d' ' -f1)"
+OVERLAY_WANT="$(server/kyber-patches/stamp.sh)"
 if [ "$(cat "$STATION_STAMP" 2>/dev/null)" = "$OVERLAY_WANT" ]; then ok "surcouche Kyber de l'arbre station-windows : correctifs actuels (empreinte)"
 else note "surcouche Kyber (Station Windows) à compiler dans son arbre : correctifs changés ou arbre neuf (automatique, long)"; fi
 mac_kyber_hash() { (cd "$1" && cat server/kyber-patches/*.patch server/kyber-patches/apply.sh apps/macos/kyber-patches/*.patch apps/webos/kyber-patches/*.patch server/macos/kyber-patches/*.patch server/macos/crates/*.patch server/macos/scripts/build-kyber.sh server/macos/pyrowave/* 2>/dev/null | shasum -a 256 | cut -d' ' -f1); }
