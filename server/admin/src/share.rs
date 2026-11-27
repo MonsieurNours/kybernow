@@ -88,7 +88,8 @@ impl Role {
         }
     }
 
-    /// Le rôle de ces deux droits, donnés ou repris l'un sans l'autre.
+    /// Le rôle de ces deux droits, donnés ou repris l'un sans l'autre (essais).
+    #[cfg(test)]
     pub fn from_rights(gamepads: bool, keyboard_mouse: bool) -> Role {
         match (gamepads, keyboard_mouse) {
             (false, false) => Role::Spectator,
@@ -767,7 +768,7 @@ impl Share {
             times.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
             !times.is_empty()
         });
-        let times = s.tries.entry(peer.to_canonical()).or_default();
+        let times = s.tries.entry(crate::relay::ip_key(peer)).or_default();
         if times.len() >= JOIN_TRIES_PER_MINUTE {
             let oldest = times.iter().min().copied().unwrap_or(now);
             let wait = Duration::from_secs(60).saturating_sub(now.duration_since(oldest)).as_secs().max(1);

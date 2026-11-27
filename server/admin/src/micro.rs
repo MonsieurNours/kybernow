@@ -50,33 +50,74 @@ fn vbcable_setup(kyber_dir: &Path) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// Au démarrage d'Admin (Windows), une fois par version : installe VB-CABLE
-/// s'il manque et qu'il est livré. C'est ainsi que la mise à jour depuis
-/// Admin l'apporte, quelle que soit la version qui fait la mise à jour : le
-/// pack voyage dans le dossier `admin` du paquet, que toutes remplacent. Une
-/// marque par version (`micro-vbcable-<version>`) évite de le réinstaller à
-/// chaque démarrage si quelqu'un l'a retiré exprès. Jamais bloquant.
+/// Marque posée quand VB-CABLE est là (déjà présent, ou installé avec
+/// succès) : il n'est plus jamais réinstallé ensuite, même retiré exprès.
+const VBCABLE_MARK: &str = "micro-vbcable";
+
+/// Le choix « Micro de vos appareils » de l'installateur (`microphone` de
+/// `kybernow.json`) : `None` pour une installation d'avant la 0.11.8.
+fn microphone_chosen(kyber_dir: &Path) -> Option<bool> {
+    let record: Value = serde_json::from_slice(&std::fs::read(kyber_dir.parent()?.join("kybernow.json")).ok()?).ok()?;
+    record["microphone"].as_bool()
+}
+
+/// Au démarrage d'Admin (Windows) : installe VB-CABLE s'il manque, qu'il est
+/// livré et que le micro a été choisi à l'installation. C'est ainsi que la
+/// mise à jour depuis Admin l'apporte : le pack voyage dans le dossier
+/// `admin` du paquet. Une seule marque (`micro-vbcable`), posée seulement
+/// quand VB-CABLE est là : un échec est réessayé au démarrage suivant, un
+/// retrait volontaire est respecté. Jamais bloquant.
 pub fn ensure_on_new_version(kyber_dir: &Path, data_dir: &Path) {
     if !cfg!(windows) {
         return;
     }
-    let mark = data_dir.join(format!("micro-vbcable-{}", env!("CARGO_PKG_VERSION")));
+    // Une aide tuée (fin de session brutale) a laissé CABLE en micro par
+    // défaut : `--check` rend celui d'avant (registre `micro-defaut.txt`).
+    if data_dir.join("micro-defaut.txt").exists()
+        && let Some(h) = helper(kyber_dir)
+    {
+        let mut cmd = Command::new(h);
+        cmd.arg("--check");
+        let _ = run(cmd, CHECK_TIMEOUT);
+    }
+    let mark = data_dir.join(VBCABLE_MARK);
+    // Marques d'avant la 0.11.8, une par version : VB-CABLE a déjà été proposé.
+    let mut old_marks = false;
+    for entry in std::fs::read_dir(data_dir).into_iter().flatten().flatten() {
+        if entry.file_name().to_string_lossy().starts_with("micro-vbcable-") {
+            old_marks = true;
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    if old_marks {
+        let _ = std::fs::write(&mark, b"");
+    }
     if mark.exists() {
         return;
     }
+    if microphone_chosen(kyber_dir) == Some(false) {
+        tracing::info!("micro : non choisi à l'installation, VB-CABLE pas installé");
+        return;
+    }
     let Some(setup) = vbcable_setup(kyber_dir) else { return };
-    let present = matches!(helper(kyber_dir).map(|h| {
-        let mut cmd = Command::new(h);
-        cmd.arg("--check");
-        run(cmd, CHECK_TIMEOUT)
-    }), Some(Some((Some(0), _))));
-    if present {
+    let present = || {
+        matches!(helper(kyber_dir).map(|h| {
+            let mut cmd = Command::new(h);
+            cmd.arg("--check");
+            run(cmd, CHECK_TIMEOUT)
+        }), Some(Some((Some(0), _))))
+    };
+    if present() {
         tracing::info!("micro : VB-CABLE déjà présent");
     } else {
         let mut cmd = Command::new(&setup);
         cmd.args(["-i", "-h"]);
         let outcome = run(cmd, INSTALL_TIMEOUT);
-        tracing::info!("micro : VB-CABLE installé après la mise à jour (VB-Audio Software, donationware : vb-cable.com) ({outcome:?})");
+        if !present() {
+            tracing::warn!("micro : VB-CABLE pas installé ({outcome:?}) : nouvel essai au prochain démarrage");
+            return;
+        }
+        tracing::info!("micro : VB-CABLE installé après la mise à jour (VB-Audio Software, donationware : vb-cable.com)");
     }
     let _ = std::fs::write(&mark, b"");
 }
@@ -92,27 +133,34 @@ fn no_window(cmd: &mut Command) {
 }
 
 /// Attend la fin de `cmd` (`timeout` au plus) ; `None` s'il ne se lance pas ou dépasse.
-fn run(mut cmd: Command, timeout: Duration) -> Option<(Option<i32>, String)> {
+/// La sortie d'erreur est lue au fil de l'eau (un tube plein bloquerait
+/// l'aide), et un processus tué est attendu (pas de zombie).
+pub(crate) fn run(mut cmd: Command, timeout: Duration) -> Option<(Option<i32>, String)> {
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
     no_window(&mut cmd);
     let mut child = cmd.spawn().ok()?;
+    let reader = child.stderr.take().map(|mut e| {
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut err = String::new();
+            let _ = e.read_to_string(&mut err);
+            err
+        })
+    });
     let deadline = Instant::now() + timeout;
     let status = loop {
         match child.try_wait() {
-            Ok(Some(s)) => break s,
+            Ok(Some(s)) => break Some(s),
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
             _ => {
                 let _ = child.kill();
-                return None;
+                let _ = child.wait();
+                break None;
             }
         }
     };
-    let mut err = String::new();
-    if let Some(mut e) = child.stderr.take() {
-        use std::io::Read;
-        let _ = e.read_to_string(&mut err);
-    }
-    Some((status.code(), err.trim().to_owned()))
+    let err = reader.and_then(|r| r.join().ok()).unwrap_or_default();
+    status.map(|s| (s.code(), err.trim().to_owned()))
 }
 
 /// L'état de la carte : `ready` (avec `device`, le nom que prennent les apps
@@ -149,7 +197,7 @@ pub async fn get(State(s): State<AppState>) -> ApiResult<Json<Value>> {
 pub async fn install(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     let dir = s.kyber_dir.clone();
     let Some(setup) = vbcable_setup(&dir).filter(|_| cfg!(windows)) else {
-        return Err(ApiError(StatusCode::NOT_FOUND, "VB-CABLE n'est pas livré avec cette Station".into()));
+        return Err(ApiError::msg(StatusCode::NOT_FOUND, crate::i18n::Msg::new("api.vbcableMissing")));
     };
     let result = blocking(move || {
         let mut cmd = Command::new(&setup);
@@ -184,6 +232,33 @@ mod tests {
         std::fs::create_dir_all(root.join("drivers/vbcable")).unwrap();
         std::fs::write(root.join("drivers/vbcable/VBCABLE_Setup_x64.exe"), b"").unwrap();
         assert_eq!(vbcable_setup(&kyber).unwrap(), root.join("drivers/vbcable/VBCABLE_Setup_x64.exe"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Une aide qui dépasse son délai est tuée puis attendue ; sa sortie
+    /// d'erreur est lue même longue.
+    #[cfg(unix)]
+    #[test]
+    fn une_aide_trop_lente_ne_laisse_pas_de_zombie() {
+        let mut slow = Command::new("/bin/sh");
+        slow.args(["-c", "sleep 5"]);
+        let t = Instant::now();
+        assert!(run(slow, Duration::from_millis(200)).is_none());
+        assert!(t.elapsed() < Duration::from_secs(3));
+        let mut chatty = Command::new("/bin/sh");
+        chatty.args(["-c", "head -c 200000 /dev/zero | tr '\\0' x >&2; exit 3"]);
+        let (code, err) = run(chatty, Duration::from_secs(10)).unwrap();
+        assert_eq!((code, err.len()), (Some(3), 200000));
+    }
+
+    #[test]
+    fn le_choix_du_micro_se_lit_dans_kybernow_json() {
+        let root = std::env::temp_dir().join(format!("kybernow-micro-choix-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("kyber")).unwrap();
+        assert_eq!(microphone_chosen(&root.join("kyber")), None);
+        std::fs::write(root.join("kybernow.json"), r#"{"version":"0.11.8","microphone":false}"#).unwrap();
+        assert_eq!(microphone_chosen(&root.join("kyber")), Some(false));
         let _ = std::fs::remove_dir_all(&root);
     }
 

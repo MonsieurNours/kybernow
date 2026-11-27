@@ -518,6 +518,10 @@ impl Launcher {
             let mut interval = tokio::time::interval(TICK);
             loop {
                 interval.tick().await;
+                // Rien d'ouvert par Admin : pas de tour sur le fil bloquant.
+                if self.state.lock().unwrap().running.is_none() {
+                    continue;
+                }
                 let (me, a) = (self.clone(), activity.clone());
                 let _ = tokio::task::spawn_blocking(move || me.tick(&a)).await;
             }
@@ -659,7 +663,7 @@ pub fn agent_close(uri: Option<&str>, pid: Option<u32>, exe: Option<&str>) -> Re
 
 
 /// La session de l'utilisateur est-elle verrouillée ? (Prêt de l'ordinateur sur Mac.)
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(any(not(target_os = "macos"), test), allow(dead_code))]
 pub fn platform_session_locked() -> bool {
     platform::session_locked()
 }

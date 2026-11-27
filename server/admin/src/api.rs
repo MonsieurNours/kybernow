@@ -33,6 +33,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         // Comptes KyberNow, lot 4 : « Se connecter avec KyberNow », sur le réseau seulement.
         .route("/api/login/kybernow", post(crate::accounts::web_login_start).get(crate::accounts::web_login_return))
         .route("/api/login/kybernow/start", get(crate::accounts::web_login_begin))
+        .route("/api/login/kybernow/return", post(crate::accounts::web_login_post))
         .route("/api/logout", post(logout))
         .route("/api/password", post(change_password))
         .route("/api/status", get(status))
@@ -182,7 +183,6 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/lend/take-back", post(lend_api::host_take_back))
         .route("/api/lend/settings", get(lend_api::get_settings).put(lend_api::put_settings))
         .route("/api/lend/history", get(lend_api::history))
-        .route("/api/lend/catalog", get(apps))
         .route("/api/lend/friends", get(lend_api::friends).post(lend_api::friend_create))
         .route("/api/lend/friends/{id}", put(lend_api::friend_update).delete(lend_api::friend_delete))
         .route("/api/lend/friends/{id}/invite", get(lend_api::friend_invite))
@@ -262,6 +262,10 @@ async fn session(State(s): State<AppState>, headers: HeaderMap, via: Option<axum
         "version": crate::update::current(),
         // Système de la Station : les textes propres à Windows ont leur version Mac.
         "platform": crate::i18n::PLATFORM,
+        // Session d'Admin ouverte : le compte de Kyber sous lequel le client
+        // web se connecte, pour l'afficher sans signer de jeton
+        // (`/api/web/ticket` reste pour les clients d'avant).
+        "stream_user": authenticated.then(|| web_user(&s)),
     }))
 }
 
@@ -351,22 +355,28 @@ struct PasswordBody {
     new: String,
 }
 
-async fn change_password(State(s): State<AppState>, Json(body): Json<PasswordBody>) -> ApiResult<Response> {
+async fn change_password(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Json(body): Json<PasswordBody>) -> ApiResult<Response> {
+    // Le mot de passe actuel se devine ici aussi : mêmes limites que la connexion.
+    check_lockout(&s, peer)?;
     let auth = s.auth.clone();
-    let hash = auth.clone().hash_limited(move || auth.change_password(&body.current, &body.new)).await?;
+    let hash = match auth.clone().hash_limited(move || auth.change_password(&body.current, &body.new)).await {
+        Ok(hash) => hash,
+        Err(e) => {
+            s.auth.note_failure(peer.ip());
+            return Err(e.into());
+        }
+    };
+    s.auth.note_success(peer.ip());
     s.update_settings(|st| st.admin_password_hash = Some(hash))?;
     Ok(with_new_session(&s))
 }
 
 async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
-    let service_state = s.service.state().unwrap_or(service::ServiceState::Unknown);
-    let port = s
-        .kyber
-        .values()
-        .ok()
-        .and_then(|v| v.into_iter().find(|f| f.id == "network.port"))
-        .and_then(|f| f.value.as_u64())
-        .unwrap_or(8080) as u16;
+    // `launchctl`, `systemctl --user`, `scutil` : jamais sur le fil asynchrone.
+    let st = s.clone();
+    let (service_state, hostname) =
+        blocking(move || Ok((st.service.state().unwrap_or(service::ServiceState::Unknown), crate::system::computer_name()))).await?;
+    let port = s.kyber.port().unwrap_or(8080);
     let reachable = tokio::time::timeout(
         Duration::from_millis(500),
         tokio::net::TcpStream::connect(("127.0.0.1", port)),
@@ -376,7 +386,7 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     let gpu = tokio::task::spawn_blocking(gpu::status).await.ok().flatten();
 
     Ok(Json(json!({
-        "hostname": crate::system::computer_name(),
+        "hostname": hostname,
         "os": crate::system::os_name(),
         "lan_ip": crate::tls::lan_ip(),
         "admin_version": env!("CARGO_PKG_VERSION"),
@@ -402,6 +412,17 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
 /// Les routes `/api/local/*` : depuis l'ordinateur lui-même (loopback, aussi
 /// en IPv4 projeté en IPv6) **et** avec le jeton local de la session de
 /// l'utilisateur (`x-kyber-local`, voir `local_token.rs`).
+/// Comme [`local_only`], mais refusé pendant un prêt : le prêt se fait dans la
+/// session de l'hôte, où l'ami peut lire le jeton local. Accepter un
+/// appareil ou installer une mise à jour reste à l'hôte (Admin).
+fn local_outside_loan(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> ApiResult<()> {
+    local_only(s, peer, headers)?;
+    if s.lend.loan().is_some() {
+        return Err(ApiError::msg(StatusCode::FORBIDDEN, Msg::new("api.localDuringLoan")));
+    }
+    Ok(())
+}
+
 pub(crate) fn local_only(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> ApiResult<()> {
     if !peer.ip().to_canonical().is_loopback() {
         return Err(ApiError::msg(StatusCode::FORBIDDEN, Msg::new("api.localOnly")));
@@ -422,9 +443,16 @@ async fn local_state(
     headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
     local_only(&s, peer, &headers)?;
-    let service_state = s.service.state().unwrap_or(service::ServiceState::Unknown);
-    let (d, a) = (s.display.clone(), s.audio.clone());
-    let (display, audio) = blocking(move || Ok((d.status()["session"].clone(), a.status()["session"].clone()))).await?;
+    let st = s.clone();
+    let (service_state, hostname, display, audio) = blocking(move || {
+        Ok((
+            st.service.state().unwrap_or(service::ServiceState::Unknown),
+            crate::system::computer_name(),
+            st.display.status()["session"].clone(),
+            st.audio.status()["session"].clone(),
+        ))
+    })
+    .await?;
     let user = display["user"].as_str().map(str::to_owned);
     let requests: Vec<Value> = s
         .pairing
@@ -436,7 +464,7 @@ async fn local_state(
         "service": service_state,
         "session": !display.is_null() || !audio.is_null(),
         "user": user,
-        "hostname": crate::system::computer_name(),
+        "hostname": hostname,
         "address": crate::tls::lan_ip(),
         "console_port": s.listen_port,
         "activity": s.activity.summary(),
@@ -499,7 +527,7 @@ async fn local_update_install(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
-    local_only(&s, peer, &headers)?;
+    local_outside_loan(&s, peer, &headers)?;
     update_install(State(s), body).await
 }
 
@@ -511,7 +539,7 @@ async fn local_pair_answer(
     headers: HeaderMap,
     Path((id, action)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
-    local_only(&s, peer, &headers)?;
+    local_outside_loan(&s, peer, &headers)?;
     match action.as_str() {
         "accept" => pair_accept(State(s), Path(id)).await,
         "refuse" => pair_refuse(State(s), Path(id)).await,
@@ -835,7 +863,53 @@ pub(crate) fn stream_user(s: &AppState, headers: &HeaderMap) -> ApiResult<String
     let encoded = value.strip_prefix("Basic ").ok_or_else(bad)?;
     let decoded = base64_decode(encoded.trim()).ok_or_else(bad)?;
     let (user, pass) = decoded.split_once(':').ok_or_else(bad)?;
-    if s.kyber.verify_login(user, pass) { Ok(user.to_string()) } else { Err(bad()) }
+    // Les mots de passe des comptes Kyber sont vérifiés par une empreinte
+    // rapide (imposée par Kyber) : les refus sont plafonnés, toutes adresses
+    // confondues (le relais, lui, compte déjà par adresse).
+    let now = std::time::Instant::now();
+    if BASIC_FAILURES.locked(now) {
+        return Err(ApiError::msg(StatusCode::TOO_MANY_REQUESTS, Msg::new("api.tooManyKyberLogins")));
+    }
+    if s.kyber.verify_login(user, pass) {
+        Ok(user.to_string())
+    } else {
+        BASIC_FAILURES.fail(now);
+        Err(bad())
+    }
+}
+
+/// Mots de passe de comptes Kyber refusés sur les routes des apps : au-delà
+/// de [`BasicFailures::MAX`] par minute, plus aucun n'est vérifié jusqu'à ce
+/// que la minute passe (une force brute depuis le réseau local tombe à
+/// quelques dizaines d'essais par minute).
+pub(crate) struct BasicFailures(std::sync::Mutex<std::collections::VecDeque<std::time::Instant>>);
+
+static BASIC_FAILURES: BasicFailures = BasicFailures(std::sync::Mutex::new(std::collections::VecDeque::new()));
+
+impl BasicFailures {
+    const MAX: usize = 20;
+    const WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
+
+    fn prune(q: &mut std::collections::VecDeque<std::time::Instant>, now: std::time::Instant) {
+        while q.front().is_some_and(|t| now.saturating_duration_since(*t) >= Self::WINDOW) {
+            q.pop_front();
+        }
+    }
+
+    pub(crate) fn locked(&self, now: std::time::Instant) -> bool {
+        let mut q = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        Self::prune(&mut q, now);
+        q.len() >= Self::MAX
+    }
+
+    pub(crate) fn fail(&self, now: std::time::Instant) {
+        let mut q = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        Self::prune(&mut q, now);
+        q.push_back(now);
+        if q.len() == Self::MAX {
+            tracing::warn!("{} mots de passe de comptes Kyber refusés en une minute : vérifications suspendues", Self::MAX);
+        }
+    }
 }
 
 /// Nom sous lequel le client web se connecte à Kyber : le compte créé à
@@ -1476,7 +1550,7 @@ async fn stream_prepare(
     // et attend qu'il ait rendu la main avant de préparer l'écran du nouveau.
     // L'app ouverte au début de ses sessions (réglée dans Admin), s'il en a une.
     let launch = s.activity.launch_of(&device_id).map(|(l, _)| l);
-    if let activity::Claim::Waiting { previous } = s.activity.claim(&device_id, &device_name) {
+    if let activity::Claim::Waiting { previous } = s.activity.claim(&device_id, &user, &device_name) {
         tracing::info!("{device_name} prend la main : on attend que {previous} se déconnecte");
         // Si l'arrivant veut la même app que le partant, elle reste ouverte.
         s.launcher.expect_takeover(&device_name, launch.as_ref());
@@ -1701,7 +1775,7 @@ async fn stream_heartbeat(
     // Par le relais : l'appareil en session reste autorisé à joindre Kyber.
     if let Some(axum::Extension(via)) = &via {
         let id = device.map(str::to_owned).unwrap_or_else(|| activity::identity(None, &user).0);
-        if s.activity.live().is_some_and(|l| l.device_id == id) {
+        if s.activity.live().is_some_and(|l| l.device_id == id && l.user == user) {
             s.relay.grant_device(via, &id);
         }
     }
@@ -2312,6 +2386,18 @@ async fn admin_preview(State(s): State<AppState>, Query(q): Query<PreviewQuery>)
 
 #[cfg(all(test, not(windows)))]
 mod tests {
+
+    #[test]
+    fn kyber_passwords_are_capped_once_too_many_fail() {
+        let limit = BasicFailures(std::sync::Mutex::new(std::collections::VecDeque::new()));
+        let t0 = std::time::Instant::now();
+        for _ in 0..BasicFailures::MAX {
+            assert!(!limit.locked(t0));
+            limit.fail(t0);
+        }
+        assert!(limit.locked(t0));
+        assert!(!limit.locked(t0 + BasicFailures::WINDOW));
+    }
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
@@ -2628,6 +2714,19 @@ mod tests {
         assert_eq!(v, json!({ "hdr": [false] }));
     }
 
+    /// Un compte KyberNow fait l'hôte du prêt avec le droit Administrer, pas
+    /// avec Session seulement ; un compte Kyber appairé, comme avant.
+    #[tokio::test]
+    async fn the_lend_host_needs_the_admin_right_for_a_kybernow_account() {
+        let c = console_with_account();
+        let k = crate::accounts::attach_for_tests(&c.s);
+        let session = crate::accounts::token_headers(&c.s, &k, "acc_lea", "dev_1", &[Right::Session]);
+        assert!(crate::lend_api::host_get(State(c.s.clone()), session).await.is_err());
+        let admin = crate::accounts::token_headers(&c.s, &k, "acc_lea", "dev_1", &[Right::Admin]);
+        assert!(crate::lend_api::host_get(State(c.s.clone()), admin).await.is_ok());
+        assert!(crate::lend_api::host_get(State(c.s.clone()), basic("mac", "mot-de-passe-mac")).await.is_ok());
+    }
+
     /// Un compte KyberNow (docs/comptes.md) : le droit Session ouvre les
     /// routes `/api/stream/*` (et `prepare` donne un jeton de Kyber), le droit
     /// Administrer redémarre la Station avec un jeton qui ne sert qu'une fois.
@@ -2784,6 +2883,19 @@ mod tests {
         assert_eq!(ok.status(), StatusCode::ACCEPTED);
         assert_eq!(texts(&c.s, i18n::Lang::Fr)[0], "Un appareil du compte mac a redémarré la Station");
         assert_eq!(texts(&c.s, i18n::Lang::En)[0], "A device on account mac restarted the Station");
+    }
+
+    /// Le client web lit son compte de Kyber dans `/api/session`, sans
+    /// jeton ; personne sans session d'Admin ne l'apprend.
+    #[tokio::test]
+    async fn the_session_names_the_web_stream_account_only_when_signed_in() {
+        let c = console();
+        let Json(v) = session(State(c.s.clone()), HeaderMap::new(), None).await;
+        assert!(v["stream_user"].is_null());
+        let mut headers = HeaderMap::new();
+        headers.insert(header::COOKIE, format!("{}={}", auth::COOKIE, c.s.auth.open_session()).parse().unwrap());
+        let Json(v) = session(State(c.s.clone()), headers, None).await;
+        assert_eq!(v["stream_user"].as_str(), Some(web_user(&c.s).as_str()));
     }
 
     #[tokio::test]

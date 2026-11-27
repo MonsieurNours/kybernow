@@ -14,7 +14,7 @@ Cadrés avec l'auteur le 26/11/2026 :
 | Qui lance | L'appareil en session de l'hôte, et Admin. Un invité du partage le voit sans pouvoir l'arrêter. Pendant un prêt, pas d'enregistrement : un prêt qui commence l'arrête. |
 | Prévenir | Une pastille rouge « Enregistrement · 02:14 » pour tout le monde dans la session, et un avis bref au début (ou en arrivant dans une session enregistrée). Pas de demande d'accord : on prévient. |
 | Contenu | L'image de l'écran principal de la session et le son de l'ordinateur. KyberNow ne transmet pas de micro : il n'y en a pas. |
-| Où va le fichier | Vidéos › KyberNow de l'utilisateur de l'ordinateur (Films › KyberNow sur Mac, `XDG_VIDEOS_DIR` › KyberNow sous Linux), modifiable dans Admin. |
+| Où va le fichier | Vidéos › KyberNow de l'utilisateur de l'ordinateur (Films › KyberNow sur Mac, `XDG_VIDEOS_DIR` › KyberNow sous Linux), modifiable dans Admin. Un dossier qui est (ou passe par) un lien ou une jonction est refusé : Kyber y écrit avec les droits du système. |
 | Combien de temps | 30 jours par défaut (7, 30, 90 jours ou toujours, dans Admin) ; arrêt sous 2 Go libres. |
 | Toujours enregistrer | Non : à la main seulement. |
 | Permis | Oui par défaut (« Permettre l'enregistrement des sessions » dans Admin). |

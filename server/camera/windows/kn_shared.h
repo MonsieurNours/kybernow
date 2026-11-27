@@ -25,9 +25,17 @@
 /* Plus d'image depuis ce temps : gris. */
 #define KN_SHARED_STALE_MS 2000
 
-/* Lecture seule pour tous (applications à faible intégrité comprises),
- * écriture pour SYSTEM et les administrateurs. */
-#define KN_SHARED_SDDL L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;WD)(A;;GR;;;AC)S:(ML;;NW;;;LW)"
+/* Écriture pour SYSTEM et les administrateurs ; lecture :
+ * - Windows 11 : la source tourne dans Frame Server (un service) : SYSTEM,
+ *   Service local et Service réseau seulement. Une app, même autorisée à
+ *   filmer, passe par Frame Server, qui applique les réglages de
+ *   confidentialité de Windows (Paramètres › Caméra).
+ * - Windows 10 : le filtre DirectShow est chargé dans l'app qui filme, quel
+ *   que soit son compte : lecture pour tous (WD), faute de mieux, mais plus
+ *   pour les apps en bac à sable (AppContainer), qui n'en ont pas besoin.
+ * Le marqueur d'intégrité basse (NW) empêche toute écriture venue d'en bas. */
+#define KN_SHARED_SDDL_WIN11 L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;LS)(A;;GR;;;NS)S:(ML;;NW;;;LW)"
+#define KN_SHARED_SDDL_WIN10 L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;WD)S:(ML;;NW;;;LW)"
 
 /* {43F1F974-7150-488D-97B3-875357DB3949} : la source de Windows 11. */
 #define KN_SOURCE_CLSID_STR L"{43F1F974-7150-488D-97B3-875357DB3949}"

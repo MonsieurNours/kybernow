@@ -692,10 +692,7 @@ fn host_session(s: &AppState, headers: &HeaderMap, device_id: Option<&str>) -> S
     let user = stream_user(s, headers)?;
     s.activity
         .live()
-        .filter(|l| match device_id {
-            Some(id) => l.device_id == id,
-            None => l.user == user,
-        })
+        .filter(|l| crate::activity::Activity::is_live(l, &user, device_id))
         .ok_or_else(|| ShareError::new(StatusCode::CONFLICT, "not_in_session", Msg::new("share.notInSession")))
 }
 
@@ -995,6 +992,23 @@ pub async fn join(
         cookie: share::guest_cookie(&headers, true),
         granted: s.relay.granted_guest(&v.client),
     });
+    // Avec un code : les essais comptent aussi pour le prêt (`join` dit si
+    // un code est un code de prêt, il ne double pas le débit de `borrow`),
+    // et les mauvais codes de toutes les adresses sont plafonnés.
+    let too_many = |wait: u64| {
+        let mut res = (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "error": "too_many", "retry_after": wait }))).into_response();
+        res.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(wait));
+        res
+    };
+    if account.is_none() {
+        let now = std::time::Instant::now();
+        if let Some(wait) = s.lend.limits.codes_locked(now) {
+            return too_many(wait);
+        }
+        if let Err(wait) = s.lend.limits.count_try(peer.ip(), now) {
+            return too_many(wait);
+        }
+    }
     let result = match &account {
         Some(grant) => s.share.join_trusted(&grant.claims.name.account, &grant.device_id(), &body.app, browser, via.is_some()),
         None => s.share.join_from(&body.code, &body.name, &body.device, &body.app, peer.ip(), browser, proof.as_ref()),
@@ -1010,15 +1024,16 @@ pub async fn join(
         Err(JoinError::NoShare) if s.invites.is_invite_code(&body.code) => {
             return (StatusCode::NOT_FOUND, Json(json!({ "error": "no_share", "invite": true, "computer": hostname() }))).into_response();
         }
-        Err(JoinError::NoShare) => return guest_error(StatusCode::NOT_FOUND, "no_share"),
+        Err(JoinError::NoShare) => {
+            s.lend.limits.code_failed(std::time::Instant::now());
+            return guest_error(StatusCode::NOT_FOUND, "no_share");
+        }
         Err(JoinError::Full) => return guest_error(StatusCode::CONFLICT, "full"),
         Err(JoinError::PendingFull) => return guest_error(StatusCode::CONFLICT, "pending_full"),
         Err(JoinError::Refused) => return guest_error(StatusCode::FORBIDDEN, "refused"),
         Err(JoinError::TooMany(wait)) => {
             tracing::warn!("partage : essais refusés depuis {} (trop d'essais)", peer.ip());
-            let mut res = (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "error": "too_many", "retry_after": wait }))).into_response();
-            res.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(wait));
-            return res;
+            return too_many(wait);
         }
     };
     let (guest, snapshot) = (joined.guest, joined.snapshot);

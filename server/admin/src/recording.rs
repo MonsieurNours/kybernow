@@ -117,6 +117,42 @@ pub fn folder(s: &AppState) -> PathBuf {
     s.settings.lock().unwrap().recording.folder.clone().unwrap_or_else(default_folder)
 }
 
+/// Un lien ou une jonction (point d'analyse NTFS) ?
+fn is_link(meta: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    meta.file_type().is_symlink()
+}
+
+/// Ni le dossier des enregistrements ni aucun de ses parents n'est un lien
+/// ou une jonction. Kyber (SYSTEM sous Windows) y écrit et Admin y efface :
+/// un compte qui remplacerait `Vidéos\KyberNow` par une jonction vers un
+/// dossier protégé lui ferait écrire ou effacer des fichiers là.
+pub fn no_link_in(dir: &Path) -> bool {
+    dir.ancestors().all(|a| a.parent().is_none() || std::fs::symlink_metadata(a).map_or(true, |m| !is_link(&m) || system_link(&m)))
+}
+
+/// Mac et Linux : un lien du système (`/var` → `/private/var` sur Mac),
+/// posé par root, n'est pas celui d'un compte.
+fn system_link(meta: &std::fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        meta.uid() == 0
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        false
+    }
+}
+
 fn settings(s: &AppState) -> RecordingSettings {
     s.settings.lock().unwrap().recording.clone()
 }
@@ -285,7 +321,8 @@ pub async fn start(s: &AppState, by: Option<String>) -> RecResult<Value> {
         return Err(conflict("no_session", "recording.noSession"));
     };
     let dir = folder(s);
-    if std::fs::create_dir_all(&dir).is_err() {
+    if !no_link_in(&dir) || std::fs::create_dir_all(&dir).is_err() || !no_link_in(&dir) {
+        tracing::warn!("enregistrement : {} refusé (lien ou jonction, ou impossible à créer)", dir.display());
         return Err(conflict("folder", "recording.folder"));
     }
     if free_bytes(&dir).is_some_and(|f| f < MIN_FREE_BYTES) {
@@ -465,6 +502,9 @@ struct FileEntry {
 }
 
 fn list_files(dir: &Path) -> Vec<FileEntry> {
+    if !no_link_in(dir) {
+        return Vec::new();
+    }
     let Ok(read) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut out: Vec<FileEntry> = read
         .filter_map(Result::ok)
@@ -525,10 +565,7 @@ pub async fn stream_recording(State(s): State<AppState>, headers: HeaderMap, bod
     let live = s
         .activity
         .live()
-        .filter(|l| match body.device_id.as_deref() {
-            Some(id) => l.device_id == id,
-            None => l.user == user,
-        })
+        .filter(|l| crate::activity::Activity::is_live(l, &user, body.device_id.as_deref()))
         .ok_or_else(|| conflict("not_in_session", "recording.notInSession"))?;
     if body.record {
         Ok(Json(start(&s, Some(live.name)).await?))
@@ -655,7 +692,11 @@ pub async fn admin_file(
     headers: HeaderMap,
 ) -> Response {
     let Some(name) = checked_name(&name) else { return StatusCode::BAD_REQUEST.into_response() };
-    let path = folder(&s).join(name);
+    let dir = folder(&s);
+    let path = dir.join(name);
+    if !no_link_in(&path) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
     let Ok(meta) = tokio::fs::metadata(&path).await else { return StatusCode::NOT_FOUND.into_response() };
     let size = meta.len();
     let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).and_then(|r| parse_range(r, size));
@@ -753,7 +794,7 @@ pub async fn admin_delete(State(s): State<AppState>, AxPath(name): AxPath<String
         return Err(crate::api::ApiError::msg(StatusCode::CONFLICT, Msg::new("recording.inProgress")));
     }
     let path = folder(&s).join(name);
-    if tokio::fs::remove_file(&path).await.is_err() {
+    if !no_link_in(&path) || tokio::fs::remove_file(&path).await.is_err() {
         return Err(crate::api::ApiError::msg(StatusCode::NOT_FOUND, Msg::new("recording.notFound")));
     }
     tracing::info!("enregistrement supprimé depuis Admin : {name}");
@@ -762,6 +803,21 @@ pub async fn admin_delete(State(s): State<AppState>, AxPath(name): AxPath<String
 
 #[cfg(test)]
 mod tests {
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_recording_folder_is_refused() {
+        let root = std::env::temp_dir().join(format!("kybernow-rec-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("Videos/KyberNow")).unwrap();
+        std::fs::create_dir_all(root.join("protege")).unwrap();
+        assert!(no_link_in(&root.join("Videos/KyberNow")));
+        std::os::unix::fs::symlink(root.join("protege"), root.join("lien")).unwrap();
+        assert!(!no_link_in(&root.join("lien")));
+        assert!(!no_link_in(&root.join("lien/KyberNow")));
+        assert!(list_files(&root.join("lien")).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
     use super::*;
 
     #[test]

@@ -87,6 +87,7 @@
     "payloadIncomplete": "incomplete installer",
     "payloadMissing": "installer contents not found (damaged file?)",
     "settingsMissing": "settings not found ({path}): choose “Start from scratch”",
+    "updateRunning": "a KyberNow Station update is running on this computer: wait for it to finish, then run the installer again",
     "vigembusMissing": "controller driver installer (ViGEmBus) missing from the installer",
     "initialConfiguration": "initial configuration",
     "backup": "backing up {path}",

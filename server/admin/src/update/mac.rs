@@ -130,6 +130,21 @@ fn start_all(log: &mut Journal) {
 
 /// `TeamIdentifier` et `Identifier` de la signature d'un paquet, après
 /// vérification complète (`codesign --verify --deep --strict`).
+/// Équipe de signature de KyberNow (Developer ID), compilée ici : une app
+/// installée à la signature illisible ne fait plus accepter n'importe quelle équipe.
+const TEAM: &str = "P6DB682S4K";
+
+/// L'app est-elle signée par l'équipe de KyberNow, chaîne d'Apple comprise
+/// (exigence de signature vérifiée par `codesign`, pas un texte relu) ?
+fn signed_by_kybernow(app: &Path) -> Result<()> {
+    let requirement = format!("=anchor apple generic and certificate leaf[subject.OU] = \"{TEAM}\"");
+    let out = Command::new("/usr/bin/codesign").args(["--verify", "--deep", "--strict", "-R", &requirement]).arg(app).output()?;
+    if !out.status.success() {
+        bail!("l'app n'est pas signée par KyberNow ({TEAM}) : {}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    Ok(())
+}
+
 fn signature(app: &Path) -> Result<(String, String)> {
     let verify = Command::new("/usr/bin/codesign").args(["--verify", "--deep", "--strict"]).arg(app).output()?;
     if !verify.status.success() {
@@ -229,13 +244,15 @@ fn apply(layout: &Layout, zip: &Path, version: &str) -> Result<()> {
         let incoming = staging.join(APP_NAME);
         log.line("==> Signature");
         let (team, id) = signature(&incoming)?;
-        let (installed_team, _) = signature(&layout.install).unwrap_or_default();
         if id != BUNDLE_ID {
             bail!("identifiant inattendu : {id}");
         }
-        if team.is_empty() || (!installed_team.is_empty() && team != installed_team) {
-            bail!("équipe de signature inattendue : « {team} » (app installée : « {installed_team} »)");
+        // L'équipe de KyberNow, compilée ici : jamais celle, peut-être
+        // illisible, de l'app installée.
+        if team != TEAM {
+            bail!("équipe de signature inattendue : « {team} » (attendue : {TEAM})");
         }
+        signed_by_kybernow(&incoming)?;
         let found = app_version(&incoming).unwrap_or_default();
         if found != version {
             bail!("l'app du paquet est en version « {found} », pas {version}");

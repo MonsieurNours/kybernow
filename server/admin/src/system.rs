@@ -14,6 +14,21 @@ pub fn os_name() -> Option<String> {
 /// ou sur un Mac celui des Réglages (« MacBook Pro de Matthieu »), pas son
 /// nom réseau (« MacBook-Pro-de-Matthieu-6.local », que macOS renumérote).
 pub fn computer_name() -> Option<String> {
+    // Relu au plus toutes les 30 s (sur Mac, `scutil` à chaque fois sinon :
+    // `/api/status` et l'icône le demandent toutes les quelques secondes).
+    static CACHE: std::sync::Mutex<Option<(std::time::Instant, Option<String>)>> = std::sync::Mutex::new(None);
+    let mut cache = CACHE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((at, name)) = cache.as_ref()
+        && at.elapsed() < std::time::Duration::from_secs(30)
+    {
+        return name.clone();
+    }
+    let name = read_computer_name();
+    *cache = Some((std::time::Instant::now(), name.clone()));
+    name
+}
+
+fn read_computer_name() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
         let named = std::process::Command::new("/usr/sbin/scutil")

@@ -19,7 +19,9 @@ use windows::Win32::Media::Audio::{
     IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, eCapture, eCommunications, eConsole, eMultimedia, eRender,
 };
 use windows::Win32::System::Com::{CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree, STGM_READ};
-use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+use windows::Win32::System::Threading::{
+    CreateEventW, CreateMutexW, GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, ReleaseMutex, WaitForSingleObject,
+};
 use windows::core::{GUID, HRESULT, HSTRING, IUnknown, IUnknown_Vtbl, PCWSTR, interface};
 
 use super::Check;
@@ -84,7 +86,67 @@ fn find(enumerator: &IMMDeviceEnumerator, flow: EDataFlow, name: &str) -> Option
     }
 }
 
+/// Registre du micro par défaut (`crate::ledger`) : dans le dossier de
+/// données de la Station, sous un verrou entre processus.
+fn ledger_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(std::env::var_os("ProgramData").unwrap_or_else(|| "C:\\ProgramData".into())).join("KyberNow").join("micro-defaut.txt")
+}
+
+/// Une aide tourne-t-elle encore ?
+fn alive(pid: u32) -> bool {
+    const STILL_ACTIVE: u32 = 259;
+    unsafe {
+        let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { return false };
+        let mut code = 0u32;
+        let running = GetExitCodeProcess(h, &mut code).is_ok() && code == STILL_ACTIVE;
+        let _ = CloseHandle(h);
+        running
+    }
+}
+
+/// Lit le registre, le passe à `f`, puis l'écrit (ou l'efface s'il est vide),
+/// sous le verrou `Global\KyberNowMicroDefault`.
+fn with_ledger<T>(f: impl FnOnce(&mut crate::ledger::Ledger) -> T) -> T {
+    let name = HSTRING::from("Global\\KyberNowMicroDefault");
+    let mutex = unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())).ok() };
+    if let Some(m) = mutex {
+        unsafe { WaitForSingleObject(m, 5000) };
+    }
+    let path = ledger_path();
+    let mut ledger = crate::ledger::Ledger::parse(&std::fs::read_to_string(&path).unwrap_or_default());
+    let out = f(&mut ledger);
+    if ledger.is_empty() {
+        let _ = std::fs::remove_file(&path);
+    } else {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&path, ledger.to_text());
+    }
+    if let Some(m) = mutex {
+        unsafe {
+            let _ = ReleaseMutex(m);
+            let _ = CloseHandle(m);
+        }
+    }
+    out
+}
+
+/// Rend le micro d'avant si plus aucune aide ne tourne (`pid` : celle qui s'arrête).
+fn give_back(pid: Option<u32>) {
+    let Some(previous) = with_ledger(|l| l.leave(pid, alive)) else { return };
+    let (Ok(enumerator), Some(policy)) = (enumerator(), policy()) else { return };
+    let cable = find(&enumerator, eCapture, CABLE_OUT).map(|(_, id, _)| id);
+    // Seulement si CABLE l'est encore : la personne a pu choisir un autre micro.
+    if cable.is_some() && default_capture(&enumerator) == cable && set_default(&policy, &previous) {
+        eprintln!("micro par défaut rendu");
+    }
+}
+
 pub fn check() -> Check {
+    // Une aide tuée (fin de session brutale) n'a pas rendu le micro : Admin
+    // lance `--check` à son démarrage et pour sa page, qui le rend.
+    give_back(None);
     let enumerator = match enumerator() {
         Ok(e) => e,
         Err(e) => return Check::Unsupported(e),
@@ -99,8 +161,8 @@ pub struct Player {
     name: String,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
-    /// Le micro par défaut d'avant, quand c'est nous qui l'avons changé.
-    previous: Option<String>,
+    /// Cette aide est notée dans le registre du micro par défaut.
+    entered: bool,
 }
 
 /// Joue le tampon dans « CABLE Input » jusqu'à `stop`, sur un fil à lui.
@@ -131,10 +193,21 @@ fn render(device: IMMDevice, jitter: Arc<Mutex<Jitter>>, stop: Arc<AtomicBool>) 
             )
             .map_err(|e| format!("CABLE Input refuse le format : {e}"))?;
         let event = CreateEventW(None, false, false, None).map_err(|e| e.to_string())?;
-        client.SetEventHandle(event).map_err(|e| e.to_string())?;
-        let size = client.GetBufferSize().map_err(|e| e.to_string())?;
-        let renderer: IAudioRenderClient = client.GetService().map_err(|e| e.to_string())?;
-        client.Start().map_err(|e| e.to_string())?;
+        // L'événement est fermé même si la suite échoue.
+        let ready = (|| -> Result<(u32, IAudioRenderClient), String> {
+            client.SetEventHandle(event).map_err(|e| e.to_string())?;
+            let size = client.GetBufferSize().map_err(|e| e.to_string())?;
+            let renderer: IAudioRenderClient = client.GetService().map_err(|e| e.to_string())?;
+            client.Start().map_err(|e| e.to_string())?;
+            Ok((size, renderer))
+        })();
+        let (size, renderer) = match ready {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = CloseHandle(event);
+                return Err(e);
+            }
+        };
         let mut scratch = vec![0f32; size as usize];
         while !stop.load(Ordering::Relaxed) {
             if WaitForSingleObject(event, 100) != WAIT_OBJECT_0 {
@@ -147,7 +220,8 @@ fn render(device: IMMDevice, jitter: Arc<Mutex<Jitter>>, stop: Arc<AtomicBool>) 
             }
             let Ok(buffer) = renderer.GetBuffer(free) else { break };
             let out = &mut scratch[..free as usize];
-            jitter.lock().unwrap().pull(out);
+            // Jamais bloqué par le décodage : du silence pour cette fois.
+            super::pull(&jitter, out);
             std::ptr::copy_nonoverlapping(out.as_ptr(), buffer as *mut f32, free as usize);
             let _ = renderer.ReleaseBuffer(free, 0);
         }
@@ -199,7 +273,7 @@ impl Player {
             name,
             stop,
             thread: Some(thread),
-            previous: None,
+            entered: false,
         })
     }
 
@@ -216,12 +290,14 @@ impl Player {
             return;
         };
         let current = default_capture(&enumerator);
-        if current.as_deref() == Some(cable.as_str()) {
+        let pid = std::process::id();
+        let set = with_ledger(|l| l.enter(pid, current.as_deref(), &cable, alive));
+        self.entered = true;
+        if !set {
             return;
         }
         if set_default(&policy, &cable) {
             eprintln!("micro par défaut : {}", self.name);
-            self.previous = current;
         } else {
             eprintln!("micro par défaut inchangé : Windows refuse");
         }
@@ -232,15 +308,8 @@ impl Player {
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
-        let Some(previous) = self.previous.take() else {
-            return;
-        };
-        let (Ok(enumerator), Some(policy)) = (enumerator(), policy()) else {
-            return;
-        };
-        let cable = find(&enumerator, eCapture, CABLE_OUT).map(|(_, id, _)| id);
-        if cable.is_some() && default_capture(&enumerator) == cable && set_default(&policy, &previous) {
-            eprintln!("micro par défaut rendu");
+        if self.entered {
+            give_back(Some(std::process::id()));
         }
     }
 }

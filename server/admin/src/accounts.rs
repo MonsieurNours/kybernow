@@ -196,7 +196,7 @@ pub struct Accounts {
 impl Accounts {
     pub fn load(data_dir: &Path) -> Accounts {
         let path = data_dir.join(FILE);
-        let stored = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice::<Stored>(&b).ok()).unwrap_or_default();
+        let stored: Stored = crate::store::load_json(&path);
         Accounts {
             path,
             stored: Mutex::new(stored),
@@ -566,6 +566,17 @@ fn local_guard(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> Result<()
     crate::api::local_only(s, peer, headers).map_err(IntoResponse::into_response)
 }
 
+/// Rattacher la Station ou changer son relais : l'installateur seulement
+/// (jeton lisible par un administrateur, voir `local_token`), jamais un
+/// compte Windows standard qui a le jeton local de sa session.
+fn installer_guard(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> Result<(), Response> {
+    local_guard(s, peer, headers)?;
+    if !s.local_token.accepts_installer(headers) {
+        return Err(refuse(StatusCode::FORBIDDEN, "installer_only", Msg::new("accounts.installerOnly")));
+    }
+    Ok(())
+}
+
 fn refuse(status: StatusCode, code: &str, msg: Msg) -> Response {
     (status, Json(json!({ "error": msg.text(), "code": code }))).into_response()
 }
@@ -609,7 +620,7 @@ pub async fn local_get(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo
 
 /// `PUT /api/local/account/relay {relay}` : le relais choisi, sans rattacher (« Plus tard »).
 pub async fn local_relay(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<LocalRelayBody>) -> Response {
-    if let Err(r) = local_guard(&s, peer, &headers) {
+    if let Err(r) = installer_guard(&s, peer, &headers) {
         return r;
     }
     if body.relay.is_none() {
@@ -624,7 +635,7 @@ pub async fn local_relay(State(s): State<AppState>, ConnectInfo(peer): ConnectIn
 /// `POST /api/local/account/attach {relay?}` : comme « Se connecter » dans
 /// Admin, la page du relais à ouvrir (`{url, expires}`), pour la fenêtre de l'installateur.
 pub async fn local_attach(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<LocalRelayBody>) -> Response {
-    if let Err(r) = local_guard(&s, peer, &headers) {
+    if let Err(r) = installer_guard(&s, peer, &headers) {
         return r;
     }
     if let Err(r) = set_relay_locally(&s, body.relay.as_deref()) {
@@ -652,6 +663,15 @@ pub struct EnrollBody {
     relay: Option<String>,
 }
 
+/// L'adresse d'une page d'Admin (`https://hôte[:port]`) : rien après l'hôte,
+/// ni identifiants (`@`). Découpée sur le préfixe, jamais par position
+/// d'octet (un caractère accentué y ferait paniquer Admin).
+pub fn origin_ok(origin: &str) -> bool {
+    let Some(rest) = origin.strip_prefix("https://").or_else(|| origin.strip_prefix("http://")) else { return false };
+    // Un navigateur donne l'origine en ASCII (nom international en punycode).
+    origin.len() <= 200 && !rest.is_empty() && rest.is_ascii() && !rest.contains(['/', '?', '#', '@', ' ', '\\']) && !rest.chars().any(|c| c.is_ascii_control())
+}
+
 /// Forme d'un jeton d'enrôlement acceptée avant de le passer au relais : il
 /// ne voyage que dans un message JSON, mais un jeton collé de travers
 /// (espaces, guillemets, retour à la ligne) se voit tout de suite.
@@ -664,7 +684,7 @@ pub fn enroll_token_ok(token: &str) -> bool {
 /// de contrôle (`enroll`) ; sa réponse `attached` est épinglée comme un
 /// rattachement confirmé dans la console.
 pub async fn local_enroll(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<EnrollBody>) -> Response {
-    if let Err(r) = local_guard(&s, peer, &headers) {
+    if let Err(r) = installer_guard(&s, peer, &headers) {
         return r;
     }
     let token = body.token.trim();
@@ -1039,7 +1059,7 @@ pub async fn web_login_start(State(s): State<AppState>, via: Option<axum::Extens
         return refuse(StatusCode::CONFLICT, "unavailable", Msg::new("accounts.webLoginOff"));
     }
     let origin = body.origin.trim().trim_end_matches('/').to_string();
-    if !(origin.starts_with("https://") || origin.starts_with("http://")) || origin.len() > 200 || origin[8..].contains(['/', '?', '#', '@', ' ']) {
+    if !origin_ok(&origin) {
         return refuse(StatusCode::BAD_REQUEST, "bad_origin", Msg::new("accounts.badOrigin"));
     }
     let relay = s.settings.lock().unwrap().account.relay.clone().unwrap_or_default();
@@ -1097,7 +1117,16 @@ fn web_login_page(text: &str, ok: bool, cookies: Vec<String>) -> Response {
     res
 }
 
-/// `GET /api/login/kybernow?token=…` : le retour depuis la console du relais.
+/// Page du retour sans jeton dans l'adresse : le jeton est dans le fragment
+/// (`#token=…`, jamais envoyé au serveur ni gardé dans les journaux) ; la
+/// page l'efface de l'historique et l'envoie en POST.
+const FRAGMENT_PAGE: &str = "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"robots\" content=\"noindex\"><meta name=\"referrer\" content=\"no-referrer\"><title>KyberNow Admin</title></head><body>\
+<form id=\"f\" method=\"post\" action=\"/api/login/kybernow/return\"><input type=\"hidden\" name=\"token\" id=\"t\"><noscript><p>JavaScript</p></noscript></form>\
+<script>var p=new URLSearchParams(location.hash.slice(1));var t=p.get('token')||'';history.replaceState(null,'',location.pathname);\
+if(t){document.getElementById('t').value=t;document.getElementById('f').submit();}else{location.replace('/');}</script></body></html>";
+
+/// `GET /api/login/kybernow?token=…` (relais publiés) ou
+/// `GET /api/login/kybernow#token=…` : le retour depuis la console du relais.
 /// Le jeton (droit Administrer, usage unique) doit porter en `jti` le `nonce`
 /// de ce navigateur ; alors la session d'Admin s'ouvre.
 pub async fn web_login_return(
@@ -1106,7 +1135,27 @@ pub async fn web_login_return(
     headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<WebLoginReturn>,
 ) -> Response {
-    let remote = via.is_some();
+    if q.token.trim().is_empty() {
+        return ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")], FRAGMENT_PAGE).into_response();
+    }
+    web_login_finish(&s, via.is_some(), &headers, &q.token)
+}
+
+/// `POST /api/login/kybernow/return` (formulaire `token=…`) : le même retour,
+/// jeton dans le corps (la page du fragment, ou un relais qui l'envoie ainsi).
+/// Sans l'en-tête d'Admin : c'est une navigation ; le jeton, à usage unique,
+/// n'est valable qu'avec le cookie de ce navigateur.
+pub async fn web_login_post(
+    State(s): State<AppState>,
+    via: Option<axum::Extension<crate::relay::Via>>,
+    headers: HeaderMap,
+    axum::Form(q): axum::Form<WebLoginReturn>,
+) -> Response {
+    web_login_finish(&s, via.is_some(), &headers, &q.token)
+}
+
+fn web_login_finish(s: &AppState, remote: bool, headers: &HeaderMap, token: &str) -> Response {
+    let s = s.clone();
     let clear = if remote {
         format!("{REMOTE_LOGIN_COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0")
     } else {
@@ -1117,10 +1166,10 @@ pub async fn web_login_return(
         return web_login_page(&Msg::new("accounts.remoteAdminOff").text(), false, vec![clear]);
     }
     let cookie_name = if remote { REMOTE_LOGIN_COOKIE } else { WEB_LOGIN_COOKIE };
-    let Some(nonce) = web_login_cookie(&headers, cookie_name).filter(|n| s.accounts.take_web_login(n)) else {
+    let Some(nonce) = web_login_cookie(headers, cookie_name).filter(|n| s.accounts.take_web_login(n)) else {
         return web_login_page(&Msg::new("accounts.webLoginExpired").text(), false, vec![clear]);
     };
-    let grant = match check(&s, q.token.trim(), Some(Right::Admin), Use::Once, remote) {
+    let grant = match check(&s, token.trim(), Some(Right::Admin), Use::Once, remote) {
         // À distance, le jeton dit que le relais a vu une passkey (`via: "relay"`).
         Ok(g) if g.claims.jti == nonce && (!remote || g.claims.via.as_deref() == Some("relay")) => g,
         Ok(_) => return web_login_page(&Msg::new("accounts.webLoginExpired").text(), false, vec![clear]),
@@ -1594,6 +1643,17 @@ mod tests {
         let session = session.split(';').next().unwrap().split_once('=').unwrap().1.to_string();
         assert!(s.auth.session_valid(&session));
         assert_eq!(back(admin_token, with_cookie(&nonce)).await.status(), StatusCode::FORBIDDEN, "une seule fois");
+        // Le jeton hors de l'adresse (REL-10) : sans `?token=`, la page lit le
+        // fragment et l'envoie en formulaire, qui ouvre la session de même.
+        let page = back(String::new(), HeaderMap::new()).await;
+        assert_eq!(page.status(), StatusCode::OK);
+        let html = String::from_utf8(axum::body::to_bytes(page.into_body(), 1 << 16).await.unwrap().to_vec()).unwrap();
+        assert!(html.contains("location.hash") && html.contains("/api/login/kybernow/return"));
+        let res = web_login_start(State(s.clone()), None, body()).await;
+        let nonce = res.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap().split(';').next().unwrap().split_once('=').unwrap().1.to_string();
+        let posted = web_login_post(State(s.clone()), None, with_cookie(&nonce), axum::Form(WebLoginReturn { token: signed(&nonce, &[Right::Admin]) })).await;
+        assert_eq!(posted.status(), StatusCode::OK);
+        assert!(posted.headers().get_all(header::SET_COOKIE).iter().any(|v| v.to_str().unwrap().starts_with(crate::auth::COOKIE)));
         // Le prêt (lot 4) : le droit Prêt du jeton remplace le compte d'ami.
         let lend = token(&s, &k, "acc_lea", "dev_1", &[Right::Lend]);
         let b = crate::lend_api::account_borrower_for_tests(&s, &headers(&lend)).unwrap().unwrap();
@@ -1634,7 +1694,28 @@ mod tests {
         }
         let mut h = HeaderMap::new();
         h.insert(crate::local_token::HEADER, std::fs::read_to_string(file).unwrap().trim().parse().unwrap());
+        let installer = s.data_dir.join(crate::local_token::INSTALLER_FILE);
+        h.insert(crate::local_token::INSTALLER_HEADER, std::fs::read_to_string(installer).unwrap().trim().parse().unwrap());
         h
+    }
+
+    /// Un compte Windows standard a le jeton local de sa session, pas celui
+    /// de l'installateur : il ne rattache pas la Station ni ne change son relais.
+    #[tokio::test]
+    async fn le_jeton_de_la_session_ne_suffit_pas_pour_rattacher() {
+        let (s, _dir) = state();
+        let mut session = local(&s);
+        session.remove(crate::local_token::INSTALLER_HEADER);
+        let (status, v) = body(local_relay(State(s.clone()), here(), session.clone(), Json(LocalRelayBody { relay: Some("relais.pirate.example".into()) })).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::FORBIDDEN, Some("installer_only")));
+        let (status, v) = body(local_attach(State(s.clone()), here(), session.clone(), Json(LocalRelayBody::default())).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::FORBIDDEN, Some("installer_only")));
+        let (status, v) = body(local_enroll(State(s.clone()), here(), session.clone(), Json(EnrollBody { token: "kne_7Qm2xR9pLa4V".into(), relay: None })).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::FORBIDDEN, Some("installer_only")));
+        // L'état reste lisible avec le jeton local seul.
+        let (status, _) = body(local_get(State(s.clone()), here(), session).await).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_ne!(s.settings.lock().unwrap().relay.server(), "relais.pirate.example");
     }
 
     #[tokio::test]
@@ -1656,6 +1737,18 @@ mod tests {
         let status = r.status();
         let bytes = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
         (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    }
+
+    #[test]
+    fn adresse_de_la_page_d_admin() {
+        assert!(origin_ok("https://192.168.1.20:9443"));
+        assert!(origin_ok("http://station.local:9443"));
+        // Plus de panique sur un caractère accentué, ni d'identifiants qui passent.
+        assert!(!origin_ok("http://é"));
+        assert!(!origin_ok("http://@hote"));
+        assert!(!origin_ok("https://hote/chemin"));
+        assert!(!origin_ok("ftp://hote"));
+        assert!(!origin_ok("https://"));
     }
 
     #[test]

@@ -56,9 +56,7 @@ fn launch() -> anyhow::Result<()> {
     }
     if !webview2_installed() {
         message(kybernow::DISPLAY_NAME, &t("setup.webview2Missing", &[]), false);
-        let _ = std::process::Command::new("cmd")
-            .args(["/C", "start", "", "https://go.microsoft.com/fwlink/p/?LinkId=2124703"])
-            .spawn();
+        kybernow::sys::open_url("https://go.microsoft.com/fwlink/p/?LinkId=2124703");
         return Ok(());
     }
 

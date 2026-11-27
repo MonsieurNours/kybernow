@@ -49,7 +49,7 @@ fn main() {
         std::process::exit(startup::elevated_main(args.get(1).map(String::as_str)));
     }
     if args.first().map(String::as_str) == Some(password::ELEVATED_ARG) {
-        std::process::exit(password::elevated_main());
+        std::process::exit(password::elevated_main(args.get(1).map(String::as_str)));
     }
     // Mode console d'un prêt (docs/pret.md) : lancé par Admin dans la session
     // de l'utilisateur ; ni icône, ni verrou de l'icône.

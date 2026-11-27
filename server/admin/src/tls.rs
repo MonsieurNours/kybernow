@@ -26,7 +26,10 @@ pub fn ensure_certificate(data_dir: &Path) -> Result<(PathBuf, PathBuf)> {
     }
     let generated = rcgen::generate_simple_self_signed(names.clone())
         .context("génération du certificat")?;
-    crate::durable::write(&key, generated.key_pair.serialize_pem())?;
+    // La clé : réservée à SYSTEM et aux Administrateurs (Windows), à son compte (Mac, Linux).
+    crate::durable::try_write_then(&key, generated.key_pair.serialize_pem(), |tmp| {
+        crate::update::acl::secure_file(tmp).map_err(|e| std::io::Error::other(format!("{e:#}")))
+    })?;
     crate::durable::write(&cert, generated.cert.pem())?;
     tracing::info!("certificat auto-signé créé pour {}", names.join(", "));
     Ok((cert, key))

@@ -182,6 +182,10 @@ pub fn view(s: &AppState) -> Value {
     let mut v = s.lend.view(enabled(s));
     v["computer"] = json!(hostname());
     v["host"] = json!(host_name(s));
+    // Linux sans accès au clavier et à la souris : dit avant d'accorder un prêt.
+    let lockable = lend_sys::physical_input_lockable();
+    v["input_locked"] = json!(lockable);
+    v["input_warning"] = if lockable { Value::Null } else { json!(Msg::new("lend.inputNotLocked").render(crate::i18n::current())) };
     v["code"] = match s.lend.code() {
         Some(c) => {
             let links = crate::share_api::links(s, &c.code);
@@ -481,6 +485,9 @@ async fn prepare(s: &AppState, loan: lend::Loan) -> bool {
         s.friends.touch(friend);
     }
     s.activity.event("info", Msg::new("events.lendStarted").with("name", loan.who.name.as_str()));
+    if !lend_sys::physical_input_lockable() {
+        s.activity.event("warn", Msg::new("lend.inputNotLocked"));
+    }
     s.relay.wake();
     true
 }
@@ -745,7 +752,13 @@ pub async fn borrow(
         if let Some(res) = come_back(&s, &who, via.as_ref()).await {
             return res;
         }
-        let Some(c) = s.lend.take_code(&code) else { return friend_error(StatusCode::NOT_FOUND, "no_code") };
+        if let Some(wait) = s.lend.limits.codes_locked(Instant::now()) {
+            return too_many(wait);
+        }
+        let Some(c) = s.lend.take_code(&code) else {
+            s.lend.limits.code_failed(Instant::now());
+            return friend_error(StatusCode::NOT_FOUND, "no_code");
+        };
         until = c.duration.map(|d| now_secs() + d);
         steam = c.steam;
         from_session = c.from_session;
@@ -963,6 +976,12 @@ pub async fn leave(State(s): State<AppState>, headers: HeaderMap, via: Option<ax
 
 /// L'hôte : un appareil appairé (compte Basic), ou la session d'Admin.
 fn host(s: &AppState, headers: &HeaderMap) -> LendResult<()> {
+    // Un compte KyberNow fait l'hôte du prêt avec le droit Administrer : le
+    // droit Session (le bureau) ne suffit pas pour prêter l'ordinateur à un
+    // tiers, accepter ses demandes ou le reprendre.
+    if let Some(found) = crate::accounts::authorize(s, headers, Some(kybernow_tunnel::access::Right::Admin), kybernow_tunnel::access::Use::Reusable, false) {
+        return found.map(|_| ()).map_err(|d| LendError::from(crate::api::ApiError::msg(d.status(), d.msg())));
+    }
     stream_user(s, headers).map(|_| ()).map_err(LendError::from)
 }
 
@@ -1001,10 +1020,7 @@ fn create_code(s: &AppState, body: CodeBody, user: Option<&str>) -> LendResult<J
         return Err(LendError::new(StatusCode::BAD_REQUEST, "bad_request", Msg::new("lend.badDuration")));
     }
     // Un code créé par l'appareil en session vaut accord : sa session se fermera.
-    let from_session = s.activity.live().is_some_and(|l| match &body.device_id {
-        Some(id) => &l.device_id == id,
-        None => user.is_some_and(|u| u == l.user),
-    });
+    let from_session = s.activity.live().is_some_and(|l| user.is_some_and(|u| crate::activity::Activity::is_live(&l, u, body.device_id.as_deref())));
     let share_code = s.share.snapshot().map(|snap| snap.code);
     let previous = s.lend.code_value();
     s.lend.create_code(body.duration, body.steam.unwrap_or_default(), from_session, |c| share_code.as_deref() == Some(c) || previous.as_deref() == Some(c));
@@ -1072,6 +1088,7 @@ pub async fn host_get(State(s): State<AppState>, headers: HeaderMap) -> LendResu
 }
 
 pub async fn host_code(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> LendResult<Json<Value>> {
+    host(&s, &headers)?;
     let user = stream_user(&s, &headers).map_err(LendError::from)?;
     create_code(&s, json_body(&body)?, Some(&user))
 }
@@ -1400,6 +1417,11 @@ pub struct LaunchBody {
 /// Une tuile du lanceur : Admin ouvre l'app permise dans la session.
 pub async fn console_launch(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<LaunchBody>) -> LendResult<Json<Value>> {
     console_only(&s, peer, &headers)?;
+    // Le lanceur ne sert que pendant un prêt : hors prêt, le jeton local ne
+    // lance ni les apps permises ni Big Picture.
+    if s.lend.loan().is_none() {
+        return Err(LendError::new(StatusCode::CONFLICT, "no_lend", Msg::new("lend.noLend")));
+    }
     let settings = settings(&s);
     let launch = if let Some(appid) = lend_last::steam_appid(&body.id) {
         // « Reprendre {jeu} » : un jeu Steam installé, Steam permis.

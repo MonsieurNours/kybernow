@@ -28,6 +28,8 @@ windows)
     x86_64-w64-mingw32-strip --strip-debug "$OUTPUT"
     ;;
 macos)
+    # Jamais l'ancien binaire si clang échoue (sa sortie est filtrée ci-dessous).
+    rm -f "$OUTPUT"
     # shellcheck disable=SC2046
     clang -O2 -mmacosx-version-min=15.0 -o "$OUTPUT" "$HERE/encoder_check.c" -I"$ROOTFS/include" \
         $(PKG_CONFIG_LIBDIR="$PC" pkg-config --static --libs libavcodec libavutil) 2>&1 | grep -Ev "ignoring duplicate libraries|was built for newer .macOS. version" || true

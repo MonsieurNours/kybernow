@@ -16,6 +16,13 @@
 //!
 //! Hors Windows (développement), le jeton est seulement écrit dans le dossier
 //! de données (`dev-data/local-token`).
+//!
+//! Un second jeton, `installer-token`, n'est écrit que dans le dossier de
+//! données (jamais copié dans un profil) : seul un administrateur (l'installateur,
+//! élevé) le lit. Il garde les routes qui rattachent la Station à un compte
+//! ou changent son relais (`/api/local/account/*`) : sans lui, un compte
+//! Windows standard (ou l'ami d'un prêt, dans la session de l'hôte) pourrait
+//! rattacher la Station à son propre compte, puis entrer dans Admin.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -29,6 +36,10 @@ use axum::http::HeaderMap;
 pub const FILE: &str = "local-token";
 /// En-tête porté par l'icône.
 pub const HEADER: &str = "x-kyber-local";
+/// Jeton de l'installateur, dans le dossier de données seulement.
+pub const INSTALLER_FILE: &str = "installer-token";
+/// En-tête porté par l'installateur (en plus de `x-kyber-local`).
+pub const INSTALLER_HEADER: &str = "x-kyber-installer";
 /// Copies à réessayer (5 s d'écart) quand la session de l'utilisateur n'est
 /// pas prête ; une ouverture de session relance la copie de toute façon.
 const COPY_RETRIES: u32 = 6;
@@ -48,13 +59,20 @@ pub struct LocalToken {
     data_dir: PathBuf,
     /// Jeton en cours, en hexadécimal (64 caractères).
     current: Mutex<String>,
+    /// Jeton de l'installateur (jamais copié dans la session).
+    installer: Mutex<String>,
     /// Copies encore à tenter dans la session de l'utilisateur.
     copies_left: AtomicU32,
 }
 
 impl LocalToken {
     pub fn new(data_dir: &Path) -> Arc<Self> {
-        Arc::new(Self { data_dir: data_dir.to_path_buf(), current: Mutex::new(String::new()), copies_left: AtomicU32::new(0) })
+        Arc::new(Self {
+            data_dir: data_dir.to_path_buf(),
+            current: Mutex::new(String::new()),
+            installer: Mutex::new(String::new()),
+            copies_left: AtomicU32::new(0),
+        })
     }
 
     /// Nouveau jeton : écrit dans le dossier de données, puis copié dans la
@@ -62,6 +80,12 @@ impl LocalToken {
     pub fn renew(&self) {
         let token = hex::encode(rand::random::<[u8; 32]>());
         *self.current.lock().unwrap() = token.clone();
+        let installer = hex::encode(rand::random::<[u8; 32]>());
+        let installer_path = self.data_dir.join(INSTALLER_FILE);
+        match write_atomically(&installer_path, &installer) {
+            Ok(()) => *self.installer.lock().unwrap() = installer,
+            Err(e) => tracing::error!("jeton de l'installateur non écrit dans {} : {e:#}", installer_path.display()),
+        }
         let path = self.data_dir.join(FILE);
         if let Err(e) = write_atomically(&path, &token) {
             tracing::error!("jeton local non écrit dans {} : {e:#}", path.display());
@@ -74,10 +98,12 @@ impl LocalToken {
 
     /// L'en-tête `x-kyber-local` porte le jeton en cours (comparaison à temps constant).
     pub fn accepts(&self, headers: &HeaderMap) -> bool {
-        let Some(given) = headers.get(HEADER).and_then(|v| v.to_str().ok()) else { return false };
-        let current = self.current.lock().unwrap();
-        let (a, b) = (given.trim().as_bytes(), current.as_bytes());
-        !b.is_empty() && a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+        same_token(headers, HEADER, &self.current.lock().unwrap())
+    }
+
+    /// L'en-tête `x-kyber-installer` porte le jeton de l'installateur.
+    pub fn accepts_installer(&self, headers: &HeaderMap) -> bool {
+        same_token(headers, INSTALLER_HEADER, &self.installer.lock().unwrap())
     }
 
     /// Copie dans le profil de l'utilisateur de la session console, par l'agent.
@@ -129,6 +155,12 @@ impl LocalToken {
             }
         });
     }
+}
+
+fn same_token(headers: &HeaderMap, header: &str, current: &str) -> bool {
+    let Some(given) = headers.get(header).and_then(|v| v.to_str().ok()) else { return false };
+    let (a, b) = (given.trim().as_bytes(), current.as_bytes());
+    !b.is_empty() && a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 fn write_atomically(path: &Path, text: &str) -> Result<()> {

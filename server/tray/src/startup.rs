@@ -1,13 +1,16 @@
 //! « Démarrer avec l'ordinateur » : démarrage automatique des deux services
 //! et lancement de l'icône à l'ouverture de session.
 //!
-//! La clé Run (HKCU) s'écrit sans droits particuliers. Le type de démarrage des
-//! services demande des droits administrateur : sans eux, l'icône se relance
-//! élevée (`--start-with-computer on|off`), ce qui affiche une invite UAC.
+//! Le type de démarrage des services et la clé Run de l'ordinateur (HKLM,
+//! pour tous les comptes) demandent des droits administrateur : sans eux,
+//! l'icône se relance élevée (`--start-with-computer on|off`), ce qui affiche
+//! une invite UAC. La clé Run du compte (HKCU), écrite par les versions
+//! d'avant la 0.11.8, est retirée : avec une élévation « par-dessus
+//! l'épaule », elle tombait dans le profil de l'administrateur.
 
 use anyhow::{Result, bail};
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, ERROR_CANCELLED, GetLastError, WAIT_OBJECT_0};
-use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RegDeleteKeyValueW, RegSetKeyValueW};
+use windows_sys::Win32::System::Registry::{HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, REG_SZ, RegDeleteKeyValueW, RegSetKeyValueW};
 use windows_sys::Win32::System::Threading::{GetExitCodeProcess, INFINITE, WaitForSingleObject};
 use windows_sys::Win32::UI::Shell::{SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW};
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
@@ -34,7 +37,7 @@ pub fn enabled() -> Option<bool> {
 pub fn set(on: bool) -> Result<bool> {
     let direct = set_services(on);
     match direct {
-        Ok(()) => {}
+        Ok(()) => set_run_entry(HKEY_LOCAL_MACHINE, on)?,
         Err(ERROR_ACCESS_DENIED) => {
             if !run_elevated(on)? {
                 return Ok(false);
@@ -42,7 +45,8 @@ pub fn set(on: bool) -> Result<bool> {
         }
         Err(code) => bail!(t("tray.errors.startupServices", &[("error", &std::io::Error::from_raw_os_error(code as i32))])),
     }
-    set_run_entry(on)?;
+    // L'ancienne valeur du compte : HKLM la remplace.
+    set_run_entry(HKEY_CURRENT_USER, false)?;
     Ok(true)
 }
 
@@ -52,18 +56,19 @@ pub fn set_services(on: bool) -> Result<(), u32> {
     services::set_auto_start(ADMIN, on)
 }
 
-/// Lancement de l'icône à l'ouverture de session de l'utilisateur courant.
-fn set_run_entry(on: bool) -> Result<()> {
+/// Lancement de l'icône à l'ouverture de session : `root` HKLM (tous les
+/// comptes, administrateur) ou HKCU (le compte courant).
+fn set_run_entry(root: HKEY, on: bool) -> Result<()> {
     let key = wide(RUN_KEY);
     let name = wide(RUN_VALUE);
     let code = if on {
         let exe = std::env::current_exe()?;
         let data = wide(&format!("\"{}\"", exe.display()));
         unsafe {
-            RegSetKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr(), REG_SZ, data.as_ptr().cast(), (data.len() * 2) as u32)
+            RegSetKeyValueW(root, key.as_ptr(), name.as_ptr(), REG_SZ, data.as_ptr().cast(), (data.len() * 2) as u32)
         }
     } else {
-        match unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr()) } {
+        match unsafe { RegDeleteKeyValueW(root, key.as_ptr(), name.as_ptr()) } {
             2 => 0, // ERROR_FILE_NOT_FOUND : déjà absente
             c => c,
         }
@@ -120,7 +125,10 @@ pub fn elevated_main(arg: Option<&str>) -> i32 {
         _ => return 87, // ERROR_INVALID_PARAMETER
     };
     match set_services(on) {
-        Ok(()) => 0,
+        Ok(()) => match set_run_entry(HKEY_LOCAL_MACHINE, on) {
+            Ok(()) => 0,
+            Err(_) => 5, // ERROR_ACCESS_DENIED
+        },
         Err(code) => code as i32,
     }
 }

@@ -17,6 +17,7 @@
 /* windows/install.cpp */
 int kn_windows_install(int install);
 int kn_windows_installed(const char **reason);
+int kn_windows11(void);
 
 struct win_out {
     HANDLE mapping;
@@ -29,7 +30,9 @@ static int win_open(struct kn_output *out, int w, int h)
     struct win_out *o = calloc(1, sizeof *o);
     SECURITY_ATTRIBUTES sa = { sizeof sa, NULL, FALSE };
     PSECURITY_DESCRIPTOR sd = NULL;
-    if (ConvertStringSecurityDescriptorToSecurityDescriptorW(KN_SHARED_SDDL, SDDL_REVISION_1, &sd, NULL))
+    /* Windows 11 : lue par Frame Server seulement (voir kn_shared.h). */
+    const wchar_t *sddl = kn_windows11() ? KN_SHARED_SDDL_WIN11 : KN_SHARED_SDDL_WIN10;
+    if (ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, SDDL_REVISION_1, &sd, NULL))
         sa.lpSecurityDescriptor = sd;
     o->mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, sd ? &sa : NULL, PAGE_READWRITE, 0,
                                     (DWORD)sizeof(struct kn_shared), KN_SHARED_NAME);

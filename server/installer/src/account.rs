@@ -152,6 +152,8 @@ pub struct Admin {
     client: Client,
     port: u16,
     token: String,
+    /// `installer-token` d'Admin (vide pour un Admin d'avant 0.11.8, qui ne le demande pas).
+    installer: String,
 }
 
 /// Une réponse d'Admin qui n'est pas un succès : le `code` des refus.
@@ -175,12 +177,16 @@ impl Admin {
     pub fn locate() -> Result<Admin> {
         let (fingerprint, port, token_file) = locate_files()?;
         let token = std::fs::read_to_string(&token_file).map(|t| t.trim().to_string()).with_context(|| format!("jeton local illisible ({})", token_file.display()))?;
-        Ok(Admin { client: Client::pinned(&fingerprint)?, port, token })
+        // Jeton de l'installateur, à côté (dossier réservé aux administrateurs) :
+        // Admin l'exige pour rattacher la Station ou changer son relais.
+        let installer_file = token_file.with_file_name("installer-token");
+        let installer = std::fs::read_to_string(&installer_file).map(|t| t.trim().to_string()).unwrap_or_default();
+        Ok(Admin { client: Client::pinned(&fingerprint)?, port, token, installer })
     }
 
     fn call(&self, method: &str, path: &str, body: Option<Value>, timeout: Duration) -> Result<Value> {
         let bytes = body.map(|b| b.to_string().into_bytes());
-        let reply = self.client.send(method, self.port, path, &[("x-kyber-local", &self.token)], bytes.as_deref(), timeout)?;
+        let reply = self.client.send(method, self.port, path, &[("x-kyber-local", &self.token), ("x-kyber-installer", &self.installer)], bytes.as_deref(), timeout)?;
         let v: Value = serde_json::from_slice(&reply.body).unwrap_or_default();
         if reply.status != 200 {
             let code = v["code"].as_str().unwrap_or(if reply.status == 404 { "not_found" } else { "refused" }).to_string();

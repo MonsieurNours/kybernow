@@ -41,6 +41,8 @@ const LOCKOUT_AFTER: u32 = 5;
 /// Durée du premier verrouillage ; elle double à chaque essai manqué suivant.
 const LOCKOUT_BASE: Duration = Duration::from_secs(30);
 const LOCKOUT_MAX: Duration = Duration::from_secs(10 * 60);
+/// Une adresse (IPv6 : son /64) sans essai manqué depuis ce temps est oubliée.
+const FORGET_AFTER: Duration = Duration::from_secs(3600);
 /// Vérifications argon2 menées de front (≈ 19 Mio chacune) : au-delà, on attend.
 const HASH_PARALLELISM: usize = 2;
 
@@ -48,6 +50,8 @@ const HASH_PARALLELISM: usize = 2;
 struct Failures {
     count: u32,
     locked_until: Option<Instant>,
+    /// Dernier essai manqué : une adresse sans échec depuis une heure est oubliée.
+    last: Option<Instant>,
 }
 
 pub struct Auth {
@@ -94,17 +98,19 @@ impl Auth {
     pub fn locked_for(&self, ip: IpAddr) -> Option<Duration> {
         let mut failures = self.failures.lock().unwrap();
         let now = Instant::now();
-        // Les adresses oubliées depuis longtemps ne s'accumulent pas.
-        failures.retain(|_, f| f.locked_until.is_some_and(|u| u > now) || f.count > 0);
-        let until = failures.get(&ip.to_canonical())?.locked_until?;
+        // Les adresses sans échec depuis une heure ne s'accumulent pas (des
+        // adresses IPv6 tournantes feraient grossir la table).
+        failures.retain(|_, f| f.locked_until.is_some_and(|u| u > now) || f.last.is_some_and(|l| now.saturating_duration_since(l) < FORGET_AFTER));
+        let until = failures.get(&crate::relay::ip_key(ip))?.locked_until?;
         (until > now).then(|| until - now)
     }
 
     /// Un essai manqué : au bout de cinq, l'adresse attend 30 s, puis le double à chaque fois.
     pub fn note_failure(&self, ip: IpAddr) {
         let mut failures = self.failures.lock().unwrap();
-        let f = failures.entry(ip.to_canonical()).or_default();
+        let f = failures.entry(crate::relay::ip_key(ip)).or_default();
         f.count += 1;
+        f.last = Some(Instant::now());
         if f.count >= LOCKOUT_AFTER {
             let factor = 2u32.saturating_pow(f.count - LOCKOUT_AFTER);
             let wait = LOCKOUT_BASE.saturating_mul(factor).min(LOCKOUT_MAX);
@@ -114,7 +120,7 @@ impl Auth {
     }
 
     pub fn note_success(&self, ip: IpAddr) {
-        self.failures.lock().unwrap().remove(&ip.to_canonical());
+        self.failures.lock().unwrap().remove(&crate::relay::ip_key(ip));
     }
 
     pub fn is_configured(&self) -> bool {
@@ -141,7 +147,8 @@ impl Auth {
         {
             let expected = self.setup_code.lock().unwrap();
             match expected.as_deref() {
-                Some(c) if c.eq_ignore_ascii_case(code.trim()) => {}
+                // Comparaison à temps constant, sans tenir compte de la casse.
+                Some(c) if crate::lend::same(&c.to_ascii_uppercase(), &code.trim().to_ascii_uppercase()) => {}
                 _ => bail!(Msg::new("auth.wrongSetupCode")),
             }
         }
@@ -303,7 +310,10 @@ pub fn clear_cookie(secure: bool) -> String {
 /// Protège les routes `/api/*` autres que la connexion et l'initialisation.
 pub async fn require_session(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let public = is_public(req.uri().path());
-    if req.method() != Method::GET && req.headers().get(CSRF_HEADER).is_none() {
+    // Le retour de « Se connecter avec KyberNow » en formulaire : une
+    // navigation, sans l'en-tête (jeton à usage unique lié au cookie du navigateur).
+    let login_form = req.method() == Method::POST && req.uri().path() == "/api/login/kybernow/return";
+    if req.method() != Method::GET && !login_form && req.headers().get(CSRF_HEADER).is_none() {
         return (StatusCode::FORBIDDEN, Msg::new("auth.adminHeader").text()).into_response();
     }
     if !public {
@@ -323,7 +333,7 @@ pub async fn require_session(State(state): State<AppState>, req: Request, next: 
 /// compte de l'appareil hôte, secret de l'invité, ou code pour rejoindre
 /// (limité).
 fn is_public(path: &str) -> bool {
-    matches!(path, "/api/session" | "/api/login" | "/api/login/kybernow" | "/api/login/kybernow/start" | "/api/setup" | "/api/share")
+    matches!(path, "/api/session" | "/api/login" | "/api/login/kybernow" | "/api/login/kybernow/start" | "/api/login/kybernow/return" | "/api/setup" | "/api/share")
         || path.starts_with("/api/local/")
         || path.starts_with("/api/stream/")
         || path.starts_with("/api/share/")

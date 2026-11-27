@@ -146,7 +146,7 @@ pub struct History {
 impl History {
     pub fn load(data_dir: &Path) -> History {
         let path = data_dir.join(HISTORY_FILE);
-        let list = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let list = crate::store::load_json(&path);
         History { path, list: Mutex::new(list) }
     }
 
@@ -349,7 +349,7 @@ pub const FRIENDS_FILE: &str = "lend-friends.json";
 impl Friends {
     pub fn load(data_dir: &Path) -> Friends {
         let path = data_dir.join(FRIENDS_FILE);
-        let list = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice::<Vec<Friend>>(&b).ok()).unwrap_or_default();
+        let list: Vec<Friend> = crate::store::load_json(&path);
         Friends { path, list: Mutex::new(list) }
     }
 
@@ -475,12 +475,22 @@ struct Strikes {
     until: Option<Instant>,
 }
 
-/// Les essais de l'ami : par adresse (10 par minute) et par compte (10 mots
-/// de passe refusés en 10 minutes bloquent le compte 10 minutes).
+/// Mauvais codes (prêt et partage), toutes adresses confondues, avant de
+/// refuser tout essai de code un moment : un code de six chiffres valable
+/// 24 h ne se devine pas en tournant d'adresse en adresse.
+pub const CODE_FAILURES_ALL: usize = 30;
+pub const CODE_FAILURES_WINDOW: Duration = Duration::from_secs(10 * 60);
+
+/// Les essais de l'ami : par adresse (10 par minute, une adresse IPv6 comptée
+/// par son /64 ; partagés avec `join` du partage, qui dit si un code est un
+/// code de prêt), par compte (10 mots de passe refusés en 10 minutes
+/// bloquent le compte 10 minutes), et les mauvais codes de toutes les
+/// adresses ([`CODE_FAILURES_ALL`] par [`CODE_FAILURES_WINDOW`]).
 #[derive(Default)]
 pub struct Limits {
     tries: Mutex<HashMap<IpAddr, Vec<Instant>>>,
     accounts: Mutex<HashMap<String, Strikes>>,
+    code_failures: Mutex<VecDeque<Instant>>,
 }
 
 impl Limits {
@@ -491,13 +501,35 @@ impl Limits {
             times.retain(|t| now.saturating_duration_since(*t) < Duration::from_secs(60));
             !times.is_empty()
         });
-        let times = tries.entry(peer.to_canonical()).or_default();
+        let times = tries.entry(crate::relay::ip_key(peer)).or_default();
         if times.len() >= TRIES_PER_MINUTE {
             let oldest = times.iter().min().copied().unwrap_or(now);
             return Err(Duration::from_secs(60).saturating_sub(now.saturating_duration_since(oldest)).as_secs().max(1));
         }
         times.push(now);
         Ok(())
+    }
+
+    /// Trop de mauvais codes de toutes les adresses : attente en secondes.
+    pub fn codes_locked(&self, now: Instant) -> Option<u64> {
+        let mut failures = self.code_failures.lock().unwrap();
+        while failures.front().is_some_and(|t| now.saturating_duration_since(*t) >= CODE_FAILURES_WINDOW) {
+            failures.pop_front();
+        }
+        (failures.len() >= CODE_FAILURES_ALL)
+            .then(|| CODE_FAILURES_WINDOW.saturating_sub(now.saturating_duration_since(*failures.front().unwrap_or(&now))).as_secs().max(1))
+    }
+
+    /// Un mauvais code (prêt ou partage).
+    pub fn code_failed(&self, now: Instant) {
+        let mut failures = self.code_failures.lock().unwrap();
+        failures.push_back(now);
+        if failures.len() == CODE_FAILURES_ALL {
+            tracing::warn!("{CODE_FAILURES_ALL} mauvais codes en {} min : essais de codes suspendus", CODE_FAILURES_WINDOW.as_secs() / 60);
+        }
+        while failures.len() > CODE_FAILURES_ALL {
+            failures.pop_front();
+        }
     }
 
     /// Ce compte est-il bloqué (attente en secondes) ?
@@ -1534,6 +1566,21 @@ mod tests {
         }
         assert!(limits.count_try(ip, t0).is_err());
         assert!(limits.count_try(ip, t0 + Duration::from_secs(61)).is_ok());
+        // IPv6 : tout le /64 compte comme une seule adresse.
+        let a: IpAddr = "2001:db8:1:2::1".parse().unwrap();
+        for i in 0..TRIES_PER_MINUTE {
+            let ip: IpAddr = format!("2001:db8:1:2::{:x}", i + 10).parse().unwrap();
+            limits.count_try(ip, t0).unwrap();
+        }
+        assert!(limits.count_try(a, t0).is_err());
+        assert!(limits.count_try("2001:db8:1:3::1".parse().unwrap(), t0).is_ok());
+        // Mauvais codes de toutes les adresses : au-delà, plus d'essai un moment.
+        for _ in 0..CODE_FAILURES_ALL {
+            assert!(limits.codes_locked(t0).is_none());
+            limits.code_failed(t0);
+        }
+        assert!(limits.codes_locked(t0).is_some());
+        assert!(limits.codes_locked(t0 + CODE_FAILURES_WINDOW).is_none());
         for _ in 0..FRIEND_LOCK_AFTER {
             limits.account_failed("lea", t0);
         }

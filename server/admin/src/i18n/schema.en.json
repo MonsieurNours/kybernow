@@ -75,10 +75,10 @@
       }
     },
     "video.pyrowave": {
-      "label": "PyroWave (provisional)",
-      "help": "Provisional text: offer the PyroWave format to devices.",
-      "details": "Provisional text. PyroWave is a picture format that is very fast to encode and decode, for the local network; it needs a lot of bandwidth. Offered only if the graphics card allows it.",
-      "advice": "Provisional text: keep it on."
+      "label": "PyroWave",
+      "help": "Offer PyroWave to your devices: the fastest picture, on the local network.",
+      "details": "PyroWave is a picture format that is very fast to encode and decode: it saves a few milliseconds, but needs a lot of bandwidth (200 Mbit/s and more). It is meant for the local network, ideally over an Ethernet cable. It is offered only if this computer's graphics card allows it; your devices pick it in “Video format”.",
+      "advice": "Keep it on: your devices only use it when the network allows it or when you choose it."
     },
     "video.pyrowave_max_mbps": {
       "label": "Maximum bitrate",

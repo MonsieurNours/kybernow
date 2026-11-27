@@ -42,7 +42,7 @@ pub struct LastPlayed {
 impl LastPlayed {
     pub fn load(data_dir: &Path) -> LastPlayed {
         let path = data_dir.join(FILE);
-        let map = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let map = crate::store::load_json(&path);
         LastPlayed { path, map: Mutex::new(map) }
     }
 
@@ -154,7 +154,7 @@ fn vdf_values(text: &str, key: &str) -> Vec<String> {
 }
 
 /// Les bibliothèques de Steam : son dossier, puis celles de `libraryfolders.vdf`.
-fn libraries(steam: &Path) -> Vec<PathBuf> {
+pub(crate) fn libraries(steam: &Path) -> Vec<PathBuf> {
     let mut libs = vec![steam.to_path_buf()];
     if let Ok(text) = std::fs::read_to_string(steam.join("steamapps").join("libraryfolders.vdf")) {
         for path in vdf_values(&text, "path") {

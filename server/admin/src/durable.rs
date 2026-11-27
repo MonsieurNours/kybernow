@@ -28,13 +28,23 @@ pub fn write(path: &Path, bytes: impl AsRef<[u8]>) -> io::Result<()> {
 /// Comme `write`, avec `before` appelé sur le fichier temporaire juste avant
 /// le renommage (droits à poser, par exemple).
 pub fn write_then(path: &Path, bytes: impl AsRef<[u8]>, before: impl FnOnce(&Path)) -> io::Result<()> {
+    try_write_then(path, bytes, |tmp| {
+        before(tmp);
+        Ok(())
+    })
+}
+
+/// Comme `write_then`, mais un échec de `before` annule tout : le fichier en
+/// place ne change pas (des droits qui n'ont pas pu être posés ne laissent
+/// pas un secret lisible).
+pub fn try_write_then(path: &Path, bytes: impl AsRef<[u8]>, before: impl FnOnce(&Path) -> io::Result<()>) -> io::Result<()> {
     let tmp = temp_of(path);
     let result = (|| {
         let mut f = fs::File::create(&tmp)?;
         f.write_all(bytes.as_ref())?;
         f.sync_all()?;
         drop(f);
-        before(&tmp);
+        before(&tmp)?;
         rename(&tmp, path)
     })();
     if result.is_err() {

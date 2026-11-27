@@ -155,6 +155,8 @@ pub fn backup(files: &KyberFiles, backup_dir: &Path, reason: &str) -> Vec<String
             Err(e) => lines.push(format!("réglages de Kyber pas sauvegardés : {e}")),
         }
         rotate(backup_dir, "kyber_config-", ".toml", MAX_CONFIG_BACKUPS);
+        // Copies de l'installateur (réinstallation, horodatage à 10 chiffres) : bornées aussi.
+        rotate(backup_dir, "kyber_config.toml.reinstallation-", "", MAX_CONFIG_BACKUPS);
     }
     let cert_bad = pem_problem(&files.cert, false);
     let key_bad = pem_problem(&files.key, true);

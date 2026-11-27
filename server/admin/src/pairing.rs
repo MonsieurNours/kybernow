@@ -29,8 +29,10 @@ const COLLECT_TTL: Duration = Duration::from_secs(2 * 60);
 /// Demandes par adresse et par minute.
 const RATE_PER_MINUTE: usize = 10;
 /// Demandes en attente par adresse, et au total.
+/// (Une adresse IPv6 est comptée par son /64.) Le total laisse de la place
+/// aux vrais appareils quand quelques adresses du réseau remplissent les leurs.
 const PENDING_PER_PEER: usize = 2;
-const PENDING_TOTAL: usize = 6;
+const PENDING_TOTAL: usize = 20;
 const MAX_NAME: usize = 60;
 
 #[derive(Debug, PartialEq)]
@@ -129,6 +131,8 @@ impl Pairing {
 
     /// Nouvelle demande. Rend son identifiant (secret : c'est lui qui donne l'accès).
     pub fn request(&self, code: &str, mut device: DeviceInfo, peer: IpAddr) -> Result<String, RequestError> {
+        // Compté par adresse (IPv6 : par /64) ; l'adresse exacte reste affichée.
+        let key = crate::relay::ip_key(peer);
         if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
             return Err(RequestError::Invalid("pairing.codeDigits"));
         }
@@ -140,7 +144,7 @@ impl Pairing {
         let now = Instant::now();
         let mut s = self.state.lock().unwrap();
         Self::sweep(&mut s, now);
-        let times = s.recent.entry(peer).or_default();
+        let times = s.recent.entry(key).or_default();
         if times.len() >= RATE_PER_MINUTE {
             return Err(RequestError::TooMany);
         }
@@ -148,7 +152,7 @@ impl Pairing {
         // Un nouveau code du même appareil remplace sa demande précédente.
         s.requests.retain(|_, r| !(matches!(r.stage, Stage::Pending) && r.device.id == device.id));
         let pending = |r: &&Request| matches!(r.stage, Stage::Pending);
-        if s.requests.values().filter(pending).filter(|r| r.peer == peer).count() >= PENDING_PER_PEER
+        if s.requests.values().filter(pending).filter(|r| crate::relay::ip_key(r.peer) == key).count() >= PENDING_PER_PEER
             || s.requests.values().filter(pending).count() >= PENDING_TOTAL
         {
             return Err(RequestError::TooMany);
@@ -352,8 +356,13 @@ mod tests {
             p.request("555555", tv(&format!("x{i}")), other).ok();
         }
         assert_eq!(p.request("555555", tv("y"), other), Err(RequestError::TooMany));
-        // Six en attente au plus en tout.
-        for i in 0..8u8 {
+        // Un /64 IPv6 compte comme une seule adresse.
+        let v6 = |n: u16| IpAddr::V6(std::net::Ipv6Addr::new(0x2001, 0xdb8, 1, 2, 0, 0, 0, n));
+        p.request("777777", tv("v1"), v6(1)).unwrap();
+        p.request("777777", tv("v2"), v6(2)).unwrap();
+        assert_eq!(p.request("777777", tv("v3"), v6(3)), Err(RequestError::TooMany));
+        // Un plafond en tout, au-delà de ce que trois adresses remplissent.
+        for i in 0..30u8 {
             p.request("666666", tv(&format!("z{i}")), IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, i))).ok();
         }
         assert_eq!(p.pending().len(), PENDING_TOTAL);

@@ -14,7 +14,7 @@ Settled with the author on 26/11/2026:
 | Who starts it | The host's device in session, and Admin. A share guest sees it without being able to stop it. During a lend, no recording: a lend that starts stops it. |
 | Telling people | A red “Recording · 02:14” pill for everyone in the session, and a brief notice when it starts (or when joining a recorded session). No consent prompt: people are told. |
 | Contents | The picture of the session's main display and the computer's sound. KyberNow carries no microphone: there is none. |
-| Where the file goes | The computer user's Videos › KyberNow (Movies › KyberNow on a Mac, `XDG_VIDEOS_DIR` › KyberNow on Linux), changeable in Admin. |
+| Where the file goes | The computer user's Videos › KyberNow (Movies › KyberNow on a Mac, `XDG_VIDEOS_DIR` › KyberNow on Linux), changeable in Admin. A folder that is (or goes through) a link or a junction is refused: Kyber writes there with the system's rights. |
 | How long | 30 days by default (7, 30, 90 days or forever, in Admin); stops under 2 GB free. |
 | Always record | No: by hand only. |
 | Allowed | Yes by default (“Allow session recording” in Admin). |

@@ -5,6 +5,8 @@ mod accounts;
 mod activity;
 mod api;
 mod assets;
+mod camera_setup;
+mod store;
 mod audio;
 mod auth;
 mod consoles;
@@ -631,6 +633,10 @@ pub struct Inner {
     pub data_dir: PathBuf,
     pub kyber_dir: PathBuf,
     pub settings: Mutex<Settings>,
+    /// Écriture des réglages : génération de la dernière copie mise sur le
+    /// disque (une plus ancienne n'écrase jamais une plus récente).
+    pub settings_saved: Mutex<u64>,
+    pub settings_gen: std::sync::atomic::AtomicU64,
     /// Réglages de Kyber modifiés, en attente d'un redémarrage (manuel).
     pub restart_pending: AtomicBool,
     /// Comptes d'appareils que Kyber en marche ne connaît pas encore : il
@@ -690,6 +696,8 @@ impl AppState {
             data_dir: data_dir.clone(),
             kyber_dir: data_dir,
             settings: Mutex::new(settings),
+            settings_saved: Mutex::new(0),
+            settings_gen: std::sync::atomic::AtomicU64::new(0),
             restart_pending: AtomicBool::new(false),
             pending_access: access::PendingAccess::default(),
             kyber_restart: tokio::sync::Mutex::new(()),
@@ -721,14 +729,43 @@ impl AppState {
         sources
     }
 
+    /// Change les réglages puis les écrit (forcés sur le disque) hors du
+    /// verrou des réglages : les autres requêtes qui les lisent n'attendent
+    /// pas `FlushFileBuffers`.
     pub fn update_settings(&self, f: impl FnOnce(&mut Settings)) -> Result<()> {
-        let mut settings = self.settings.lock().unwrap();
-        f(&mut settings);
-        settings.save(&self.data_dir)
+        let (copy, generation) = {
+            let mut settings = self.settings.lock().unwrap();
+            f(&mut settings);
+            (settings.clone(), self.settings_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1)
+        };
+        let mut saved = self.settings_saved.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if generation > *saved {
+            copy.save(&self.data_dir)?;
+            *saved = generation;
+        }
+        Ok(())
     }
 }
 
+/// Une panique laisse des verrous empoisonnés : Admin resterait vivant mais
+/// inutilisable. Elle est écrite dans le journal (`kyber-admin.log`, pas
+/// seulement sur la sortie d'erreur), puis Admin s'arrête en échec : le
+/// gestionnaire de services le relance (Windows : actions de relance du
+/// service ; Linux : `Restart=on-failure` ; Mac : `KeepAlive`).
+fn panic_hook() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let place = info.location().map(|l| format!(" ({}:{})", l.file(), l.line())).unwrap_or_default();
+        let what = info.payload().downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| info.payload().downcast_ref::<String>().cloned()).unwrap_or_default();
+        let thread = std::thread::current().name().unwrap_or("sans nom").to_string();
+        tracing::error!("panique dans le fil {thread}{place} : {what} ; KyberNow Admin s'arrête pour être relancé");
+        default(info);
+        std::process::exit(101);
+    }));
+}
+
 fn main() -> Result<()> {
+    panic_hook();
     let cli = Cli::parse();
     let data_dir = cli.run.data_dir.clone().unwrap_or_else(settings::default_data_dir);
 
@@ -758,11 +795,29 @@ fn main() -> Result<()> {
         None => {
             init_logging(None);
             let runtime = tokio::runtime::Runtime::new()?;
-            runtime.block_on(run(cli.run, async {
-                let _ = tokio::signal::ctrl_c().await;
-            }))
+            runtime.block_on(run(cli.run, shutdown_signal()))
         }
     }
+}
+
+/// Arrêt demandé : Ctrl+C, et sur Mac et Linux SIGTERM (launchd et systemd
+/// arrêtent Admin ainsi) ou SIGHUP. Admin rend alors les écrans, le son et
+/// le prêt avant de s'arrêter, comme le service Windows.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let (term, hup) = (signal(SignalKind::terminate()), signal(SignalKind::hangup()));
+        if let (Ok(mut term), Ok(mut hup)) = (term, hup) {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = term.recv() => tracing::info!("SIGTERM : arrêt de KyberNow Admin"),
+                _ = hup.recv() => tracing::info!("SIGHUP : arrêt de KyberNow Admin"),
+            }
+            return;
+        }
+    }
+    let _ = tokio::signal::ctrl_c().await;
 }
 
 fn init(
@@ -881,6 +936,9 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("création de {}", data_dir.display()))?;
     update::secure_data_dir(&data_dir);
+    // Mise à jour interrompue pendant la bascule des dossiers (coupure, gel) :
+    // finie ou défaite avant tout le reste (Windows).
+    update::at_start(&data_dir);
     let settings = Settings::load(&data_dir)?;
 
     let kyber_dir = args
@@ -1023,6 +1081,8 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         data_dir: data_dir.clone(),
         kyber_dir,
         settings: Mutex::new(settings),
+        settings_saved: Mutex::new(0),
+        settings_gen: std::sync::atomic::AtomicU64::new(0),
         restart_pending: AtomicBool::new(false),
         pending_access: access::PendingAccess::default(),
         kyber_restart: tokio::sync::Mutex::new(()),
@@ -1056,7 +1116,11 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     // qui l'apporte, s'il manque (Windows, une fois par version, sans bloquer).
     {
         let (kd, dd) = (state.kyber_dir.clone(), state.data_dir.clone());
-        tokio::task::spawn_blocking(move || micro::ensure_on_new_version(&kd, &dd));
+        tokio::task::spawn_blocking(move || {
+            micro::ensure_on_new_version(&kd, &dd);
+            // Caméra de l'appareil : inscrite si une mise à jour ne l'a pas fait.
+            camera_setup::ensure_registered(&kd, &dd);
+        });
     }
 
     let app = Router::new()

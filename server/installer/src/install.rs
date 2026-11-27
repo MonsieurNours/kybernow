@@ -19,16 +19,17 @@ pub const DISPLAY_CLASS_GUID: &str = "4D36E968-E325-11CE-BFC1-08002BE10318";
 pub const UNINSTALL_KEY: &str = r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\KyberNow";
 /// Icône de la zone de notification, relative au dossier d'installation.
 pub const TRAY_EXE: &str = r"tray\kybernow-tray.exe";
-/// Lancement de l'icône à l'ouverture de session (valeur `KyberNow`).
-pub const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-/// Droits des services `kyber` et `kyber-admin` : ceux de Windows par défaut,
-/// plus démarrer et arrêter (RP, WP) pour les utilisateurs interactifs (IU),
-/// afin que l'icône pilote le serveur sans élévation. Suspendre (DT) ne sert
-/// pas : il n'est pas donné. Changer la configuration (DC) reste réservé aux
-/// administrateurs. Même chaîne dans `update.ps1` et dans l'applicateur de
-/// la console (`server/admin/src/update/apply.rs`).
-pub const SERVICE_SDDL: &str = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)\
-    (A;;CCLCSWRPWPLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)";
+/// Lancement de l'icône à l'ouverture de session (valeur `KyberNow`), pour
+/// tous les comptes : l'installateur tourne élevé, parfois avec le compte
+/// d'un autre administrateur (« par-dessus l'épaule »), dont HKCU n'est pas
+/// celui de l'utilisateur.
+pub const RUN_KEY: &str = r"HKLM\Software\Microsoft\Windows\CurrentVersion\Run";
+/// L'ancienne valeur, dans le compte qui installait (versions d'avant la 0.11.8).
+pub const LEGACY_RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+/// Droits des services `kyber` et `kyber-admin` (voir `common`) : ceux de
+/// Windows par défaut, plus démarrer et arrêter pour les utilisateurs
+/// interactifs, afin que l'icône pilote le serveur sans élévation.
+pub const SERVICE_SDDL: &str = crate::common::SERVICE_SDDL;
 /// Réglages de Kyber, relatif au dossier d'installation.
 pub const KYBER_CONFIG: &str = r"kyber\kyber_config.toml";
 /// Certificat TLS de Kyber (`cert-gen.exe`), relatif à `kyber\`.
@@ -62,6 +63,11 @@ pub struct InstallRecord {
     /// Ce que la désinstallation remet comme avant KyberNow.
     #[serde(default)]
     pub restore: Restore,
+    /// « Micro de vos appareils » choisi à l'installation : Admin n'installe
+    /// VB-CABLE après une mise à jour que s'il l'a été (absent : installation
+    /// d'avant la 0.11.8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub microphone: Option<bool>,
 }
 
 /// Réglages de Windows changés par l'installation, notés à la première
@@ -116,6 +122,9 @@ pub fn run_install(req: &InstallRequest, info: &SystemInfo, payload: &Path, emit
     let dir = sys::install_dir();
     let restore = read_record(&dir).map(|r| r.restore).unwrap_or_default();
     let ctx = Ctx { emit, dir, log: Default::default(), restore: std::sync::Mutex::new(restore) };
+    // Une installation à la fois : pas pendant une mise à jour d'Admin ou d'update.ps1.
+    #[cfg(windows)]
+    let _lock = crate::common::lock_updates().ok_or_else(|| anyhow::anyhow!(t("install.updateRunning", &[])))?;
     let result = if cfg!(windows) { install(&ctx, req, info, payload) } else { simulate(&ctx, req) };
     let log = ctx.log.lock().unwrap().join("\n");
     let _ = std::fs::write(std::env::temp_dir().join("KyberNow-install.log"), &log);
@@ -146,6 +155,10 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
 
     let keep = req.keep_settings;
     step(ctx, "files", || {
+        // Mise à jour interrompue : dossiers remis avant de chercher les réglages à garder.
+        for line in recover_switch(&ctx.dir, &sys::data_dir()) {
+            ctx.log(line);
+        }
         if keep {
             check_kept_settings()?;
         }
@@ -339,15 +352,21 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
     if camera.is_file() {
         match run(&camera.display().to_string(), &["--install"]) {
             Ok(out) if out.status.success() => ctx.log("Caméra « KyberNow Camera » inscrite : la caméra de vos appareils sur cet ordinateur"),
-            Ok(out) => ctx.log(format!("ATTENTION : caméra « KyberNow Camera » non inscrite ({})", sys::text(&out).trim())),
+            Ok(out) => ctx.log(format!(
+                "ATTENTION : caméra « KyberNow Camera » non inscrite ({}) : {}",
+                crate::common::exit_text(out.status.code()),
+                sys::text(&out).trim()
+            )),
             Err(e) => ctx.log(format!("ATTENTION : caméra « KyberNow Camera » non inscrite ({e:#})")),
         }
     }
 
     step(ctx, "admin", || {
         let admin = ctx.path(r"admin\kyber-admin.exe");
+        delete_service("kyber-admin");
         run_ok(&admin, &["service", "install"], &[0])?;
         run_ok("sc", &["sdset", "kyber-admin", SERVICE_SDDL], &[0])?;
+        set_recovery("kyber-admin");
         if !req.start_with_windows {
             run_ok("sc", &["config", "kyber-admin", "start=", "demand"], &[0])?;
         }
@@ -450,7 +469,12 @@ pub fn find_guid(text: &str, except: &str) -> Option<String> {
     })
 }
 
-/// Arrête et retire ce qui occupe la place : ancienne version, Kyber officiel.
+/// Arrête ce qui occupe la place (ancienne version, Kyber officiel, aides
+/// du micro et de la caméra, Frame Server), finit une bascule de mise à jour
+/// interrompue, retire les restes des mises à jour et met de côté les
+/// bibliothèques de la caméra encore chargées. Les services ne sont pas
+/// supprimés ici : ils le sont juste avant d'être recréés, une fois les
+/// fichiers écrits.
 fn prepare(ctx: &Ctx, info: &SystemInfo) -> Result<()> {
     for service in ["kyber-admin", "kyber"] {
         if run("sc", &["query", service]).is_ok_and(|o| o.status.success()) {
@@ -463,15 +487,78 @@ fn prepare(ctx: &Ctx, info: &SystemInfo) -> Result<()> {
         ctx.log("Retrait de l'installation Kyber officielle");
         remove_official_kyber(uninstaller);
     }
-    for service in ["kyber-admin", "kyber"] {
-        if run("sc", &["query", service]).is_ok_and(|o| o.status.success()) {
-            let _ = run("sc", &["delete", service]);
-        }
-    }
-    for exe in ["kyclient.exe", "kycontroller.exe", "kyavserver.exe", "kynputserver.exe", "kyservice.exe", "kyber-admin.exe", "kybernow-tray.exe"] {
+    for exe in crate::common::KYBER_PROCESSES.iter().chain(&["kyber-admin.exe", "kybernow-tray.exe"]) {
         let _ = run("taskkill", &["/F", "/IM", exe]);
     }
+    for service in crate::common::FRAME_SERVER {
+        let _ = run("sc", &["stop", service]);
+    }
+    for line in recover_switch(&ctx.dir, &sys::data_dir()) {
+        ctx.log(line);
+    }
+    for line in remove_update_leftovers(&ctx.dir) {
+        ctx.log(line);
+    }
+    #[cfg(windows)]
+    for (from, to) in crate::common::set_aside_libraries(&ctx.kyber(), &ctx.dir.join(".staging").join(crate::common::SET_ASIDE_DIR)) {
+        ctx.log(format!("{} encore chargée : mise de côté ({}), effacée au redémarrage", from.display(), to.display()));
+    }
     Ok(())
+}
+
+/// Bascule de mise à jour interrompue (marqueur `update\bascule.json`,
+/// voir `common`) : chaque dossier absent (`kyber`, `admin`, `tray`) est
+/// repris de sa copie (`.prev` ou `.bad`), sinon de son remplaçant, pour que
+/// « Conserver mes réglages » retrouve `kyber\kyber_config.toml`. Renvoie
+/// ce qui a été fait, pour le journal.
+pub fn recover_switch(dir: &Path, data: &Path) -> Vec<String> {
+    let marker_path = data.join("update").join(crate::common::SWITCH_MARKER);
+    let Ok(bytes) = std::fs::read(&marker_path) else { return Vec::new() };
+    let mut lines = Vec::new();
+    let marker: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
+    let suffix = marker["old_suffix"].as_str().filter(|s| matches!(*s, "prev" | "bad")).unwrap_or("prev");
+    for part in marker["parts"].as_array().into_iter().flatten() {
+        let (Some(name), Some(incoming)) = (part[0].as_str(), part[1].as_str()) else { continue };
+        if !matches!(name, "kyber" | "admin" | "tray") {
+            continue;
+        }
+        let current = dir.join(name);
+        if current.exists() {
+            continue;
+        }
+        let old = dir.join(format!("{name}.{suffix}"));
+        let from = if old.is_dir() { old } else { PathBuf::from(incoming) };
+        match std::fs::rename(&from, &current) {
+            Ok(()) => lines.push(format!("Mise à jour interrompue : {name} repris de {}", from.display())),
+            Err(e) => lines.push(format!("ATTENTION : mise à jour interrompue, {name} non repris de {} ({e})", from.display())),
+        }
+    }
+    let _ = std::fs::remove_file(&marker_path);
+    lines
+}
+
+/// Restes des mises à jour (`kyber.prev`, `admin.bad`…, `.staging`) : une
+/// réinstallation les rend périmés (« Revenir à la version précédente »
+/// remettrait un ancien certificat). Les bibliothèques encore chargées dans
+/// `.staging` partiront au redémarrage.
+pub fn remove_update_leftovers(dir: &Path) -> Vec<String> {
+    let mut lines = Vec::new();
+    for part in ["kyber", "admin", "tray"] {
+        for suffix in ["prev", "bad", "new"] {
+            let path = dir.join(format!("{part}.{suffix}"));
+            if path.is_dir() {
+                match std::fs::remove_dir_all(&path) {
+                    Ok(()) => lines.push(format!("{} retiré (mise à jour précédente)", path.display())),
+                    Err(e) => lines.push(format!("ATTENTION : {} non retiré ({e})", path.display())),
+                }
+            }
+        }
+    }
+    let staging = dir.join(".staging");
+    if staging.is_dir() {
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+    lines
 }
 
 /// `C:\ProgramData\KyberNow` réservé à SYSTEM et aux Administrateurs, avant
@@ -535,14 +622,39 @@ fn init_settings(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo) -> Result<(
     Ok(())
 }
 
+/// Relance automatique après une panne (voir `common`), aussi quand le
+/// service s'arrête en échec.
+fn set_recovery(service: &str) {
+    let _ = run("sc", &["failure", service, "reset=", crate::common::RECOVERY_RESET, "actions=", crate::common::RECOVERY_ACTIONS]);
+    let _ = run("sc", &["failureflag", service, "1"]);
+}
+
+/// Supprime un service existant (avant de le recréer) et attend qu'il soit parti.
+fn delete_service(service: &str) {
+    if run("sc", &["query", service]).is_ok_and(|o| o.status.success()) {
+        let _ = run("sc", &["stop", service]);
+        wait_stopped(service);
+        let _ = run("sc", &["delete", service]);
+        for _ in 0..20 {
+            if !run("sc", &["query", service]).is_ok_and(|o| o.status.success()) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+    }
+}
+
 /// Service `kyber` : chemin entre guillemets, redémarrage en cas d'échec,
 /// démarrer et arrêter ouverts aux utilisateurs interactifs.
 fn create_kyber_service(ctx: &Ctx, req: &InstallRequest) -> Result<()> {
     let bin = format!("\"{}\"", ctx.kyber().join("kyservice.exe").display());
     let start = if req.start_with_windows { "auto" } else { "demand" };
+    // Supprimé seulement maintenant, fichiers écrits : une extraction ratée
+    // laisse une Station arrêtée, pas une Station sans services.
+    delete_service("kyber");
     run_ok("sc", &["create", "kyber", "binPath=", &bin, "start=", start, "DisplayName=", &t("install.serviceName", &[])], &[0])?;
     let _ = run("sc", &["description", "kyber", &t("install.serviceDescription", &[])]);
-    let _ = run("sc", &["failure", "kyber", "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/30000"]);
+    set_recovery("kyber");
     run_ok("sc", &["sdset", "kyber", SERVICE_SDDL], &[0])?;
     ctx.log(format!("Service Windows « kyber » créé (démarrage {start})"));
     Ok(())
@@ -570,6 +682,16 @@ fn backup_kyber_config(ctx: &Ctx) -> Result<()> {
     let to = dir.join(format!("kyber_config.toml.reinstallation-{stamp}"));
     std::fs::copy(&from, &to).with_context(|| t("install.backup", &[("path", &from.display())]))?;
     ctx.log(format!("Réglages de Kyber gardés (copie : {})", to.display()));
+    // Les cinq plus récentes restent (horodatage à 10 chiffres : l'ordre des noms est celui des dates).
+    let mut copies: Vec<_> = std::fs::read_dir(&dir)?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("kyber_config.toml.reinstallation-")))
+        .collect();
+    copies.sort();
+    for old in &copies[..copies.len().saturating_sub(5)] {
+        let _ = std::fs::remove_file(old);
+    }
     Ok(())
 }
 
@@ -679,8 +801,22 @@ fn write_record(ctx: &Ctx, req: &InstallRequest, sudovda_thumbprint: Option<Stri
         sudovda_thumbprint,
         console_fingerprint: previous.and_then(|r| r.console_fingerprint),
         restore: ctx.restore.lock().unwrap().clone(),
+        microphone: Some(req.microphone),
     };
-    std::fs::write(ctx.dir.join("kybernow.json"), serde_json::to_vec_pretty(&record)?)?;
+    write_durable(&ctx.dir.join("kybernow.json"), &serde_json::to_vec_pretty(&record)?)?;
+    Ok(())
+}
+
+/// Écrit d'un bloc : fichier temporaire forcé sur le disque, puis renommé (un
+/// gel du PC ne laisse pas un fichier rempli de zéros, comme le 03/11).
+pub fn write_durable(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    let tmp = path.with_extension("tmp");
+    let mut file = std::fs::File::create(&tmp)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(&tmp, path)?;
     Ok(())
 }
 
@@ -725,10 +861,11 @@ fn setup_tray(ctx: &Ctx, start_with_windows: bool) {
     let _ = sys::powershell(&format!(
         "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{}'); $s.TargetPath = '{}'; \
          $s.Description = '{}'; $s.Save()",
-        lnk.display(),
-        exe,
+        lnk.display().to_string().replace('\'', "''"),
+        exe.replace('\'', "''"),
         t("install.trayShortcut", &[]).replace('\'', "''")
     ));
+    let _ = run("reg", &["delete", LEGACY_RUN_KEY, "/v", "KyberNow", "/f"]);
     let _ = if start_with_windows {
         run("reg", &["add", RUN_KEY, "/v", "KyberNow", "/t", "REG_SZ", "/d", &format!("\"{exe}\""), "/f"])
     } else {
@@ -850,5 +987,45 @@ mod tests {
         let es = "NOMBRE_SERVICIO: kyber\r\n        ESTADO             : 1  STOPPED\r\n";
         assert_eq!(parse_state(es), Some(1));
         assert_eq!(parse_state("[SC] OpenService FAILED 1060"), None);
+    }
+
+    /// Coupure pendant la bascule d'une mise à jour, `admin\` parti en
+    /// `admin.prev` (seul cas où Admin ne peut pas reprendre lui-même) :
+    /// l'installateur remet les dossiers absents, puis efface les restes.
+    #[test]
+    fn interrupted_switch_is_repaired_then_leftovers_removed() {
+        let root = std::env::temp_dir().join(format!("kybernow-setup-switch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (dir, data) = (root.join("KyberNow"), root.join("data"));
+        let w = |p: &str| {
+            let path = dir.join(p);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, p).unwrap();
+        };
+        // kyber basculé (nouvelle version), admin parti en .prev, tray pas encore.
+        w("kyber/kyavserver.exe");
+        w("kyber.prev/kyber_config.toml");
+        w("admin.prev/kyber-admin.exe");
+        w(".staging/0.12.0/admin/kyber-admin.exe");
+        w(".staging/0.12.0/tray/kybernow-tray.exe");
+        w("tray/kybernow-tray.exe");
+        let staged = dir.join(".staging/0.12.0");
+        std::fs::create_dir_all(data.join("update")).unwrap();
+        let marker = serde_json::json!({
+            "version": "0.12.0", "old_suffix": "prev",
+            "parts": [["kyber", staged.join("kyber")], ["admin", staged.join("admin")], ["tray", staged.join("tray")]],
+        });
+        std::fs::write(data.join("update").join(crate::common::SWITCH_MARKER), marker.to_string()).unwrap();
+        let lines = recover_switch(&dir, &data);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(dir.join("admin/kyber-admin.exe").is_file());
+        assert!(!data.join("update").join(crate::common::SWITCH_MARKER).exists());
+        // Puis la réinstallation retire .prev, .bad et .staging.
+        remove_update_leftovers(&dir);
+        assert!(!dir.join("kyber.prev").exists() && !dir.join(".staging").exists());
+        assert!(dir.join("kyber/kyavserver.exe").is_file() && dir.join("tray/kybernow-tray.exe").is_file());
+        // Sans marqueur, rien.
+        assert!(recover_switch(&dir, &data).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -15,6 +15,7 @@
 //! l'apprend au signal de vie suivant et se déconnecte proprement.
 
 use std::collections::VecDeque;
+#[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -182,14 +183,8 @@ pub struct Activity {
 
 impl Activity {
     pub fn new(data_dir: &Path) -> Self {
-        let stored = fs::read(data_dir.join(DEVICES_FILE))
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
-        let events = fs::read(data_dir.join(EVENTS_FILE))
-            .ok()
-            .and_then(|b| serde_json::from_slice::<VecDeque<Event>>(&b).ok())
-            .unwrap_or_default();
+        let stored = crate::store::load_json(&data_dir.join(DEVICES_FILE));
+        let events: VecDeque<Event> = crate::store::load_json(&data_dir.join(EVENTS_FILE));
         Self { dir: data_dir.to_path_buf(), state: Mutex::new(State { stored, events, live: None }) }
     }
 
@@ -199,9 +194,18 @@ impl Activity {
         }
     }
 
+    /// Le fil des événements, réécrit à chaque événement : un journal, pas
+    /// une donnée à garder coûte que coûte. Écrit d'un bloc (temporaire puis
+    /// renommage) mais sans forcer le disque, qui retarderait sous le verrou
+    /// les signaux de vie ; s'il revient abîmé après un gel, `store` reprend
+    /// sa dernière copie lisible.
     fn save_events(&self, s: &State) {
         if let Ok(bytes) = serde_json::to_vec(&s.events) {
-            let _ = crate::durable::write(&self.dir.join(EVENTS_FILE), bytes);
+            let path = self.dir.join(EVENTS_FILE);
+            let tmp = self.dir.join(format!("{EVENTS_FILE}.tmp"));
+            if std::fs::write(&tmp, bytes).is_ok() {
+                let _ = std::fs::rename(&tmp, &path);
+            }
         }
     }
 
@@ -224,11 +228,13 @@ impl Activity {
     /// Un appareil veut ouvrir une session. Si un autre appareil est en
     /// session, la console lui demande de finir (il l'apprend à son signal de
     /// vie suivant) : l'arrivant doit attendre qu'il ait rendu la main.
-    pub fn claim(&self, device_id: &str, newcomer: &str) -> Claim {
+    pub fn claim(&self, device_id: &str, user: &str, newcomer: &str) -> Claim {
         self.expire();
         let mut s = self.state.lock().unwrap();
         let Some(live) = s.live.as_mut() else { return Claim::Free };
-        if live.device_id == device_id {
+        // Même appareil et même compte : jamais l'identifiant seul (un autre
+        // appareil appairé qui le connaît ne prend pas sa place).
+        if live.device_id == device_id && live.user == user {
             return Claim::Free;
         }
         let previous = live.name.clone();
@@ -270,7 +276,7 @@ impl Activity {
         let kind = info.kind.clone().unwrap_or_else(|| "other".into());
         // Même appareil déjà en session : il redemande son écran après un
         // redémarrage de Kyber. La session continue.
-        if let Some(live) = s.live.as_mut().filter(|l| l.device_id == info.id) {
+        if let Some(live) = s.live.as_mut().filter(|l| l.device_id == info.id && l.user == user) {
             live.last_beat = now;
             if mode.is_some() {
                 live.mode = mode;
@@ -353,11 +359,10 @@ impl Activity {
 
     /// La session en cours est-elle celle de cet appareil ? Les apps à partir
     /// de 0.2.5 donnent leur identifiant ; avant, on ne connaît que le compte.
-    fn is_live(live: &Live, user: &str, device_id: Option<&str>) -> bool {
-        match device_id {
-            Some(id) => live.device_id == id,
-            None => live.user == user,
-        }
+    /// Le compte doit toujours être le sien : un identifiant d'appareil se
+    /// devine (`compte:<nom>`) ou se lit, il ne suffit pas.
+    pub fn is_live(live: &Live, user: &str, device_id: Option<&str>) -> bool {
+        live.user == user && device_id.is_none_or(|id| live.device_id == id)
     }
 
     /// Signal de vie d'une app : sa latence, son profil. Vrai si la console
@@ -634,6 +639,25 @@ mod tests {
         assert!(a.end("lea", None, None));
     }
 
+    /// Un autre appareil appairé qui connaît l'identifiant de celui en
+    /// session (ou devine `compte:<nom>`) ne le prolonge, ne le termine ni ne
+    /// prend sa place.
+    #[test]
+    fn identifiant_seul_ne_suffit_pas() {
+        let a = Activity::new(&temp());
+        let mac = DeviceInfo { id: "mac".into(), name: "MacBook".into(), kind: Some("mac".into()), os: None, app: None };
+        a.begin(Some(mac.clone()), "lea", None, None);
+        let live = a.live().unwrap();
+        assert!(Activity::is_live(&live, "lea", Some("mac")));
+        assert!(!Activity::is_live(&live, "tv-salon", Some("mac")));
+        assert!(!a.heartbeat("tv-salon", Some("mac"), None, None));
+        assert!(!a.end("tv-salon", Some("mac"), None));
+        assert!(a.live().is_some());
+        // Il doit attendre que la session se termine, comme tout autre appareil.
+        assert_eq!(a.claim("mac", "tv-salon", "Apple TV"), Claim::Waiting { previous: "MacBook".into() });
+        drop(mac);
+    }
+
     #[test]
     fn reprise_de_main_avec_preavis() {
         let a = Activity::new(&temp());
@@ -641,9 +665,9 @@ mod tests {
         let tv = DeviceInfo { id: "tv".into(), name: "Apple TV".into(), kind: Some("tv".into()), os: None, app: None };
         a.begin(Some(mac.clone()), "matthieu", None, None);
         // Le même appareil qui redemande son écran : rien ne change.
-        assert_eq!(a.claim("mac", "MacBook"), Claim::Free);
+        assert_eq!(a.claim("mac", "matthieu", "MacBook"), Claim::Free);
         // Un autre appareil (même compte) : on demande au premier de finir.
-        assert_eq!(a.claim("tv", "Apple TV"), Claim::Waiting { previous: "MacBook".into() });
+        assert_eq!(a.claim("tv", "matthieu", "Apple TV"), Claim::Waiting { previous: "MacBook".into() });
         assert_eq!(a.live().unwrap().taking_over.as_deref(), Some("Apple TV"));
         // Le premier l'apprend à son signal de vie ; le second n'est pas encore en session.
         assert!(a.heartbeat("matthieu", Some("mac"), None, None));
@@ -654,7 +678,7 @@ mod tests {
         // Le premier rend la main ; le second commence.
         assert!(a.end("matthieu", Some("mac"), None));
         assert_eq!(a.live_device_id(), None);
-        assert_eq!(a.claim("tv", "Apple TV"), Claim::Free);
+        assert_eq!(a.claim("tv", "matthieu", "Apple TV"), Claim::Free);
         a.begin(Some(tv), "matthieu", None, None);
         assert_eq!(a.live_device_id().as_deref(), Some("tv"));
         assert!(a.events(3, Lang::Fr).iter().any(|e| e.text.contains("prend la main")));

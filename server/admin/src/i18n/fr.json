@@ -12,6 +12,9 @@
     "wrongPassword": "mot de passe incorrect",
     "localOnly": "réservé à l'ordinateur local",
     "localToken": "jeton local absent ou périmé",
+    "vbcableMissing": "VB-CABLE n'est pas livré avec cette Station",
+    "tooManyKyberLogins": "trop de mots de passe refusés : réessayez dans une minute",
+    "localDuringLoan": "pas pendant un prêt de l'ordinateur : passez par KyberNow Admin",
     "unknownAction": "action inconnue : {action}",
     "unreadableBody": "corps illisible : {error}",
     "hdrNotInSession": "Seul l'appareil en session peut changer le HDR de cet ordinateur.",
@@ -59,7 +62,7 @@
     "screensOrigin": "l'écran principal doit être en (0, 0)",
     "screensOverlap": "des écrans se chevauchent",
     "screensApart": "chaque écran doit partager un bord avec un autre écran",
-    "noMacVirtualDisplay": "pas encore d'écran virtuel sur Mac : la session prend l'écran du Mac tel qu'il est"
+    "noVirtualDisplayAgent": "l'aide des écrans virtuels (kybernow-display) est introuvable : la session prend l'écran de l'ordinateur tel qu'il est"
   },
   "update": {
     "sessionConflict": "Un appareil est connecté : l'installation coupera sa session",
@@ -255,6 +258,7 @@
     "locked": "Accès hors de chez vous bloqué 10 min après trop d'essais."
   },
   "lend": {
+    "inputNotLocked": "Le clavier et la souris de cet ordinateur ne peuvent pas être bloqués pendant le prêt : la personne devant l'écran garde la main. Réinstallez le paquet de KyberNow Station (règle udev des entrées), puis rouvrez votre session.",
     "badSlot": "Créneau illisible : un ou plusieurs jours, et une heure de fin après celle du début (« 14:00 », « 18:00 »).",
     "passwordLength": "Le mot de passe d'un ami fait 6 caractères au moins.",
     "nameRequired": "Donnez un prénom à ce compte d'ami.",
@@ -290,6 +294,7 @@
     "unavailable": "L'ordinateur n'a pas pu créer l'accès : réessayez."
   },
   "accounts": {
+    "installerOnly": "réservé à l'installateur de KyberNow Station",
     "off": "Cet ordinateur n'accepte pas les comptes KyberNow (Admin › Compte KyberNow).",
     "notAttached": "Cet ordinateur n'est rattaché à aucun compte KyberNow.",
     "expired": "Jeton d'accès échu : l'app en redemande un au relais.",

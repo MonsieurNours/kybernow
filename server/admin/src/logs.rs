@@ -120,7 +120,8 @@ pub fn list(sources: &[Source]) -> Result<Vec<LogFile>> {
 pub fn tail(sources: &[Source], name: &str, lines: usize) -> Result<String> {
     // Le nom vient du navigateur : on refuse tout ce qui sortirait des dossiers connus.
     let (prefix, file) = name.split_once('/').context("nom de fichier invalide")?;
-    if file.is_empty() || file.contains(['/', '\\']) || file.contains("..") || !is_log(Path::new(file)) {
+    // `:` : un lecteur (`C:x.log`) ou un flux NTFS ferait sortir du dossier.
+    if file.is_empty() || file.contains(['/', '\\', ':']) || file.contains("..") || !is_log(Path::new(file)) {
         bail!("nom de fichier invalide");
     }
     let path = sources
@@ -146,6 +147,16 @@ pub fn tail(sources: &[Source], name: &str, lines: usize) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_drive_or_stream_name_never_leaves_the_folder() {
+        let dir = std::env::temp_dir().join(format!("kybernow-logs-colon-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sources = [Source { prefix: "admin", dir: dir.clone() }];
+        assert!(tail(&sources, "admin/C:x.log", 10).is_err());
+        assert!(tail(&sources, "admin/x.log:flux", 10).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     use super::*;
 
     #[test]

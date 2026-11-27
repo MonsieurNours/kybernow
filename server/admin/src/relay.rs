@@ -233,7 +233,7 @@ pub enum Blocked {
 
 /// L'adresse comptée pour le blocage : IPv4 telle quelle, IPv6 réduite à son
 /// /64 (un abonné en a tout un).
-fn ip_key(ip: IpAddr) -> IpAddr {
+pub(crate) fn ip_key(ip: IpAddr) -> IpAddr {
     match ip.to_canonical() {
         IpAddr::V6(v6) => {
             let s = v6.segments();
@@ -1195,6 +1195,8 @@ fn class_of(method: &Method, path: &str) -> Class {
     match path {
         "/api/session" if read => return Class::Guest,
         "/api/login/kybernow/start" | "/api/login/kybernow" if read => return Class::RemoteLogin,
+        // Le même retour, jeton en formulaire (jamais dans l'adresse).
+        "/api/login/kybernow/return" if method == Method::POST => return Class::RemoteLogin,
         "/api/share/join" | "/api/share/wait" | "/api/share/beat" | "/api/share/quality" | "/api/share/leave" => return Class::Guest,
         // « Écran » de qui regarde : le secret de l'invité, comme `quality`
         // (`/api/share/watch` lui-même demande le jeton d'un compte : `Device`).
@@ -1515,7 +1517,7 @@ mod tests {
         for (m, p) in [(&get, "/api/lend"), (&post, "/api/lend/code"), (&Method::DELETE, "/api/lend/code"), (&post, "/api/lend/requests/ab"), (&post, "/api/lend/take-back")] {
             assert_eq!(class_of(m, p), Class::Device, "{m} {p}");
         }
-        for (m, p) in [(&get, "/api/lend/settings"), (&get, "/api/lend/history"), (&get, "/api/lend/friends"), (&get, "/api/lend/friends/x/invite"), (&get, "/api/lend/catalog"), (&get, "/api/local/lend"), (&get, "/api/local/lend/console")] {
+        for (m, p) in [(&get, "/api/lend/settings"), (&get, "/api/lend/history"), (&get, "/api/lend/friends"), (&get, "/api/lend/friends/x/invite"), (&get, "/api/local/lend"), (&get, "/api/local/lend/console")] {
             assert_eq!(class_of(m, p), Class::Never, "{m} {p}");
         }
         for p in ["/session/login", "/ws", "/kymux/start_mux", "/websocket/video"] {

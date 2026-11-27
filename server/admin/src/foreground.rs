@@ -117,6 +117,7 @@ pub fn run_agent(dir: &Path) -> anyhow::Result<()> {
     let state = dir.join("state.json");
     let tmp = dir.join("state.tmp");
     let started = SystemTime::now();
+    let (mut last, mut written): (Option<Value>, std::time::Instant) = (None, std::time::Instant::now());
     loop {
         let alive = run.metadata().and_then(|m| m.modified()).ok()
             .and_then(|t| SystemTime::now().duration_since(t).ok())
@@ -127,9 +128,15 @@ pub fn run_agent(dir: &Path) -> anyhow::Result<()> {
             let _ = std::fs::remove_file(&state);
             return Ok(());
         }
+        // Réécrit s'il change, sinon toutes les 2 s (Admin le juge périmé
+        // après 3 s) : plus d'écriture toutes les 0,4 s pour rien.
         let value = probe();
-        std::fs::write(&tmp, serde_json::to_vec(&value)?)?;
-        std::fs::rename(&tmp, &state)?;
+        if last.as_ref() != Some(&value) || written.elapsed() >= Duration::from_secs(2) {
+            std::fs::write(&tmp, serde_json::to_vec(&value)?)?;
+            std::fs::rename(&tmp, &state)?;
+            written = std::time::Instant::now();
+            last = Some(value);
+        }
         std::thread::sleep(Duration::from_millis(400));
     }
 }

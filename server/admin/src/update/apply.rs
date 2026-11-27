@@ -33,6 +33,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
 use super::manifest::{self, Channel, Manifest};
+use super::windows_common::SWITCH_MARKER;
 use super::{RESULT, package, valid_version};
 
 /// Dossiers remplacés, dans l'ordre de la bascule ; le paquet doit les avoir tous.
@@ -44,6 +45,8 @@ pub const APPLICATOR: &str = "kyber-admin-maj.exe";
 pub const STAGING: &str = ".staging";
 /// Journaux de Kyber et ancienne sauvegarde, jamais recopiés dans la nouvelle version.
 const KYBER_SKIP: [&str; 2] = ["log", "avant-maj"];
+/// Secrets de Kyber : réglages (empreintes des mots de passe), certificat et clé.
+const KYBER_SECRETS: [&str; 3] = ["kyber_config.toml", "kybertest_cert.pem", "kybertest_key.pem"];
 pub const HEALTH_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(clap::Subcommand)]
@@ -126,6 +129,13 @@ pub trait System {
     fn rebrand(&mut self, layout: &Layout) -> Vec<String>;
     /// Version d'une console, lue sur l'exécutable (`--version`).
     fn exe_version(&mut self, exe: &Path) -> Result<String>;
+    /// Met de côté ce qui, sous `kyber\`, reste chargé par d'autres processus
+    /// (bibliothèques de la caméra) : renvoie chaque déplacement.
+    fn set_aside(&mut self, _layout: &Layout) -> Vec<(PathBuf, PathBuf)> {
+        Vec::new()
+    }
+    /// Remet ce que [`System::set_aside`] a déplacé (mise à jour annulée).
+    fn put_back(&mut self, _moved: &[(PathBuf, PathBuf)]) {}
 }
 
 /// Journal de l'applicateur (`update\<version>\update.log`), recopié sur la sortie.
@@ -214,8 +224,8 @@ pub fn extract(zip: &Path, dest: &Path) -> Result<usize> {
             .open(&out)
             .with_context(|| format!("entrée en double ou impossible à créer : {name:?}"))?;
         std::io::copy(&mut entry, &mut target).with_context(|| format!("extraction de {name:?}"))?;
-        // Forcé sur le disque : un gel du PC juste après laisserait sinon des zéros.
-        target.sync_all().with_context(|| format!("écriture de {name:?}"))?;
+        // Pas forcé ici : les dossiers préparés le sont d'un coup avant la
+        // bascule (`flush_or_sync`), le paquet extrait n'est que copié.
         files += 1;
     }
     Ok(files)
@@ -247,7 +257,8 @@ pub fn copy_tree(from: &Path, to: &Path, skip: &[&str]) -> Result<()> {
                 perms.set_readonly(false);
                 let _ = fs::set_permissions(&dst, perms);
             }
-            crate::durable::copy(&src, &dst).with_context(|| format!("copie de {}", src.display()))?;
+            // Forcé sur le disque avant la bascule, d'un coup (`flush_or_sync`).
+            fs::copy(&src, &dst).with_context(|| format!("copie de {}", src.display()))?;
         }
     }
     Ok(())
@@ -381,6 +392,158 @@ fn prune_updates(layout: &Layout, keep: &str) {
     }
 }
 
+/// Marqueur de bascule (`update\bascule.json`) : écrit, forcé sur le disque,
+/// avant le premier renommage, et effacé quand tous les dossiers sont en
+/// place (avant de relancer les services). Une coupure de courant ou un gel
+/// entre les deux laisse des dossiers à moitié basculés : au démarrage, Admin
+/// (ou l'installateur) le trouve et finit le travail ([`recover`]).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Marker {
+    /// Version que la bascule met en place.
+    pub version: String,
+    /// Où partent les dossiers remplacés : `prev` (mise à jour), `bad` (retour arrière).
+    pub old_suffix: String,
+    /// Chaque dossier et son remplaçant, dans l'ordre de la bascule.
+    pub parts: Vec<(String, PathBuf)>,
+}
+
+pub fn marker_path(layout: &Layout) -> PathBuf {
+    layout.updates().join(SWITCH_MARKER)
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn read_marker(layout: &Layout) -> Option<Marker> {
+    serde_json::from_slice(&fs::read(marker_path(layout)).ok()?).ok()
+}
+
+fn write_marker(layout: &Layout, version: &str, old_suffix: &str, parts: Vec<(String, PathBuf)>) -> Result<()> {
+    let marker = Marker { version: version.into(), old_suffix: old_suffix.into(), parts };
+    fs::create_dir_all(layout.updates())?;
+    crate::durable::write(&marker_path(layout), serde_json::to_vec_pretty(&marker)?).context("écriture du marqueur de bascule")
+}
+
+fn clear_marker(layout: &Layout) {
+    let _ = fs::remove_file(marker_path(layout));
+    crate::durable::sync_dir(&layout.updates());
+}
+
+/// Où en est un dossier d'une bascule interrompue.
+#[cfg_attr(not(windows), allow(dead_code))]
+#[derive(Debug, PartialEq)]
+enum PartState {
+    /// Le dossier et son remplaçant sont là : rien n'a bougé.
+    Untouched,
+    /// Le dossier est parti (en `.prev` ou `.bad`), son remplaçant pas encore arrivé.
+    Halfway,
+    /// Le remplaçant a pris sa place.
+    Switched,
+    /// Ni l'un ni l'autre.
+    Lost,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn part_state(current: &Path, incoming: &Path) -> PartState {
+    match (current.is_dir(), incoming.is_dir()) {
+        (true, true) => PartState::Untouched,
+        (false, true) => PartState::Halfway,
+        (true, false) => PartState::Switched,
+        (false, false) => PartState::Lost,
+    }
+}
+
+/// Ce que [`recover`] a fait.
+#[cfg_attr(not(windows), allow(dead_code))]
+#[derive(Debug)]
+pub struct Recovered {
+    /// Version que visait la bascule interrompue.
+    pub version: String,
+    /// Vrai si la bascule a été terminée (la console qui tourne est la nouvelle),
+    /// faux si les dossiers ont été remis comme avant.
+    pub forward: bool,
+    /// Dossiers qui n'ont pas pu être remis.
+    pub failed: Vec<String>,
+}
+
+/// Bascule interrompue (marqueur présent) : la finit dans le sens de la
+/// console qui tourne, seule à ne pas pouvoir être renommée. Si elle est
+/// dans la version visée, les dossiers restants prennent leur remplaçant ;
+/// sinon, chaque dossier déjà basculé revient. Le résultat est écrit pour la
+/// page des mises à jour, le journal dans `update\<version>\update.log`.
+/// Les services doivent être arrêtés (sauf la console). `None` sans marqueur.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn recover(layout: &Layout, running: &str) -> Option<Recovered> {
+    let marker = read_marker(layout)?;
+    let forward = marker.version == running;
+    let dir = if valid_version(&marker.version) { marker.version.as_str() } else { "invalide" };
+    let mut log = Journal::open(layout.updates().join(dir).join("update.log"));
+    log.line(format!(
+        "==> Bascule vers {} interrompue (coupure ou arrêt de l'ordinateur) : {}",
+        marker.version,
+        if forward { "terminée au démarrage" } else { "dossiers remis comme avant" }
+    ));
+    let mut failed = Vec::new();
+    for (part, incoming) in &marker.parts {
+        let current = layout.part(part);
+        let old = layout.with_suffix(part, &marker.old_suffix);
+        let state = part_state(&current, incoming);
+        let step = (|| -> Result<&'static str> {
+            Ok(match (forward, &state) {
+                (true, PartState::Untouched) => {
+                    remove_dir(&old)?;
+                    rename_retry(&current, &old)?;
+                    rename_retry(incoming, &current)?;
+                    "remplacé"
+                }
+                (true, PartState::Halfway) => {
+                    rename_retry(incoming, &current)?;
+                    "remplacé"
+                }
+                (false, PartState::Switched) => {
+                    rename_retry(&current, incoming)?;
+                    rename_retry(&old, &current)?;
+                    "remis"
+                }
+                (false, PartState::Halfway) | (_, PartState::Lost) if old.is_dir() => {
+                    rename_retry(&old, &current)?;
+                    "remis"
+                }
+                (_, PartState::Lost) | (false, PartState::Halfway) => bail!("ni {} ni son remplaçant ne sont là", current.display()),
+                _ => "déjà en place",
+            })
+        })();
+        match step {
+            Ok(what) => log.line(format!("    {part} {what}")),
+            Err(e) => {
+                log.line(format!("    {part} NON remis : {e:#}"));
+                failed.push(part.clone());
+            }
+        }
+        if part == "kyber" {
+            // Journaux de Kyber : toujours dans le dossier en place.
+            let other = if current.join("log").is_dir() { None } else if old.join("log").is_dir() { Some(old.clone()) } else { Some(incoming.clone()) };
+            if let Some(other) = other {
+                move_kyber_log(&other, &current);
+            }
+        }
+    }
+    flush(layout, &mut log);
+    if failed.is_empty() {
+        clear_marker(layout);
+    }
+    let message = format!(
+        "mise à jour vers {} interrompue pendant la bascule des dossiers (coupure ou arrêt de l'ordinateur) : {}",
+        marker.version,
+        if forward { "terminée au démarrage suivant" } else { "version précédente remise au démarrage suivant" }
+    );
+    let result = if forward && failed.is_empty() {
+        json!({ "version": marker.version, "ok": true, "recovered": true, "message": message, "log": log.path })
+    } else {
+        json!({ "version": marker.version, "ok": false, "rolled_back": !forward && failed.is_empty(), "undo_failed": !failed.is_empty(), "message": message, "log": log.path })
+    };
+    write_result(layout, result);
+    Some(Recovered { version: marker.version, forward, failed })
+}
+
 /// Un dossier basculé : `part` a pris la place de l'ancien, venu de `incoming`.
 struct Swap {
     part: &'static str,
@@ -466,6 +629,34 @@ fn flush(layout: &Layout, log: &mut Journal) {
     }
 }
 
+/// Force sur le disque les dossiers préparés : tout le volume d'un coup ;
+/// si Windows le refuse, chaque fichier (un gel juste après la bascule ne
+/// doit pas laisser de fichiers remplis de zéros, comme le 03/11).
+fn flush_or_sync(layout: &Layout, dirs: &[PathBuf], log: &mut Journal) -> Result<()> {
+    match crate::durable::flush_volume(&layout.install) {
+        Ok(()) if cfg!(windows) => Ok(()),
+        result => {
+            if let Err(e) = result {
+                log.line(format!("    volume pas forcé sur le disque ({e}) : fichier par fichier"));
+            }
+            dirs.iter().try_for_each(|d| sync_tree(d))
+        }
+    }
+}
+
+fn sync_tree(dir: &Path) -> Result<()> {
+    for entry in fs::read_dir(dir).with_context(|| format!("lecture de {}", dir.display()))? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            sync_tree(&entry.path())?;
+        } else if kind.is_file() {
+            crate::durable::sync_file(&entry.path()).with_context(|| format!("écriture de {}", entry.path().display()))?;
+        }
+    }
+    Ok(())
+}
+
 /// Ce qu'on vérifie avant de toucher à quoi que ce soit.
 pub struct Checks<'a> {
     /// Clé publique de publication (format minisign).
@@ -535,6 +726,18 @@ pub fn apply(layout: &Layout, sys: &mut dyn System, zip: &Path, version: &str, c
                 copy_tree(&current, &target, if part == "kyber" { &KYBER_SKIP } else { &[] })?;
             }
             copy_tree(&package.join(part), &target, &[])?;
+            if part == "kyber" {
+                // Secrets de Kyber recopiés : réservés à SYSTEM et aux
+                // Administrateurs tout de suite (la copie prend les droits de Program Files).
+                for secret in KYBER_SECRETS {
+                    let file = target.join(secret);
+                    if file.is_file()
+                        && let Err(e) = super::acl::secure_file(&file)
+                    {
+                        log.line(format!("    droits de {} non posés : {e:#}", file.display()));
+                    }
+                }
+            }
             plan.push((part, target));
         }
         Ok(plan)
@@ -622,16 +825,24 @@ fn run_switch(
     log.line("==> Arrêt de l'icône, du serveur puis de la console");
     let tray_was_running = sys.stop_tray();
     let mut swaps = Vec::new();
+    let mut aside = Vec::new();
     let steps = (|| -> Result<()> {
         sys.stop_server()?;
         sys.stop_console()?;
         log.line("==> Préparation des nouveaux dossiers");
         let plan = prepare(log)?;
-        flush(layout, log);
+        flush_or_sync(layout, &plan.iter().map(|(_, d)| d.clone()).collect::<Vec<_>>(), log)?;
         log.line(format!("==> Bascule (les dossiers remplacés partent en .{old_suffix})"));
+        aside = sys.set_aside(layout);
+        for (from, to) in &aside {
+            log.line(format!("    {} encore chargée : mise de côté dans {}", from.display(), to.display()));
+        }
+        write_marker(layout, version, old_suffix, plan.iter().map(|(p, i)| (p.to_string(), i.clone())).collect())?;
         switch(layout, &plan, old_suffix, &mut swaps, log)?;
         after_switch(layout, log);
         flush(layout, log);
+        // Tous les dossiers sont en place : une coupure ne laisse plus rien à moitié.
+        clear_marker(layout);
         log.line("==> Droits des services et pare-feu");
         sys.service_rights(layout)?;
         if tray_was_running {
@@ -666,10 +877,18 @@ fn run_switch(
                 sys.stop_tray();
                 let _ = sys.stop_server();
                 let _ = sys.stop_console();
+                // Une coupure pendant le retour arrière se rattrape au démarrage.
+                let parts = swaps.iter().map(|s| (s.part.to_string(), s.incoming.clone())).collect();
+                if let Err(m) = write_marker(layout, version, old_suffix, parts) {
+                    log.line(format!("    {m:#}"));
+                }
                 let undone = undo(layout, &mut swaps, log);
                 flush(layout, log);
                 match undone {
-                    Ok(()) => rolled_back = true,
+                    Ok(()) => {
+                        rolled_back = true;
+                        clear_marker(layout);
+                    }
                     Err(u) => {
                         undo_failed = true;
                         log.line(format!("ERREUR pendant le retour arrière : {u:#} ; dossiers à vérifier dans {}", layout.install.display()));
@@ -678,6 +897,12 @@ fn run_switch(
                 if rolled_back {
                     let _ = sys.service_rights(layout);
                 }
+            } else {
+                // Rien n'a été renommé (ou le marqueur n'a pas pu s'écrire).
+                clear_marker(layout);
+            }
+            if !aside.is_empty() && !undo_failed {
+                sys.put_back(&aside);
             }
             if tray_was_running {
                 request_tray_relaunch(layout);
@@ -715,6 +940,9 @@ pub fn run(action: Action, data_dir: &Path) -> Result<()> {
     };
     let layout = Layout { install: install_dir, data: data_dir.to_path_buf() };
     let mut sys = platform()?;
+    // Une installation à la fois, entre processus (Admin, update.ps1, installateur).
+    #[cfg(windows)]
+    let _lock = super::windows_common::lock_updates().context("une autre installation de KyberNow Station est déjà en cours")?;
     match action {
         Action::Apply { zip, version, .. } => {
             let channel = crate::settings::Settings::load(data_dir).map(|s| s.update_channel).unwrap_or_default();
@@ -749,17 +977,21 @@ mod windows {
 
     use super::{Layout, System};
 
-    /// Droits Windows par défaut, plus démarrer et arrêter (RP, WP) pour les
-    /// utilisateurs interactifs (IU) : l'icône pilote les services sans
-    /// droits administrateur. Même chaîne que l'installateur et `update.ps1`.
-    const SERVICE_SDDL: &str = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)";
-    const KYBER_PROCESSES: [&str; 5] = ["kyavserver.exe", "kycontroller.exe", "kynputserver.exe", "kyclient.exe", "kyservice.exe"];
+    use crate::update::windows_common::{self as common, FRAME_SERVER, KYBER_PROCESSES, RECOVERY_ACTIONS, RECOVERY_RESET, SERVICE_SDDL};
     const UNINSTALL_KEY: &str = r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\KyberNow";
-    /// Relance automatique de Kyber après une panne, posée par l'installateur
-    /// (`server/installer/src/install.rs`) : suspendue pendant la bascule, pour
-    /// que Windows ne relance pas `kyber` au milieu des renommages.
-    const KYBER_RECOVERY: [&str; 6] = ["failure", "kyber", "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/30000"];
-    const NO_RECOVERY: [&str; 6] = ["failure", "kyber", "reset=", "0", "actions=", ""];
+
+    /// Relance automatique de `kyber` et `kyber-admin` après une panne,
+    /// posée par l'installateur et à chaque démarrage d'Admin : suspendue
+    /// pendant la bascule, pour que Windows ne relance rien au milieu des
+    /// renommages.
+    pub fn set_recovery(service: &str, on: bool) {
+        let (reset, actions) = if on { (RECOVERY_RESET, RECOVERY_ACTIONS) } else { ("0", "") };
+        let _ = run("sc.exe", &["failure", service, "reset=", reset, "actions=", actions]);
+        if on {
+            // Aussi quand le service s'arrête sur une erreur (code de sortie non nul).
+            let _ = run("sc.exe", &["failureflag", service, "1"]);
+        }
+    }
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     /// Noms affichés posés par l'installateur (`server/installer/i18n`,
     /// `install.serviceName`, `install.serviceDescription`,
@@ -920,10 +1152,18 @@ mod windows {
         }
 
         fn stop_server(&mut self) -> Result<()> {
-            let _ = run("sc.exe", &NO_RECOVERY);
+            set_recovery("kyber", false);
+            set_recovery("kyber-admin", false);
             stop_service("kyber")?;
             for p in KYBER_PROCESSES {
                 kill(p);
+            }
+            // Caméra de Windows 11 : Frame Server tient la source (sous kyber\).
+            // Windows le relance seul à la prochaine app qui filme.
+            for s in FRAME_SERVER {
+                if service_running(s) {
+                    let _ = stop_service(s);
+                }
             }
             Ok(())
         }
@@ -959,7 +1199,8 @@ mod windows {
         }
 
         fn start_services(&mut self) -> Result<()> {
-            let _ = run("sc.exe", &KYBER_RECOVERY);
+            set_recovery("kyber", true);
+            set_recovery("kyber-admin", true);
             let admin = start_service("kyber-admin");
             let kyber = start_service("kyber");
             admin.and(kyber)
@@ -1042,6 +1283,42 @@ mod windows {
         fn exe_version(&mut self, exe: &Path) -> Result<String> {
             exe_version(exe)
         }
+
+        fn set_aside(&mut self, layout: &Layout) -> Vec<(PathBuf, PathBuf)> {
+            common::set_aside_libraries(&layout.part("kyber"), &layout.staging().join(common::SET_ASIDE_DIR))
+        }
+
+        fn put_back(&mut self, moved: &[(PathBuf, PathBuf)]) {
+            common::put_back_libraries(moved);
+        }
+    }
+
+    /// Au démarrage d'Admin : relance automatique des deux services reposée
+    /// (une mise à jour interrompue l'avait suspendue), et bascule
+    /// interrompue reprise ([`super::recover`]) si aucune installation n'est
+    /// en cours. Renvoie ce qui a été repris.
+    pub fn at_start(layout: &Layout) -> Option<super::Recovered> {
+        if common::updates_locked() {
+            // L'applicateur (ou update.ps1, l'installateur) travaille : il finira.
+            return None;
+        }
+        let mut recovered = None;
+        if super::read_marker(layout).is_some() {
+            // Kyber a pu démarrer seul avec l'ordinateur : il tiendrait `kyber\`.
+            let _ = stop_service("kyber");
+            for p in KYBER_PROCESSES {
+                kill(p);
+            }
+            let _ = WindowsSystem.set_aside(layout);
+            recovered = super::recover(layout, crate::update::current());
+            let _ = start_service("kyber");
+        }
+        set_recovery("kyber", true);
+        set_recovery("kyber-admin", true);
+        if recovered.as_ref().is_none_or(|r| r.failed.is_empty()) {
+            super::purge_staging(layout);
+        }
+        recovered
     }
 
     /// « kyber-admin 0.2.5 » → « 0.2.5 ».
@@ -1050,6 +1327,46 @@ mod windows {
         let out = Command::new(exe).arg("--version").creation_flags(CREATE_NO_WINDOW).output().with_context(|| format!("lancement de {}", exe.display()))?;
         let text = String::from_utf8_lossy(&out.stdout);
         text.split_whitespace().last().map(str::to_string).with_context(|| format!("version de {} illisible", exe.display()))
+    }
+}
+
+/// Au démarrage d'Admin sous Windows : relance automatique des services,
+/// bascule interrompue reprise, restes de `.staging` effacés.
+#[cfg(windows)]
+pub fn at_start(layout: &Layout) -> Option<Recovered> {
+    windows::at_start(layout)
+}
+
+/// Efface ce que les mises à jour laissent dans `.staging` (copie de
+/// l'applicateur, paquets extraits, bibliothèques mises de côté encore
+/// chargées : celles-là partent au redémarrage), sauf après un retour arrière
+/// raté : les dossiers de la nouvelle version y sont peut-être encore, pour
+/// les remettre à la main. À n'appeler qu'hors de toute installation.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn purge_staging(layout: &Layout) {
+    if read_marker(layout).is_some() {
+        return;
+    }
+    let result: Value = fs::read(layout.updates().join(RESULT)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    if result["undo_failed"].as_bool() == Some(true) {
+        return;
+    }
+    purge_staging_older_than(layout, Duration::from_secs(3600));
+}
+
+/// Les restes de `.staging` qui n'ont pas bougé depuis `age` : l'applicateur
+/// d'une Station 0.11.7 (sans verrou ni marqueur) a pu lancer cette console
+/// et attendre encore sa réponse ; s'il doit revenir en arrière, il remet les
+/// dossiers dans `.staging\<version>`, qui doit rester là.
+fn purge_staging_older_than(layout: &Layout, age: Duration) {
+    let now = std::time::SystemTime::now();
+    for entry in fs::read_dir(layout.staging()).into_iter().flatten().flatten() {
+        let recent = entry.metadata().and_then(|m| m.modified()).is_ok_and(|t| now.duration_since(t).unwrap_or_default() < age);
+        if recent {
+            continue;
+        }
+        let path = entry.path();
+        let _ = if entry.file_type().is_ok_and(|t| t.is_dir()) { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
     }
 }
 
@@ -1480,5 +1797,113 @@ mod tests {
         let mut left: Vec<String> = fs::read_dir(bench.layout.updates()).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
         left.sort();
         assert_eq!(left, ["0.2.10", "0.2.3", "0.2.9"]);
+    }
+
+    /// Coupure de courant après chacun des six renommages de la bascule : au
+    /// démarrage, la console qui tourne (l'ancienne, ou la nouvelle si son
+    /// dossier a déjà basculé) remet tout dans une seule version, et le
+    /// marqueur disparaît. Après le 3ᵉ, `admin\` n'existe pas : c'est
+    /// l'installateur qui reprend (essai de `server/installer`).
+    #[test]
+    fn interrupted_switch_is_finished_or_undone_at_start() {
+        for cut in 0..=6 {
+            if cut == 3 {
+                continue;
+            }
+            let bench = Bench::new(&format!("cut-{cut}"));
+            let staged = bench.layout.staging().join("0.2.6");
+            for part in PARTS {
+                let exe = match part {
+                    "kyber" => "kyavserver.exe",
+                    "admin" => "kyber-admin.exe",
+                    _ => "kybernow-tray.exe",
+                };
+                let name = if part == "admin" { "kyber-admin" } else if part == "kyber" { "kyavserver" } else { "tray" };
+                fs::create_dir_all(staged.join(part)).unwrap();
+                fs::write(staged.join(part).join(exe), format!("{name} 0.2.6")).unwrap();
+            }
+            let plan: Vec<(String, PathBuf)> = PARTS.iter().map(|p| (p.to_string(), staged.join(p))).collect();
+            write_marker(&bench.layout, "0.2.6", "prev", plan.clone()).unwrap();
+            let mut steps = 0;
+            'switch: for (part, incoming) in &plan {
+                for (from, to) in [(bench.layout.part(part), bench.layout.with_suffix(part, "prev")), (incoming.clone(), bench.layout.part(part))] {
+                    if steps == cut {
+                        break 'switch;
+                    }
+                    fs::rename(from, to).unwrap();
+                    steps += 1;
+                }
+            }
+            let running = if cut >= 4 { "0.2.6" } else { "0.2.5" };
+            let r = recover(&bench.layout, running).expect("marqueur trouvé");
+            assert!(r.failed.is_empty(), "coupure {cut} : {:?}", r.failed);
+            assert_eq!(r.forward, cut >= 4, "coupure {cut}");
+            let expected = running;
+            assert_eq!(bench.read("kyber/kyavserver.exe"), format!("kyavserver {expected}"), "coupure {cut}");
+            assert_eq!(bench.read("admin/kyber-admin.exe"), format!("kyber-admin {expected}"), "coupure {cut}");
+            assert_eq!(bench.read("tray/kybernow-tray.exe"), format!("tray {expected}"), "coupure {cut}");
+            // Réglages et journaux de Kyber toujours dans le dossier en place.
+            if cut < 4 {
+                assert_eq!(bench.read("kyber/kyber_config.toml"), "[kycontroller]\nport = 30000\n", "coupure {cut}");
+            }
+            assert_eq!(bench.read("kyber/log/kyber.log"), "ancien journal", "coupure {cut}");
+            assert!(read_marker(&bench.layout).is_none(), "coupure {cut}");
+            let result = bench.result();
+            assert_eq!(result["ok"], cut >= 4, "coupure {cut}");
+            assert_eq!(result["rolled_back"].as_bool().unwrap_or(false), cut < 4, "coupure {cut}");
+            // Sans marqueur, rien à faire.
+            assert!(recover(&bench.layout, running).is_none());
+            let _ = fs::remove_dir_all(&bench.root);
+        }
+    }
+
+    #[test]
+    fn a_full_update_leaves_no_marker_and_a_failed_one_neither() {
+        let bench = Bench::new("marker");
+        let zip = bench.package("0.2.6", &[]);
+        let mut sys = Fake { unhealthy: vec!["0.2.6".into()], ..Fake::default() };
+        assert!(bench.apply(&mut sys, &zip, "0.2.6").is_err());
+        assert!(read_marker(&bench.layout).is_none());
+        let zip = bench.package("0.2.6", &[]);
+        bench.apply(&mut Fake::default(), &zip, "0.2.6").unwrap();
+        assert!(read_marker(&bench.layout).is_none());
+        // Restes de .staging effacés hors installation.
+        fs::create_dir_all(bench.layout.staging().join("0.2.7/paquet")).unwrap();
+        fs::write(bench.layout.staging().join(APPLICATOR), "copie").unwrap();
+        // Tout juste écrits : gardés (un applicateur peut encore en avoir besoin).
+        purge_staging(&bench.layout);
+        assert_eq!(fs::read_dir(bench.layout.staging()).unwrap().count(), 2);
+        purge_staging_older_than(&bench.layout, Duration::ZERO);
+        assert_eq!(fs::read_dir(bench.layout.staging()).unwrap().count(), 0);
+    }
+
+    /// `update.ps1` garde sa copie des listes de `windows_common` : elles
+    /// doivent rester les mêmes (c'est leur écart qui avait laissé micro et
+    /// caméra tourner pendant les mises à jour).
+    #[test]
+    fn update_ps1_lists_match_the_shared_ones() {
+        use crate::update::windows_common::{KYBER_PROCESSES, SERVICE_SDDL, SWITCH_MARKER, UPDATE_MUTEX};
+        let script = include_str!("../../../installer/update.ps1");
+        let value = |name: &str| -> String {
+            let line = script.lines().find(|l| l.trim_start().starts_with(&format!("${name} ="))).unwrap_or_else(|| panic!("${name} absent de update.ps1"));
+            line.split_once('=').unwrap().1.trim().to_string()
+        };
+        let mut listed: Vec<String> = value("kyberProcesses").split(',').map(|p| p.trim().trim_matches('\'').to_string()).collect();
+        listed.sort();
+        let mut expected: Vec<String> = KYBER_PROCESSES.iter().map(|p| p.trim_end_matches(".exe").to_string()).chain(["kyber-admin".to_string()]).collect();
+        expected.sort();
+        assert_eq!(listed, expected);
+        assert_eq!(value("sddl").trim_matches('\''), SERVICE_SDDL);
+        assert!(script.contains(&format!("'{UPDATE_MUTEX}'")));
+        assert!(script.contains(&format!("'{SWITCH_MARKER}'")));
+    }
+
+    /// Le marqueur écrit par `update.ps1` se lit comme celui de l'applicateur.
+    #[test]
+    fn marker_written_by_update_ps1_is_read() {
+        let json = r#"{"version":"0.12.0","old_suffix":"prev","parts":[["kyber","C:\\Program Files\\KyberNow\\kyber.new"],["admin","C:\\Program Files\\KyberNow\\admin.new"]]}"#;
+        let m: Marker = serde_json::from_str(json).unwrap();
+        assert_eq!(m.parts[1].0, "admin");
+        assert_eq!(m.parts[1].1, PathBuf::from(r"C:\Program Files\KyberNow\admin.new"));
     }
 }

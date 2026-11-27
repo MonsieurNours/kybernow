@@ -187,20 +187,19 @@ pub fn fields() -> Vec<Field> {
             caution: None,
             unit: None,
         },
-        // TODO textes pyrowave : libellés provisoires, en attente de la
-        // maquette (docs/pyrowave.md). Proposé aux apps seulement si la
+        // PyroWave (docs/pyrowave.md). Proposé aux apps seulement si la
         // carte graphique a un Vulkan 1.3 qui convient, ou sur Mac si la puce
         // Apple fait tourner l'encodeur Metal (pyrowave.rs ; texte Mac dans
-        // i18n/schema.macos.json).
+        // i18n/schema.macos.json, Linux dans i18n/schema.linux.json).
         Field {
             id: "video.pyrowave", group: "video",
             table: &["kyavserver"], key: "pyrowave",
             kind: Kind::Bool,
             default: json!(true),
-            label: "PyroWave (provisoire)",
-            help: "Texte provisoire : proposer le format PyroWave aux appareils.",
-            details: "Texte provisoire. PyroWave est un format d'image très rapide à encoder et à décoder, pour le réseau local ; il demande beaucoup de débit. Proposé seulement si la carte graphique le permet.",
-            advice: "Texte provisoire : laissez activé.",
+            label: "PyroWave",
+            help: "Proposer PyroWave à vos appareils : l'image la plus rapide, sur le réseau local.",
+            details: "PyroWave est un format d'image très rapide à encoder et à décoder : il fait gagner quelques millisecondes, mais demande beaucoup de débit (200 Mbit/s et plus). Il est fait pour le réseau local, de préférence en câble Ethernet. Il n'est proposé que si la carte graphique de cet ordinateur le permet ; vos appareils le choisissent dans « Format vidéo ».",
+            advice: "Laissez activé : vos appareils ne s'en servent que si le réseau s'y prête ou si vous le choisissez.",
             caution: None,
             unit: None,
         },
