@@ -26,6 +26,7 @@ fn administrer_delegue_borne_et_retire_en_cascade() {
     let mut xav = person(&w, "xav@exemple.org", "Xavier", "192.0.2.20");
     with_totp(&w, &mut xav, "xav@exemple.org");
     ana.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st), ("email", "xav@exemple.org"), ("session", "1"), ("admin", "1"), ("fin", "2026-11-30")]);
+    w.accept_invites("xav@exemple.org");
     let xav_end = grant_end(&w, &st, "xav@exemple.org").unwrap().unwrap();
     // Xavier ne donne pas Prêt, qu'il n'a pas.
     let _yan = person(&w, "yan@exemple.org", "Yan", "192.0.2.21");
@@ -33,6 +34,7 @@ fn administrer_delegue_borne_et_retire_en_cascade() {
     assert_eq!(grant_end(&w, &st, "yan@exemple.org"), None, "Prêt refusé");
     // Session sans échéance pour Yan : ramenée à celle de Xavier.
     xav.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st), ("email", "yan@exemple.org"), ("session", "1")]);
+    w.accept_invites("yan@exemple.org");
     assert_eq!(grant_end(&w, &st, "yan@exemple.org"), Some(Some(xav_end)));
     // Un lien Administrer sans fin, accepté par un second compte : jusqu'à l'échéance de Xavier aussi.
     let r = xav.post("/compte/ordinateur/liens/creer?lang=fr", &[("id", &st), ("jours", "7"), ("admin", "1"), ("session", "1")]);

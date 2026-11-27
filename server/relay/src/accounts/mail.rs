@@ -165,7 +165,8 @@ pub enum Message<'a> {
     NewDevice { device: &'a str, computer: &'a str, person: Option<&'a str>, account: &'a str },
     /// Lot 4 : quelqu'un vous ouvre un ordinateur ; `rights` : les droits en mots ;
     /// `link` : la console (avec un compte) ou l'inscription (sans compte).
-    ComputerShared { by: &'a str, computer: &'a str, rights: &'a str, until: Option<&'a str>, has_account: bool, link: &'a str },
+    /// `has_account` : la personne a un compte ; `pending` : elle doit accepter l'invitation dans son compte (REL-11).
+    ComputerShared { by: &'a str, computer: &'a str, rights: &'a str, until: Option<&'a str>, has_account: bool, pending: bool, link: &'a str },
     /// Lot 5 : invitation dans une organisation ; `role` : le rôle en mots.
     OrgInvite { by: &'a str, org: &'a str, role: &'a str, has_account: bool, link: &'a str },
     /// Une passkey a été ajoutée (lot 1b).
@@ -416,7 +417,7 @@ fn content(lang: Lang, message: Message<'_>) -> (String, Body) {
                 },
             )
         }
-        Message::ComputerShared { by, computer, rights, until, has_account, link } => {
+        Message::ComputerShared { by, computer, rights, until, has_account, pending, link } => {
             let until = match until {
                 None => String::new(),
                 Some(d) => fe(format!(", jusqu'au {d}"), format!(", until {d}")),
@@ -425,7 +426,17 @@ fn content(lang: Lang, message: Message<'_>) -> (String, Body) {
                 Block::P(fe(format!("{by} vous ajoute à {computer}, avec ces droits :"), format!("{by} added you to {computer}, with these rights:"))),
                 Block::Detail { label: tr("Ordinateur", "Computer"), main: computer.to_string(), sub: Some(format!("{rights}{until}")) },
             ];
-            if has_account {
+            if has_account && pending {
+                blocks.push(Block::P(tr(
+                    "Acceptez l'invitation dans votre compte KyberNow : rien ne vous est ouvert avant.",
+                    "Accept the invitation in your KyberNow account: nothing is opened to you before that.",
+                )));
+                blocks.push(Block::Button { label: tr("Voir l'invitation", "See the invitation"), url: link.to_string() });
+                blocks.push(Block::Note {
+                    lead: fe(format!("Vous ne connaissez pas {by} ?"), format!("You don't know {by}?")),
+                    text: tr("Refusez l'invitation, ou ignorez cet e-mail.", "Decline the invitation, or ignore this email."),
+                });
+            } else if has_account {
                 blocks.push(Block::P(tr(
                     "L'ordinateur apparaît déjà dans vos apps KyberNow, connectées à votre compte.",
                     "The computer already shows up in your KyberNow apps, signed in to your account.",
@@ -461,8 +472,16 @@ fn content(lang: Lang, message: Message<'_>) -> (String, Body) {
                 Block::Detail { label: tr("Invitation", "Invitation"), main: org.to_string(), sub: Some(role.to_string()) },
             ];
             if has_account {
-                blocks.push(Block::P(tr("Ses ordinateurs ouverts à vous apparaissent dans vos apps.", "Its computers opened to you show up in your apps.")));
-                blocks.push(Block::Button { label: fe(format!("Voir {org}"), format!("See {org}")), url: link.to_string() });
+                // Un compte accepte d'abord (REL-11).
+                blocks.push(Block::P(tr(
+                    "Acceptez l'invitation dans votre compte KyberNow : vous ne serez membre qu'après.",
+                    "Accept the invitation in your KyberNow account: you'll only be a member after that.",
+                )));
+                blocks.push(Block::Button { label: tr("Voir l'invitation", "See the invitation"), url: link.to_string() });
+                blocks.push(Block::Note {
+                    lead: fe(format!("Vous ne connaissez pas {by} ?"), format!("You don't know {by}?")),
+                    text: tr("Refusez l'invitation, ou ignorez cet e-mail.", "Decline the invitation, or ignore this email."),
+                });
             } else {
                 blocks.push(Block::P(tr(
                     "Créez votre compte KyberNow avec cette adresse : vous serez membre dès l'adresse vérifiée.",
@@ -661,8 +680,8 @@ mod tests {
             Message::PasswordChanged { forgot: "https://share.test/f" },
             Message::NewDevice { device: "iPad de Léa", computer: "PC du salon", person: None, account: "https://share.test/c" },
             Message::NewDevice { device: "", computer: "PC du salon", person: Some("Léa"), account: "https://share.test/c" },
-            Message::ComputerShared { by: "Ana", computer: "PC du salon", rights: "Session, Partage", until: Some("31/12/2026"), has_account: true, link: "https://share.test/c" },
-            Message::ComputerShared { by: "Ana", computer: "PC <du> salon", rights: "Prêt", until: None, has_account: false, link: "https://share.test/c" },
+            Message::ComputerShared { by: "Ana", computer: "PC du salon", rights: "Session, Partage", until: Some("31/12/2026"), has_account: true, pending: false, link: "https://share.test/c" },
+            Message::ComputerShared { by: "Ana", computer: "PC <du> salon", rights: "Prêt", until: None, has_account: false, pending: false, link: "https://share.test/c" },
             Message::OrgInvite { by: "Ana", org: "Les Lignes Claires", role: "Membre", has_account: false, link: "https://share.test/c" },
             Message::OrgInvite { by: "Ana", org: "Famille Martin", role: "Membre", has_account: true, link: "https://share.test/c" },
             Message::PasskeyAdded { name: "Chrome, Mac", account: "https://share.test/c" },

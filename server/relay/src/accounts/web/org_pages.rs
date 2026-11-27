@@ -235,21 +235,15 @@ pub(super) fn invite(cx: Cx<'_>) -> Reply {
         let name = if t.name.is_empty() { t.email.clone() } else { t.name.clone() };
         return show(cx, &account, &org, role, Tab::Members, Some(Notice::AlreadyMember(name)));
     }
-    let done = match &target {
-        Some(t) => acc.db().set_member(org.id, t.id, wanted, cx.now),
-        None => acc.db().invite_member(org.id, &email, wanted, account.id, cx.now),
-    };
+    // Toujours une invitation, qu'un compte accepte dans son espace, et la même réponse (REL-11).
+    let done = acc.db().invite_member(org.id, &email, wanted, account.id, cx.now);
     if let Err(e) = done {
         tracing::warn!("invitation dans une organisation : {e:#}");
         return cx.failed();
     }
-    match &target {
-        Some(t) => log(&cx, &org, &account, "membre_ajoute", json!({ "member": t.name, "role": wanted.as_str() })),
-        None => log(&cx, &org, &account, "membre_invite", json!({ "email": email, "role": wanted.as_str() })),
-    }
+    log(&cx, &org, &account, "membre_invite", json!({ "email": email, "role": wanted.as_str() }));
     send_invite(&cx, &account, &org, &email, target.as_ref(), wanted);
-    let notice = if target.is_some() { Notice::MemberAdded } else { Notice::InviteSent };
-    show(cx, &account, &org, role, Tab::Members, Some(notice))
+    show(cx, &account, &org, role, Tab::Members, Some(Notice::InviteSent))
 }
 
 /// L'e-mail « {nom} vous invite dans {famille ou équipe} », dans la langue de la personne (la page sinon).
@@ -259,7 +253,7 @@ fn send_invite(cx: &Cx<'_>, account: &Account, org: &Org, email: &str, target: O
     }
     let lang = target.map(lang_of).unwrap_or(cx.lang);
     let link = match target {
-        Some(_) => cx.url(&format!("/compte/organisation?id={}&lang={}", org.public_id, lang.code())),
+        Some(_) => cx.url(&format!("/compte/invitations?lang={}", lang.code())),
         None => cx.url(&format!("/compte/inscription?lang={}", lang.code())),
     };
     let by = if account.name.is_empty() { account.email.clone() } else { account.name.clone() };
@@ -289,11 +283,8 @@ pub(super) fn resend(cx: Cx<'_>) -> Reply {
             return cx.failed();
         }
     };
-    // L'adresse a depuis un compte vérifié : l'invitation, de nouveau valable, passe à lui tout de suite.
+    // L'adresse a depuis un compte vérifié : il accepte l'invitation dans son espace (REL-11).
     let target = acc.db().account_by_email(&email).ok().flatten().filter(|a| a.verified());
-    if let Some(t) = &target {
-        let _ = acc.db().claim_invitations(t.id, cx.now);
-    }
     log(&cx, &org, &account, "invitation_renvoyee", json!({ "email": email, "role": wanted.as_str() }));
     cx.audit(Some(account.id), "invitation_renvoyee");
     send_invite(&cx, &account, &org, &email, target.as_ref(), wanted);

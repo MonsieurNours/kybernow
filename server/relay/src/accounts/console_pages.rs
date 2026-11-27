@@ -454,6 +454,8 @@ fn admin_href(v: &View<'_>, id: &str) -> String {
 }
 #[derive(Debug, Clone, Default)]
 pub struct ComputersView {
+    /// Les invitations qui attendent sa réponse (REL-11).
+    pub invites: usize,
     pub mine: Vec<ComputerCard>,
     pub opened: Vec<ComputerCard>,
     /// `(identifiant, nom, genre, ordinateurs)` par famille ou équipe.
@@ -541,8 +543,25 @@ pub fn computers(v: &View<'_>, c: &ComputersView, notice: Option<Notice>) -> Str
             Lang::En => format!("Hello {}", esc(&c.shell.name)),
         }
     };
+    let invites = if c.invites == 0 {
+        String::new()
+    } else {
+        help_box(
+            "info",
+            &format!(
+                "{} <a href=\"/compte/invitations{q}\">{}</a>",
+                match (v.lang, c.invites) {
+                    (Lang::Fr, 1) => "Une invitation attend votre réponse.".to_string(),
+                    (Lang::Fr, n) => format!("{n} invitations attendent votre réponse."),
+                    (Lang::En, 1) => "An invitation is waiting for your answer.".to_string(),
+                    (Lang::En, n) => format!("{n} invitations are waiting for your answer."),
+                },
+                v.tr("Voir les invitations", "See the invitations"),
+            ),
+        )
+    };
     let page = format!(
-        "{head}{notice}{start}{body}{sheet}",
+        "{head}{notice}{invites}{start}{body}{sheet}",
         head = head(
             &hello,
             &format!("<strong>{}</strong>", v.tr("Vos ordinateurs", "Your computers")),
@@ -575,6 +594,67 @@ pub fn computers(v: &View<'_>, c: &ComputersView, notice: Option<Notice>) -> Str
         ),
     );
     frame(v, &c.shell, Here::Computers, &title, "/compte/ordinateurs", &page)
+}
+
+// --- Les invitations reçues (REL-11) ------------------------------------------------------
+
+/// « Invitations » : ordinateurs, familles et équipes qui attendent sa réponse ; « Accepter », « Refuser ».
+pub fn invitations(v: &View<'_>, shell: &Shell, list: &[super::super::people::PendingInvite], notice: Option<Notice>) -> String {
+    let title = v.tr("Invitations", "Invitations");
+    let rows: String = list
+        .iter()
+        .map(|i| {
+            let what = match (&i.rights, i.role) {
+                (Some((rights, until)), _) => {
+                    let until = until.map(|e| match v.lang {
+                        Lang::Fr => t(v.lang, &format!(", jusqu'au {}", date(v.lang, e - 1)), ""),
+                        Lang::En => format!(", until {}", date(v.lang, e - 1)),
+                    });
+                    format!("{}{}", esc(&rights_words(v.lang, rights)), esc(&until.unwrap_or_default()))
+                }
+                (None, Some(role)) => esc(&role_name(v.lang, role)),
+                (None, None) => String::new(),
+            };
+            let by = if i.by.is_empty() {
+                String::new()
+            } else {
+                match v.lang {
+                    Lang::Fr => format!(" · de {}", esc(&i.by)),
+                    Lang::En => format!(" · from {}", esc(&i.by)),
+                }
+            };
+            let fields = format!("{}\n{}", hidden("type", i.kind), hidden("id", &i.id.to_string()));
+            let form = v.form(
+                "/compte/invitations",
+                "ka-inline-form",
+                &format!(
+                    "{fields}\n<button class=\"btn kn-primary btn-sm\" type=\"submit\" name=\"action\" value=\"accepter\">{yes}</button>\n<button class=\"btn btn-ghost btn-sm\" type=\"submit\" name=\"action\" value=\"refuser\">{no}</button>",
+                    yes = v.tr("Accepter", "Accept"),
+                    no = v.tr("Refuser", "Decline"),
+                ),
+            );
+            format!("<div class=\"ka-row\"><div><b>{name}</b><small>{what}{by}</small></div>{form}</div>\n", name = esc(&i.name))
+        })
+        .collect();
+    let body = if list.is_empty() {
+        help_box("info", &v.tr("Aucune invitation en attente.", "No pending invitations."))
+    } else {
+        format!("<section class=\"ka-section\">\n{rows}</section>\n")
+    };
+    let page = format!(
+        "{head}{notice}{body}",
+        head = head(
+            "",
+            &format!("<strong>{}</strong>", title),
+            &v.tr(
+                "On vous a ouvert un ordinateur, ou invité dans une famille ou une équipe : rien ne vous est ouvert avant que vous acceptiez.",
+                "Someone opened a computer to you, or invited you to a family or team: nothing is opened to you until you accept.",
+            ),
+            "",
+        ),
+        notice = notice_html(v.lang, notice),
+    );
+    frame(v, shell, Here::Computers, &title, "/compte/invitations", &page)
 }
 
 // --- Un ordinateur : qui y a accès ------------------------------------------------------
@@ -2648,6 +2728,7 @@ pub(super) mod tests {
         };
         let card = |id: &str, rights: Option<Rights>| ComputerCard { id: id.into(), name: "PC du <salon>".into(), online: id == "st1", detail: "de Léa".into(), admin: rights.is_none(), rights };
         let computers_view = ComputersView {
+            invites: 1,
             mine: vec![card("st1", None)],
             opened: vec![card("st2", Some(Rights::new([Right::Lend, Right::Share])))],
             orgs: vec![("org_abc".into(), "Les Lignes Claires".into(), Kind::Team, vec![card("st3", None)])],

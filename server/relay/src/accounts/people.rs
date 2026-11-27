@@ -496,6 +496,117 @@ impl Store {
     }
 }
 
+/// Une invitation qui attend la réponse d'un compte (REL-11) : un ordinateur ou une famille ou équipe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingInvite {
+    /// `ordinateur` ou `organisation` (le formulaire le renvoie).
+    pub kind: &'static str,
+    pub id: i64,
+    /// L'ordinateur, ou la famille ou l'équipe.
+    pub name: String,
+    /// Qui invite (son nom, sinon son adresse ; vide s'il n'est plus là).
+    pub by: String,
+    /// Un ordinateur : les droits et l'échéance.
+    pub rights: Option<(Rights, Option<i64>)>,
+    /// Une famille ou une équipe : le rôle.
+    pub role: Option<super::orgs::Role>,
+}
+
+impl Store {
+    /// Les invitations en attente pour cette adresse, pas expirées.
+    pub fn pending_invites(&self, email: &str, now: i64) -> Result<Vec<PendingInvite>> {
+        let mut out = Vec::new();
+        {
+            let live = invite_live("g", "?2");
+            let mut stmt = self.conn.prepare(&format!(
+                "SELECT g.id, s.name, COALESCE(NULLIF(a.name, ''), a.email, ''), g.rights, g.expires_at
+                 FROM grants g JOIN stations s ON s.id = g.station LEFT JOIN accounts a ON a.id = g.invited_by
+                 WHERE g.email = ?1 AND {live} ORDER BY g.created_at, g.id"
+            ))?;
+            let rows = stmt.query_map(params![email, now], |r| {
+                Ok(PendingInvite {
+                    kind: "ordinateur",
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    by: r.get(2)?,
+                    rights: Some((parse_rights(&r.get::<_, String>(3)?), r.get(4)?)),
+                    role: None,
+                })
+            })?;
+            out.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+        }
+        let live = invite_live("i", "?2");
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT i.id, o.name, COALESCE(NULLIF(a.name, ''), a.email, ''), i.role
+             FROM org_invites i JOIN organizations o ON o.id = i.org LEFT JOIN accounts a ON a.id = i.invited_by
+             WHERE i.email = ?1 AND {live} ORDER BY i.created_at, i.id"
+        ))?;
+        let rows = stmt.query_map(params![email, now], |r| {
+            Ok(PendingInvite {
+                kind: "organisation",
+                id: r.get(0)?,
+                name: r.get(1)?,
+                by: r.get(2)?,
+                rights: None,
+                role: super::orgs::Role::parse(&r.get::<_, String>(3)?),
+            })
+        })?;
+        out.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+        Ok(out)
+    }
+
+    /// Accepte une invitation de cette adresse : ses droits s'ajoutent (chacun avec son échéance), ou
+    /// le compte devient membre. Faux si elle n'attend plus.
+    pub fn accept_invite(&self, account: i64, email: &str, kind: &str, id: i64, now: i64) -> Result<bool> {
+        super::store::atomic(&self.conn, || {
+            match kind {
+                "ordinateur" => {
+                    let live = invite_live("grants", "?3");
+                    let row: Option<(String, String, Option<i64>, Option<i64>)> = self
+                        .conn
+                        .query_row(
+                            &format!("SELECT station, rights, expires_at, invited_by FROM grants WHERE id = ?1 AND email = ?2 AND {live}"),
+                            params![id, email, now],
+                            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                        )
+                        .optional()?;
+                    let Some((station, rights, end, by)) = row else { return Ok(false) };
+                    self.conn.execute("DELETE FROM grants WHERE id = ?1", [id])?;
+                    super::links::add_person_rights(&self.conn, &station, account, &parse_rights(&rights), end, by, now)?;
+                    Ok(true)
+                }
+                "organisation" => {
+                    let live = invite_live("org_invites", "?3");
+                    let row: Option<(i64, String)> = self
+                        .conn
+                        .query_row(&format!("SELECT org, role FROM org_invites WHERE id = ?1 AND email = ?2 AND {live}"), params![id, email, now], |r| {
+                            Ok((r.get(0)?, r.get(1)?))
+                        })
+                        .optional()?;
+                    let Some((org, role)) = row else { return Ok(false) };
+                    self.conn.execute("DELETE FROM org_invites WHERE id = ?1", [id])?;
+                    self.conn.execute("INSERT OR IGNORE INTO org_members (org, account, role, joined_at) VALUES (?1, ?2, ?3, ?4)", params![org, account, role, now])?;
+                    let who = self.account(account)?;
+                    let name = who.as_ref().map(|a| a.name.clone()).unwrap_or_default();
+                    self.org_log(org, who.as_ref(), "membre_ajoute", serde_json::json!({ "member": name, "role": role }), None, now)?;
+                    Ok(true)
+                }
+                _ => Ok(false),
+            }
+        })
+    }
+
+    /// Refuse une invitation de cette adresse ; faux si elle n'y était pas.
+    pub fn decline_invite(&self, email: &str, kind: &str, id: i64) -> Result<bool> {
+        let n = match kind {
+            "ordinateur" => self.conn.execute("DELETE FROM grants WHERE id = ?1 AND email = ?2", params![id, email])?,
+            "organisation" => self.conn.execute("DELETE FROM org_invites WHERE id = ?1 AND email = ?2", params![id, email])?,
+            _ => 0,
+        };
+        Ok(n == 1)
+    }
+}
+
 /// Ce qu'un compte peut faire d'un ordinateur.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Standing {

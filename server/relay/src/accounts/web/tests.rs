@@ -53,6 +53,17 @@ impl World {
         self.outbox.last_to(to).unwrap_or_else(|| panic!("pas d'e-mail pour {to}"))
     }
 
+    /// Accepte toutes les invitations qui attendent ce compte (REL-11 : plus d'ajout direct).
+    fn accept_invites(&self, email: &str) -> usize {
+        let db = self.acc.db();
+        let account = db.account_by_email(email).unwrap().unwrap();
+        let list = db.pending_invites(email, self.now()).unwrap();
+        for i in &list {
+            assert!(db.accept_invite(account.id, email, i.kind, i.id, self.now()).unwrap());
+        }
+        list.len()
+    }
+
     /// Le code TOTP courant d'un compte.
     fn totp_code(&self, email: &str, offset_steps: i64) -> String {
         let db = self.acc.db();

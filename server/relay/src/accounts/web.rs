@@ -522,6 +522,7 @@ impl Accounts {
             ("/compte/ordinateurs/detacher", true) => attach_pages::detach(cx),
             // Lot 4 : la console, les personnes et leurs droits.
             ("/compte/ordinateurs", false) => console::computers(cx, None),
+            ("/compte/invitations", _) => console::invitations(cx, post),
             ("/compte/personnes", false) => console::all_people(cx),
             ("/compte/familles", false) => console::families(cx),
             ("/compte/bienvenue", false) => console::welcome(cx),

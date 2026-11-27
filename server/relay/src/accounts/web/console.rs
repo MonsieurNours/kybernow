@@ -102,7 +102,9 @@ pub(super) fn computers(cx: Cx<'_>, notice: Option<Notice>) -> Reply {
     }
     let orgs = acc.db().orgs_of(account.id).unwrap_or_default();
     let stations = acc.db().visible_stations(account.id, cx.now).unwrap_or_default();
+    let invites = acc.db().pending_invites(&account.email, cx.now).map(|l| l.len()).unwrap_or(0);
     let mut view = ComputersView {
+        invites,
         orgs: orgs.iter().map(|(o, _)| (o.public_id.clone(), o.name.clone(), o.kind, Vec::new())).collect(),
         shell: shell(&cx, &account),
         ..ComputersView::default()
@@ -431,6 +433,34 @@ pub(super) fn bounded(cx: &Cx<'_>, account: &Account, station: &StationRow, righ
     }
 }
 
+/// `GET/POST /compte/invitations` : les invitations reçues ; `type`, `id`, `action` (`accepter`, `refuser`) (REL-11).
+pub(super) fn invitations(cx: Cx<'_>, post: bool) -> Reply {
+    let account = signed_in!(cx);
+    let acc = cx.acc;
+    let mut notice = None;
+    if post {
+        let (kind, id) = (cx.req.form("type").to_string(), cx.req.form("id").parse::<i64>().unwrap_or(0));
+        let done = match cx.req.form("action") {
+            "accepter" => acc.db().accept_invite(account.id, &account.email, &kind, id, cx.now).map(|ok| ok.then_some(Notice::InviteAccepted)),
+            "refuser" => acc.db().decline_invite(&account.email, &kind, id).map(|ok| ok.then_some(Notice::InviteDeclined)),
+            _ => Ok(None),
+        };
+        match done {
+            Ok(n) => notice = n,
+            Err(e) => {
+                tracing::warn!("invitation : {e:#}");
+                return cx.failed();
+            }
+        }
+        if let Some(n) = &notice {
+            cx.audit(Some(account.id), if *n == Notice::InviteAccepted { "invitation_acceptee" } else { "invitation_refusee" });
+        }
+    }
+    let list = acc.db().pending_invites(&account.email, cx.now).unwrap_or_default();
+    let page = super::super::pages::console::invitations(&cx.view(), &shell(&cx, &account), &list, notice);
+    cx.page(200, page)
+}
+
 /// La Station d'un formulaire de gestion : il faut gérer ses accès.
 pub(super) fn managed_station(cx: &Cx<'_>, account: &Account) -> Option<StationRow> {
     station_of(cx, account, true).filter(|s| cx.acc.can_manage(account, s))
@@ -484,9 +514,11 @@ pub(super) fn add(cx: Cx<'_>) -> Reply {
     let had_access = target.as_ref().is_some_and(|t| {
         acc.db().grants_of(&station.id).unwrap_or_default().iter().any(|g| matches!(g.subject, Subject::Person { account, .. } if account == t.id))
     });
+    // Une personne qui a déjà un accès : ses droits changent. Sinon une invitation, qu'un compte
+    // accepte dans son espace, et la même réponse qu'il y ait un compte ou non (REL-11).
     let done = match &target {
-        Some(t) => acc.db().grant_person(&station.id, t.id, &rights, until, account.id, cx.now),
-        None => acc.db().grant_invite(&station.id, &email, &rights, until, account.id, cx.now),
+        Some(t) if had_access => acc.db().grant_person(&station.id, t.id, &rights, until, account.id, cx.now),
+        _ => acc.db().grant_invite(&station.id, &email, &rights, until, account.id, cx.now).map(|_| 0),
     };
     if let Err(e) = done {
         tracing::warn!("ajout d'une personne : {e:#}");
@@ -503,29 +535,31 @@ pub(super) fn add(cx: Cx<'_>) -> Reply {
     let to = target.as_ref().map(|t| t.name.clone()).unwrap_or_else(|| email.clone());
     log_rights(&cx, &account, &station, "droits_donnes", &to, &rights);
     tracing::info!(station = %station.id, compte = target.is_some(), deja = had_access, "personne ajoutée à un ordinateur");
-    send_shared(&cx, &account, &station, &email, target.as_ref(), &rights, until);
+    send_shared(&cx, &account, &station, &email, target.as_ref(), !had_access, &rights, until);
     let notice = match &target {
         Some(t) if had_access => Notice::AccessUpdated(if t.name.is_empty() { t.email.clone() } else { t.name.clone() }),
-        Some(_) => Notice::PersonAdded,
-        None => Notice::InviteSent,
+        _ => Notice::InviteSent,
     };
     people_page(cx, &account, &station, Some(notice), Kept::default())
 }
 
 /// L'e-mail « {nom} vous a ouvert {ordinateur} », dans la langue de la personne (la page sinon).
-fn send_shared(cx: &Cx<'_>, account: &Account, station: &StationRow, email: &str, target: Option<&Account>, rights: &Rights, until: Option<i64>) {
+/// `pending` : une invitation, à accepter par un compte déjà là (REL-11).
+#[allow(clippy::too_many_arguments)]
+fn send_shared(cx: &Cx<'_>, account: &Account, station: &StationRow, email: &str, target: Option<&Account>, pending: bool, rights: &Rights, until: Option<i64>) {
     if !cx.may_mail(email) {
         return;
     }
     let lang = target.map(lang_of).unwrap_or(cx.lang);
     let link = match target {
+        Some(_) if pending => cx.url(&format!("/compte/invitations?lang={}", lang.code())),
         Some(_) => cx.url(&format!("/compte/ordinateurs?lang={}", lang.code())),
         None => cx.url(&format!("/compte/inscription?lang={}", lang.code())),
     };
     let words = rights_words(lang, rights);
     let until = until.map(|e| date(lang, e - 1));
     let by = if account.name.is_empty() { account.email.clone() } else { account.name.clone() };
-    cx.mail(email, lang, Message::ComputerShared { by: &by, computer: &station.name, rights: &words, until: until.as_deref(), has_account: target.is_some(), link: &link });
+    cx.mail(email, lang, Message::ComputerShared { by: &by, computer: &station.name, rights: &words, until: until.as_deref(), has_account: target.is_some(), pending, link: &link });
 }
 
 /// `POST /compte/ordinateur/renvoyer` : « Renvoyer l'invitation » (`acces`), même expirée ; une fois par heure.
@@ -551,17 +585,14 @@ pub(super) fn resend(cx: Cx<'_>) -> Reply {
             return cx.failed();
         }
     };
-    // L'adresse a depuis un compte vérifié : l'invitation, de nouveau valable, passe à lui tout de suite.
+    // L'adresse a depuis un compte vérifié : il accepte l'invitation dans son espace (REL-11).
     let target = acc.db().account_by_email(&email).ok().flatten().filter(|a| a.verified());
-    if let Some(t) = &target {
-        let _ = acc.db().claim_invitations(t.id, cx.now);
-    }
     cx.audit(Some(account.id), "invitation_renvoyee");
     if let Some(org) = station.org {
         let detail = json!({ "station": station.name, "to": email });
         let _ = acc.db().org_log(org, Some(&account), "invitation_renvoyee", detail, Some(&cx.ip()), cx.now);
     }
-    send_shared(&cx, &account, &station, &email, target.as_ref(), &grant.rights, grant.expires_at);
+    send_shared(&cx, &account, &station, &email, target.as_ref(), true, &grant.rights, grant.expires_at);
     people_page(cx, &account, &station, Some(Notice::InviteResent(email)), Kept::default())
 }
 

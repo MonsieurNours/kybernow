@@ -163,6 +163,9 @@ pub enum Notice {
     InviteCancelled,
     LastOwner,
     OrgLeft,
+    /// REL-11 : une invitation acceptée, ou refusée, dans son espace.
+    InviteAccepted,
+    InviteDeclined,
     GroupCreated,
     GroupTaken,
     GroupDeleted,
@@ -215,6 +218,8 @@ impl Notice {
                 | Notice::MemberRemoved
                 | Notice::InviteCancelled
                 | Notice::OrgLeft
+                | Notice::InviteAccepted
+                | Notice::InviteDeclined
                 | Notice::GroupCreated
                 | Notice::GroupDeleted
                 | Notice::GroupChanged
@@ -277,8 +282,8 @@ impl Notice {
                 "Person added: the computer shows up in their apps, and an email tells them.",
             ),
             Notice::InviteSent => tr(
-                "Invitation envoyée : cette adresse n'a pas encore de compte ; l'ordinateur y sera dès son compte créé.",
-                "Invitation sent: this address has no account yet; the computer will be there as soon as the account is created.",
+                "Invitation envoyée : l'accès compte dès que la personne l'accepte, ou dès qu'elle crée son compte avec cette adresse.",
+                "Invitation sent: access counts as soon as the person accepts it, or creates their account with this address.",
             ),
             Notice::AccessChanged => tr("Accès enregistré.", "Access saved."),
             Notice::AccessRemoved => tr("Accès retiré.", "Access removed."),
@@ -300,6 +305,8 @@ impl Notice {
                 "Il faut toujours au moins un propriétaire : nommez-en un autre d'abord.",
                 "There must always be at least one owner: name another one first.",
             ),
+            Notice::InviteAccepted => tr("Invitation acceptée.", "Invitation accepted."),
+            Notice::InviteDeclined => tr("Invitation refusée.", "Invitation declined."),
             Notice::OrgLeft => tr("Vous êtes parti. Ses ordinateurs ne vous sont plus ouverts.", "You left. Its computers are no longer open to you."),
             Notice::GroupCreated => tr("Groupe créé.", "Group created."),
             Notice::GroupTaken => tr("Un groupe porte déjà ce nom.", "A group already has this name."),
