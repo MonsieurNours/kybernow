@@ -12,6 +12,7 @@
     "wrongPassword": "mot de passe incorrect",
     "localOnly": "réservé à l'ordinateur local",
     "localToken": "jeton local absent ou périmé",
+    "vbcableMissing": "VB-CABLE n'est pas livré avec cette Station",
     "tooManyKyberLogins": "trop de mots de passe refusés : réessayez dans une minute",
     "localDuringLoan": "pas pendant un prêt de l'ordinateur : passez par KyberNow Admin",
     "unknownAction": "action inconnue : {action}",

@@ -149,7 +149,7 @@ pub async fn get(State(s): State<AppState>) -> ApiResult<Json<Value>> {
 pub async fn install(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     let dir = s.kyber_dir.clone();
     let Some(setup) = vbcable_setup(&dir).filter(|_| cfg!(windows)) else {
-        return Err(ApiError(StatusCode::NOT_FOUND, "VB-CABLE n'est pas livré avec cette Station".into()));
+        return Err(ApiError::msg(StatusCode::NOT_FOUND, crate::i18n::Msg::new("api.vbcableMissing")));
     };
     let result = blocking(move || {
         let mut cmd = Command::new(&setup);

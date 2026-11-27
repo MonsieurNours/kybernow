@@ -24,7 +24,7 @@
         "caution": "Sous Linux, les manettes sont créées par uinput, que la Station ouvre à votre session."
       },
       "video.pyrowave": {
-        "details": "Texte provisoire. PyroWave est un format d'image très rapide à encoder et à décoder, pour le réseau local ; il demande beaucoup de débit. Pas encore proposé par une Station Linux."
+        "details": "PyroWave est un format d'image très rapide à encoder et à décoder, pour le réseau local ; il demande beaucoup de débit (200 Mbit/s et plus). Pas encore proposé par une Station Linux."
       }
     }
   },
@@ -53,7 +53,7 @@
         "caution": "On Linux, gamepads are created through uinput, which the Station opens to your session."
       },
       "video.pyrowave": {
-        "details": "Provisional text. PyroWave is a picture format that is very fast to encode and decode, for the local network; it needs a lot of bitrate. Not offered by a Linux Station yet."
+        "details": "PyroWave is a picture format that is very fast to encode and decode, for the local network; it needs a lot of bandwidth (200 Mbit/s and more). Not offered by a Linux Station yet."
       }
     }
   }
