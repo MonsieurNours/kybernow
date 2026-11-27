@@ -91,13 +91,19 @@ fn seal(header: &str, body: &str) -> Result<(Vec<u8>, [u8; 32]), String> {
     let mut nonce = [0u8; 12];
     getrandom::getrandom(&mut key).map_err(|e| e.to_string())?;
     getrandom::getrandom(&mut nonce).map_err(|e| e.to_string())?;
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| e.to_string())?;
-    let sealed = cipher.encrypt(Nonce::from_slice(&nonce), plain.as_slice()).map_err(|e| e.to_string())?;
+    Ok((encrypt(&plain, &key, &nonce)?, key))
+}
+
+/// `KNJ1`, le nonce, puis le texte chiffré et son étiquette (AES-256-GCM,
+/// sans données associées : docs/relais.md, « Dépôt d'un journal »).
+fn encrypt(plain: &[u8], key: &[u8; 32], nonce: &[u8; 12]) -> Result<Vec<u8>, String> {
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
+    let sealed = cipher.encrypt(Nonce::from_slice(nonce), plain).map_err(|e| e.to_string())?;
     let mut out = Vec::with_capacity(4 + 12 + sealed.len());
     out.extend_from_slice(MAGIC);
-    out.extend_from_slice(&nonce);
+    out.extend_from_slice(nonce);
     out.extend_from_slice(&sealed);
-    Ok((out, key))
+    Ok(out)
 }
 
 /// Ce que la page du téléphone fait (essais) : déchiffre et décompresse.
@@ -251,6 +257,28 @@ pub unsafe extern "C" fn kn_journal_delete(relay_addr: *const c_char, id: *const
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn hex(s: &str) -> Vec<u8> {
+        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    }
+
+    /// Vecteurs d'essai de docs/relais.md (« Vecteurs d'essai KNJ1 ») : le
+    /// même dépôt que le relais et la page du téléphone, octet pour octet.
+    #[test]
+    fn vecteur_d_essai_knj1() {
+        let key: [u8; 32] = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f").try_into().unwrap();
+        let nonce: [u8; 12] = hex("a0a1a2a3a4a5a6a7a8a9aaab").try_into().unwrap();
+        let input = hex(concat!(
+            "1f8b08000000000002fff3ae4c4a2df2cb2f57f0c9cccb5630d03334d4b3e0722c28482c4acdcc51b052702d2e4ecc54f0f6f332e4f2ca2f2dca4bcc5138bc32b928b344212755c1c8c0c84cd7d050d7c85cc1d0c8cac00088f40c0c0c1442439cb99cf2f3b2801af4b800b1b88fb162000000"
+        ));
+        let expected = hex(concat!(
+            "4b4e4a31a0a1a2a3a4a5a6a7a8a9aaabf993742d45cb02bf609a747d4b30ed2cbb830ee05b7b893aacde15b2ab189573fe5e0fd3e5ef9f6cefce74e527344fadb7edb57a8622d0516c944092f54839820d94362b1182b1213c223754581e9c6d05576a740d0b597a66813296bd8e0fd7133db759f01c0f816a6306e13d075c4a2450614699bf3b2059e75ad4459d934d121ce0"
+        ));
+        assert_eq!(encrypt(&input, &key, &nonce).unwrap(), expected);
+        assert_eq!(URL_SAFE_NO_PAD.encode(key), "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8");
+        let text = open(&expected, &key).unwrap();
+        assert_eq!(text, "KyberNow Link 0.11.8\nAppareil : Essai KNJ1\nJournal écrit le 2026-11-27 12:00:00.000 UTC\nBonjour.\n");
+    }
 
     #[test]
     fn depot_chiffre_et_relu() {

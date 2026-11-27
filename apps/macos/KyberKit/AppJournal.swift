@@ -52,11 +52,19 @@ public enum AppJournal {
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
         let os = ProcessInfo.processInfo.operatingSystemVersion
+        // « Appareil : » et « Journal écrit le » : les deux lignes que la page
+        // du téléphone lit dans les 4 premiers Kio (docs/relais.md, « Dépôt
+        // d'un journal »), comme l'en-tête du journal d'Android.
+        let stamp = DateFormatter()
+        stamp.locale = Locale(identifier: "en_US_POSIX")
+        stamp.timeZone = TimeZone(identifier: "UTC")
+        stamp.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS 'UTC'"
         var lines = [
             "KyberNow Link \(version) (\(build))",
-            "\(model()) · \(systemName()) \(os.majorVersion).\(os.minorVersion).\(os.patchVersion)",
+            "Appareil : Apple \(model())",
+            "\(systemName()) \(os.majorVersion).\(os.minorVersion).\(os.patchVersion)",
             "Langue de l'app : \(LanguageChoice.effective)",
-            "Journal préparé le \(ISO8601DateFormatter().string(from: Date()))",
+            "Journal écrit le \(stamp.string(from: Date()))",
         ]
         lines.append(contentsOf: previousExits())
         return lines.joined(separator: "\n") + "\n\n"
