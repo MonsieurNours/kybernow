@@ -46,6 +46,7 @@ Branche `claude/fix-stations-mac-linux-e1c42f`, d'après [stations-mac-linux.md]
 | STLIN-26 (en partie) | `INSTALLATION.md` (noms publiés, Sway et Hyprland), `docs/station-linux.md` (`import-environment` sous Sway/Hyprland, fichier des écrans relu toutes les 250 ms) |
 | STLIN-27 | Choix écrit dans `docs/station-linux.md` (Clavier, souris, pointeur) |
 | STCOM-05 (en partie) | Les deux `build-kyber.sh` repèrent un correctif posé avec décalage du contexte (essai à blanc `patch -F0`) et le signalent ; `KYBERNOW_PATCH_STRICT=1` en fait un échec |
+| Licence (demande de la coordination) | `package.sh` : `LICENSE` absent = erreur, vérifiée avant de compiler ; le fichier `copyright` est toujours dans les paquets (LICENSE arrive avec main à la fusion) |
 | TRANS-08 | `x86-chroot.sh` : refus d'effacer s'il reste un montage sous le chroot, `rm -rf --one-file-system` |
 | TRANS-07 (Mac) | `build-station-app.sh` retire `work/kybernow-camera` avant de le reconstruire : un échec de `clang` arrête la construction |
 
