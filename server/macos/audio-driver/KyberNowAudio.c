@@ -1,7 +1,7 @@
 // KyberNow : sortie son virtuelle de la Station Mac (docs/station-macos.md, jalon 4).
 //
 // Module Core Audio (AudioServerPlugIn) chargé par coreaudiod : un appareil
-// « KyberNow » avec une sortie de 2, 6 ou 8 canaux (48 kHz, flottants) qui ne
+// « KyberNow » avec une sortie de 2, 6 ou 8 canaux (48 ou 44,1 kHz, flottants) qui ne
 // joue rien sur le Mac, et une entrée de retour qui rend ce qu'on lui a joué.
 // Pendant une session, Admin y bascule la sortie du Mac au nombre de canaux de
 // l'appareil (agent `kybernow-display audio-route`) ; Kyber capture le son.
