@@ -14,7 +14,7 @@ index 34800a1..99af85d 100644
  vergen = { version = "8.3.1", features = ["build", "git", "gitcl"] }
  
 diff --git a/kycontroller/src/auth/jwt.rs b/kycontroller/src/auth/jwt.rs
-index 77fa2f1..35e6fa4 100644
+index 77fa2f1..f8def04 100644
 --- a/kycontroller/src/auth/jwt.rs
 +++ b/kycontroller/src/auth/jwt.rs
 @@ -60,7 +60,7 @@ use std::{fs::File, io::Read};
@@ -26,7 +26,7 @@ index 77fa2f1..35e6fa4 100644
  use jsonwebtoken::{
      Algorithm, DecodingKey, Validation, decode,
      errors::{Error as JWTError, ErrorKind},
-@@ -130,6 +130,10 @@ struct Claims {
+@@ -130,6 +130,15 @@ struct Claims {
      /// KyberNow: revision of the guest's role (0 when absent).
      kn_rev: Option<u64>,
  
@@ -34,18 +34,24 @@ index 77fa2f1..35e6fa4 100644
 +    /// absent or unknown: `host`). Read at login only, not at renewal.
 +    kn_quality: Option<String>,
 +
++    /// KyberNow: revision of `kn_quality`, raised by KyberNow Admin at each
++    /// change of the guest's quality, as `kn_rev` for its role (0 when
++    /// absent: a quality pushed by `/kybernow/quality` wins, as before).
++    kn_qrev: Option<u64>,
++
      /// KyberNow: KyberNow Admin's own token, for the `/kybernow` routes.
      #[serde(default)]
      kn_admin: bool,
-@@ -194,6 +198,7 @@ impl Backend for Jwt {
+@@ -194,6 +203,8 @@ impl Backend for Jwt {
                  role,
                  display,
                  rev: jwt.claims.kn_rev.unwrap_or(0),
 +                quality: guest_quality(jwt.claims.kn_quality.as_deref()),
++                qrev: jwt.claims.kn_qrev.unwrap_or(0),
              }),
              (Some(_), None) => {
                  return Err(Error::MissingField {
-@@ -211,6 +216,18 @@ impl Backend for Jwt {
+@@ -211,6 +222,18 @@ impl Backend for Jwt {
      }
  }
  
@@ -64,15 +70,16 @@ index 77fa2f1..35e6fa4 100644
  impl Jwt {
      /// Initializes the JWT backend.
      ///
-@@ -320,6 +337,7 @@ mod tests {
+@@ -320,6 +343,8 @@ mod tests {
                  role: ShareRole::PlayerKbm,
                  display: 2221634456,
                  rev: 3,
 +                quality: ShareQuality::Host,
++                qrev: 0,
              })
          );
          assert!(!session.admin);
-@@ -353,6 +371,27 @@ mod tests {
+@@ -353,6 +378,27 @@ mod tests {
          assert!(matches!(no_display, Err(Error::MissingField { .. })));
      }
  
@@ -101,10 +108,10 @@ index 77fa2f1..35e6fa4 100644
      fn the_admin_token_is_flagged() {
          let session = authenticate(serde_json::json!({
 diff --git a/kycontroller/src/auth/mod.rs b/kycontroller/src/auth/mod.rs
-index 9653270..25d681c 100644
+index 9653270..4e6b8e9 100644
 --- a/kycontroller/src/auth/mod.rs
 +++ b/kycontroller/src/auth/mod.rs
-@@ -138,13 +138,50 @@ pub enum ShareRole {
+@@ -138,13 +138,54 @@ pub enum ShareRole {
      PlayerKbm,
  }
  
@@ -146,13 +153,17 @@ index 9653270..25d681c 100644
  /// KyberNow: a share guest's role, imposed display (`kn_display`) and role
 -/// revision (`kn_rev`, raised by KyberNow Admin at each change).
 +/// revision (`kn_rev`, raised by KyberNow Admin at each change), and the
-+/// image it asks for (`kn_quality`, patch 0020).
++/// image it asks for (`kn_quality`, patch 0020) with its revision
++/// (`kn_qrev`).
  #[derive(Clone, Debug, PartialEq, Eq)]
  pub struct GuestShare {
      pub role: ShareRole,
      pub display: u32,
      pub rev: u64,
 +    pub quality: ShareQuality,
++    /// Revision of `quality` (`kn_qrev`, 0 when absent): a quality pushed
++    /// with an older one (or none) gives way to it at login.
++    pub qrev: u64,
  }
  
  /// Configuration for authentication backends loaded from TOML.
@@ -2978,7 +2989,7 @@ index 0000000..0680cce
 +    }
 +}
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index d926ddc..182c607 100644
+index d926ddc..939f82c 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
 @@ -1,23 +1,39 @@
@@ -3033,9 +3044,9 @@ index d926ddc..182c607 100644
      /// End of the ban.
      bans: HashMap<String, Instant>,
 +    /// Patch 0020: the quality pushed by KyberNow Admin
-+    /// (`/kybernow/quality`), the notches it was lowered for lagging, and
-+    /// when it was recorded.
-+    qualities: HashMap<String, (ShareQuality, u8, Instant)>,
++    /// (`/kybernow/quality`), the notches it was lowered for lagging, the
++    /// quality's revision (`kn_qrev`), and when it was recorded.
++    qualities: HashMap<String, (ShareQuality, u8, u64, Instant)>,
  }
  
  impl ShareMemory {
@@ -3044,36 +3055,49 @@ index d926ddc..182c607 100644
              .retain(|_, (_, _, at)| now.saturating_duration_since(*at) < ROLE_MEMORY);
          self.bans.retain(|_, until| *until > now);
 +        self.qualities
-+            .retain(|_, (_, _, at)| now.saturating_duration_since(*at) < ROLE_MEMORY);
++            .retain(|_, (_, _, _, at)| now.saturating_duration_since(*at) < ROLE_MEMORY);
 +    }
 +
 +    /// A guest's quality, and how far it was lowered, for its next logins
 +    /// (its tokens may be older than the change).
-+    pub(crate) fn remember_quality(&mut self, user: &str, quality: ShareQuality, steps: u8) {
++    pub(crate) fn remember_quality(&mut self, user: &str, quality: ShareQuality, steps: u8, qrev: u64) {
 +        let now = Instant::now();
 +        self.prune(now);
 +        self.qualities
-+            .insert(user.to_owned(), (quality, steps, now));
++            .insert(user.to_owned(), (quality, steps, qrev, now));
      }
  
      /// Keeps the role with the highest revision.
-@@ -116,6 +147,15 @@ impl ShareMemory {
+@@ -116,6 +147,28 @@ impl ShareMemory {
              share.role = *role;
              share.rev = *rev;
          }
 +
 +        // Patch 0020: a quality pushed since, and a guest lowered for
-+        // lagging stays lowered.
++        // lagging stays lowered; unless the token carries a newer quality
++        // (`kn_qrev`): it wins, and the guest starts over at full quality.
 +        if let Some(share) = &mut session.share
-+            && let Some((quality, steps, _)) = self.qualities.get(&session.username)
++            && let Some(&(quality, steps, qrev, _)) = self.qualities.get(&session.username)
 +        {
-+            share.quality = *quality;
-+            session.guest_image.steps = *steps;
++            if qrev >= share.qrev {
++                share.quality = quality;
++                share.qrev = qrev;
++                session.guest_image.steps = steps;
++            } else {
++                info!(
++                    "\"{}\" logs in asking for {} (quality rev {}), not {} (rev {qrev})",
++                    session.username,
++                    share.quality.name(),
++                    share.qrev,
++                    quality.name()
++                );
++                self.qualities.remove(&session.username);
++            }
 +        }
          true
      }
  }
-@@ -227,6 +267,914 @@ pub(crate) async fn apply_input_rights(ctrl: &Controller, uid: &Uuid) {
+@@ -227,6 +280,915 @@ pub(crate) async fn apply_input_rights(ctrl: &Controller, uid: &Uuid) {
      }
  }
  
@@ -3710,6 +3734,7 @@ index d926ddc..182c607 100644
 +                        &s.username,
 +                        share.quality,
 +                        steps,
++                        share.qrev,
 +                    );
 +                }
 +            }
@@ -3988,7 +4013,7 @@ index d926ddc..182c607 100644
  fn from_loopback(req: &HttpRequest) -> bool {
      req.peer_addr().is_some_and(|peer| match peer.ip() {
          IpAddr::V4(v4) => v4.is_loopback(),
-@@ -277,6 +1225,24 @@ struct SessionEntry {
+@@ -277,6 +1239,24 @@ struct SessionEntry {
      display: Option<u32>,
      streaming: bool,
      inputs: bool,
@@ -4013,7 +4038,7 @@ index d926ddc..182c607 100644
  }
  
  #[derive(Serialize)]
-@@ -284,6 +1250,13 @@ struct StreamEntry {
+@@ -284,6 +1264,13 @@ struct StreamEntry {
      display: u32,
      codec: &'static str,
      yuv444: bool,
@@ -4027,7 +4052,7 @@ index d926ddc..182c607 100644
  }
  
  #[derive(Serialize)]
-@@ -292,15 +1265,16 @@ struct SessionsResponse {
+@@ -292,15 +1279,16 @@ struct SessionsResponse {
      streams: Vec<StreamEntry>,
  }
  
@@ -4050,7 +4075,7 @@ index d926ddc..182c607 100644
  #[get("/sessions")]
  pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest) -> HttpResponse {
      if let Some(refusal) = admin_refusal(&req) {
-@@ -320,32 +1294,78 @@ pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest)
+@@ -320,32 +1308,78 @@ pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest)
                  display: s.share.as_ref().map(|share| share.display),
                  streaming: s.session.as_ref().is_some_and(|s| s.data_plane.is_some()),
                  inputs: false,
@@ -4143,7 +4168,7 @@ index d926ddc..182c607 100644
  
      HttpResponse::Ok().json(SessionsResponse { sessions, streams })
  }
-@@ -395,6 +1415,59 @@ pub(crate) async fn post_role(
+@@ -395,6 +1429,64 @@ pub(crate) async fn post_role(
      HttpResponse::Ok().json(serde_json::json!({ "sessions": updated.len() }))
  }
  
@@ -4151,6 +4176,10 @@ index d926ddc..182c607 100644
 +struct QualityRequest {
 +    user: String,
 +    quality: ShareQuality,
++    /// The quality's revision, the `kn_qrev` of the guest's next tokens
++    /// (absent from an older KyberNow Admin: 0).
++    #[serde(default)]
++    rev: u64,
 +}
 +
 +/// `POST /kybernow/quality` (patch 0020): a guest's new quality, for its
@@ -4163,7 +4192,7 @@ index d926ddc..182c607 100644
 +    req: HttpRequest,
 +    body: web::Bytes,
 +) -> HttpResponse {
-+    let QualityRequest { user, quality } = match admin_request(&req, &body) {
++    let QualityRequest { user, quality, rev } = match admin_request(&req, &body) {
 +        Ok(request) => request,
 +        Err(refusal) => return refusal,
 +    };
@@ -4172,7 +4201,7 @@ index d926ddc..182c607 100644
 +    ctrl.share_memory
 +        .lock()
 +        .unwrap()
-+        .remember_quality(&user, quality, 0);
++        .remember_quality(&user, quality, 0, rev);
 +
 +    let updated: Vec<Uuid> = ctrl
 +        .sessions
@@ -4183,6 +4212,7 @@ index d926ddc..182c607 100644
 +        .filter_map(|s| {
 +            let share = s.share.as_mut()?;
 +            share.quality = quality;
++            share.qrev = share.qrev.max(rev);
 +            s.guest_image.steps = 0;
 +            Some(s.uid)
 +        })
@@ -4203,22 +4233,23 @@ index d926ddc..182c607 100644
  #[derive(Deserialize)]
  struct CloseRequest {
      user: String,
-@@ -475,6 +1548,7 @@ mod tests {
+@@ -475,6 +1567,8 @@ mod tests {
              role,
              display: 7,
              rev,
 +            quality: ShareQuality::Host,
++            qrev: 0,
          })
      }
  
-@@ -590,6 +1664,755 @@ mod tests {
+@@ -590,6 +1684,783 @@ mod tests {
          assert!(memory.bans.is_empty());
      }
  
 +    #[test]
 +    fn a_pushed_quality_and_its_lag_win_at_login() {
 +        let mut memory = ShareMemory::default();
-+        memory.remember_quality("kn-guest-1", ShareQuality::P1080, 1);
++        memory.remember_quality("kn-guest-1", ShareQuality::P1080, 1, 0);
 +
 +        let mut lea = session("kn-guest-1", guest(ShareRole::Spectator, 1));
 +        assert!(memory.admit(&mut lea));
@@ -4236,6 +4267,34 @@ index d926ddc..182c607 100644
 +
 +        let later = Instant::now() + ROLE_MEMORY + Duration::from_secs(1);
 +        memory.prune(later);
++        assert!(memory.qualities.is_empty());
++    }
++
++    /// KYB-37: a token with a newer quality (`kn_qrev`) is not overridden
++    /// by an older pushed one; an equal or older one is.
++    #[test]
++    fn a_newer_quality_in_the_token_wins_at_login() {
++        let mut memory = ShareMemory::default();
++        memory.remember_quality("kn-guest-1", ShareQuality::P1080, 2, 4);
++
++        let with_qrev = |qrev| {
++            let mut share = guest(ShareRole::Spectator, 1);
++            if let Some(share) = share.as_mut() {
++                share.quality = ShareQuality::P720;
++                share.qrev = qrev;
++            }
++            session("kn-guest-1", share)
++        };
++        // Same revision (a token from before a lag lowering): memory wins.
++        let mut same = with_qrev(4);
++        assert!(memory.admit(&mut same));
++        assert_eq!(same.share.as_ref().unwrap().quality, ShareQuality::P1080);
++        assert_eq!(same.guest_image.steps, 2);
++        // Newer: the token wins, at full quality, and the memory goes.
++        let mut newer = with_qrev(5);
++        assert!(memory.admit(&mut newer));
++        assert_eq!(newer.share.as_ref().unwrap().quality, ShareQuality::P720);
++        assert_eq!(newer.guest_image.steps, 0);
 +        assert!(memory.qualities.is_empty());
 +    }
 +

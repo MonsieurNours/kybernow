@@ -313,10 +313,10 @@ index bd382fd..f9a5fe1 100644
      fn an_sdr_guest_of_an_hdr_host_gets_an_sdr_image_of_its_own() {
          let c = choose(
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index 09d7726..6b7e30e 100644
+index 7b38fb6..7618b43 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
-@@ -294,6 +294,9 @@ pub(crate) struct GuestRequest {
+@@ -307,6 +307,9 @@ pub(crate) struct GuestRequest {
      pub(crate) yuv444: bool,
      /// KyberNow (0022): its screen shows HDR (its start request's `hdr`).
      pub(crate) hdr: bool,
@@ -326,7 +326,7 @@ index 09d7726..6b7e30e 100644
      pub(crate) bitrate: u32,
      pub(crate) intra_refresh: Option<bool>,
  }
-@@ -389,6 +392,7 @@ fn guest_ask(ctrl: &Controller, uid: &Uuid, request: &GuestRequest) -> crate::er
+@@ -402,6 +405,7 @@ fn guest_ask(ctrl: &Controller, uid: &Uuid, request: &GuestRequest) -> crate::er
                  codec: request.codec,
                  yuv444: request.yuv444,
                  hdr: request.hdr,
@@ -334,7 +334,7 @@ index 09d7726..6b7e30e 100644
              },
              bitrate: request.bitrate,
              source_hdr: s.share.as_ref().is_some_and(|share| share.hdr),
-@@ -535,6 +539,9 @@ async fn acquire_placement(
+@@ -548,6 +552,9 @@ async fn acquire_placement(
                  // host's HDR capture; SDR brought down from it otherwise.
                  hdr: image.hdr,
                  hdr_capture: image.hdr_source,
@@ -344,7 +344,7 @@ index 09d7726..6b7e30e 100644
              };
              let topology = VideoTopology::Guest {
                  display_id,
-@@ -1733,6 +1740,8 @@ mod tests {
+@@ -1781,6 +1788,8 @@ mod tests {
              pixel_rate: 0,
              hdr: false,
              hdr_capture: false,
@@ -353,7 +353,7 @@ index 09d7726..6b7e30e 100644
          }
      }
  
-@@ -1758,6 +1767,7 @@ mod tests {
+@@ -1806,6 +1815,7 @@ mod tests {
                  codec: ImageCodec::H264,
                  hdr: false,
                  hdr_source: false,
@@ -361,7 +361,7 @@ index 09d7726..6b7e30e 100644
              },
              screen,
          }
-@@ -1775,6 +1785,7 @@ mod tests {
+@@ -1823,6 +1833,7 @@ mod tests {
                  codec: ImageCodec::H264,
                  yuv444: false,
                  hdr: false,
@@ -369,7 +369,7 @@ index 09d7726..6b7e30e 100644
                  bitrate: 40_000_000,
                  intra_refresh: None,
              },
-@@ -1793,6 +1804,7 @@ mod tests {
+@@ -1841,6 +1852,7 @@ mod tests {
                  codec: ImageCodec::H264,
                  yuv444: false,
                  hdr: false,

@@ -1,8 +1,8 @@
 diff --git a/kycontroller/src/auth/jwt.rs b/kycontroller/src/auth/jwt.rs
-index e0f82b1..35c93c6 100644
+index fed0877..374e477 100644
 --- a/kycontroller/src/auth/jwt.rs
 +++ b/kycontroller/src/auth/jwt.rs
-@@ -142,6 +142,11 @@ struct Claims {
+@@ -147,6 +147,11 @@ struct Claims {
      /// runs on it (a lent display KyberNow Admin put in HDR). Absent: no.
      #[serde(default)]
      kn_hdr: bool,
@@ -14,28 +14,28 @@ index e0f82b1..35c93c6 100644
  }
  
  pub struct Jwt {
-@@ -205,6 +210,7 @@ impl Backend for Jwt {
-                 rev: jwt.claims.kn_rev.unwrap_or(0),
+@@ -211,6 +216,7 @@ impl Backend for Jwt {
                  quality: guest_quality(jwt.claims.kn_quality.as_deref()),
+                 qrev: jwt.claims.kn_qrev.unwrap_or(0),
                  hdr: jwt.claims.kn_hdr,
 +                mic: jwt.claims.kn_mic,
              }),
              (Some(_), None) => {
                  return Err(Error::MissingField {
-@@ -345,6 +351,7 @@ mod tests {
-                 rev: 3,
+@@ -352,6 +358,7 @@ mod tests {
                  quality: ShareQuality::Host,
+                 qrev: 0,
                  hdr: false,
 +                mic: false,
              })
          );
          assert!(!session.admin);
 diff --git a/kycontroller/src/auth/mod.rs b/kycontroller/src/auth/mod.rs
-index 122d8bb..2df7a6b 100644
+index 443e00a..f11029a 100644
 --- a/kycontroller/src/auth/mod.rs
 +++ b/kycontroller/src/auth/mod.rs
-@@ -184,6 +184,8 @@ pub struct GuestShare {
-     pub quality: ShareQuality,
+@@ -188,6 +188,8 @@ pub struct GuestShare {
+     pub qrev: u64,
      /// KyberNow (0022): its display is in HDR without a host image (`kn_hdr`).
      pub hdr: bool,
 +    /// KyberNow (micro): it may send its microphone (`kn_mic`).
@@ -76,10 +76,10 @@ index 7e1490e..2e5fbb3 100644
              guest_image: Default::default(),
          }
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index 731b65c..eae03d3 100644
+index 0cd379e..336b0e5 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
-@@ -1502,6 +1502,9 @@ struct RoleRequest {
+@@ -1516,6 +1516,9 @@ struct RoleRequest {
      user: String,
      role: ShareRole,
      rev: u64,
@@ -89,7 +89,7 @@ index 731b65c..eae03d3 100644
  }
  
  /// `POST /kybernow/role`: a guest's new role, for its sessions (newer
-@@ -1512,7 +1515,12 @@ pub(crate) async fn post_role(
+@@ -1526,7 +1529,12 @@ pub(crate) async fn post_role(
      req: HttpRequest,
      body: web::Bytes,
  ) -> HttpResponse {
@@ -103,7 +103,7 @@ index 731b65c..eae03d3 100644
          Ok(request) => request,
          Err(refusal) => return refusal,
      };
-@@ -1527,7 +1535,15 @@ pub(crate) async fn post_role(
+@@ -1541,7 +1549,15 @@ pub(crate) async fn post_role(
          .unwrap()
          .values_mut()
          .filter(|s| s.username == user)
@@ -120,9 +120,9 @@ index 731b65c..eae03d3 100644
          .collect();
      info!(
          "\"{user}\" is now {role:?} (rev {rev}): {} sessions",
-@@ -1677,6 +1693,7 @@ mod tests {
-             rev,
+@@ -1697,6 +1713,7 @@ mod tests {
              quality: ShareQuality::Host,
+             qrev: 0,
              hdr: false,
 +            mic: false,
          })
