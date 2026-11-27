@@ -26,9 +26,6 @@ use super::discovery::Target;
 use super::endpoint::Endpoint;
 use super::rpcrypt::{self, KEY_SIZE, RpCrypt};
 
-/// Port de l'association, en UDP (recherche) puis en TCP (demande).
-pub const PORT: u16 = 9295;
-
 /// Attente de la réponse à la recherche, puis de la réponse à la demande.
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(3);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(3);

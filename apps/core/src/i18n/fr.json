@@ -124,7 +124,8 @@
     "state_off": "Prêt coupé"
   },
   "pyrowave": {
-    "lowered": "Définition ramenée à {width} × {height} pour tenir dans {mbps} Mbit/s."
+    "lowered": "Définition ramenée à {width} × {height} pour tenir dans {mbps} Mbit/s.",
+    "fallback_notice": "Image en {format} : PyroWave n'a pas pu démarrer sur cet appareil."
   },
   "hdr": {
     "off": "L'ordinateur ne propose pas le HDR.",
@@ -263,7 +264,14 @@
     "unsupported": "Cet ordinateur ne reçoit pas le micro.",
     "old_station": "Mettez à jour la Station pour envoyer le micro.",
     "sent": "Micro envoyé à {name}.",
-    "permission_windows": "KyberNow Link n'a pas accès au micro. Autorisez-le dans les paramètres de confidentialité de Windows."
+    "permission_windows": "KyberNow Link n'a pas accès au micro. Autorisez-le dans les paramètres de confidentialité de Windows.",
+    "label_on": "Micro",
+    "label_off": "Micro coupé",
+    "tooltip_on": "Micro : envoyé à l'ordinateur ({shortcut})",
+    "tooltip_off": "Micro coupé ({shortcut})",
+    "tile_on": "Envoyé",
+    "tile_off": "Coupé",
+    "tile_waiting": "Envoi…"
   },
   "camera": {
     "paused": "En pause",

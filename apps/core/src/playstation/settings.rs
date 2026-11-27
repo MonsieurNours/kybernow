@@ -195,6 +195,23 @@ impl PlaySettings {
 mod tests {
     use super::*;
 
+    /// LINAPP-40 : le JSON des réglages d'une console est celui que l'app
+    /// Linux garde (`PsSettings`, interface sans le cœur) : mêmes noms, mêmes
+    /// valeurs, mêmes défauts ; elle passe de l'un à l'autre par serde.
+    #[test]
+    fn json_des_reglages_comme_les_apps() {
+        let linux = r#"{"resolution":"p720","fps":30,"bitrate_kbps":10000,"codec":"h265","hdr":true,"fullscreen":false,"upscale":false,"sharpness":20,"rumble":50,"triggers":0}"#;
+        let s: PlaySettings = serde_json::from_str(linux).unwrap();
+        assert_eq!((s.resolution, s.fps, s.bitrate_kbps, s.codec), (Resolution::P720, 30, Some(10_000), CodecChoice::H265));
+        assert_eq!(serde_json::to_value(&s).unwrap(), serde_json::from_str::<serde_json::Value>(linux).unwrap());
+        let d: PlaySettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(d, PlaySettings::default());
+        assert_eq!(
+            serde_json::to_value(&d).unwrap(),
+            serde_json::json!({"resolution":"auto","fps":60,"bitrate_kbps":null,"codec":"auto","hdr":false,"fullscreen":true,"upscale":true,"sharpness":40,"rumble":100,"triggers":100})
+        );
+    }
+
     #[test]
     fn auto_is_1080p60_hevc_15mbit() {
         let s = PlaySettings::default();

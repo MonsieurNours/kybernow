@@ -167,10 +167,7 @@ pub fn normalize_relay(relay: &str) -> Result<String, AccountError> {
 
 /// Le relais tel qu'on le montre : `share.kybernow.app`, `relais.exemple.org:9443`.
 pub fn relay_label(relay: &str) -> String {
-    match relay.parse::<RelayAddr>() {
-        Ok(a) => a.web_authority(),
-        Err(_) => relay.split('#').next().unwrap_or_default().to_string(),
-    }
+    kybernow_rules::relay::label(relay)
 }
 
 /// La page du compte sur ce relais (`https://share.kybernow.app/compte`) :
@@ -288,6 +285,18 @@ pub struct Reply {
     pub retry_after: Option<u64>,
 }
 
+impl Reply {
+    /// Une réponse HTTP lue une fois pour toutes (COEUR-38 : Admin, relais,
+    /// comptes) : statut, corps JSON (nul s'il ne se lit pas), en-tête
+    /// `Retry-After` en secondes.
+    pub(crate) fn read(resp: ureq::Response) -> Reply {
+        let status = resp.status();
+        let retry_after = resp.header("Retry-After").and_then(|h| h.trim().parse().ok());
+        let body = resp.into_json::<Value>().unwrap_or(Value::Null);
+        Reply { status, body, retry_after }
+    }
+}
+
 /// Le transport vers le relais : HTTPS en production ([`UreqHttp`]), un faux
 /// relais dans les essais.
 pub trait RelayHttp: Send + Sync {
@@ -312,15 +321,8 @@ impl RelayHttp for UreqHttp {
             Some(b) => req.send_json(b),
             None => req.call(),
         };
-        let read = |resp: ureq::Response| {
-            let status = resp.status();
-            let retry_after = resp.header("Retry-After").and_then(|h| h.trim().parse().ok());
-            let body = resp.into_json::<Value>().unwrap_or(Value::Null);
-            Reply { status, body, retry_after }
-        };
         match r {
-            Ok(resp) => Ok(read(resp)),
-            Err(ureq::Error::Status(_, resp)) => Ok(read(resp)),
+            Ok(resp) | Err(ureq::Error::Status(_, resp)) => Ok(Reply::read(resp)),
             Err(e) => Err(e.to_string()),
         }
     }
@@ -832,11 +834,11 @@ pub struct Merged {
     pub added: Vec<AccountComputer>,
 }
 
-/// Même empreinte d'Admin (sans égard à la casse ni aux espaces), ou même
-/// Station chez le même relais.
+/// Même empreinte d'Admin (la règle commune, MAC-20 : sans égard au préfixe
+/// `sha256:`, aux deux-points, aux espaces ni à la casse), ou même Station
+/// chez le même relais.
 fn same(fp: Option<&str>, station: Option<&str>, c: &AccountComputer) -> bool {
-    let norm = |s: &str| s.trim().to_ascii_lowercase();
-    let by_fp = matches!((fp, c.admin_fp.as_deref()), (Some(a), Some(b)) if !a.trim().is_empty() && norm(a) == norm(b));
+    let by_fp = kybernow_rules::fingerprint::same_opt(fp, c.admin_fp.as_deref());
     let by_station = matches!(station, Some(s) if !s.is_empty() && s == c.station);
     by_fp || by_station
 }
@@ -1033,7 +1035,7 @@ impl StationAccess {
 #[path = "account/settings.rs"]
 pub mod settings;
 
-pub use settings::{SyncedSettings, SyncedValues, fetch_settings, put_settings};
+pub use settings::{AccountSync, SyncedSettings, SyncedValues, fetch_settings, put_settings};
 
 /// L'interrupteur des réglages de l'app, section « Comptes » (allumé par
 /// défaut, gardé sur l'appareil) : « Synchroniser les réglages des

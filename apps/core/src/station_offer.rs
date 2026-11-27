@@ -22,7 +22,7 @@ pub const SNOOZE_SECS: u64 = 7 * 24 * 3600;
 pub const CHECK_EVERY_SECS: u64 = 24 * 3600;
 /// L'avis après une mise à jour de l'app attend au plus ce temps les
 /// vérifications des ordinateurs en ligne.
-pub const NOTICE_WAIT_SECS: u64 = 10;
+pub use kybernow_rules::limits::STATION_NOTICE_WAIT_SECS as NOTICE_WAIT_SECS;
 
 /// Gardé par l'app pour chaque ordinateur.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,7 +179,7 @@ pub fn should_check(ctx: &Context, memory: &Memory, app_version: &str) -> bool {
 /// pas encore gardé mais connaît déjà au moins un ordinateur : elle vient
 /// d'une version d'avant cet avis (0.11.2 ou plus ancienne), c'est donc une
 /// mise à jour et pas un premier lancement.
-pub const BEFORE_NOTICE: &str = "0.11.2";
+pub use kybernow_rules::limits::STATION_NOTICE_BEFORE as BEFORE_NOTICE;
 
 /// Premier lancement après une mise à jour de l'app (pas le tout premier
 /// lancement : `last_launched` vide) : l'avis peut s'afficher.

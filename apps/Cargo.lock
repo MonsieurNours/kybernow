@@ -2521,10 +2521,8 @@ dependencies = [
  "cc",
  "jni 0.21.1",
  "kybernow-core",
- "kynput-sys",
  "log",
  "ndk",
- "ndk-sys",
  "pkg-config",
  "serde",
  "serde_json",
@@ -2552,6 +2550,7 @@ dependencies = [
  "getrandom 0.2.17",
  "hmac",
  "k256",
+ "kybernow-rules",
  "kybernow-tunnel",
  "kyclient",
  "kyclient-common",
@@ -2597,6 +2596,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "kybernow-rules"
+version = "0.11.7"
+
+[[package]]
 name = "kybernow-tunnel"
 version = "0.8.0"
 dependencies = [
@@ -2626,7 +2629,6 @@ dependencies = [
  "getrandom 0.2.17",
  "keycode",
  "kybernow-core",
- "kynput-sys",
  "libc",
  "log",
  "mdns-sd 0.13.11",

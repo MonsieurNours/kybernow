@@ -22,8 +22,7 @@ pub const PYROWAVE_KYBER: bool = cfg!(feature = "pyrowave");
 /// les autres (même règle des pixels par seconde : ≈ 280 Mbit/s en 1080p60,
 /// docs/link-ui.md) ; 4:4:4 : moitié plus. Provisoire, à régler sur des
 /// flux de la Station ; le plafond de l'ordinateur passe avant.
-pub const PYROWAVE_MBPS: u32 = 800;
-pub const PYROWAVE_MBPS_444: u32 = 1200;
+pub use kybernow_rules::limits::{PYROWAVE_MBPS, PYROWAVE_MBPS_444};
 
 impl Codec {
     /// Code du format dans les paquets de Kyber (`media::FOURCC_*`).
@@ -369,6 +368,18 @@ impl HdrLuminance {
     pub fn of(value: Option<HdrLuminance>) -> Self {
         value.unwrap_or_default().clamped()
     }
+
+    /// Les valeurs que le système donne d'un écran (WINAPP-49 ; DXGI,
+    /// EDR…), en nits : une maximale illisible ou sous 100 prend celle par
+    /// défaut, tout l'écran au plus la maximale (sinon la maximale), un noir
+    /// hors de 0 à 1 celui par défaut, le blanc du bureau s'il est connu.
+    pub fn from_display(max: f64, full_frame: f64, min: f64, sdr_white: Option<f64>) -> Self {
+        let d = Self::default();
+        let max = if max.is_finite() && max >= 100.0 { max } else { d.max };
+        let full_frame = if full_frame.is_finite() && full_frame > 0.0 { full_frame.min(max) } else { max };
+        let min = if min.is_finite() && (0.0..=1.0).contains(&min) { min } else { d.min };
+        Self { max, full_frame, min, sdr_white: sdr_white.unwrap_or(d.sdr_white) }.clamped()
+    }
 }
 
 /// Pourquoi le HDR n'est pas possible (docs/hdr.md, « Quand le HDR n'est pas
@@ -491,6 +502,24 @@ pub fn pixel_rate_scale(pixel_rate: f64) -> f64 {
     ratio.powf(0.75).clamp(0.4, 3.0)
 }
 
+/// Le débit de PyroWave d'un profil pour un mode (Mbit/s) : [`PYROWAVE_MBPS`]
+/// ou [`PYROWAVE_MBPS_444`], suivant les pixels par seconde comme un profil
+/// (TRANS-42 ; avant, recopié par les apps Apple et Windows).
+pub fn pyrowave_mbps(width: u32, height: u32, refresh: u32, yuv444: bool) -> u32 {
+    let base = if yuv444 { PYROWAVE_MBPS_444 } else { PYROWAVE_MBPS };
+    (base as f64 * pixel_rate_scale(width as f64 * height as f64 * refresh.max(1) as f64)).round() as u32
+}
+
+/// Bornes du débit réglé à la main (« Personnalisé »), TRANS-41.
+pub use kybernow_rules::limits::{Device, LG_TV_MBPS_MAX, MANUAL_MBPS_MAX, MANUAL_MBPS_MAX_PYROWAVE, MANUAL_MBPS_MIN, MANUAL_MBPS_STEP};
+
+/// Les bornes du débit réglé à la main sur cet appareil dans ce format
+/// (Mbit/s) : 5 à 500 (aucune carte n'encode au-delà), 5 à 2 500 en
+/// PyroWave, 5 à 95 sur un téléviseur LG.
+pub fn manual_mbps(device: Device, codec: Codec) -> (u32, u32) {
+    kybernow_rules::limits::manual_mbps(device, codec == Codec::PyroWave)
+}
+
 /// Le format à la place de PyroWave : HEVC, sinon AV1, sinon H.264. C'est
 /// aussi le repli donné à Kyber avec PyroWave (`fallback_codec`, correctif
 /// 0025), que la Station prend si elle ne le propose plus.
@@ -564,6 +593,19 @@ pub fn hdr_refused_text(lang: crate::i18n::Lang) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WINAPP-49 : les valeurs d'un écran données par le système, et le
+    /// plus clair par défaut d'une image HDR, le même que celui des règles.
+    #[test]
+    fn valeurs_hdr_du_systeme() {
+        let l = HdrLuminance::from_display(600.0, 900.0, 0.05, Some(240.0));
+        assert_eq!((l.max, l.full_frame, l.min, l.sdr_white), (600.0, 600.0, 0.05, 240.0));
+        let d = HdrLuminance::default();
+        let l = HdrLuminance::from_display(f64::NAN, 0.0, 3.0, None);
+        assert_eq!((l.max, l.full_frame, l.min, l.sdr_white), (d.max, d.max, d.min, d.sdr_white));
+        assert_eq!(HdrLuminance::from_display(50.0, 40.0, 0.0, None).max, d.max);
+        assert_eq!(d.max, kybernow_rules::hdr::DEFAULT_PEAK_NITS);
+    }
 
     #[test]
     fn pyrowave_choisi_ou_auto_par_cable() {

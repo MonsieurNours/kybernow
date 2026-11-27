@@ -28,12 +28,9 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 
 use super::discovery::Target;
-use super::endpoint::Endpoint;
+use super::endpoint::{Endpoint, PORT_RP};
 use super::regist::{self, Registered};
 use super::rpcrypt::{self, KEY_SIZE, RpCrypt};
-
-/// Port de la demande de session et du canal de contrôle.
-pub const PORT: u16 = 9295;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -201,7 +198,7 @@ pub(crate) fn parse_rp_version(version: &str, ps5: bool) -> Option<Target> {
 pub fn session_request(target: Target, host: Ipv4Addr, keys: &Keys) -> String {
     format!(
         "GET {} HTTP/1.1\r\n\
-         Host: {host}:{PORT}\r\n\
+         Host: {host}:{PORT_RP}\r\n\
          User-Agent: remoteplay Windows\r\n\
          Connection: close\r\n\
          Content-Length: 0\r\n\
@@ -499,7 +496,7 @@ pub(crate) fn ctrl_request(crypt: &RpCrypt, target: Target, addr: Ipv4Addr, keys
     let streaming = ps5.then(|| enc(&codec.streaming_type().to_le_bytes()));
     let mut text = format!(
         "GET {} HTTP/1.1\r\n\
-         Host: {addr}:{PORT}\r\n\
+         Host: {addr}:{PORT_RP}\r\n\
          User-Agent: remoteplay Windows\r\n\
          Connection: keep-alive\r\n\
          Content-Length: 0\r\n\

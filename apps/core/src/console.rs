@@ -24,6 +24,7 @@ use rustls::{DigitallySignedStruct, SignatureScheme};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::account::Reply;
 use crate::i18n::{self, Lang, tr};
 use crate::share::{JoinRequest, ShareAuto, ShareBeat, ShareError, ShareImage, ShareInfo, ShareJoined, ShareOpened, ShareQuality, ShareRole, ShareState, WatchRequest};
 use crate::wake::WakeTarget;
@@ -92,6 +93,15 @@ pub fn fingerprint(der: &[u8]) -> String {
     format!("sha256:{}", hex.join(":"))
 }
 
+/// Réponse d'Admin dont le module lit lui-même les refus
+/// ([`Console::answer`]).
+pub(crate) enum Answer {
+    /// Reçue (2xx), à lire.
+    Ok(ureq::Response),
+    /// Refusée : statut, corps, `Retry-After`.
+    Refused(Reply),
+}
+
 #[derive(Debug)]
 struct PinVerifier {
     pinned: Option<String>,
@@ -122,7 +132,7 @@ impl ServerCertVerifier for PinVerifier {
             }
         };
         match expected {
-            Some(pinned) if !pinned.eq_ignore_ascii_case(&fp) => Err(rustls::Error::General(
+            Some(pinned) if !kybernow_rules::fingerprint::same(&pinned, &fp) => Err(rustls::Error::General(
                 "certificat de la console changé".into(),
             )),
             _ => Ok(ServerCertVerified::assertion()),
@@ -324,13 +334,10 @@ pub struct AccountInfo {
     pub own_device: bool,
 }
 
-/// `https://adresse:port` d'Admin, une adresse IPv6 entre crochets.
+/// `https://adresse:port` d'Admin, une adresse IPv6 entre crochets (une
+/// seule fois, même donnée avec les siens).
 fn base_url(host: &str, port: u16) -> String {
-    if host.contains(':') && !host.starts_with('[') {
-        format!("https://[{host}]:{port}")
-    } else {
-        format!("https://{host}:{port}")
-    }
+    format!("https://{}:{port}", host_for_url(host))
 }
 
 /// Une console PlayStation que voit une Station (`GET /api/consoles`) :
@@ -359,11 +366,16 @@ struct ConsoleList {
 }
 
 /// Adresse d'Admin à ouvrir dans le navigateur ou à mettre dans un QR code
-/// (`https://adresse:port/`), sans créer de [`Console`] : pour les écrans qui
-/// la montrent hors de toute connexion.
-pub fn admin_url(host: &str, port: u16) -> String {
-    format!("{}/", base_url(host, port))
-}
+/// (`https://adresse:port/`, crochets IPv6 compris, jamais doublés), sans
+/// créer de [`Console`] : pour les écrans qui la montrent hors de toute
+/// connexion (TRANS-36). Lire une adresse tapée : [`parse_address`].
+pub use kybernow_rules::address::admin_url;
+pub use kybernow_rules::address::{ADDRESS_EXAMPLE, ADMIN_PORT, host_for_url, parse_address};
+/// Empreinte du certificat d'Admin (TRANS-34, MAC-20) : l'affichage court
+/// d'Admin et de toutes les apps (`7C41 E09B AABB CCDD`), la règle « même
+/// empreinte » (préfixe, deux-points, espaces et casse ignorés), la forme
+/// `sha256:aa:bb:…`.
+pub use kybernow_rules::fingerprint::{normalize as normalize_fingerprint, same as same_fingerprint, same_opt as same_fingerprint_opt, short as short_fingerprint};
 
 /// La Station, pour la rubrique « Station » des réglages d'un ordinateur.
 #[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq, Eq)]
@@ -1051,31 +1063,48 @@ impl Console {
     pub(crate) fn read<T: for<'de> Deserialize<'de>>(&self, r: std::result::Result<ureq::Response, ureq::Error>) -> Result<T> {
         match r {
             Ok(resp) => resp.into_json().map_err(|e| ConsoleError::Invalid(e.to_string())),
-            Err(ureq::Error::Status(status, resp)) => Err(self.refused(status, resp.into_json::<serde_json::Value>().ok())),
-            Err(ureq::Error::Transport(t)) => {
+            Err(e) => Err(self.failure(e)),
+        }
+    }
+
+    /// Un appel qui n'a pas abouti, en [`ConsoleError`] : refus d'Admin
+    /// (jeton d'accès refusé oublié), ou pas de réponse (compte, relais,
+    /// certificat changé, réseau).
+    pub(crate) fn failure(&self, e: ureq::Error) -> ConsoleError {
+        match e {
+            ureq::Error::Status(status, resp) => self.refused(status, resp.into_json::<serde_json::Value>().ok()),
+            ureq::Error::Transport(t) => {
                 let text = t.to_string();
                 if let Some(e) = take_note(self.key(), |n| &mut n.account) {
-                    return Err(ConsoleError::Account(e));
+                    return ConsoleError::Account(e);
                 }
                 if let Some(e) = take_note(self.key(), |n| &mut n.relay) {
-                    return Err(ConsoleError::Relay(e));
+                    return ConsoleError::Relay(e);
                 }
                 if text.contains("certificat de la console") {
                     let seen = self.fingerprint_seen().unwrap_or_default();
-                    Err(ConsoleError::CertificateChanged { seen })
+                    ConsoleError::CertificateChanged { seen }
                 } else {
-                    Err(ConsoleError::Network(text))
+                    ConsoleError::Network(text)
                 }
             }
         }
     }
 
+    /// Une réponse d'Admin dont chaque module lit lui-même les refus
+    /// (COEUR-38) : reçue (2xx), ou refusée, lue une fois ([`Reply`] :
+    /// statut, corps JSON, `Retry-After`) ; sans réponse : [`Self::failure`].
+    pub(crate) fn answer(&self, r: std::result::Result<ureq::Response, ureq::Error>) -> Result<Answer> {
+        match r {
+            Ok(resp) => Ok(Answer::Ok(resp)),
+            Err(ureq::Error::Status(_, resp)) => Ok(Answer::Refused(Reply::read(resp))),
+            Err(e) => Err(self.failure(e)),
+        }
+    }
+
     /// Une réponse sans contenu utile (corps vide, `{}`, `{"ok":true}`).
     pub(crate) fn read_unit(&self, r: std::result::Result<ureq::Response, ureq::Error>) -> Result<()> {
-        match r {
-            Ok(_) => Ok(()),
-            Err(e) => self.read::<serde_json::Value>(Err(e)).map(|_| ()),
-        }
+        r.map(|_| ()).map_err(|e| self.failure(e))
     }
 
     /// `GET /api/stream/ping` (docs/profil-auto.md) : un aller-retour vers Admin, en
@@ -1086,7 +1115,7 @@ impl Console {
         match r {
             Ok(_) => Ok(Some(started.elapsed().as_secs_f64() * 1000.0)),
             Err(ureq::Error::Status(404, _)) => Ok(None),
-            Err(e) => self.read::<serde_json::Value>(Err(e)).map(|_| None),
+            Err(e) => Err(self.failure(e)),
         }
     }
 
@@ -1098,7 +1127,7 @@ impl Console {
         let r = self.with_fresh_token(|| match self.request("GET", &format!("api/stream/probe?ms={ms}"), timeout).call() {
             Ok(resp) => Ok(Some(resp)),
             Err(ureq::Error::Status(404, _)) => Ok(None),
-            Err(e) => self.read::<serde_json::Value>(Err(e)).map(|_| None),
+            Err(e) => Err(self.failure(e)),
         })?;
         Ok(r.map(|resp| resp.into_reader()))
     }
@@ -1128,7 +1157,7 @@ impl Console {
             }
             Err(ureq::Error::Status(404, _)) => Ok(None),
             Err(ureq::Error::Status(429, _)) => Ok(Some(EncoderAnswer::Unknown("busy".into()))),
-            Err(e) => self.read::<serde_json::Value>(Err(e)).map(|_| None),
+            Err(e) => Err(self.failure(e)),
         })
     }
 
@@ -1231,7 +1260,7 @@ impl Console {
                     .map_err(|e| ConsoleError::Network(e.to_string()))?;
                 Ok(buf)
             }
-            Err(e) => self.read::<serde_json::Value>(Err(e)).map(|_| Vec::new()),
+            Err(e) => Err(self.failure(e)),
         }
     }
 
@@ -1299,7 +1328,7 @@ impl Console {
             match self.request("POST", "api/stream/station/check", Duration::from_secs(20)).send_json(serde_json::json!({})) {
                 Ok(resp) => Ok(resp.into_json::<Checked>().ok()),
                 Err(ureq::Error::Status(404 | 405, _)) => Ok(None),
-                Err(e) => self.read::<serde_json::Value>(Err(e)).map(|_| None),
+                Err(e) => Err(self.failure(e)),
             }
         })?;
         Ok(r.filter(|c| c.ok).and_then(|c| c.station))
@@ -1317,28 +1346,16 @@ impl Console {
             body["device_id"] = serde_json::json!(id);
         }
         // Un compte KyberNow : un jeton à part, qu'Admin consomme.
-        match self.request_with("POST", path, timeout, true).send_json(body) {
+        let r = self.request_with("POST", path, timeout, true).send_json(body);
+        match self.answer(r).map_err(StationError::Other)? {
             // Une Station 0.4.9 répond la page d'Admin (200, HTML) à une route
             // qu'elle ne connaît pas.
-            Ok(resp) => match resp.into_json::<serde_json::Value>() {
+            Answer::Ok(resp) => match resp.into_json::<serde_json::Value>() {
                 Ok(v) if v.get("ok").and_then(|o| o.as_bool()) == Some(true) => Ok(v),
                 _ => Err(StationError::Unsupported),
             },
-            Err(ureq::Error::Status(status, resp)) => {
-                let retry_after = resp.header("Retry-After").and_then(|h| h.trim().parse().ok());
-                let body: serde_json::Value = resp.into_json().unwrap_or(serde_json::Value::Null);
-                Err(station_refusal(status, &body, retry_after).unwrap_or_else(|| {
-                    let message = body
-                        .get("error")
-                        .and_then(|e| e.as_str())
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| tr(i18n::current(), "console.http_status", &[("status", &status.to_string())]));
-                    StationError::Other(ConsoleError::Http { status, message })
-                }))
-            }
-            Err(e) => Err(StationError::Other(
-                self.read::<serde_json::Value>(Err(e)).err().unwrap_or_else(|| ConsoleError::Invalid(String::new())),
-            )),
+            Answer::Refused(r) => Err(station_refusal(r.status, &r.body, r.retry_after)
+                .unwrap_or_else(|| StationError::Other(http_error(r.status, Some(r.body))))),
         }
     }
 
@@ -1375,11 +1392,11 @@ impl Console {
                 crate::recording::from_value(v).ok_or(RecordingError::Failed)
             }
             Err(ureq::Error::Status(409, resp)) => {
-                let body: serde_json::Value = resp.into_json().unwrap_or_default();
+                let body = Reply::read(resp).body;
                 Err(RecordingError::from_code(body["code"].as_str().unwrap_or_default(), body["error"].as_str().unwrap_or_default()))
             }
             Err(ureq::Error::Status(404, _)) => Err(RecordingError::Failed),
-            Err(e) => Err(RecordingError::Console(self.read::<serde_json::Value>(Err(e)).err().map(|e| e.text(i18n::current())).unwrap_or_default())),
+            Err(e) => Err(RecordingError::Console(self.failure(e).text(i18n::current()))),
         }
     }
 
@@ -1455,20 +1472,16 @@ impl Console {
     /// l'invité entre, ou attend l'accord de l'hôte (`202 {"pending":true,
     /// "guest","secret","expires"}`).
     pub fn share_join_answer(&self, req: &JoinRequest) -> std::result::Result<JoinAnswer, ShareError> {
-        match self.request("POST", "api/share/join", Duration::from_secs(6)).send_json(req) {
+        let r = self.request("POST", "api/share/join", Duration::from_secs(6)).send_json(req);
+        match self.answer(r).map_err(ShareError::Other)? {
             // Une Station antérieure peut répondre la page d'Admin (200, HTML) :
             // ce n'est pas elle qui partage.
-            Ok(resp) => {
+            Answer::Ok(resp) => {
                 let status = resp.status();
                 let v: serde_json::Value = resp.into_json().map_err(|_| ShareError::NoShare)?;
                 join_answer(status, v)
             }
-            Err(ureq::Error::Status(status, resp)) => {
-                let retry_after = resp.header("Retry-After").and_then(|h| h.trim().parse().ok());
-                let body: serde_json::Value = resp.into_json().unwrap_or(serde_json::Value::Null);
-                Err(share_refusal(status, &body, retry_after))
-            }
-            Err(e) => Err(ShareError::Other(self.read::<serde_json::Value>(Err(e)).err().unwrap_or_else(|| ConsoleError::Invalid(String::new())))),
+            Answer::Refused(r) => Err(share_refusal(r.status, &r.body, r.retry_after)),
         }
     }
 
@@ -1481,8 +1494,8 @@ impl Console {
             .request("POST", "api/share/wait", Duration::from_secs(35))
             .set("x-kybernow-guest", secret)
             .send_json(serde_json::json!({ "guest": guest }));
-        match r {
-            Ok(resp) => {
+        match self.answer(r).map_err(ShareError::Other)? {
+            Answer::Ok(resp) => {
                 let status = resp.status();
                 let v: serde_json::Value = resp.into_json().map_err(|e| ShareError::Other(ConsoleError::Invalid(e.to_string())))?;
                 match join_answer(status, v)? {
@@ -1491,11 +1504,8 @@ impl Console {
                     joined => Ok(joined),
                 }
             }
-            Err(ureq::Error::Status(status, resp)) => {
-                let body: serde_json::Value = resp.into_json().unwrap_or(serde_json::Value::Null);
-                Err(share_refusal(status, &body, None))
-            }
-            Err(e) => Err(ShareError::Other(self.read::<serde_json::Value>(Err(e)).err().unwrap_or_else(|| ConsoleError::Invalid(String::new())))),
+            // `Retry-After` lu aussi ici (un 429 sur l'attente gardait le délai du corps seulement).
+            Answer::Refused(r) => Err(share_refusal(r.status, &r.body, r.retry_after)),
         }
     }
 
@@ -1539,9 +1549,8 @@ impl Console {
             .send_json(crate::share::quality_body(guest, quality, auto));
         match r {
             Err(ureq::Error::Status(429, resp)) => {
-                let header = resp.header("Retry-After").and_then(|h| h.trim().parse().ok());
-                let body: serde_json::Value = resp.into_json().unwrap_or(serde_json::Value::Null);
-                Err(QualityRefusal::TooSoon(quality_retry_delay(body.get("retry_after").and_then(|s| s.as_u64()), header)))
+                let r = Reply::read(resp);
+                Err(QualityRefusal::TooSoon(quality_retry_delay(r.body.get("retry_after").and_then(|s| s.as_u64()), r.retry_after)))
             }
             r => self.read(r).map_err(QualityRefusal::Failed),
         }
@@ -1570,7 +1579,7 @@ impl Console {
                 let body = resp.into_json::<serde_json::Value>().ok();
                 Err(watch_refusal(status, body.as_ref()).unwrap_or_else(|| ShareError::Other(self.refused(status, body))))
             }
-            Err(e) => Err(ShareError::Other(self.read::<serde_json::Value>(Err(e)).err().unwrap_or_else(|| ConsoleError::Invalid(String::new())))),
+            Err(e) => Err(ShareError::Other(self.failure(e))),
         }
     }
 
@@ -2084,6 +2093,12 @@ mod tests {
     /// Un faux Admin en HTTPS : chaque requête (une par connexion) est notée,
     /// ligne de requête et `Authorization`, et reçoit la réponse suivante.
     fn fake_admin(answers: Vec<(u16, &'static str)>) -> (u16, Arc<Mutex<Vec<(String, String)>>>) {
+        fake_admin_with(answers.into_iter().map(|(status, body)| (status, "", body)).collect())
+    }
+
+    /// [`fake_admin`], avec des en-têtes en plus pour chaque réponse
+    /// (`"Retry-After: 7\r\n"`).
+    fn fake_admin_with(answers: Vec<(u16, &'static str, &'static str)>) -> (u16, Arc<Mutex<Vec<(String, String)>>>) {
         use std::io::{Read, Write};
         let key = rcgen::KeyPair::generate().unwrap();
         let cert = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap().self_signed(&key).unwrap();
@@ -2103,7 +2118,7 @@ mod tests {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let log = seen.clone();
         std::thread::spawn(move || {
-            for (stream, (status, body)) in listener.incoming().zip(answers) {
+            for (stream, (status, extra, body)) in listener.incoming().zip(answers) {
                 let Ok(stream) = stream else { return };
                 let mut tls = rustls::StreamOwned::new(rustls::ServerConnection::new(config.clone()).unwrap(), stream);
                 let (mut buf, mut chunk) = (Vec::new(), [0u8; 4096]);
@@ -2132,13 +2147,61 @@ mod tests {
                     buf.extend_from_slice(&chunk[..n]);
                 }
                 log.lock().unwrap().push((head.lines().next().unwrap_or_default().to_string(), header("authorization")));
-                let reply = format!("HTTP/1.1 {status} R\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                let reply = format!("HTTP/1.1 {status} R\r\nContent-Type: application/json\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
                 let _ = tls.write_all(reply.as_bytes());
                 tls.conn.send_close_notify();
                 let _ = tls.flush();
             }
         });
         (port, seen)
+    }
+
+    /// TRANS-34, 35, 36 : l'empreinte courte, la règle « même empreinte »,
+    /// l'adresse tapée et l'adresse d'Admin, données par le cœur.
+    #[test]
+    fn empreinte_et_adresse_communes() {
+        let fp = fingerprint(b"certificat");
+        let short = short_fingerprint(&fp);
+        assert_eq!(short.len(), 19);
+        assert_eq!(short, short.to_uppercase());
+        assert!(same_fingerprint(&fp, &fp.to_uppercase().replace("SHA256:", "")));
+        assert_eq!(normalize_fingerprint(&fp.to_uppercase()).as_deref(), Some(fp.as_str()));
+        assert_eq!(parse_address("fe80::1", Some(ADMIN_PORT)), Some(("fe80::1".into(), 9443)));
+        assert_eq!(parse_address("fe80::1", None), None);
+        assert_eq!(admin_url("[fe80::1]", 9443), "https://[fe80::1]:9443/");
+        let c = Console::guest("[fe80::1]", 9443, None);
+        assert_eq!(c.admin_url(), "https://[fe80::1]:9443/", "crochets jamais doublés");
+        // Le certificat épinglé dans une autre écriture reste le même.
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let seen = Arc::new(Mutex::new(None));
+        let v = PinVerifier { pinned: Some(fp.trim_start_matches("sha256:").replace(':', "")), first: Mutex::new(None), seen, provider };
+        let cert = CertificateDer::from(b"certificat".to_vec());
+        assert!(v.verify_server_cert(&cert, &[], &ServerName::try_from("localhost").unwrap(), &[], UnixTime::now()).is_ok());
+    }
+
+    /// COEUR-38 : une réponse refusée est lue une fois (statut, corps,
+    /// `Retry-After`) pour tous les modules ; l'attente d'un partage garde
+    /// maintenant le délai de l'en-tête, le corps passe avant lui, et une
+    /// Station injoignable reste une erreur de réseau.
+    #[test]
+    fn refus_lus_une_fois() {
+        let (port, _) = fake_admin_with(vec![
+            (429, "Retry-After: 7\r\n", r#"{"error":"too_many"}"#),
+            (429, "Retry-After: 7\r\n", r#"{"error":"too_many","retry_after":3}"#),
+            (429, "Retry-After: 9\r\n", r#"{"error":"too_many"}"#),
+            (429, "Retry-After: 11\r\n", r#"{"error":"Trop tôt.","code":"too_soon"}"#),
+            (503, "", "<html>"),
+        ]);
+        let c = Console::guest("127.0.0.1", port, None);
+        assert!(matches!(c.share_wait("g", "s"), Err(ShareError::TooManyTries { seconds: Some(7) })));
+        let req = JoinRequest::default();
+        assert!(matches!(c.share_join_answer(&req), Err(ShareError::TooManyTries { seconds: Some(3) })));
+        assert!(matches!(c.lend_status("ami", "mdp"), Err(crate::lend::LendError::TooMany { seconds: Some(9) })));
+        assert!(matches!(c.station_call("api/stream/station/restart", None, false, Duration::from_secs(5)), Err(StationError::TooSoon { seconds: Some(11), .. })));
+        assert!(matches!(c.station_call("api/stream/station/restart", None, false, Duration::from_secs(5)), Err(StationError::Other(ConsoleError::Http { status: 503, .. }))));
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let c = Console::guest("127.0.0.1", closed, None);
+        assert!(matches!(c.share_wait("g", "s"), Err(ShareError::Other(ConsoleError::Network(_)))));
     }
 
     #[test]

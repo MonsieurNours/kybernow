@@ -6,6 +6,19 @@
 
 use serde::{Deserialize, Serialize};
 
+// La forme d'un relais (sans empreinte épinglée ni port 443) : les fichiers de
+// la caisse kybernow-rules, repris par chemin parce que ce fichier-ci est
+// aussi inclus tel quel (`#[path]`) par les interfaces Linux et LG, qui se
+// compilent sans le cœur ni cette caisse. Quand elles dépendront de
+// kybernow-rules (phase 2b), `kybernow_rules::relay::label` suffira : ces deux
+// inclusions sont à retirer en 2b.
+#[allow(dead_code)]
+#[path = "../rules/src/fingerprint.rs"]
+mod fingerprint;
+#[allow(dead_code)]
+#[path = "../rules/src/relay.rs"]
+mod relay;
+
 /// Version de l'accueil : une app qui a montré une version plus ancienne (ou
 /// aucune) le montre une fois, sans compte.
 pub const WELCOME_VERSION: u32 = 1;
@@ -103,17 +116,8 @@ impl WelcomeState {
 pub fn sign_up_url(relay: &str, lang: crate::i18n::Lang) -> String {
     // Sous la forme du relais (sans empreinte épinglée ni port 443, COEUR-40).
     let host = relay.trim().trim_start_matches("https://").trim_end_matches('/');
-    let host = if host.is_empty() { "share.kybernow.app".to_string() } else { web_host(host) };
+    let host = if host.is_empty() { relay::DEFAULT_RELAY.to_string() } else { relay::label(host) };
     format!("https://{host}/compte/inscription?lang={}", lang.code())
-}
-
-/// Le relais sous la forme de son adresse web : sans l'empreinte épinglée
-/// (`#sha256:…`) ni le port 443, comme `RelayAddr::web_authority`. Écrit ici
-/// plutôt que par `crate::account` : ce fichier est aussi compilé tel quel
-/// dans les apps Linux et webOS (`#[path]`), qui n'ont pas le reste du cœur.
-fn web_host(relay: &str) -> String {
-    let host = relay.split('#').next().unwrap_or_default();
-    host.strip_suffix(":443").unwrap_or(host).to_string()
 }
 
 /// La page de téléchargement de KyberNow Station (écran 3 de l'accueil).

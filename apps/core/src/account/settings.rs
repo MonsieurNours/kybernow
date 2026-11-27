@@ -207,14 +207,195 @@ impl SyncedValues {
                 _ => false,
             };
             s.yuv444 &= can444;
+            // Ramené aux bornes du débit à la main (un autre appareil a pu en
+            // garder un plus haut, d'avant les bornes communes : TRANS-41).
             if let Some(m) = self.mbps {
-                s.mbps = m;
+                s.mbps = kybernow_rules::limits::clamp_manual_mbps(m, kybernow_rules::limits::Device::Computer, s.codec == Codec::PyroWave);
             }
         }
         if let Some(h) = self.hdr {
             s.hdr = h;
         }
         s
+    }
+}
+
+impl SyncedValues {
+    /// Ces valeurs, avec celles de `top` par-dessus (une clé de `top` gagne).
+    pub fn overlay(&self, top: &SyncedValues) -> SyncedValues {
+        SyncedValues {
+            profile: top.profile.clone().or_else(|| self.profile.clone()),
+            codec: top.codec.clone().or_else(|| self.codec.clone()),
+            yuv444: top.yuv444.or(self.yuv444),
+            mbps: top.mbps.or(self.mbps),
+            hdr: top.hdr.or(self.hdr),
+            immersive: top.immersive.clone().or_else(|| self.immersive.clone()),
+        }
+    }
+
+    /// Retire les clés que `sent` a envoyées avec la même valeur (une clé
+    /// changée depuis reste à envoyer).
+    pub fn remove_sent(&mut self, sent: &SyncedValues) {
+        fn drop_same<T: PartialEq>(mine: &mut Option<T>, sent: &Option<T>) {
+            if sent.is_some() && mine == sent {
+                *mine = None;
+            }
+        }
+        drop_same(&mut self.profile, &sent.profile);
+        drop_same(&mut self.codec, &sent.codec);
+        drop_same(&mut self.yuv444, &sent.yuv444);
+        drop_same(&mut self.mbps, &sent.mbps);
+        drop_same(&mut self.hdr, &sent.hdr);
+        drop_same(&mut self.immersive, &sent.immersive);
+    }
+
+    /// Ces valeurs sans les clés encore en attente d'envoi (`pending`) :
+    /// reçues du relais, elles ne remplacent pas un changement de l'appareil
+    /// pas encore parti.
+    pub fn without(&self, pending: &SyncedValues) -> SyncedValues {
+        let mut v = self.clone();
+        if pending.profile.is_some() {
+            v.profile = None;
+        }
+        if pending.codec.is_some() {
+            v.codec = None;
+        }
+        if pending.yuv444.is_some() {
+            v.yuv444 = None;
+        }
+        if pending.mbps.is_some() {
+            v.mbps = None;
+        }
+        if pending.hdr.is_some() {
+            v.hdr = None;
+        }
+        if pending.immersive.is_some() {
+            v.immersive = None;
+        }
+        v
+    }
+}
+
+/// Les clés de session que la personne vient de changer (docs/comptes.md,
+/// « Envoyer ») : un profil → `{profile}` ; « Personnalisé » (un réglage du
+/// profil retouché) → `{profile: null, codec, yuv444, mbps}` ; le format,
+/// le 4:4:4 ou le débit d'un réglage déjà personnalisé → la clé changée et
+/// `profile: null`. `before` et `after` : les choix de l'utilisateur ;
+/// `*_eff` : les réglages que la session prendrait ([`crate::plan::plan`]).
+/// Le HDR et le mode immersif sont ajoutés par l'app quand ils changent.
+pub fn changed(before: &crate::plan::Choices, after: &crate::plan::Choices, before_eff: &StreamSettings, after_eff: &StreamSettings) -> SyncedValues {
+    let mut v = SyncedValues::default();
+    match (before_eff.profile, after_eff.profile) {
+        (_, Some(p)) => {
+            if before_eff.profile != Some(p) {
+                v.profile = Some(Some(p.key().to_string()));
+            }
+        }
+        (Some(_), None) => {
+            v.profile = Some(None);
+            v.codec = Some(after_eff.codec.key().to_string());
+            v.yuv444 = Some(after_eff.yuv444);
+            v.mbps = Some(after_eff.mbps);
+        }
+        (None, None) => {
+            if before.codec != after.codec || before_eff.codec != after_eff.codec {
+                v.codec = Some(after_eff.codec.key().to_string());
+            }
+            if before.yuv444 != after.yuv444 || before_eff.yuv444 != after_eff.yuv444 {
+                v.yuv444 = Some(after_eff.yuv444);
+            }
+            if before.mbps != after.mbps {
+                v.mbps = Some(after_eff.mbps);
+            }
+            if !v.is_empty() {
+                v.profile = Some(None);
+            }
+        }
+    }
+    v
+}
+
+/// Ce que l'app garde des réglages synchronisés d'un compte (WINAPP-55,
+/// LINAPP-40 ; avant, une copie dans l'app Windows et une dans l'app Linux) :
+/// la dernière liste lue ou envoyée, ce qui est déjà appliqué, et ce qui
+/// attend d'être envoyé, par Station. En JSON, gardé par l'app (un par
+/// compte).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AccountSync {
+    /// La dernière liste lue (ou envoyée), clés inconnues comprises.
+    pub list: Vec<SyncedSettings>,
+    /// Par Station : le `updated_at` déjà appliqué (ou envoyé) sur cet appareil.
+    pub applied: std::collections::HashMap<String, u64>,
+    /// Par Station : les changements que le relais n'a pas reçus.
+    pub pending: std::collections::HashMap<String, SyncedValues>,
+}
+
+impl AccountSync {
+    /// Les dernières valeurs connues d'un ordinateur (pour [`put_settings`]).
+    pub fn last(&self, station: &str) -> Option<&SyncedSettings> {
+        find(&self.list, station)
+    }
+
+    /// Ce qu'il faut envoyer pour ce changement : ce qui attend encore, puis
+    /// le changement ; la première fois qu'un ordinateur part au relais (rien
+    /// de lu ni d'envoyé), tout (`full`, par exemple
+    /// `SyncedValues::from_stream` des réglages de la session, avec le mode
+    /// immersif).
+    pub fn to_send(&self, station: &str, change: &SyncedValues, full: impl FnOnce() -> SyncedValues) -> SyncedValues {
+        let waiting = self.pending.get(station).cloned().unwrap_or_default();
+        let base = if self.last(station).is_none() { full().overlay(&waiting) } else { waiting };
+        base.overlay(change)
+    }
+
+    /// Envoyé ([`put_settings`] a rendu `s`) : plus rien n'attend, et ce
+    /// changement ne revient pas comme une nouveauté.
+    pub fn sent(&mut self, s: SyncedSettings) {
+        self.pending.remove(&s.station);
+        self.applied.insert(s.station.clone(), s.updated_at);
+        match self.list.iter_mut().find(|x| x.station == s.station) {
+            Some(x) => *x = s,
+            None => self.list.push(s),
+        }
+    }
+
+    /// Pas envoyé (hors ligne, relais muet) : gardé pour le prochain envoi.
+    pub fn unsent(&mut self, station: &str, values: &SyncedValues) {
+        let waiting = self.pending.get(station).cloned().unwrap_or_default();
+        self.pending.insert(station.to_string(), waiting.overlay(values));
+    }
+
+    /// L'ordinateur n'est plus dans le compte (`AccountError::UnknownComputer`).
+    pub fn forget(&mut self, station: &str) {
+        self.list.retain(|s| s.station != station);
+        self.applied.remove(station);
+        self.pending.remove(station);
+    }
+
+    /// Une liste lue ([`fetch_settings`]) : rend, par Station, les valeurs
+    /// plus récentes que celles déjà appliquées, à appliquer
+    /// ([`SyncedValues::apply_to`]) ; une Station dont un changement attend
+    /// d'être envoyé garde le sien. Les Stations sorties du compte sont
+    /// oubliées (sauf un changement fait avant qu'elles y soient).
+    pub fn fetched(&mut self, list: Vec<SyncedSettings>) -> Vec<(String, SyncedValues)> {
+        self.applied.retain(|station, _| find(&list, station).is_some());
+        let old = std::mem::take(&mut self.list);
+        self.pending.retain(|station, _| find(&list, station).is_some() || find(&old, station).is_none());
+        let mut out = Vec::new();
+        for s in &list {
+            if self.pending.contains_key(&s.station) {
+                continue;
+            }
+            if s.updated_at > self.applied.get(&s.station).copied().unwrap_or(0) {
+                self.applied.insert(s.station.clone(), s.updated_at);
+                let values = s.known();
+                if !values.is_empty() {
+                    out.push((s.station.clone(), values));
+                }
+            }
+        }
+        self.list = list;
+        out
     }
 }
 

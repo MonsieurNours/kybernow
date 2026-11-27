@@ -363,8 +363,9 @@ impl ShareState {
 }
 
 /// Combien de temps une app attend le lien du relais (`connecting`) avant de
-/// donner celui du réseau et de dire « Pas encore joignable hors de chez vous. ».
-pub const RELAY_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+/// donner celui du réseau et de dire « Pas encore joignable hors de chez vous. »
+/// ([`kybernow_rules::limits::RELAY_LINK_WAIT_SECS`]).
+pub const RELAY_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(kybernow_rules::limits::RELAY_LINK_WAIT_SECS);
 
 /// Le relais du partage (`relay` de la vue du partage, docs/relais.md).
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -415,7 +416,7 @@ pub(crate) fn lenient_relay<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Sh
 }
 
 /// Quatre invités au plus (la Station refuse le cinquième).
-pub const MAX_GUESTS: usize = 4;
+pub use kybernow_rules::limits::MAX_GUESTS;
 
 fn lenient_i64<'de, D: Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
     let v = Option::<serde_json::Value>::deserialize(d)?;
@@ -1242,20 +1243,9 @@ pub fn guest_format(codec: Option<&str>, yuv444: bool, caps: Capabilities) -> Re
 
 // MARK: - Code et lien
 
-/// Les six chiffres d'un code tapé (« 123 456 », « 123-456 ») ; `None` s'il
-/// n'y en a pas exactement six.
-pub fn normalize_code(text: &str) -> Option<String> {
-    let digits: String = text.chars().filter(|c| !c.is_whitespace() && *c != '-' && *c != '.').collect();
-    (digits.len() == 6 && digits.chars().all(|c| c.is_ascii_digit())).then_some(digits)
-}
-
-/// Le code à afficher : « 123 456 » (tel quel s'il n'a pas six chiffres).
-pub fn format_code(code: &str) -> String {
-    match normalize_code(code) {
-        Some(d) => format!("{} {}", &d[..3], &d[3..]),
-        None => code.to_string(),
-    }
-}
+/// Les six chiffres d'un code tapé (« 123 456 », « 123-456 ») et le code à
+/// afficher (« 123 456 ») : [`kybernow_rules::format`] (COEUR-41).
+pub use kybernow_rules::format::{format_code, normalize_code};
 
 /// Une Station à qui envoyer le code : l'adresse et le port d'Admin, et son
 /// empreinte quand on la connaît (ordinateur de l'appareil, lien).
@@ -1330,20 +1320,12 @@ pub fn parse_link(url: &str) -> Option<JoinLink> {
     Some(JoinLink { host, port, fingerprint: None, code, relay: None, sid: None })
 }
 
-pub(crate) fn strip_brackets(host: &str) -> &str {
-    host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host)
-}
+pub(crate) use kybernow_rules::address::strip_brackets;
 
-/// `adresse:port`, une adresse IPv6 entre crochets.
+/// `adresse:port` d'un lien, une adresse IPv6 entre crochets ; le port est
+/// exigé ([`kybernow_rules::address::parse_address`]).
 pub(crate) fn split_authority(authority: &str) -> Option<(String, u16)> {
-    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
-        let (h, after) = rest.split_once(']')?;
-        (h, after.strip_prefix(':')?)
-    } else {
-        authority.rsplit_once(':')?
-    };
-    let port = port.parse::<u16>().ok().filter(|p| *p > 0)?;
-    (!host.is_empty()).then(|| (host.to_string(), port))
+    kybernow_rules::address::parse_address(authority, None)
 }
 
 pub(crate) use crate::url::query_pairs;
@@ -1465,30 +1447,18 @@ pub fn watch_account(
     req: &WatchRequest,
     caps: Option<Capabilities>,
 ) -> Result<Found, ShareError> {
-    use crate::relay::RelayMode;
-    let mode = RelayMode::current();
-    let route = route.filter(|_| mode != RelayMode::Off);
-    let lan = lan.filter(|t| !t.host.trim().is_empty() && t.port != 0).filter(|_| mode != RelayMode::Force || route.is_none());
-    if let Some(t) = lan {
-        let direct = Console::account(&t.host, t.port, access.clone(), t.fingerprint.clone());
-        let reachable = match (&route, direct.info_within(crate::session::DIRECT_PROBE)) {
-            (None, _) | (_, Ok(_)) | (_, Err(ConsoleError::Http { .. })) => true,
-            (_, Err(e @ ConsoleError::CertificateChanged { .. })) => return Err(ShareError::Other(e)),
-            (_, Err(ConsoleError::Account(e))) => return Err(ShareError::Other(ConsoleError::Account(e))),
-            (_, Err(e)) => {
-                log::info!("regarder : ordinateur sans réponse sur le réseau ({}) : par le relais", e.text(Lang::Fr));
-                false
-            }
-        };
-        if reachable {
-            return watch(&direct, req, caps);
+    let lan = lan.filter(|t| !t.host.trim().is_empty() && t.port != 0);
+    let direct = lan.as_ref().map(|t| Console::account(&t.host, t.port, access.clone(), t.fingerprint.clone()));
+    let probe = || direct.as_ref().map_or(Ok(()), |d| d.info_within(crate::relay::DIRECT_PROBE).map(|_| ()));
+    let way = crate::relay::choose(crate::relay::RelayMode::current(), direct.is_some(), route.is_some(), probe).map_err(ShareError::Other)?;
+    match (way, direct, route) {
+        (crate::relay::Way::Direct, Some(direct), _) => watch(&direct, req, caps),
+        (crate::relay::Way::Relay, _, Some(route)) => {
+            let console = Console::account(&route.station, 0, access, Some(route.admin_fp.clone())).with_relay(Some(route));
+            watch(&console, req, caps)
         }
+        _ => Err(ShareError::Other(ConsoleError::Network(tr(i18n::current(), "share.watch_no_route", &[])))),
     }
-    let Some(route) = route else {
-        return Err(ShareError::Other(ConsoleError::Network(tr(i18n::current(), "share.watch_no_route", &[]))));
-    };
-    let console = Console::account(&route.station, 0, access, Some(route.admin_fp.clone())).with_relay(Some(route));
-    watch(&console, req, caps)
 }
 
 // MARK: - Rejoindre hors de chez soi (docs/relais.md)
@@ -1534,8 +1504,6 @@ pub enum Joining {
     Pending(PendingJoin),
 }
 
-/// Une Station du réseau qui répond dans ce délai est prise avant le relais.
-pub const LOCAL_FIRST: Duration = Duration::from_millis(1500);
 
 /// « Rejoindre » sur le réseau et hors de chez soi : le code part aux
 /// Stations du réseau ([`join`]) **et en même temps** aux relais (`GET
@@ -1557,7 +1525,7 @@ pub fn join_anywhere(targets: &[ShareTarget], relays: &[RelayAddr], req: &JoinRe
             Box::new(move || crate::relay::lookup(&relay, &code).map(|f| f.map(|f| (relay.clone(), f)))) as Box<dyn FnOnce() -> _ + Send>
         })
         .collect();
-    let joining = join_anywhere_with(move || join(&t, &r), lookups, |route| relay_join(route, req), LOCAL_FIRST, late_leave)?;
+    let joining = join_anywhere_with(move || join(&t, &r), lookups, |route| relay_join(route, req), crate::relay::DIRECT_PROBE, late_leave)?;
     checked(joining, caps)
 }
 
@@ -1567,7 +1535,7 @@ pub fn join_anywhere(targets: &[ShareTarget], relays: &[RelayAddr], req: &JoinRe
 pub fn join_link(link: &JoinLink, req: &JoinRequest, caps: Option<Capabilities>) -> Result<Joining, ShareError> {
     let (target, r) = (link.target(), req.clone());
     let route = link.relay_route();
-    let joining = join_link_with(move || join(&[target], &r), route, |route| relay_join(route, req), LOCAL_FIRST, late_leave)?;
+    let joining = join_link_with(move || join(&[target], &r), route, |route| relay_join(route, req), crate::relay::DIRECT_PROBE, late_leave)?;
     checked(joining, caps)
 }
 

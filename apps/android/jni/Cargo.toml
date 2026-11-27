@@ -22,7 +22,6 @@ kyber-pyrowave = ["kybernow-core/pyrowave"]
 
 [dependencies]
 kybernow-core = { path = "../../core" }
-kynput-sys = "0.1.0"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -30,7 +29,6 @@ serde_json = "1"
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21.1"
 ndk = { version = "0.9", features = ["media", "audio", "api-level-30"] }
-ndk-sys = "0.6"
 android_logger = "0.15"
 
 [build-dependencies]

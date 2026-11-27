@@ -13,6 +13,7 @@
 //! [`remote`] (hors de chez soi, par une Station de son réseau et le relais).
 
 pub mod audio;
+pub mod bundle;
 pub mod controller;
 pub mod discovery;
 pub mod dualsense;
