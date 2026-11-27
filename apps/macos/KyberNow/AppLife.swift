@@ -104,6 +104,26 @@ struct WindowReader: NSViewRepresentable {
     }
 }
 
+/// Focus de l'accueil : aucun bouton ne l'a d'office (docs/link-ui.md : le
+/// clavier se donne avec Tab). Un champ en cours de frappe le garde.
+@MainActor
+enum HomeFocus {
+    static func clear(_ window: NSWindow, passes: Int) {
+        DispatchQueue.main.async {
+            if shouldClear(window.firstResponder, window: window) { window.makeFirstResponder(nil) }
+            if passes > 1 { clear(window, passes: passes - 1) }
+        }
+    }
+
+    /// Vrai quand une vue a pris le clavier sans qu'on tape dedans : un
+    /// bouton, un lien. Faux pour la fenêtre elle-même et pour un champ.
+    static func shouldClear(_ responder: NSResponder?, window: NSWindow) -> Bool {
+        guard let responder, responder !== window else { return false }
+        if responder is NSText || responder is NSTextField { return false }
+        return responder is NSView
+    }
+}
+
 /// Délégué de la fenêtre de l'accueil : fermer la cache (l'app continue dans
 /// la barre des menus) ; le reste va au délégué de SwiftUI.
 final class HomeWindowDelegate: NSObject, NSWindowDelegate {
@@ -167,6 +187,10 @@ extension AppModel {
         if homeWindow !== window {
             homeWindow = window
             window.isReleasedWhenClosed = false
+            // Au premier affichage, AppKit donne le clavier à la première vue
+            // de la boucle (« Connecter un compte ») : anneau visible, Espace
+            // l'activerait. Rien n'a le focus tant qu'on n'appuie pas sur Tab.
+            HomeFocus.clear(window, passes: 2)
         }
         if !(window.delegate is HomeWindowDelegate) {
             homeDelegate.original = window.delegate
@@ -217,7 +241,9 @@ extension AppModel {
         Dock.comeForward()
         guard let window = homeWindow else { return }
         if window.isMiniaturized { window.deminiaturize(nil) }
+        let wasVisible = window.isVisible
         window.makeKeyAndOrderFront(nil)
+        if !wasVisible { HomeFocus.clear(window, passes: 1) }
         windowsChanged()
     }
 
