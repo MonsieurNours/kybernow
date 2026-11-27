@@ -11,6 +11,7 @@ pub mod canvas;
 mod home;
 pub mod icons;
 mod join;
+mod journal;
 mod launch;
 mod lend;
 mod offer;
@@ -149,6 +150,10 @@ pub fn draw_view(app: &App, cv: &mut Canvas, view: View) -> Vec<(Target, Rect)> 
     // Le panneau du test du profil Auto, par-dessus l'accueil ou les réglages.
     if view.main && !background && app.autotest.is_some() && matches!(app.screen, Screen::Home | Screen::Settings) {
         autotest::overlay(app, cv, &mut f);
+    }
+    // « Envoyer le journal » par QR code, par-dessus les réglages (de l'app, de l'appareil sur Link OS).
+    if view.main && !background && app.journal.is_some() && matches!(app.screen, Screen::Settings | Screen::Device) {
+        journal::overlay(app, cv, &mut f);
     }
     if view.main
         && !background

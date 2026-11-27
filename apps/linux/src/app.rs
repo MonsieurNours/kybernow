@@ -2639,6 +2639,8 @@ pub enum Setting {
     UpdateChannel,
     CheckUpdate,
     KeepImage,
+    /// « Envoyer le journal » (Réglages de l'app › À propos, docs/link-ui.md).
+    SendLog,
     /// KyberNow Link OS (réglages de l'appareil).
     OsUsage,
     OsWifi,
@@ -3038,6 +3040,8 @@ pub enum Target {
     BarMouse,
     /// Le menu de la souris : « Auto », « Souris du bureau », « Souris des jeux » (`MOUSE_MODES`).
     BarMousePick(usize),
+    /// Le bouton du panneau « Envoyer le journal » (QR code).
+    JournalButton,
     /// La pastille « Presse-papiers » (sans action) ; « Plus » (barre étroite).
     BarClipboard,
     BarMore,
@@ -3334,6 +3338,10 @@ pub enum Action {
     Language,
     Interface,
     CheckUpdate,
+    /// « Envoyer le journal » : au bureau, l'e-mail (sinon l'enregistrement) ; ailleurs, le dépôt et son QR code.
+    SendLog,
+    /// Le panneau du journal fermé (« Terminé ») : le dépôt pas encore ouvert est retiré.
+    JournalClose,
     OpenUrl(String),
     Minimize,
     Maximize,
@@ -3466,6 +3474,10 @@ pub struct App {
     /// focus à rendre à sa fermeture, et l'ordinateur dont le test s'ouvrira après la session (« Refaire le test »
     /// du bandeau, Auto choisi en session sans test gardé).
     pub autotest: Option<crate::autotest::Panel>,
+    /// « Envoyer le journal » par QR code : le panneau et son étape ; au bureau, la préparation en cours (le bouton dit
+    /// « Préparation du journal… »).
+    pub journal: Option<crate::journal::JournalStep>,
+    pub journal_preparing: bool,
     pub autotest_attempt: u32,
     pub autotest_back: Option<Target>,
     pub autotest_pending: Option<String>,
@@ -3704,6 +3716,8 @@ impl App {
             standby: false,
             confirm: None,
             autotest: None,
+            journal: None,
+            journal_preparing: false,
             autotest_attempt: 0,
             autotest_back: None,
             autotest_pending: None,
@@ -4390,6 +4404,15 @@ impl App {
                 }
                 _ => {}
             }
+        }
+        // Le panneau du journal : son bouton, B le ferme.
+        if self.journal.is_some() {
+            match n {
+                Nav::Back => return self.close_journal(),
+                Nav::Ok => return self.activate(Target::JournalButton),
+                _ => self.focus = Target::JournalButton,
+            }
+            return Vec::new();
         }
         // Le panneau du test du profil Auto : ses boutons, B l'annule (le test s'arrête).
         if self.autotest.is_some() {
@@ -5377,6 +5400,12 @@ impl App {
             Target::BarMouse if self.session().is_some_and(|s| s.console.is_some()) => self.active_id().map(|id| vec![Action::ToggleMouse(id)]).unwrap_or_default(),
             Target::BarMouse => self.toggle_bar_menu(BarMenu::Mouse),
             Target::BarMousePick(i) => self.pick_mouse(i),
+            // Le bouton du panneau du journal : « Nouveau QR code », « Réessayer » relancent ; « Terminé » ferme.
+            Target::JournalButton => match &self.journal {
+                Some(step) if step.retries() => self.send_log(),
+                Some(_) => self.close_journal(),
+                None => Vec::new(),
+            },
             Target::BarMore => self.toggle_bar_menu(BarMenu::More),
             Target::BarClipboard => Vec::new(),
             Target::BarCamera => self.toggle_bar_menu(BarMenu::Camera),
@@ -5439,6 +5468,41 @@ impl App {
         if let Some(id) = self.session().map(|s| s.host.clone()) {
             self.set_profile(&id, p);
         }
+    }
+
+    /// « Envoyer le journal » : par QR code (Steam Deck en mode Jeu, salon, KyberNow Link OS), le panneau s'ouvre sur
+    /// « Préparation du journal… » ; au bureau, le bouton le dit le temps de préparer l'e-mail.
+    pub fn send_log(&mut self) -> Vec<Action> {
+        if self.journal_by_qr() {
+            self.journal = Some(crate::journal::JournalStep::Preparing);
+            self.focus = Target::JournalButton;
+        } else if self.journal_preparing {
+            return Vec::new();
+        } else {
+            self.journal_preparing = true;
+        }
+        vec![Action::SendLog]
+    }
+
+    /// Le journal passe par un QR code : pas de fenêtre d'e-mail à ouvrir (Steam Deck en mode Jeu, salon, KyberNow
+    /// Link OS).
+    pub fn journal_by_qr(&self) -> bool {
+        self.layout.console() || self.is_os()
+    }
+
+    /// La ligne « Envoyer le journal » (À propos) : le bouton et son aide ; au bureau, pendant la préparation, « Préparation
+    /// du journal… » à sa place.
+    pub fn journal_row(&self) -> Row {
+        let qr = self.journal_by_qr();
+        let kind = if self.journal_preparing { RowKind::Info(crate::journal::preparing().into()) } else { RowKind::Button { text: crate::journal::title().into(), style: ButtonStyle::Ghost } };
+        Row { setting: Setting::SendLog, label: crate::journal::title().into(), hint: crate::journal::help(qr).into(), kind, enabled: true, tag: None }
+    }
+
+    /// « Terminé » : le panneau se ferme, le dépôt pas encore ouvert est retiré (le pilote).
+    fn close_journal(&mut self) -> Vec<Action> {
+        self.journal = None;
+        self.focus = Target::Setting(Setting::SendLog);
+        vec![Action::JournalClose]
     }
 
     /// Le menu de la souris de la barre : le choix s'applique tout de suite et reste pour cet ordinateur, comme le
@@ -6879,6 +6943,8 @@ impl App {
             for (k, r) in self.mic_app_rows().into_iter().enumerate() {
                 rows.insert(at + k, r);
             }
+            // À propos, en dernier : « Envoyer le journal ».
+            rows.push(self.journal_row());
             return rows;
         }
         if section == Section::Accounts {
@@ -7318,6 +7384,7 @@ impl App {
                     action(Setting::OsReboot, tr("Redémarrer", "Restart"), tr("Le Raspberry Pi redémarre sur le système en cours", "The Raspberry Pi restarts on the current system").into(), tr("Redémarrer", "Restart")),
                     action(Setting::OsPoweroff, tr("Éteindre", "Shut down"), tr("Arrêt complet ; le bouton du Pi 5 rallume", "Full shutdown; the Pi 5's button turns it back on").into(), tr("Éteindre", "Shut down")),
                     info("KyberNow Link OS", format!("{} · {} {}", o.built, tr("emplacement", "slot"), o.slot), o.version),
+                    self.journal_row(),
                 ]
             }
             _ => return None,
@@ -7360,6 +7427,7 @@ impl App {
                 return Vec::new();
             }
             Setting::CheckUpdate => return vec![Action::CheckUpdate],
+            Setting::SendLog => return self.send_log(),
             Setting::UpdateChannel => {
                 self.store.app.beta = if i == usize::MAX { !self.store.app.beta } else { i == 1 };
                 return vec![Action::Save, Action::CheckUpdate];

@@ -5,6 +5,9 @@ use std::io::Write;
 use std::sync::Mutex;
 use std::time::SystemTime;
 
+/// La dernière ligne d'un lancement qui s'arrête normalement (« Envoyer le journal » dit si le précédent l'a écrite).
+pub const STOPPED: &str = "KyberNow Link s'arrête";
+
 struct FileLog(Mutex<Option<std::fs::File>>);
 
 impl log::Log for FileLog {

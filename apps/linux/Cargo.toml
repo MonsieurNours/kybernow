@@ -33,12 +33,17 @@ mdns-sd = { version = "0.13", default-features = false }
 getrandom = "0.2"
 # QR code d'Admin (Réglages de l'ordinateur › Station, à la manette et sur KyberNow Link OS) : pur Rust, sans dépendance.
 qrcodegen = "1.8"
+# « Envoyer le journal » par QR code : compressé, chiffré sur l'appareil (docs/relais.md, « Dépôt d'un journal »),
+# la clé en base64url dans l'adresse ; les mêmes que le cœur.
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"], optional = true }
+flate2 = { version = "1", optional = true }
+base64 = { version = "0.22", optional = true }
 
 [features]
 # L'app : cœur, FFmpeg, SDL. Sans elle (--no-default-features), seule
 # l'interface se compile : captures des écrans (`--preview`), sur Mac aussi.
 default = ["device"]
-device = ["dep:kybernow-core", "dep:keycode", "dep:ureq"]
+device = ["dep:kybernow-core", "dep:keycode", "dep:ureq", "dep:aes-gcm", "dep:flate2", "dep:base64"]
 # PyroWave demandé à Kyber : la fonctionnalité `pyrowave` du cœur, avec le
 # correctif kyclient 0025 (scripts/build.sh --kyber-pyrowave).
 pyrowave = ["device", "kybernow-core/pyrowave", "dep:kyclient"]

@@ -12,6 +12,7 @@ mod device;
 mod displays;
 mod hdr;
 mod i18n;
+mod journal;
 mod micro;
 mod model;
 // Les captures (`--preview`) et leurs essais : pas dans l'app livrée (LINAPP-39).

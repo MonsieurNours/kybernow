@@ -2664,6 +2664,56 @@ mod tests {
         assert_eq!(crate::app::mouse_tooltip(), "Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (Ctrl+Alt+Maj+M bascule)");
     }
 
+    /// « Envoyer le journal » (docs/link-ui.md, « Réglages de l'app › À propos ») : par QR code au salon et sur le Deck
+    /// (chaque étape a son bouton, qui tient dans l'écran), par e-mail au bureau (« Préparation du journal… » à la place
+    /// du bouton). `KN_SHOTS=dossier` écrit les captures.
+    #[test]
+    fn send_the_log() {
+        use crate::app::Action;
+        use crate::journal::JournalStep;
+        let dir = std::env::var_os("KN_SHOTS").map(std::path::PathBuf::from);
+        for en in [false, true] {
+            crate::i18n::force_english(en);
+            for (layout, w, h, name) in [(Layout::Tv, 1920, 1080, "salon"), (Layout::Handheld, 1280, 800, "deck")] {
+                let mut app = demo(en, layout);
+                app.go(Screen::Settings);
+                assert!(app.journal_by_qr());
+                assert_eq!(app.send_log(), vec![Action::SendLog]);
+                assert_eq!(app.journal, Some(JournalStep::Preparing));
+                let mut cv = Canvas::new();
+                cv.resize(w, h, 1.0);
+                let url = "https://share.kybernow.app/journal/AAAAAAAAAAAAAAAAAAAAAA#k=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string();
+                for (i, step) in [JournalStep::Preparing, JournalStep::Uploading, JournalStep::Qr { url }, JournalStep::Opened, JournalStep::Expired, JournalStep::RelayDown, JournalStep::OldRelay, JournalStep::TooMany].into_iter().enumerate() {
+                    app.journal = Some(step.clone());
+                    let hits = ui::draw(&app, &mut cv);
+                    let b = hits.iter().find(|(t, _)| *t == Target::JournalButton).unwrap_or_else(|| panic!("{name} {step:?} : bouton")).1;
+                    assert!(b.y + b.h <= h as f32 && b.x >= 0.0, "{name} {step:?} : {b:?}");
+                    assert_eq!(hits.len(), 1, "{name} {step:?} : seul le bouton se choisit");
+                    if let Some(d) = &dir {
+                        let _ = std::fs::create_dir_all(d);
+                        shot(&mut app, &mut cv, None, d, &format!("journal-{name}-{i}-{}", if en { "en" } else { "fr" }));
+                    }
+                }
+                // « Nouveau QR code » relance ; « Terminé » ferme (le dépôt est retiré par le pilote).
+                app.journal = Some(JournalStep::Expired);
+                assert_eq!(app.activate(Target::JournalButton), vec![Action::SendLog]);
+                app.journal = Some(JournalStep::Opened);
+                assert_eq!(app.activate(Target::JournalButton), vec![Action::JournalClose]);
+                assert_eq!(app.journal, None);
+            }
+            // Au bureau : le bouton, puis « Préparation du journal… » à sa place.
+            let mut app = demo(en, Layout::Desktop);
+            assert!(!app.journal_by_qr());
+            let row = app.journal_row();
+            assert!(matches!(row.kind, crate::app::RowKind::Button { .. }));
+            assert_eq!(app.send_log(), vec![Action::SendLog]);
+            assert!(matches!(app.journal_row().kind, crate::app::RowKind::Info(ref t) if t == crate::journal::preparing()));
+            assert!(app.send_log().is_empty(), "une préparation à la fois");
+            assert!(app.rows(crate::app::Section::App).iter().any(|r| r.setting == crate::app::Setting::SendLog), "À propos, dans les Réglages de l'app");
+        }
+        crate::i18n::force_english(false);
+    }
+
     /// TRANS-38 : le panneau « Statistiques » de link-ui (titre, croix « Fermer les statistiques », latence, trajet,
     /// courbes, pertes sur 30 s, chemin, réseau, image, mesures, son) tient dans la fenêtre, à chaque interface, en
     /// français et en anglais ; la croix le ferme. `KN_SHOTS=dossier` y écrit les captures.

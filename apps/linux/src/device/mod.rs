@@ -21,6 +21,7 @@ mod chime;
 mod focus;
 mod hdr_wl;
 mod jobs;
+mod journal;
 mod link;
 mod log_file;
 mod media;
@@ -62,6 +63,8 @@ use crate::ui::{self, canvas::Canvas};
 
 /// Ce qui revient à la boucle principale (fils de fond, rappels du cœur).
 pub enum Event {
+    /// « Envoyer le journal » : l'étape suivante, ou la fin au bureau.
+    Journal(journal::JournalEvent),
     HostInfo {
         id: String,
         online: bool,
@@ -1497,7 +1500,7 @@ pub fn run(args: &[String]) {
     link::close();
     app.store.save();
     unsafe { sdl::SDL_Quit() };
-    log::info!("KyberNow Link s'arrête");
+    log::info!("{}", log_file::STOPPED);
 }
 
 /// Les actions qui visent une partie sur une console PlayStation (ou la recherche d'une console « Par adresse ») :
@@ -3027,6 +3030,18 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
         Event::RecordingReply { session, result } => app.recording_reply(session, result),
         Event::LendHome { host, result } => app.lend_home_reply(&host, result),
         // Comptes KyberNow : un code, une connexion, les ordinateurs d'un compte (l'accueil refait quand ils arrivent).
+        Event::Journal(journal::JournalEvent::Step(step)) => {
+            // Fermé entre-temps (« Terminé ») : rien à montrer.
+            if app.journal.is_some() {
+                app.journal = Some(step);
+            }
+        }
+        Event::Journal(journal::JournalEvent::Done(done)) => {
+            app.journal_preparing = false;
+            if let Some(n) = done.notice() {
+                app.toast(n);
+            }
+        }
         Event::Account(e) => {
             if accounts::handle(e, app, actions, tx) {
                 accounts::sync(app);
@@ -3645,6 +3660,9 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             OsAction::Cec(on) => os::ctl(&[if on { "cec-name" } else { "cec-off" }]),
             OsAction::Hdmi(m) => os::ctl(&["hdmi", &m]),
         },
+        // « Envoyer le journal » (Réglages de l'app › À propos) ; « Terminé » retire le dépôt pas encore ouvert.
+        Action::SendLog => journal::start(app, tx),
+        Action::JournalClose => journal::close(),
         Action::CheckUpdate => {
             app.update = crate::app::UpdateState::Checking;
             jobs::check_update(app.store.app.beta, tx.clone());
