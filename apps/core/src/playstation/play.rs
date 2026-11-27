@@ -155,7 +155,9 @@ pub struct Play {
     /// plus d'image depuis une seconde).
     want_key: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
-    ctrl: Arc<Mutex<Option<Ctrl>>>,
+    /// Le canal de contrôle de la partie en cours : cloné sous le verrou,
+    /// employé hors de lui (COEUR-24).
+    ctrl: Arc<Mutex<Option<Arc<Ctrl>>>>,
     feedback: Arc<Feedback>,
 }
 
@@ -235,9 +237,7 @@ impl Play {
                     let end = loop {
                         let started = Instant::now();
                         let end = run(&at, &registered, options.clone(), &video, audio.as_ref(), &on_state, &stop, &ctrl, &want_key, &keymouse, &captured, &counters, &on_pad, &feedback);
-                        if let Some(mut c) = ctrl.lock().unwrap().take() {
-                            c.stop();
-                        }
+                        stop_ctrl(&ctrl);
                         // Une partie qui a tenu une minute remet le compte à zéro.
                         if started.elapsed() > Duration::from_secs(60) {
                             retries = 0;
@@ -249,9 +249,7 @@ impl Play {
                         log::warn!("PlayStation : partie interrompue ({end:?}), reprise {retries}/3");
                         std::thread::sleep(Duration::from_secs(1));
                     };
-                    if let Some(mut c) = ctrl.lock().unwrap().take() {
-                        c.stop();
-                    }
+                    stop_ctrl(&ctrl);
                     on_state(PlayState::Ended(end));
                 })
                 .ok()
@@ -272,7 +270,10 @@ impl Play {
     }
 
     fn with_ctrl(&self, f: impl FnOnce(&Ctrl) -> std::io::Result<()>) -> bool {
-        match self.ctrl.lock().unwrap().as_ref() {
+        // Écrit hors du verrou : une écriture lente (5 s au plus) ne fige pas
+        // la reprise de la partie ni un autre appel de l'interface.
+        let ctrl = self.ctrl.lock().unwrap().clone();
+        match ctrl.as_deref() {
             Some(c) => f(c).map_err(|e| log::warn!("PlayStation : message du clavier pas envoyé : {e}")).is_ok(),
             None => false,
         }
@@ -356,10 +357,8 @@ impl Play {
     /// Met la console en mode repos (puis la partie se termine). Vrai si la
     /// demande est partie (canal de contrôle ouvert).
     pub fn goto_bed(&self) -> bool {
-        match self.ctrl.lock().unwrap().as_ref() {
-            Some(c) => c.goto_bed().is_ok(),
-            None => false,
-        }
+        let ctrl = self.ctrl.lock().unwrap().clone();
+        ctrl.is_some_and(|c| c.goto_bed().is_ok())
     }
 
     /// Arrête la partie et attend sa fin.
@@ -368,6 +367,18 @@ impl Play {
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
+    }
+}
+
+/// Arrête le canal de contrôle de la partie, hors du verrou (son fil est
+/// joint : jusqu'à 500 ms). Encore employé par un appel de l'interface en
+/// cours : il s'arrête quand cet appel le rend.
+fn stop_ctrl(slot: &Mutex<Option<Arc<Ctrl>>>) {
+    let taken = slot.lock().unwrap().take();
+    if let Some(c) = taken
+        && let Ok(mut c) = Arc::try_unwrap(c)
+    {
+        c.stop();
     }
 }
 
@@ -386,7 +397,7 @@ fn run(
     audio: Option<&Arc<dyn PacketHandler>>,
     on_state: &dyn Fn(PlayState),
     stop: &AtomicBool,
-    ctrl_slot: &Mutex<Option<Ctrl>>,
+    ctrl_slot: &Mutex<Option<Arc<Ctrl>>>,
     want_key: &Arc<AtomicBool>,
     keymouse: &Arc<Mutex<KeyMouse>>,
     captured: &Arc<AtomicBool>,
@@ -459,7 +470,7 @@ fn run(
     };
     let _ = ctrl.enable_features(profile.dualsense, true);
     let crypt = ctrl.crypt().clone();
-    *ctrl_slot.lock().unwrap() = Some(ctrl);
+    *ctrl_slot.lock().unwrap() = Some(Arc::new(ctrl));
     // Les manettes du lecteur du cœur (fil SDL, Mac et Windows), réunies :
     // une seule manette pour la console.
     gamepads::hold_sdl();

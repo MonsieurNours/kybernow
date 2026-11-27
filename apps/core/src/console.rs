@@ -95,6 +95,10 @@ pub fn fingerprint(der: &[u8]) -> String {
 #[derive(Debug)]
 struct PinVerifier {
     pinned: Option<String>,
+    /// Sans empreinte connue : la première vue, exigée ensuite de toutes
+    /// les connexions de cette console (COEUR-19).
+    first: Mutex<Option<String>>,
+    /// La dernière vue (celle d'un refus, pour le dire).
     seen: Arc<Mutex<Option<String>>>,
     provider: Arc<CryptoProvider>,
 }
@@ -109,8 +113,15 @@ impl ServerCertVerifier for PinVerifier {
         _now: UnixTime,
     ) -> std::result::Result<ServerCertVerified, rustls::Error> {
         let fp = fingerprint(end_entity.as_ref());
-        *self.seen.lock().unwrap() = Some(fp.clone());
-        match &self.pinned {
+        *self.seen.lock().unwrap_or_else(|e| e.into_inner()) = Some(fp.clone());
+        let expected = match &self.pinned {
+            Some(pinned) => Some(pinned.clone()),
+            None => {
+                let mut first = self.first.lock().unwrap_or_else(|e| e.into_inner());
+                first.get_or_insert_with(|| fp.clone()).clone().into()
+            }
+        };
+        match expected {
             Some(pinned) if !pinned.eq_ignore_ascii_case(&fp) => Err(rustls::Error::General(
                 "certificat de la console changé".into(),
             )),
@@ -789,7 +800,8 @@ impl RelayLink {
 
 impl Console {
     /// `pinned` : empreinte attendue ; sans elle, le premier certificat vu est
-    /// accepté (lisible ensuite par `fingerprint_seen`).
+    /// accepté (lisible ensuite par `fingerprint_seen`), puis exigé de toutes
+    /// les connexions suivantes de cette console.
     pub fn new(host: &str, port: u16, user: &str, password: &str, pinned: Option<String>) -> Self {
         let token = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"));
         Self::build(host, port, Auth::Fixed(format!("Basic {token}")), pinned)
@@ -822,6 +834,7 @@ impl Console {
         let seen = Arc::new(Mutex::new(None));
         let verifier = PinVerifier {
             pinned,
+            first: Mutex::new(None),
             seen: seen.clone(),
             provider: provider.clone(),
         };
@@ -1644,6 +1657,26 @@ pub(crate) fn path_segment(id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// COEUR-19 : sans empreinte connue, le premier certificat vu est exigé
+    /// des connexions suivantes ; avec une empreinte, elle seule passe.
+    #[test]
+    fn premier_certificat_exige_ensuite() {
+        use super::*;
+        let check = |v: &PinVerifier, der: &[u8]| {
+            v.verify_server_cert(&CertificateDer::from(der.to_vec()), &[], &ServerName::try_from("station").unwrap(), &[], UnixTime::now()).is_ok()
+        };
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let seen = Arc::new(Mutex::new(None));
+        let v = PinVerifier { pinned: None, first: Mutex::new(None), seen: seen.clone(), provider: provider.clone() };
+        assert!(check(&v, b"premier"));
+        assert!(check(&v, b"premier"), "le même : accepté");
+        assert!(!check(&v, b"autre"), "un autre ensuite : refusé");
+        assert_eq!(seen.lock().unwrap().clone(), Some(fingerprint(b"autre")), "l'empreinte refusée est dite");
+        let v = PinVerifier { pinned: Some(fingerprint(b"connu").to_uppercase()), first: Mutex::new(None), seen, provider };
+        assert!(!check(&v, b"premier"));
+        assert!(check(&v, b"connu"));
+    }
+
     #[test]
     fn manettes_de_la_station() {
         let info = |json: &str| serde_json::from_str::<super::Info>(json).unwrap();
