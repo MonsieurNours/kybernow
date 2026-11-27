@@ -557,6 +557,7 @@ mod invitations;
 mod lot2;
 mod lot45;
 mod lot6;
+mod noms_hostiles;
 // --- Lot 1b : passkeys, conditions, export, suppression ---------------------------
 
 use super::passkeys::tests::Authenticator;

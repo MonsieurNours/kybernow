@@ -263,6 +263,8 @@ pub fn frame(v: &View<'_>, shell: &Shell, here: Here, title: &str, here_path: &s
 </html>
 "##,
         lang = v.lang.code(),
+        title = super::title_text(title),
+        here_path = esc(here_path),
         favicon = assets::url("kybernow-favicon.svg"),
         font = assets::url("archivo.woff2"),
         css = assets::url("share.css"),

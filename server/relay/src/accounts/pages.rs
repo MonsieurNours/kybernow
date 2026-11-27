@@ -39,6 +39,25 @@ pub fn esc(s: &str) -> String {
     out
 }
 
+/// Le texte d'un `<title>` (REL-01) : les appelants passent tantôt du texte brut (un nom d'ordinateur
+/// ou d'équipe), tantôt un fragment déjà échappé (le même que le `<h1>`). On retire les balises, on
+/// décode les cinq entités que produit [`esc`], puis on échappe tout : rien ne sort du `<title>`,
+/// quelle que soit l'entrée.
+pub fn title_text(s: &str) -> String {
+    let mut plain = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for c in s.chars() {
+        match c {
+            '<' if !in_tag => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if in_tag => {}
+            _ => plain.push(c),
+        }
+    }
+    let plain = plain.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&");
+    esc(&plain)
+}
+
 /// Encode une valeur pour une adresse (`?appareil=iPad%20de%20L%C3%A9a`).
 pub fn pct(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -386,6 +405,8 @@ fn page_with(v: &View<'_>, title: &str, here: &str, wide: &str, card: &str) -> S
 </html>
 "##,
         lang = lang.code(),
+        title = title_text(title),
+        here = esc(here),
         favicon = assets::url("kybernow-favicon.svg"),
         font = assets::url("archivo.woff2"),
         css = assets::url("share.css"),
@@ -732,7 +753,7 @@ pub fn new_password(v: &View<'_>, token: &str, notice: Option<Notice>) -> String
 pub fn message(v: &View<'_>, here: &str, title: &str, text: &str, link: (&str, &str)) -> String {
     let card = format!(
         "<h1>{title}</h1>\n<p class=\"help\">{text}</p>\n<p class=\"acct-links\"><a href=\"{href}{q}\">{label}</a></p>",
-        href = link.0,
+        href = esc(link.0),
         q = v.q(),
         label = link.1,
     );
