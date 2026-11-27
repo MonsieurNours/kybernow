@@ -97,8 +97,26 @@ setup() {
     fi
 }
 
+# Rosetta doit vraiment lancer un programme x86_64 avant une compilation : un
+# apt install (pi-gen en fait, juste avant dans la publication) relance
+# systemd-binfmt, qui peut effacer Rosetta un moment ; configure échouait alors
+# sur « cannot run C compiled programs » (répétition de la 0.11.8). Le service
+# kybernow-rosetta la remet (apps/linux/scripts/vm.sh) ; on l'attend 60 s au plus.
+rosetta_ready() {
+    local i
+    for i in $(seq 1 12); do
+        sudo chroot "$R" /usr/bin/true 2>/dev/null && return 0
+        [ "$i" = 1 ] && echo "Rosetta ne lance pas encore les programmes x86_64 : remise par kybernow-rosetta…" >&2
+        sudo -n systemctl restart kybernow-rosetta 2>/dev/null || true
+        sleep 5
+    done
+    echo "Rosetta ne lance pas les programmes x86_64 dans $R (sudo systemctl restart kybernow-rosetta)" >&2
+    return 1
+}
+
 run() {
     mounts
+    rosetta_ready
     sudo chroot --userspec="$U:$U" "$R" env -i HOME="/home/$U" USER="$U" TERM="${TERM:-dumb}" \
         PATH="/home/$U/.local/bin:/home/$U/.cargo/bin:/usr/local/bin:/usr/bin:/bin" \
         bash -lc "set -e; cd ~; $1"

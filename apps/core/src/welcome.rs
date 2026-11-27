@@ -178,5 +178,6 @@ mod tests {
         assert_eq!(sign_up_url("https://relais.exemple.org:9443/", Lang::En), "https://relais.exemple.org:9443/compte/inscription?lang=en");
         // Relais épinglé : l'empreinte n'entre pas dans l'adresse (COEUR-40).
         assert_eq!(sign_up_url("relais.exemple.org:9443#sha256:abcd", Lang::Fr), "https://relais.exemple.org:9443/compte/inscription?lang=fr");
+        assert_eq!(sign_up_url("relais.exemple.org:443#sha256:abcd", Lang::Fr), "https://relais.exemple.org/compte/inscription?lang=fr");
     }
 }
