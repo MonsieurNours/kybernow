@@ -336,13 +336,14 @@
           },
         }
         seen.set(s.id, entry)
-        if (s.id !== id) return
+        // Barre cachée : seulement noté (repris de `seen` quand elle se montre).
+        if (s.id !== id || document.hidden) return
         stats = entry.stats
         history = entry.history
         seconds = entry.seconds
         losses = entry.losses
         multi = s.screens > 1
-        reportWidth()
+        // La largeur est redite par l'observateur de taille si le texte l'a changée.
       }),
       listen<BarCamera>('bar-camera', (c) => {
         if (c.id === id) camera = c
@@ -492,7 +493,7 @@
         // ses pastilles et ses puces le montrent déjà.
         if (s.notice && view === 'bar' && s.id === id && (inside || held || !!menu)) return
         // Les mesures et la courbe de cette session, déjà reçues barre cachée.
-        if (s.id !== id) {
+        if (s.id !== id || seen.has(s.id)) {
           const kept = seen.get(s.id)
           stats = kept?.stats ?? null
           history = kept?.history ?? []
@@ -656,10 +657,28 @@
   }
 
   /** Le pointeur bouge : sur la barre (et la bande au-dessus), elle reste ; ailleurs, le compte à rebours part (une fois : bouger dehors ne le prolonge pas). */
+  // Le rectangle de la barre, relu seulement quand sa taille change (pas à
+  // chaque mouvement du pointeur), et la largeur redite à l'app à ce moment-là
+  // (pas à chaque mesure, une fois par seconde).
+  let barRect: DOMRect | null = null
+  $effect(() => {
+    const el = bar
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      barRect = el.getBoundingClientRect()
+      reportWidth()
+    })
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      barRect = null
+    }
+  })
+
   function track(e: MouseEvent) {
     // La capsule d'un avis repart d'elle-même.
     if (view !== 'bar') return
-    const r = bar?.getBoundingClientRect()
+    const r = barRect ?? bar?.getBoundingClientRect()
     inside = !!r && e.clientX >= r.left && e.clientX <= r.right && e.clientY <= r.bottom
     if (inside) {
       held = false

@@ -238,18 +238,29 @@
   let homeHdr = $state(false)
   let screensEpoch = $state(0)
   let asked = 0
+  // Ce dont dépend la réponse, en une clé : l'événement `computers` refait
+  // chaque objet à chaque relevé, la demande ne repart que si la clé change
+  // (côté app, `displays_info` relève les écrans de ce PC).
+  const displaysKey = $derived(
+    selected
+      ? JSON.stringify([
+          selected.id,
+          $state.snapshot(selected.settings),
+          selected.info?.virtual_display?.max_screens,
+          selected.info?.virtual_display?.available,
+          battery,
+          $state.snapshot(thisPc),
+          screensEpoch,
+        ])
+      : null,
+  )
   $effect(() => {
-    void screensEpoch
-    void battery
-    void thisPc
-    if (!selected) {
+    const key = displaysKey
+    if (!key) {
       screens = 1
       return
     }
-    const id = selected.id
-    const settings = $state.snapshot(selected.settings)
-    void selected.info?.virtual_display?.max_screens
-    void selected.info?.virtual_display?.available
+    const [id, settings] = JSON.parse(key) as [string, unknown]
     const n = ++asked
     invoke<DisplaysInfo>('displays_info', { id, settings })
       .then((i) => {
