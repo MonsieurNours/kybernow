@@ -433,8 +433,9 @@ sealed class JoinReply {
      * [kind] : `no_share`, `full`, `too_many`, `refused` (« L'hôte a refusé. »), `expired` (« L'hôte n'a pas
      * répondu. »), `stopped` (« Ce partage est arrêté. » : l'hôte l'a arrêté pendant l'attente), `pending_full` (trois
      * demandes attendent déjà l'hôte), `relay` (« Le relais ne répond pas. », ou l'ordinateur absent du relais),
-     * `unavailable` (503 d'Admin, passager : « Le partage n'est pas disponible pour le moment… »), `other` (et `unreadable`, seulement si l'appareil ne lit aucun format possible, ce que H.264 empêche : jamais en
-     * pratique) ; [message] : le texte à montrer.
+     * `unavailable` (503 d'Admin, passager : « Le partage n'est pas disponible pour le moment… »), `other` (et
+     * `unreadable`, seulement si l'appareil ne lit aucun format possible, ce que H.264 empêche : jamais en pratique) ;
+     * [message] : le texte à montrer, écrit par le cœur.
      */
     data class Refused(val kind: String, val message: String) : JoinReply()
 
@@ -566,8 +567,6 @@ object Share {
             ?: when {
                 code == STOPPED -> "stopped"
                 RelayFailure.of(code) != null -> "relay"
-                // 503 d'Admin : la Station ne peut pas signer le jeton de Kyber, passager (« Partage indisponible »).
-                code == -503 -> UNAVAILABLE
                 else -> "other"
             }
         return JoinReply.Refused(kind, o.optString("error"))
@@ -683,8 +682,6 @@ object Share {
     /** Codes du cœur : `shareWait` toujours en attente ; partage arrêté pendant l'attente (`ShareError::Stopped`). Ceux du relais : [RelayFailure]. */
     private const val WAITING = 27
     private const val STOPPED = 28
-    /** Un refus passager d'Admin (503) : « Partage indisponible » (docs/link-ui.md, « Partage »). */
-    const val UNAVAILABLE = "unavailable"
     /** Un code de prêt (`ShareError::Lend`) : `value` `{code, target, route}`. */
     private const val LEND = 29
     /** Un code d'invitation (`ShareError::Invite`) : `value` `{code, target, route, computer}`. */

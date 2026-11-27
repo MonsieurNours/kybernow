@@ -323,6 +323,8 @@ object Native {
     // Face à une Station Mac (docs/link-ui.md, « Face à une Station Mac » ; règles du cœur, `keymap`).
     /** La Station est un Mac : son système (`os` de l'info, « macOS 26.1 ») commence par « macOS ». */
     @JvmStatic external fun stationIsMac(os: String): Boolean
+    /** L'avertissement du prêt selon le système de la Station (`lend::warning`). */
+    @JvmStatic external fun lendWarning(os: String): String
     /** « Ctrl agit comme ⌘ » pour cet ordinateur : face à un Mac seulement, allumé par défaut ; `setting` −1 jamais changé, 0, 1. */
     @JvmStatic external fun controlAsCommand(setting: Int, os: String): Boolean
     /** L'ordinateur crée les manettes de l'appareil (`gamepads` de l'info, JSON de [consoleInfo]) ; vrai sans le champ. */

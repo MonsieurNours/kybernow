@@ -66,5 +66,8 @@
   "account_bad_relay": "Unreadable relay address.",
   "account_bad_code": "Sign-in didn't go through: try again.",
   "account_signed_out": "This account was signed out of this device: sign in again.",
-  "pyrowave_notice": "The picture may stutter."
+  "pyrowave_notice": "The picture may stutter.",
+  "lend_warning": "Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
+  "lend_warning_mac": "Your friend plays in your Mac session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
+  "lend_warning_other": "Your friend plays in your session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust."
 }

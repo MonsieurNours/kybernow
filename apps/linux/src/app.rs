@@ -854,11 +854,8 @@ pub fn pads_unavailable_notice() -> &'static str {
     tr("Manettes indisponibles sur cet ordinateur.", "Controllers unavailable on this computer.")
 }
 
-/// La Station est un Mac : son système (`os` de `GET /api/stream/info`, « macOS 26.1 ») commence par « macOS ».
-/// Miroir de `kybernow_core::input::keymap::station_is_mac` (l'interface seule n'a pas le cœur).
-pub fn station_is_mac(os: &str) -> bool {
-    os.trim_start().get(..5).is_some_and(|p| p.eq_ignore_ascii_case("macos"))
-}
+/// La Station est un Mac (« Face à une Station Mac ») : la règle de toutes les apps (`rules::station`).
+pub use kybernow_rules::station::station_is_mac;
 
 /// Menu déroulant de la barre de session (bureau).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -881,19 +878,6 @@ pub enum BarMenu {
     Mouse,
     /// « Plus » (barre étroite) : les commandes qui ne tiennent plus dans la barre.
     More,
-}
-
-/// Ce que la caméra allumée attend au plus la réponse de l'ordinateur (docs/link-ui.md, « Caméra de l'appareil »).
-pub const CAMERA_ANSWER: Duration = Duration::from_secs(10);
-
-/// « Caméra… » sans réponse de l'ordinateur en 10 s : la caméra s'éteint (docs/link-ui.md).
-pub fn camera_no_answer_text() -> &'static str {
-    tr("L'ordinateur ne répond pas : la caméra est éteinte.", "The computer isn't answering: the camera is off.")
-}
-
-/// Le départ refusé par la session (elle ne prend pas la caméra) (docs/link-ui.md).
-pub fn camera_refused_text() -> &'static str {
-    tr("La caméra n'a pas pu démarrer sur l'ordinateur.", "The camera couldn't start on the computer.")
 }
 
 /// L'état de la caméra de l'appareil dans une session (docs/link-ui.md, « Caméra de l'appareil »).
@@ -6059,16 +6043,17 @@ impl App {
         actions
     }
 
-    /// La caméra allumée attend encore la réponse de l'ordinateur (« Caméra… ») depuis plus de `CAMERA_ANSWER` : elle
-    /// s'éteint, avec l'avis de link-ui. Rend vrai si c'est le cas (le pilote l'arrête).
-    pub fn camera_unanswered(&mut self, id: SessionId, since: Instant) -> bool {
+    /// La caméra allumée attend encore la réponse de l'ordinateur (« Caméra… ») depuis plus que le délai du cœur
+    /// (`camera::ANSWER_WAIT`, vérifié par le pilote) : elle s'éteint, avec l'avis du cœur (`notice`). Rend vrai si
+    /// c'est le cas (le pilote l'arrête).
+    pub fn camera_unanswered(&mut self, id: SessionId, notice: String) -> bool {
         let Some(s) = self.session_by_mut(id) else { return false };
-        if s.camera != CameraState::Starting || since.elapsed() < CAMERA_ANSWER {
+        if s.camera != CameraState::Starting {
             return false;
         }
         s.camera = CameraState::Off;
         s.camera_line = None;
-        s.notice = Some((camera_no_answer_text().into(), Instant::now()));
+        s.notice = Some((notice, Instant::now()));
         true
     }
 
@@ -9250,7 +9235,6 @@ mod tests {
         assert_eq!(app.activate(Target::Setting(Setting::CtrlCommand)), vec![Action::Save, Action::ControlAsCommand("a".into(), true)]);
         app.store.selected = Some("b".into());
         assert!(!app.rows(Section::Controls).iter().any(|r| r.setting == Setting::CtrlCommand));
-        assert!(station_is_mac("macOS 15.5") && station_is_mac(" MacOS") && !station_is_mac("Windows 11") && !station_is_mac("mac"));
     }
 
     /// Manettes indisponibles sur l'ordinateur (docs/link-ui.md) : l'avis bref une fois par session, quand l'image

@@ -151,9 +151,9 @@ fn live(cv: &mut Canvas, f: &mut Frame, p: &PadInfo) {
     }
     cv.rect(x + 44.0, gy + 56.0, w - 88.0, 1.0, LINE);
 
-    // Vibration d'essai.
+    // Tester la vibration.
     let vy = gy + 100.0;
-    cv.text(x + 44.0, vy, Text::new(Font::Semibold, 22.0, FROST), tr("Vibration d'essai", "Test rumble"));
+    cv.text(x + 44.0, vy, Text::new(Font::Semibold, 22.0, FROST), tr("Tester la vibration", "Test vibration"));
     let mut bx = x + 44.0;
     let labels = [tr("Gauche · grave", "Left · low"), tr("Droite · aiguë", "Right · high"), tr("Les deux", "Both"), tr("Gâchettes", "Triggers")];
     for (i, l) in labels.iter().enumerate() {

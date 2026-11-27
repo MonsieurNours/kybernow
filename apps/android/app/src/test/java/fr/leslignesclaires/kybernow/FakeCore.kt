@@ -32,6 +32,11 @@ open class FakeCore : Core.Source {
     override fun journalState(relay: String, id: String, owner: String) = 90
     override fun journalDiscard(relay: String, id: String, owner: String) = false
     override fun relayLabel(addr: String) = addr.substringBefore('#')
+    override fun lendWarning(os: String) = when {
+        os.startsWith("Windows") -> "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance."
+        os.startsWith("macOS") -> "Votre ami joue dans votre session du Mac. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance."
+        else -> "Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance."
+    }
     override fun looksLikeInvite(text: String) = text.contains("borrow")
     override fun pyrowaveLoweredText(width: Int, height: Int, refresh: Int, mbps: Int) = "Définition ramenée à $width × $height pour tenir dans $mbps Mbit/s."
     override fun discoveryFound(json: String): String? {

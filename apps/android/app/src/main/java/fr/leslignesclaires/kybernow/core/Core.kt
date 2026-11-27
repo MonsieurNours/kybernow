@@ -23,6 +23,7 @@ object Core {
         fun journalState(relay: String, id: String, owner: String): Int
         fun journalDiscard(relay: String, id: String, owner: String): Boolean
         fun relayLabel(addr: String): String
+        fun lendWarning(os: String): String
         fun looksLikeInvite(text: String): Boolean
         fun pyrowaveLoweredText(width: Int, height: Int, refresh: Int, mbps: Int): String
         fun discoveryFound(json: String): String?
@@ -49,6 +50,7 @@ object Core {
         override fun journalState(relay: String, id: String, owner: String) = Native.journalState(relay, id, owner)
         override fun journalDiscard(relay: String, id: String, owner: String) = Native.journalDiscard(relay, id, owner)
         override fun relayLabel(addr: String) = Native.relayLabel(addr)
+        override fun lendWarning(os: String) = Native.lendWarning(os)
         override fun looksLikeInvite(text: String) = Native.looksLikeInvite(text)
         override fun pyrowaveLoweredText(width: Int, height: Int, refresh: Int, mbps: Int) = Native.pyrowaveLoweredText(width, height, refresh, mbps)
         override fun discoveryFound(json: String) = Native.discoveryFound(json)
@@ -119,6 +121,10 @@ object Core {
         val addressExample: String,
         /** Le relais public. */
         val defaultRelay: String,
+        /** La caméra allumée attend au plus la réponse de l'ordinateur (ms). */
+        val cameraAnswerWaitMs: Long,
+        /** PyroWave quitté pour un autre format : le débit réglé à la main au plus (Mbit/s). */
+        val hevcAfterPyroWaveMbps: Int,
     ) {
         companion object {
             fun parse(json: String?): Values {
@@ -132,6 +138,8 @@ object Core {
                     adminPort = o.optInt("admin_port"),
                     addressExample = o.optString("address_example"),
                     defaultRelay = o.optString("default_relay"),
+                    cameraAnswerWaitMs = o.optLong("camera_answer_wait_secs", 10) * 1000,
+                    hevcAfterPyroWaveMbps = o.optInt("hevc_after_pyrowave_mbps", 80),
                 )
             }
         }
@@ -142,6 +150,12 @@ object Core {
     /** Les valeurs communes (vides sans réponse du cœur, sans être gardées : redemandées à l'appel suivant). */
     fun values(): Values = values ?: ask("valeurs communes", null) { valuesJson("{}") }?.let { Values.parse(it).also { v -> values = v } }
         ?: Values.parse(null)
+
+    /**
+     * L'avertissement du panneau « Prêter », selon le système de la Station (`os` de son info) : « Votre ami joue dans
+     * votre session Windows. », « … du Mac. », sinon « … dans votre session. », puis la même suite (`lend::warning`).
+     */
+    fun lendWarning(os: String?): String = ask("avertissement du prêt", "") { lendWarning(os.orEmpty()) }
 
     /** « Disponible », « Occupé », « Prêté à quelqu'un d'autre », « Verrouillé », « Prêt coupé » (`LendAvailability::label`). */
     fun lendAvailabilityLabel(state: String): String = ask("état du prêt", null) { lendAvailabilityLabel(state) }.orEmpty()

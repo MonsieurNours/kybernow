@@ -121,7 +121,7 @@
   /** L'ordinateur est une Station Mac : le menu Touches propose ses touches (« ⌘ ⇥ »…). */
   let mac = $state(false)
   /** Le système de la Station (`windows`, `mac`, `other`) : l'avertissement du prêt le dit. */
-  let system = $state<'windows' | 'mac' | 'other'>('other')
+  let lendWarning = $state('')
   /** La place de la barre (points) : la largeur de la session, bornée par sa fenêtre. */
   let room = $state(1240)
   /** Barre étroite : les puces perdent leur texte (sauf le profil), les pastilles se réduisent au nombre. */
@@ -235,7 +235,7 @@
     mouse?: string
     clipboard?: boolean
     mac?: boolean
-    system?: 'windows' | 'mac' | 'other'
+    lend_warning?: string
     room?: number
     stats?: boolean
     pinned?: boolean
@@ -560,7 +560,7 @@
         mouseSetting = s.mouse === 'jeu' || s.mouse === 'bureau' ? s.mouse : 'auto'
         clipboard = !!s.clipboard
         mac = !!s.mac
-        system = s.system ?? 'other'
+        lendWarning = s.lend_warning ?? ''
         room = s.room ?? 1240
         compact = false
         overflow = 0
@@ -1906,7 +1906,7 @@
             bind:duration={lendDuration}
             bind:steam={lendSteam}
             {trustOnce}
-            {system}
+            warning={lendWarning}
             requestMeta={lendRequestMeta}
             on={{ answer, copy: copyLendLink, cancelCode, createCode }}
           />

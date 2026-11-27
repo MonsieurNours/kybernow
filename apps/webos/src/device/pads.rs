@@ -265,7 +265,7 @@ impl Pads {
         }
     }
 
-    /// Vibration d'essai (écran des manettes).
+    /// « Tester la vibration » (écran des manettes).
     pub fn test_rumble(&mut self, slot: usize, low: u16, high: u16, triggers: bool) {
         let Some(p) = self.pads.iter_mut().find(|p| p.slot == slot) else { return };
         unsafe {

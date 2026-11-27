@@ -383,8 +383,11 @@ class ShareTest {
 class JoinRefusalTest {
     @Test
     fun aTransient503_isSharingUnavailable() {
-        val r = fr.leslignesclaires.kybernow.core.Share.readJoin("""{"code":-503,"error":"HTTP 503"}""") as fr.leslignesclaires.kybernow.core.JoinReply.Refused
-        org.junit.Assert.assertEquals(fr.leslignesclaires.kybernow.core.Share.UNAVAILABLE, r.kind)
+        // Le cœur dit le refus passager d'Admin (`ShareError::Unavailable`, code 37) et son texte.
+        val text = "Le partage n'est pas disponible pour le moment : réessayez dans un instant."
+        val r = fr.leslignesclaires.kybernow.core.Share.readJoin("""{"code":37,"error":"$text","kind":"unavailable"}""") as fr.leslignesclaires.kybernow.core.JoinReply.Refused
+        org.junit.Assert.assertEquals("unavailable", r.kind)
+        org.junit.Assert.assertEquals(text, r.message)
         val other = fr.leslignesclaires.kybernow.core.Share.readJoin("""{"code":-500,"error":"HTTP 500"}""") as fr.leslignesclaires.kybernow.core.JoinReply.Refused
         org.junit.Assert.assertEquals("other", other.kind)
     }

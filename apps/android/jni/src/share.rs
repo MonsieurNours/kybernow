@@ -54,6 +54,7 @@ fn share_envelope(r: Result<Found, ShareError>) -> String {
         ShareError::WatchUnsupported => 34,
         ShareError::Lent { .. } => 35,
         ShareError::SharingOff => 36,
+        ShareError::Unavailable => 37,
         ShareError::Other(_) => 1,
     };
     serde_json::json!({ "code": code, "error": e.to_string(), "kind": e.kind() }).to_string()

@@ -52,6 +52,9 @@ pub const KN_SHARE_INVITE: i32 = 33;
 pub const KN_SHARE_WATCH_UNSUPPORTED: i32 = 34;
 pub const KN_SHARE_LENT: i32 = 35;
 pub const KN_SHARE_SHARING_OFF: i32 = 36;
+/// 503 d'Admin, passager : « Le partage n'est pas disponible pour le moment :
+/// réessayez dans un instant. »
+pub const KN_SHARE_UNAVAILABLE: i32 = 37;
 
 /// Rôle d'un invité (`on_share_role`, `kn_console_share_guest`) : deux
 /// droits indépendants, les manettes et le clavier et la souris. Aucun
@@ -100,6 +103,7 @@ fn share_failure(e: ShareError, out: *mut *mut c_char, error: *mut *mut c_char) 
         ShareError::WatchUnsupported => KN_SHARE_WATCH_UNSUPPORTED,
         ShareError::Lent { .. } => KN_SHARE_LENT,
         ShareError::SharingOff => KN_SHARE_SHARING_OFF,
+        ShareError::Unavailable => KN_SHARE_UNAVAILABLE,
     };
     give_to(error, message);
     code

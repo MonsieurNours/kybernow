@@ -912,14 +912,14 @@ public final class SessionEngine: @unchecked Sendable {
                     return
                 }
                 startCameraPolling()
-                // Ni « started » ni « failed » de la Station en 10 s : éteinte, et dit.
+                // Ni « started » ni « failed » de la Station à temps : éteinte, et dit.
                 let timeout = DispatchWorkItem { [weak self] in
                     guard let self, request == self.cameraRequest, self.cameraState == .starting else { return }
                     self.cameraOff()
                     self.onCameraNotice?(CameraText.noAnswer)
                 }
                 cameraStartTimeout = timeout
-                DispatchQueue.main.asyncAfter(deadline: .now() + Self.cameraStartLimit, execute: timeout)
+                DispatchQueue.main.asyncAfter(deadline: .now() + CoreValues.current.cameraAnswerWait, execute: timeout)
             case let .failure(problem):
                 cameraProblem(problem)
             }
@@ -948,9 +948,9 @@ public final class SessionEngine: @unchecked Sendable {
     /// Numéro de la dernière demande (allumer, éteindre) : une ouverture
     /// dépassée par une autre demande ne fait plus rien.
     private var cameraRequest = 0
-    /// « Caméra… » sans réponse de la Station : éteinte au bout de ce délai.
+    /// « Caméra… » sans réponse de la Station : éteinte au bout de
+    /// `CoreValues.cameraAnswerWait`.
     private var cameraStartTimeout: DispatchWorkItem?
-    static let cameraStartLimit: TimeInterval = 10
 
     /// La ligne « Caméra » des statistiques (nil : éteinte).
     public var cameraStatsLine: String? {

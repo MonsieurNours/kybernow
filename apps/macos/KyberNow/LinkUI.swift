@@ -421,18 +421,11 @@ enum LendText {
     }
     static var sessionCloses: String { String(localized: "Votre session se fermera quand votre ami arrivera.") }
     static var cancelCode: String { String(localized: "Annuler le code") }
-    /// L'avertissement, selon le système de la Station (`os` de son info, le
-    /// même test que « Face à une Station Mac ») : Windows, Mac, sinon (Linux,
-    /// système inconnu) la session sans plus de précision.
+    /// L'avertissement, selon le système de la Station (`os` de son info) :
+    /// Windows, Mac, sinon (Linux, système inconnu) la session sans plus de
+    /// précision. Texte et règle du cœur (`kn_lend_warning`).
     static func warning(os: String?) -> String {
-        let os = os ?? ""
-        if os.hasPrefix("Windows") {
-            return String(localized: "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.")
-        }
-        if Keymap.stationIsMac(os) {
-            return String(localized: "Votre ami joue dans votre session du Mac. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.")
-        }
-        return String(localized: "Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.")
+        LendWarning.text(os: os)
     }
     static var offInAdmin: String { String(localized: "Le prêt est coupé dans Admin (page « Prêt »).") }
     static var tooOld: String { String(localized: "Le prêt demande KyberNow Station 0.9.0 ou plus récente.") }

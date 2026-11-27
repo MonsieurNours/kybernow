@@ -198,6 +198,19 @@ pub unsafe extern "C" fn kn_lend_parse_invite(url: *const c_char) -> *mut c_char
     })
 }
 
+/// L'avertissement du panneau « Prêter » selon le système de la Station
+/// (`os` de son info ; `lend::warning`) : Windows, Mac, sinon la forme
+/// générale. À libérer.
+///
+/// # Safety
+/// `os` : chaîne C valable, ou nul.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_lend_warning(os: *const c_char) -> *mut c_char {
+    kybernow_core::ffi_guard!(null => {
+        give(kybernow_core::lend::warning(&text(os), i18n::current()))
+    })
+}
+
 /// L'état de la carte « Ordinateur de {hôte} » (`free`, `busy`, `lent`,
 /// `locked`, `off`) : « Disponible », « Occupé »… ; nul pour un état inconnu.
 ///

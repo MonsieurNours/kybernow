@@ -344,7 +344,7 @@
     <string name="gamepads_waiting">en attente</string>
     <string name="gamepads_player" formatted="true">J%1$d</string>
     <string name="gamepads_press">Appuyez sur une touche</string>
-    <string name="gamepads_test_rumble">Vibration d\'essai</string>
+    <string name="gamepads_test_rumble">Tester la vibration</string>
     <string name="gamepads_left_low">Gauche · grave</string>
     <string name="gamepads_right_high">Droite · aiguë</string>
     <string name="gamepads_both">Les deux</string>
@@ -628,9 +628,6 @@
     <string name="lend_session_closes">Votre session se fermera quand votre ami arrivera.</string>
     <string name="lend_cancel_code">Annuler le code</string>
     <string name="lend_qr_label">QR code du prêt</string>
-    <string name="lend_warning">Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.</string>
-    <string name="lend_warning_mac">Votre ami joue dans votre session du Mac. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.</string>
-    <string name="lend_warning_other">Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.</string>
     <string name="lend_off">Le prêt est coupé dans Admin (page « Prêt »).</string>
     <string name="lend_too_old">Le prêt demande KyberNow Station 0.9.0 ou plus récente.</string>
     <string name="lend_unavailable">Le prêt n\'est pas possible sur cet ordinateur.</string>
@@ -664,7 +661,6 @@
     <string name="lend_remove_confirm_elided" formatted="true">Retirer l\'ordinateur d\'%1$s de cet appareil ?</string>
     <string name="lend_invite_unreadable">Ce lien d\'invitation est illisible.</string>
     <string name="share_link_unreadable">Ce lien de partage est illisible.</string>
-    <string name="share_unavailable">Le partage n\'est pas disponible pour le moment : réessayez dans un instant.</string>
     <string name="lend_password_needed">Entrez votre mot de passe pour emprunter.</string>
     <string name="lend_end_eyebrow">KyberNow Share</string>
     <string name="lend_end_left">Vous avez rendu l\'ordinateur.</string>
@@ -827,8 +823,6 @@
     <string name="ps_invert_y">Inverser l\'axe vertical</string>
     <string name="camera">Caméra</string>
     <string name="camera_starting">Caméra…</string>
-    <string name="camera_start_refused">La caméra n\'a pas pu démarrer sur l\'ordinateur.</string>
-    <string name="camera_no_answer">L\'ordinateur ne répond pas : la caméra est éteinte.</string>
     <string name="camera_turn_on">Allumer la caméra</string>
     <string name="camera_turn_off">Éteindre la caméra</string>
     <string name="camera_indicator">● Caméra</string>

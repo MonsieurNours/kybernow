@@ -1416,7 +1416,7 @@ public final class GamepadBridge: ObservableObject {
         slot.motors?.play(large: r.largeMotor, small: r.smallMotor, durationMs: r.durationMs)
     }
 
-    /// Vibration d'essai (écran des manettes).
+    /// « Tester la vibration » (écran des manettes).
     public func testRumble(_ id: UInt32) {
         queue.async {
             guard let slot = self.slots.values.first(where: { $0.id == id }) else { return }

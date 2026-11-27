@@ -147,8 +147,8 @@ class SessionUi(
      * clavier de l'écran proposent les touches du Mac. Toujours faux pour un invité et un ami qui emprunte.
      */
     val mac: Boolean = false,
-    /** Le système de la Station (avertissement du prêt). */
-    val stationSystem: StationSystem = StationSystem.OTHER,
+    /** L'avertissement du prêt, selon le système de la Station (`lend::warning` du cœur). */
+    val lendWarningText: String = "",
     /**
      * « Regarder » avec un compte (docs/link-ui.md, « Regarder, barre ») : la session d'un invité ([guest] vrai), avec
      * « Arrêter de regarder » et, quand la Station le permet, « Écran » et sa liste ; nul pour un invité venu par un code.

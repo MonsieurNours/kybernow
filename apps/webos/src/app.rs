@@ -546,11 +546,8 @@ pub fn shortcuts(mac: bool) -> &'static [Shortcut] {
     if mac { &MAC_SHORTCUTS } else { &SHORTCUTS }
 }
 
-/// La Station est un Mac : son système (`os` de `GET /api/stream/info`, « macOS 26.1 ») commence par « macOS ».
-/// Miroir de `kybernow_core::input::keymap::station_is_mac` (l'interface seule n'a pas le cœur).
-pub fn station_is_mac(os: &str) -> bool {
-    os.trim_start().get(..5).is_some_and(|p| p.eq_ignore_ascii_case("macos"))
-}
+/// La Station est un Mac (« Face à une Station Mac ») : la règle de toutes les apps (`rules::station`).
+pub use kybernow_rules::station::station_is_mac;
 
 /// L'avis bref des manettes indisponibles (docs/link-ui.md), montré avec l'icône de manette.
 pub fn pads_unavailable_notice() -> &'static str {
@@ -5178,7 +5175,6 @@ mod tests {
         app.store.selected = Some("b".into());
         assert!(app.adjust(Setting::CtrlCommand, 1).is_empty(), "face à un PC, pas de réglage");
         assert_eq!(app.store.hosts[1].settings.ctrl_command, None);
-        assert!(station_is_mac("macOS 15.5") && station_is_mac(" MacOS") && !station_is_mac("Windows 11") && !station_is_mac("mac"));
     }
 
     /// Manettes indisponibles sur l'ordinateur (docs/link-ui.md) : gardé au sondage, l'avis bref une fois par

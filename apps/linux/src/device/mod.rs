@@ -1772,9 +1772,10 @@ fn session_tick(app: &mut App, l: &mut Live, wins: &mut Wins, dirty: &mut bool, 
             }
             *dirty = true;
         }
-        // « Caméra… » sans réponse en 10 s : éteinte, avec l'avis.
+        // « Caméra… » sans réponse dans le délai du cœur : éteinte, avec l'avis du cœur.
         if let Some(t) = l.camera_since
-            && app.camera_unanswered(l.id, t)
+            && t.elapsed() >= kybernow_core::camera::ANSWER_WAIT
+            && app.camera_unanswered(l.id, kybernow_core::camera::device_notice(kybernow_core::camera::DeviceNotice::NoAnswer, "", kybernow_core::i18n::current()))
         {
             l.camera = None;
             l.camera_since = None;
@@ -3434,7 +3435,7 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 camera::Problem::InUse => device_notice(DeviceNotice::InUse, &name, kybernow_core::i18n::current()),
                 camera::Problem::Unplugged => device_notice(DeviceNotice::Unplugged, &name, kybernow_core::i18n::current()),
                 camera::Problem::NoEncoder => device_notice(DeviceNotice::NoEncoder, &name, kybernow_core::i18n::current()),
-                camera::Problem::Refused => crate::app::camera_refused_text().to_string(),
+                camera::Problem::Refused => device_notice(DeviceNotice::StartRefused, &name, kybernow_core::i18n::current()),
             };
             // Débranchée : la suivante de la liste prend la relève ; sinon la caméra s'éteint.
             let next = camera::cameras().into_iter().find(|(_, n)| *n != name);

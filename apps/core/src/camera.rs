@@ -579,22 +579,62 @@ fn failure_key(reason: &str) -> &'static str {
     }
 }
 
-/// Les avis de l'appareil (docs/link-ui.md), par leur nom.
+/// Les avis de la caméra que l'app montre d'elle-même (docs/link-ui.md,
+/// « Caméra de l'appareil »), par leur nom.
 pub fn device_notice(which: DeviceNotice, camera: &str, lang: Lang) -> String {
     match which {
         DeviceNotice::Denied => i18n::tr(lang, "camera.denied", &[]),
         DeviceNotice::InUse => i18n::tr(lang, "camera.in_use", &[]),
         DeviceNotice::Unplugged => i18n::tr(lang, "camera.unplugged", &[("camera", camera)]),
         DeviceNotice::NoEncoder => i18n::tr(lang, "camera.no_encoder", &[]),
+        DeviceNotice::StartRefused => i18n::tr(lang, "camera.start_refused", &[]),
+        DeviceNotice::NoAnswer => i18n::tr(lang, "camera.no_answer", &[]),
     }
 }
 
+/// Ce que la caméra allumée attend au plus la réponse de l'ordinateur
+/// (« Caméra… ») avant de s'éteindre avec [`DeviceNotice::NoAnswer`].
+pub const ANSWER_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Les avis de la caméra que l'app montre d'elle-même. Codes des ponts
+/// ([`DeviceNotice::code`]) : 0 à 5, dans l'ordre.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceNotice {
+    /// « L'accès à la caméra est refusé. Autorisez-le dans les Réglages de l'appareil. »
     Denied,
+    /// « La caméra est utilisée par une autre app. »
     InUse,
+    /// « {caméra} n'est plus branchée. »
     Unplugged,
+    /// « Cet appareil ne peut pas envoyer sa caméra. »
     NoEncoder,
+    /// La session ne prend pas la caméra : « La caméra n'a pas pu démarrer sur l'ordinateur. »
+    StartRefused,
+    /// Ni départ ni refus de l'ordinateur en [`ANSWER_WAIT`] : « L'ordinateur
+    /// ne répond pas : la caméra est éteinte. »
+    NoAnswer,
+}
+
+impl DeviceNotice {
+    /// Le code des ponts (C, JNI).
+    pub fn code(self) -> i32 {
+        match self {
+            Self::Denied => 0,
+            Self::InUse => 1,
+            Self::Unplugged => 2,
+            Self::NoEncoder => 3,
+            Self::StartRefused => 4,
+            Self::NoAnswer => 5,
+        }
+    }
+
+    /// L'avis d'un code des ponts (un code inconnu : [`Self::NoEncoder`]).
+    pub fn from_code(code: i32) -> Self {
+        [Self::Denied, Self::InUse, Self::Unplugged, Self::NoEncoder, Self::StartRefused, Self::NoAnswer]
+            .into_iter()
+            .find(|n| n.code() == code)
+            .unwrap_or(Self::NoEncoder)
+    }
 }
 
 #[cfg(test)]
@@ -611,6 +651,17 @@ mod tests {
             resolution,
             device: "iPhone".into(),
         }
+    }
+
+    #[test]
+    fn avis_de_l_app() {
+        assert_eq!(device_notice(DeviceNotice::NoAnswer, "", Lang::Fr), "L'ordinateur ne répond pas : la caméra est éteinte.");
+        assert_eq!(device_notice(DeviceNotice::StartRefused, "", Lang::En), "The camera couldn't start on the computer.");
+        assert_eq!(device_notice(DeviceNotice::Unplugged, "FaceTime HD", Lang::Fr), "FaceTime HD n'est plus branchée.");
+        for n in [DeviceNotice::Denied, DeviceNotice::InUse, DeviceNotice::Unplugged, DeviceNotice::NoEncoder, DeviceNotice::StartRefused, DeviceNotice::NoAnswer] {
+            assert_eq!(DeviceNotice::from_code(n.code()), n);
+        }
+        assert_eq!(DeviceNotice::from_code(99), DeviceNotice::NoEncoder);
     }
 
     #[test]

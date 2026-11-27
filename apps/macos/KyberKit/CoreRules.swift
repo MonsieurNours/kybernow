@@ -84,6 +84,8 @@ public struct CoreValues: Sendable {
     public let maxSessions: Int
     /// Attente au plus du lien du relais d'un partage ou d'un code de prêt.
     public let relayLinkWait: TimeInterval
+    /// La caméra allumée attend au plus la réponse de l'ordinateur.
+    public let cameraAnswerWait: TimeInterval
     /// Mise à jour d'une Station : attente avant l'avis, et la version
     /// d'avant laquelle une Station ne sait pas le dire.
     public let stationNoticeWait: TimeInterval
@@ -122,6 +124,7 @@ public struct CoreValues: Sendable {
         maxGuests = int(v["max_guests"])
         maxSessions = int(v["max_sessions"])
         relayLinkWait = TimeInterval(int(v["relay_link_wait_secs"]))
+        cameraAnswerWait = TimeInterval(int(v["camera_answer_wait_secs"]))
         stationNoticeWait = TimeInterval(int(v["station_notice_wait_secs"]))
         stationNoticeBefore = v["station_notice_before"] as? String ?? ""
         adminPort = int(v["admin_port"])

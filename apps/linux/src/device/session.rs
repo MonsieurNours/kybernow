@@ -1118,13 +1118,9 @@ mod tests {
         kybernow_core::input::RemoteCursor { visible, image: None, position: (10, 20) }
     }
 
-    /// Le miroir de l'interface (`app::station_is_mac`, sans le cœur) dit comme le cœur ; « Ctrl agit comme ⌘ »
-    /// part dans la chaîne d'entrées d'un ordinateur Mac, jamais d'un PC ni d'un invité.
+    /// « Ctrl agit comme ⌘ » part dans la chaîne d'entrées d'un ordinateur Mac, jamais d'un PC ni d'un invité.
     #[test]
     fn mac_station_like_the_core() {
-        for os in ["macOS 26.1", " macos 15", "MacOS", "Windows 11 Pro", "", "mac", "Linux"] {
-            assert_eq!(crate::app::station_is_mac(os), keymap::station_is_mac(os), "{os:?}");
-        }
         let mut mac = host(HostSettings::default());
         mac.os = Some("macOS 26.1".into());
         assert!(keymap::control_as_command(mac.settings.ctrl_command, mac.os.as_deref().unwrap_or("")));

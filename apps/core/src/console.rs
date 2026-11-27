@@ -1655,6 +1655,8 @@ fn share_refusal(status: u16, body: &serde_json::Value, retry_after: Option<u64>
         (403, "refused") => ShareError::Refused,
         (410, _) => ShareError::Expired,
         (429, _) => ShareError::TooManyTries { seconds: body.get("retry_after").and_then(|s| s.as_u64()).or(retry_after) },
+        // Passager : la Station ne peut pas signer le jeton de Kyber.
+        (503, _) => ShareError::Unavailable,
         _ => {
             let message = if code.is_empty() { tr(i18n::current(), "console.http_status", &[("status", &status.to_string())]) } else { code.to_string() };
             ShareError::Other(ConsoleError::Http { status, message })

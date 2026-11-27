@@ -96,7 +96,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         /** Session d'emprunt (prêt de l'ordinateur) : le prêt et sa demande sont remis en mémoire par `KyberNowApp.handOverLoan`. */
         const val EXTRA_BORROW = "borrow"
         /** « Caméra… » sans réponse de l'ordinateur : elle s'éteint au bout de ce temps (docs/link-ui.md, « Caméra de l'appareil »). */
-        const val CAMERA_ANSWER_MS = 10_000L
+        /** Les avis du cœur que l'app montre elle-même (`camera::DeviceNotice::code`). */
+        const val CAMERA_START_REFUSED = 4
+        const val CAMERA_NO_ANSWER = 5
 
         /** Un emprunt : la Station du prêt prépare l'écran en HDR à la demande (le cœur fait de même), sans info à lire. */
         private val LENT_HDR by lazy { HostInfo.parse(JSONObject().put("hdr", JSONObject().put("available", true))) }
@@ -258,7 +260,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         pads.mouse.mac = mac
         ui = SessionUi(
             title, tv, state, this, OnScreenPad(onScreenOut), guest = guest != null, computerName = host.name,
-            borrower = loan != null, lender = loan?.host ?: "", lendUntil = loan?.until, mac = mac, stationSystem = StationSystem.of(host.os, Native.stationIsMac(host.os ?: "")), watch = watchUi,
+            borrower = loan != null, lender = loan?.host ?: "", lendUntil = loan?.until, mac = mac, lendWarningText = Core.lendWarning(host.os), watch = watchUi,
         ).apply {
             lendWarning = !app.lendWarned
             profile = host.settings.profile
@@ -1052,7 +1054,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                 if (ok) startCameraPoll()
                 else {
                     // La session ne la prend pas : « La caméra n'a pas pu démarrer sur l'ordinateur. »
-                    cameraNotice(getString(R.string.camera_start_refused))
+                    cameraNotice(Native.cameraDeviceNotice(CAMERA_START_REFUSED, ""))
                     cameraOff()
                 }
             }
@@ -1078,16 +1080,18 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     /**
      * Les réponses de l'ordinateur, quatre fois par seconde tant qu'elle est allumée. Sans réponse en
-     * [CAMERA_ANSWER_MS] (« Caméra… » qui ne finit pas), elle s'éteint : « L'ordinateur ne répond pas : la caméra est éteinte. »
+     * `camera_answer_wait_secs` du cœur (« Caméra… » qui ne finit pas), elle s'éteint : « L'ordinateur ne répond pas : la
+     * caméra est éteinte. »
      */
     private fun startCameraPoll() {
         cameraPoll.removeCallbacksAndMessages(null)
         val since = android.os.SystemClock.elapsedRealtime()
+        val answerWaitMs = Core.values().cameraAnswerWaitMs
         val tick = object : Runnable {
             override fun run() {
                 if (handle == 0L || state.cameraState.value == 0) return
-                if (state.cameraState.value == 1 && android.os.SystemClock.elapsedRealtime() - since >= CAMERA_ANSWER_MS) {
-                    cameraNotice(getString(R.string.camera_no_answer))
+                if (state.cameraState.value == 1 && android.os.SystemClock.elapsedRealtime() - since >= answerWaitMs) {
+                    cameraNotice(Native.cameraDeviceNotice(CAMERA_NO_ANSWER, ""))
                     cameraOff()
                     return
                 }

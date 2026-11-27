@@ -169,6 +169,7 @@ pub fn values_json(caps: Capabilities) -> serde_json::Value {
         "max_guests": limits::MAX_GUESTS,
         "max_sessions": limits::MAX_SESSIONS,
         "relay_link_wait_secs": limits::RELAY_LINK_WAIT_SECS,
+        "camera_answer_wait_secs": crate::camera::ANSWER_WAIT.as_secs(),
         "station_notice_wait_secs": limits::STATION_NOTICE_WAIT_SECS,
         "station_notice_before": limits::STATION_NOTICE_BEFORE,
         "admin_port": address::ADMIN_PORT,

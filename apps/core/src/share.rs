@@ -1132,6 +1132,10 @@ pub enum ShareError {
     /// Regarder : le partage est coupé dans Admin (409 `disabled`) : « Le
     /// partage est coupé sur cet ordinateur (Admin › Appareils Link). »
     SharingOff,
+    /// 503 d'Admin, passager (la Station ne peut pas signer le jeton de
+    /// Kyber) : « Le partage n'est pas disponible pour le moment :
+    /// réessayez dans un instant. »
+    Unavailable,
     /// Le reste : Admin injoignable, certificat changé, réponse illisible,
     /// relais muet (`ConsoleError::Relay`) ; pour Regarder, les refus des
     /// comptes et les autres : le texte d'Admin.
@@ -1155,13 +1159,15 @@ impl ShareError {
             Self::Lent { name } if !name.trim().is_empty() => tr(lang, "share.watch_lent", &[("name", name)]),
             Self::Lent { .. } => tr(lang, "share.watch_lent_unnamed", &[]),
             Self::SharingOff => tr(lang, "share.disabled", &[]),
+            Self::Unavailable => tr(lang, "share.unavailable", &[]),
             Self::Other(e) => e.text(lang),
         }
     }
 
     /// Nom stable pour les ponts : `no_share`, `full`, `too_many`,
     /// `unreadable`, `refused`, `expired`, `pending_full`, `stopped`, `lend`,
-    /// `invite`, `watch_unsupported`, `lent`, `disabled`, `other`.
+    /// `invite`, `watch_unsupported`, `lent`, `disabled`, `unavailable`,
+    /// `other`.
     pub fn kind(&self) -> &'static str {
         match self {
             Self::NoShare => "no_share",
@@ -1177,6 +1183,7 @@ impl ShareError {
             Self::WatchUnsupported => "watch_unsupported",
             Self::Lent { .. } => "lent",
             Self::SharingOff => "disabled",
+            Self::Unavailable => "unavailable",
             Self::Other(_) => "other",
         }
     }
@@ -1910,6 +1917,8 @@ mod tests {
         assert_eq!(u.text(Lang::En, "Léa"), "This device cannot play this computer's picture (HEVC).");
         assert_eq!(ShareError::NoShare.text(Lang::Fr), "Aucun partage avec ce code sur le réseau.");
         assert_eq!(ShareError::Full.text(Lang::En), "This share is full (four guests at most).");
+        assert_eq!(ShareError::Unavailable.text(Lang::Fr), "Le partage n'est pas disponible pour le moment : réessayez dans un instant.");
+        assert!(matches!(crate::console::share_refusal_for_tests(503, &serde_json::json!({})), ShareError::Unavailable));
         assert_eq!(ShareAvailability::Unsupported.text(Lang::Fr).unwrap(), "Le partage demande KyberNow Station 0.8.0 ou plus récente.");
         assert_eq!(ShareAvailability::Disabled.text(Lang::En).unwrap(), "Sharing is turned off on this computer (Admin › Link devices).");
     }

@@ -34,12 +34,11 @@ const FOOT: f32 = 56.0;
 /// de l'ordinateur ») : Windows, Mac, ou Linux et système inconnu (une Station d'avant).
 fn warning(app: &App, s: &SessionUi) -> String {
     let os = app.store.host(&s.host).and_then(|h| h.os.as_deref()).unwrap_or("");
-    let (fr, en) = if os.trim_start().get(..7).is_some_and(|p| p.eq_ignore_ascii_case("windows")) {
-        ("Votre ami joue dans votre session Windows.", "Your friend plays in your Windows session.")
-    } else if crate::app::station_is_mac(os) {
-        ("Votre ami joue dans votre session du Mac.", "Your friend plays in your Mac session.")
-    } else {
-        ("Votre ami joue dans votre session.", "Your friend plays in your session.")
+    use kybernow_rules::station::StationSystem;
+    let (fr, en) = match StationSystem::of(os) {
+        StationSystem::Windows => ("Votre ami joue dans votre session Windows.", "Your friend plays in your Windows session."),
+        StationSystem::Mac => ("Votre ami joue dans votre session du Mac.", "Your friend plays in your Mac session."),
+        StationSystem::Linux | StationSystem::Unknown => ("Votre ami joue dans votre session.", "Your friend plays in your session."),
     };
     let rest = tr(
         "Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",

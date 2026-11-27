@@ -81,7 +81,8 @@
     "watch_unsupported": "Cette Station ne permet pas encore de regarder : mettez-la à jour.",
     "watch_lent": "{name} est prêté en ce moment.",
     "watch_lent_unnamed": "L'ordinateur est prêté en ce moment.",
-    "watch_no_route": "l'ordinateur n'est pas sur ce réseau, et le relais ne le connaît pas encore"
+    "watch_no_route": "l'ordinateur n'est pas sur ce réseau, et le relais ne le connaît pas encore",
+    "unavailable": "Le partage n'est pas disponible pour le moment : réessayez dans un instant."
   },
   "relay": {
     "unreachable": "Le relais ne répond pas.",
@@ -121,7 +122,10 @@
     "state_busy": "Occupé",
     "state_lent": "Prêté à quelqu'un d'autre",
     "state_locked": "Verrouillé",
-    "state_off": "Prêt coupé"
+    "state_off": "Prêt coupé",
+    "warning_windows": "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
+    "warning_mac": "Votre ami joue dans votre session du Mac. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
+    "warning_other": "Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance."
   },
   "pyrowave": {
     "lowered": "Définition ramenée à {width} × {height} pour tenir dans {mbps} Mbit/s.",
@@ -283,6 +287,8 @@
     "denied": "L'accès à la caméra est refusé. Autorisez-le dans les Réglages de l'appareil.",
     "in_use": "La caméra est utilisée par une autre app.",
     "unplugged": "{camera} n'est plus branchée.",
-    "no_encoder": "Cet appareil ne peut pas envoyer sa caméra."
+    "no_encoder": "Cet appareil ne peut pas envoyer sa caméra.",
+    "no_answer": "L'ordinateur ne répond pas : la caméra est éteinte.",
+    "start_refused": "La caméra n'a pas pu démarrer sur l'ordinateur."
   }
 }

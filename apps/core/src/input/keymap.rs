@@ -92,10 +92,8 @@ pub const SC_LEFT_WIN: u16 = 0xE05B;
 pub const SC_RIGHT_WIN: u16 = 0xE05C;
 
 /// La Station est un Mac : son système (`Info::os`, « macOS 26.1 ») commence
-/// par « macOS ».
-pub fn station_is_mac(os: &str) -> bool {
-    os.trim_start().get(..5).is_some_and(|p| p.eq_ignore_ascii_case("macos"))
-}
+/// par « macOS » (`rules::station`, la règle de toutes les apps).
+pub use kybernow_rules::station::station_is_mac;
 
 /// « Ctrl agit comme ⌘ » pour cet ordinateur : seulement face à un Mac, et
 /// allumé tant que l'utilisateur ne l'a pas éteint (`setting` : le réglage

@@ -837,6 +837,16 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_stationIsMa
     })
 }
 
+/// L'avertissement du panneau « Prêter » selon le système de la Station
+/// (`os` de son info ; `lend::warning`).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_lendWarning(mut env: Env, _: JClass, os: JString) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let os = string(&mut env, &os);
+        give(&mut env, &kybernow_core::lend::warning(&os, kybernow_core::i18n::current()))
+    })
+}
+
 /// « Ctrl agit comme ⌘ » pour cet ordinateur (`keymap::control_as_command`) ;
 /// `setting` : −1 jamais changé, 0 éteint, 1 allumé.
 #[unsafe(no_mangle)]
