@@ -305,13 +305,10 @@ fn statistics(cv: &mut Canvas, h: &Host, x: f32, mut y: f32, w: f32) {
 }
 
 /// Les quatre premiers groupes de l'empreinte, comme dans les autres apps et dans Admin (docs/link-ui.md,
-/// TRANS-34) : `sha256:9f:3a:c2:71:0b:…` → `9F3A C271 0B… …`, seize chiffres en quatre groupes de quatre.
+/// TRANS-34 ; `rules::fingerprint::short`) : `sha256:9f:3a:c2:71:0b:…` → `9F3A C271 0B…`. Sans chiffre : « — ».
 pub fn fingerprint_groups(fp: &str) -> String {
-    let hex: String = fp.trim().trim_start_matches("sha256:").chars().filter(char::is_ascii_hexdigit).take(16).collect::<String>().to_uppercase();
-    if hex.is_empty() {
-        return "—".into();
-    }
-    hex.as_bytes().chunks(4).map(|c| std::str::from_utf8(c).unwrap_or_default()).collect::<Vec<_>>().join(" ")
+    let short = kybernow_rules::fingerprint::short(fp);
+    if short.is_empty() { "—".into() } else { short }
 }
 
 /// Une latence : une décimale sous 100 ms, virgule en français.
@@ -365,19 +362,13 @@ pub fn moment(at: u64, now: u64) -> String {
     if days < 7 {
         return if english() { format!("{days} days ago") } else { format!("il y a {days} jours") };
     }
-    const FR: [&str; 12] = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-    const EN: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    let m = (month as usize).min(11);
-    if english() { format!("{mday} {}", EN[m]) } else { format!("le {mday} {}", FR[m]) }
+    let m = crate::i18n::month(month.max(0) as usize);
+    if english() { format!("{mday} {m}") } else { format!("le {mday} {m}") }
 }
 
 /// Jour du calendrier local (numéro de jour continu), mois (0 à 11) et jour du mois.
 fn local_day(t: u64) -> (i64, i32, i32) {
-    let secs = t as libc::time_t;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    if unsafe { libc::localtime_r(&secs, &mut tm) }.is_null() {
-        return ((t / 86_400) as i64, 0, 1);
-    }
+    let Some(tm) = crate::i18n::local_time(t) else { return ((t / 86_400) as i64, 0, 1) };
     // Jours depuis le 1er mars de l'an 0 (calendrier grégorien), pour la différence.
     let (y, m) = (tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1);
     let (y, m) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };

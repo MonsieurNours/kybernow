@@ -516,15 +516,14 @@ impl KnAccount {
     }
 }
 
-/// Un relais tel qu'on le montre : sa forme normale sans l'empreinte épinglée (`RelayAddr::web_authority`).
+/// Un relais tel qu'on le montre : sa forme normale, sans l'empreinte épinglée ni le port 443 (`rules::relay::label`,
+/// celle du cœur et du tunnel) ; aucun : le relais public.
 pub fn relay_label(relay: &str) -> String {
-    let r = relay.split('#').next().unwrap_or_default().trim();
-    let r = r.strip_suffix(":443").unwrap_or(r);
-    if r.is_empty() { DEFAULT_RELAY.to_string() } else { r.to_string() }
+    if relay.split('#').next().unwrap_or_default().trim().is_empty() { DEFAULT_RELAY.to_string() } else { kybernow_rules::relay::label(relay.trim()) }
 }
 
 /// Le relais public, proposé d'abord (« Ajouter un compte »).
-pub const DEFAULT_RELAY: &str = "share.kybernow.app";
+pub use kybernow_rules::relay::DEFAULT_RELAY;
 
 /// Un ordinateur d'un compte (`account::AccountComputer` du cœur, même JSON). La dernière liste est gardée (rien de
 /// secret) : l'accueil la montre dès le lancement, et l'empreinte d'Admin, que le relais ne donne que pour une Station

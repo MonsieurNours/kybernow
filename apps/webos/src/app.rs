@@ -492,32 +492,57 @@ pub enum MenuItem {
     Disconnect,
 }
 
-/// Raccourcis du menu Touches (scancodes de Windows, comme sur Android).
-pub const SHORTCUTS: [(&str, &str, &[u16]); 10] = [
-    ("Ctrl + Alt + Suppr", "Ctrl + Alt + Del", &[0x1D, 0x38, 0xE053]),
-    ("Alt + Tab", "Alt + Tab", &[0x38, 0x0F]),
-    ("Touche Windows", "Windows key", &[0xE05B]),
-    ("Windows + D : bureau", "Windows + D: desktop", &[0xE05B, 0x20]),
-    ("Alt + F4", "Alt + F4", &[0x38, 0x3E]),
-    ("Échap", "Esc", &[0x01]),
-    ("F11 : plein écran", "F11: full screen", &[0x57]),
-    ("Gestionnaire des tâches", "Task Manager", &[0x1D, 0x2A, 0x01]),
-    ("Impr. écran", "Print Screen", &[0xE037]),
-    ("Windows + L : verrouiller", "Windows + L: lock", &[0xE05B, 0x26]),
+/// Une entrée du menu Touches : son nom, son indication (en petit dessous ; aucune pour « Échap ») et les touches
+/// envoyées (scancodes de Windows, comme sur Android).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shortcut {
+    pub name: (&'static str, &'static str),
+    pub hint: Option<(&'static str, &'static str)>,
+    pub keys: &'static [u16],
+}
+
+impl Shortcut {
+    pub fn name(&self) -> &'static str {
+        tr(self.name.0, self.name.1)
+    }
+
+    pub fn hint(&self) -> Option<&'static str> {
+        self.hint.map(|(fr, en)| tr(fr, en))
+    }
+}
+
+const fn key(fr: &'static str, en: &'static str, hint: Option<(&'static str, &'static str)>, keys: &'static [u16]) -> Shortcut {
+    Shortcut { name: (fr, en), hint, keys }
+}
+
+/// Le menu Touches face à un PC (docs/link-ui.md, « Touches ») : dix entrées, dans cet ordre. Les polices du
+/// téléviseur n'ont pas le signe ⊞ : « Windows » à sa place, comme l'app Linux.
+pub const SHORTCUTS: [Shortcut; 10] = [
+    key("Ctrl + Alt + Suppr", "Ctrl + Alt + Del", Some(("verrouiller, changer", "lock, switch user")), &[0x1D, 0x38, 0xE053]),
+    key("Touche Windows seule", "Windows key alone", Some(("menu Démarrer", "Start menu")), &[0xE05B]),
+    key("Alt + Tab", "Alt + Tab", Some(("changer d'app", "switch apps")), &[0x38, 0x0F]),
+    key("Impr. écran", "Print Screen", Some(("capture", "screenshot")), &[0xE037]),
+    key("Windows + D", "Windows + D", Some(("bureau", "desktop")), &[0xE05B, 0x20]),
+    key("Windows + L", "Windows + L", Some(("verrouiller", "lock")), &[0xE05B, 0x26]),
+    key("Alt + F4", "Alt + F4", Some(("fermer la fenêtre", "close the window")), &[0x38, 0x3E]),
+    key("Échap", "Esc", None, &[0x01]),
+    key("Gestionnaire des tâches", "Task Manager", Some(("Ctrl + Maj + Échap", "Ctrl + Shift + Esc")), &[0x1D, 0x2A, 0x01]),
+    key("F11", "F11", Some(("plein écran", "full screen")), &[0x57]),
 ];
 
-/// Le même menu face à une Station Mac (docs/link-ui.md, « Face à une Station Mac ») : la touche ⊞ y est ⌘.
-/// Ces touches partent telles quelles, sans l'échange de « Ctrl agit comme ⌘ ».
-pub const MAC_SHORTCUTS: [(&str, &str, &[u16]); 5] = [
-    ("⌘ ⇥ : changer d'app", "⌘ ⇥: switch app", &[0xE05B, 0x0F]),
-    ("⌘ Espace : Spotlight", "⌘ Space: Spotlight", &[0xE05B, 0x39]),
-    ("⌃ ⌘ Q : verrouiller", "⌃ ⌘ Q: lock", &[0x1D, 0xE05B, 0x10]),
-    ("⇧ ⌘ 5 : capture", "⇧ ⌘ 5: screenshot", &[0x2A, 0xE05B, 0x06]),
-    ("⌥ ⌘ Échap : forcer à quitter", "⌥ ⌘ Esc: force quit", &[0x38, 0xE05B, 0x01]),
+/// Le même menu face à une Station Mac (docs/link-ui.md, « Face à une Station Mac ») : la touche ⊞ y est ⌘. Les
+/// polices du téléviseur n'ont pas les signes ⌘ ⇥ ⌃ ⌥ ⇧ : les noms des touches à leur place. Ces touches partent
+/// telles quelles, sans l'échange de « Ctrl agit comme ⌘ ».
+pub const MAC_SHORTCUTS: [Shortcut; 5] = [
+    key("Cmd + Tab", "Cmd + Tab", Some(("changer d'app", "switch apps")), &[0xE05B, 0x0F]),
+    key("Cmd + Espace", "Cmd + Space", Some(("Spotlight", "Spotlight")), &[0xE05B, 0x39]),
+    key("Ctrl + Cmd + Q", "Ctrl + Cmd + Q", Some(("verrouiller", "lock")), &[0x1D, 0xE05B, 0x10]),
+    key("Maj + Cmd + 5", "Shift + Cmd + 5", Some(("capture", "screenshot")), &[0x2A, 0xE05B, 0x06]),
+    key("Option + Cmd + Échap", "Option + Cmd + Esc", Some(("forcer à quitter", "force quit")), &[0x38, 0xE05B, 0x01]),
 ];
 
 /// Les raccourcis du menu Touches : ceux d'un PC, ou ceux du Mac face à une Station Mac.
-pub fn shortcuts(mac: bool) -> &'static [(&'static str, &'static str, &'static [u16])] {
+pub fn shortcuts(mac: bool) -> &'static [Shortcut] {
     if mac { &MAC_SHORTCUTS } else { &SHORTCUTS }
 }
 
@@ -802,9 +827,9 @@ pub struct ShareView {
 }
 
 /// Ce que l'app attend au plus le lien du relais d'un partage en préparation, à partir du moment où elle le voit
-/// (miroir de `kybernow_core::share::RELAY_LINK_WAIT`, que l'interface seule ne connaît pas) : ensuite, elle fait
-/// comme si le relais était injoignable (le lien du réseau, « Pas encore joignable hors de chez vous. »).
-pub const RELAY_LINK_WAIT: Duration = Duration::from_secs(10);
+/// (`rules::limits::RELAY_LINK_WAIT_SECS`, la valeur du cœur) : ensuite, elle fait comme si le relais était
+/// injoignable (le lien du réseau, « Pas encore joignable hors de chez vous. »).
+pub const RELAY_LINK_WAIT: Duration = Duration::from_secs(kybernow_rules::limits::RELAY_LINK_WAIT_SECS);
 
 /// L'état du relais d'un partage ouvert (`relay.state` d'Admin).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -924,8 +949,7 @@ pub mod relay_wait {
     }
 }
 
-/// Les invités qu'un partage reçoit au plus.
-pub const MAX_GUESTS: usize = 4;
+pub use kybernow_rules::limits::MAX_GUESTS;
 
 /// « 2 invités », « 1 invité », « 0 invité » ; “2 guests”, “1 guest” : la pastille de la barre.
 pub fn guests_label(n: usize) -> String {
@@ -961,10 +985,8 @@ pub fn share_tile(share: Option<&ShareView>) -> (String, bool) {
     }
 }
 
-/// « 123 456 » : le code d'un partage (six chiffres, groupés par trois), tel quel s'il n'en a pas six.
-pub fn format_code(code: &str) -> String {
-    if code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()) { format!("{} {}", &code[..3], &code[3..]) } else { code.to_string() }
-}
+/// « 123 456 » : le code d'un partage ou d'un prêt ; « 02:14 », « 1:02:14 » : le temps d'un enregistrement.
+pub use kybernow_rules::format::{format_code, recording_clock};
 
 /// « Invité sur Atelier », “Guest on Atelier” : le titre d'une session d'invité.
 pub fn guest_title(computer: &str) -> String {
@@ -1403,12 +1425,6 @@ impl RecordingUi {
     }
 }
 
-/// « 02:14 », « 59:59 », « 1:02:14 ».
-pub fn recording_clock(seconds: u64) -> String {
-    let (h, m, s) = (seconds / 3600, (seconds / 60) % 60, seconds % 60);
-    if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m:02}:{s:02}") }
-}
-
 /// La vue du prêt chez l'hôte (`LendView` du cœur) : ce qui est prêté, à qui, le préavis, les demandes, le code.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct LendHostView {
@@ -1627,7 +1643,7 @@ pub enum FriendField {
 
 /// Une heure locale du prêt (`localtime_r`, le fuseau du téléviseur) : « 18 h », « 18 h 30 » ; “6 PM”, “6:30 PM”.
 pub fn hour_label(at: u64) -> String {
-    let Some(tm) = local_tm(at) else { return String::new() };
+    let Some(tm) = crate::i18n::local_time(at) else { return String::new() };
     let (h, m) = (tm.tm_hour, tm.tm_min);
     if crate::i18n::english() {
         let (h12, ampm) = (if h % 12 == 0 { 12 } else { h % 12 }, if h < 12 { "AM" } else { "PM" });
@@ -1641,20 +1657,8 @@ pub fn hour_label(at: u64) -> String {
 
 /// Le jour de la semaine d'un créneau : « mercredi », “Wednesday”.
 pub fn weekday_label(at: u64) -> String {
-    let Some(tm) = local_tm(at) else { return String::new() };
-    let i = tm.tm_wday.clamp(0, 6) as usize;
-    if crate::i18n::english() {
-        ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][i].into()
-    } else {
-        ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"][i].into()
-    }
-}
-
-fn local_tm(at: u64) -> Option<libc::tm> {
-    let t = at as libc::time_t;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    let r = unsafe { libc::localtime_r(&t, &mut tm) };
-    (!r.is_null()).then_some(tm)
+    let Some(tm) = crate::i18n::local_time(at) else { return String::new() };
+    crate::i18n::weekday(tm.tm_wday.max(0) as usize).into()
 }
 
 /// Ce que l'invité tient de sa session (une session d'invité n'a pas d'ordinateur dans la liste de l'appareil).
@@ -3390,7 +3394,7 @@ impl App {
                         vec![Action::Ps(crate::ps::PsAction::ProbeAddress { address: a, then_station: None })]
                     }
                     None => {
-                        self.add.message = Some(tr("Adresse et port d'Admin, par exemple 192.168.1.20:24811", "Admin address and port, for example 192.168.1.20:24811").into());
+                        self.add.message = Some(format!("{} {ADDRESS_EXAMPLE}", tr("Adresse et port d'Admin, par exemple", "Admin address and port, for example")));
                         Vec::new()
                     }
                 }
@@ -3443,7 +3447,7 @@ impl App {
             }
             Target::Menu(item) => self.menu(item),
             Target::Shortcut(i) => {
-                let Some(keys) = shortcuts(self.session_mac()).get(i).map(|k| k.2.to_vec()) else { return Vec::new() };
+                let Some(keys) = shortcuts(self.session_mac()).get(i).map(|k| k.keys.to_vec()) else { return Vec::new() };
                 if let Some(s) = self.session.as_mut() {
                     s.keys = false;
                     s.menu = false;
@@ -4613,7 +4617,7 @@ impl App {
                 st.codec = opts[cycle(i, opts.len(), dir)].into();
             }
             Setting::Bitrate => {
-                let opts = [0u32, 20, 30, 40, 50, 60, 70, 80, 95];
+                let opts = bitrate_choices();
                 let i = opts.iter().position(|v| *v == st.mbps).unwrap_or(0);
                 st.mbps = opts[cycle(i, opts.len(), dir)];
             }
@@ -4964,48 +4968,52 @@ pub fn setup_text(v: &str) -> String {
     }
 }
 
-/// L'adresse d'Admin à ouvrir dans un navigateur (le QR code de la rubrique
-/// Station) : celle du cœur sur le téléviseur.
-#[cfg(feature = "device")]
-pub use kybernow_core::console::admin_url;
+/// L'adresse d'Admin à ouvrir dans un navigateur (le QR code de la rubrique Station), crochets IPv6 une seule fois ;
+/// l'adresse tapée dans « Par adresse » (`192.168.1.20:9443`, `[fe80::1]:9443`), port exigé : sans port, une IPv4
+/// seule est une console PlayStation.
+pub use kybernow_rules::address::{admin_url, ADDRESS_EXAMPLE};
 
-/// Sans le cœur (captures sur l'ordinateur, `--no-default-features`, qui ne
-/// compile pas les bibliothèques de Kyber) : la même règle, recopiée.
-#[cfg(not(feature = "device"))]
-pub fn admin_url(address: &str, port: u16) -> String {
-    if address.contains(':') && !address.starts_with('[') { format!("https://[{address}]:{port}/") } else { format!("https://{address}:{port}/") }
+/// `192.168.1.20:9443` → adresse et port ; `None` sans port (TRANS-35 : `fe80::1` n'est pas l'hôte `fe80:` au port 1).
+pub fn parse_address(s: &str) -> Option<(String, u16)> {
+    kybernow_rules::address::parse_address(s, None)
+}
+
+/// Les choix de « Débit » : Auto (0), puis de 20 à 80 Mbit/s par 10 et le plus haut du téléviseur
+/// (`rules::limits::manual_mbps`, 95 : son décodeur), quel que soit le format (pas de PyroWave sur LG).
+pub fn bitrate_choices() -> Vec<u32> {
+    let (_, max) = kybernow_rules::limits::manual_mbps(kybernow_rules::limits::Device::LgTv, false);
+    std::iter::once(0).chain((20..max).step_by(10)).chain(std::iter::once(max)).collect()
 }
 
 fn cycle(i: usize, n: usize, dir: i32) -> usize {
     ((i as i32 + dir).rem_euclid(n as i32)) as usize
 }
 
-/// `192.168.1.20:24811` → adresse et port.
-pub fn parse_address(s: &str) -> Option<(String, u16)> {
-    let s = s.trim();
-    // IPv6 : le port se donne après les crochets (`[fe80::1]:24811`) ; sans crochets, les deux-points sont ceux de
-    // l'adresse, il n'y a pas de port (TRANS-35 : `fe80::1` n'est pas l'hôte `fe80:` au port 1).
-    let (a, p) = if let Some(rest) = s.strip_prefix('[') {
-        let (a, after) = rest.split_once(']')?;
-        (a, after.strip_prefix(':')?)
-    } else {
-        let (a, p) = s.rsplit_once(':')?;
-        if a.contains(':') {
-            return None;
-        }
-        (a, p)
-    };
-    let port: u16 = p.parse().ok()?;
-    let a = a.trim();
-    if a.is_empty() || port == 0 {
-        return None;
-    }
-    Some((a.to_string(), port))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Les polices du téléviseur ont chaque signe du menu Touches (ni ⊞ ni ⌘ : les noms des touches à leur place).
+    #[test]
+    fn shortcuts_are_drawable() {
+        let fonts = [&include_bytes!("../assets/fonts/archivo-semibold.ttf")[..], &include_bytes!("../assets/fonts/archivo-regular.ttf")[..]];
+        for bytes in fonts {
+            let font = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()).unwrap();
+            for k in SHORTCUTS.iter().chain(MAC_SHORTCUTS.iter()) {
+                let texts = [k.name.0, k.name.1].into_iter().chain(k.hint.into_iter().flat_map(|(fr, en)| [fr, en]));
+                for t in texts {
+                    assert!(t.chars().all(|c| font.lookup_glyph_index(c) != 0), "signe absent des polices : {t}");
+                }
+            }
+        }
+        assert_eq!(SHORTCUTS.len(), 10);
+        assert_eq!(SHORTCUTS[0].name(), "Ctrl + Alt + Suppr");
+    }
+
+    #[test]
+    fn bitrates() {
+        assert_eq!(bitrate_choices(), vec![0, 20, 30, 40, 50, 60, 70, 80, 90, 95]);
+    }
 
     #[test]
     fn address() {
@@ -5016,6 +5024,8 @@ mod tests {
         assert_eq!(parse_address("fe80::1"), None);
         assert_eq!(parse_address("[fe80::1]"), None);
         assert_eq!(parse_address("pc.local:24811"), Some(("pc.local".into(), 24811)));
+        // Plus fort que la copie d'avant : une IPv4 entre crochets n'est pas une adresse.
+        assert_eq!(parse_address("[192.168.1.20]:24811"), None);
     }
 
     /// WEBOS-11 : Retour sur l'accueil annule d'abord une demande d'emprunt en attente, au lieu de quitter l'app.
@@ -5122,7 +5132,7 @@ mod tests {
         assert!(app.activate(Target::Shortcut(5)).is_empty(), "le menu du Mac n'a que cinq touches");
         app.session = Some(SessionUi::new("b", "B", Profile::Jeu, false));
         assert!(!app.session_mac());
-        assert_eq!(app.activate(Target::Shortcut(0)), vec![Action::Shortcut(SHORTCUTS[0].2.to_vec())]);
+        assert_eq!(app.activate(Target::Shortcut(0)), vec![Action::Shortcut(SHORTCUTS[0].keys.to_vec())]);
         // Un invité ne connaît pas le système de l'ordinateur : le menu d'un PC.
         app.session = Some(SessionUi::guest("a", "A", ShareRole::Kbm));
         assert!(!app.session_mac());

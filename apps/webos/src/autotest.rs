@@ -140,15 +140,9 @@ pub fn banner_text() -> &'static str {
 
 /// « 26 novembre 2026 », “November 26, 2026”, à l'heure du téléviseur.
 pub fn date_label(at: u64) -> String {
-    const FR: [&str; 12] = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-    const EN: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    let t = at as libc::time_t;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    if unsafe { libc::localtime_r(&t, &mut tm) }.is_null() {
-        return String::new();
-    }
-    let (d, m, y) = (tm.tm_mday, tm.tm_mon.clamp(0, 11) as usize, tm.tm_year + 1900);
-    if english() { format!("{} {d}, {y}", EN[m]) } else { format!("{d} {} {y}", FR[m]) }
+    let Some(tm) = crate::i18n::local_time(at) else { return String::new() };
+    let (d, m, y) = (tm.tm_mday, crate::i18n::month(tm.tm_mon.max(0) as usize), tm.tm_year + 1900);
+    if english() { format!("{m} {d}, {y}") } else { format!("{d} {m} {y}") }
 }
 
 /// Le réseau du test, tel que la phrase le dit : son nom, « par le relais » pour le relais.

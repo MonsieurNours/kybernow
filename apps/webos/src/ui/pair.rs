@@ -263,7 +263,7 @@ fn address(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let (x, y, w) = (96.0, 380.0, 820.0);
     cv.rrect(x, y, w, 110.0, 18.0, PANEL_SOLID);
     cv.rrect_stroke(x, y, w, 110.0, 18.0, 2.0, SPECTRE);
-    let shown = if app.add.address.is_empty() { "192.168.1.20:24811" } else { app.add.address.as_str() };
+    let shown = if app.add.address.is_empty() { crate::app::ADDRESS_EXAMPLE } else { app.add.address.as_str() };
     let color = if app.add.address.is_empty() { FROST_4 } else { FROST };
     let tw = cv.text(x + 36.0, y + 72.0, Text::new(Font::MonoMedium, 44.0, color), shown);
     if !app.add.address.is_empty() {
