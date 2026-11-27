@@ -619,10 +619,14 @@ private struct SessionBar: View {
         VStack(spacing: 10) {
             // Une fenêtre étroite (une session de plus, aux deux tiers de
             // l'écran) : la barre compacte, sans le format ni le texte des
-            // pastilles secondaires.
+            // pastilles secondaires ; si elle ne tient toujours pas (8 points
+            // de marge de chaque côté), ses commandes passent une à une dans
+            // « Plus », dans l'ordre de link-ui (« Menu Plus »).
             ViewThatFits(in: .horizontal) {
-                row(compact: false)
-                row(compact: true)
+                row(compact: false, overflow: 0)
+                ForEach(0...moreSlots.count, id: \.self) { n in
+                    row(compact: true, overflow: n)
+                }
             }
             .frame(height: 52)
             .glass(14, tint: 0.62)
@@ -630,6 +634,7 @@ private struct SessionBar: View {
                 Color.clear.preference(key: SessionBarRectKey.self, value: g.frame(in: SessionChrome.space))
             })
             .shadow(color: .black.opacity(0.55), radius: 25, y: 14)
+            .padding(.horizontal, 8)
 
             if session.padMode {
                 PadBanner().transition(.opacity.combined(with: .offset(y: -6)))
@@ -668,7 +673,7 @@ private struct SessionBar: View {
     /// Barre réduite d'un invité (docs/link-ui.md, « Partage ») : son rôle,
     /// « Quitter le partage », les mesures et le son ; la souris seulement si
     /// l'hôte lui a donné le clavier et la souris ; ni profil ni réglages.
-    private func guestRow(compact: Bool) -> some View {
+    private func guestRow(compact: Bool, moved: [MoreSlot]) -> some View {
         let role = session.shareRole
         return HStack(spacing: 6) {
             Mark(size: 22, level: .lit)
@@ -684,8 +689,8 @@ private struct SessionBar: View {
             statsButton(compact: compact)
             pyrowaveChip(compact: compact)
             divider
-            keepSound(compact: compact)
-            micChip(compact: compact)
+            if moved.contains(.keepSound) { more(.keepSound, moved) } else { keepSound(compact: compact) }
+            if moved.contains(.mic) { more(.mic, moved) } else { micChip(compact: compact) }
             // « Qualité de l'image » : la qualité reçue, et les cinq choix.
             GlassMenu(items: ShareQuality.allCases.map { quality in
                 .init(id: "\(quality.rawValue)", title: quality.label, checked: quality == session.shareQuality) { session.setShareQuality(quality) }
@@ -707,15 +712,19 @@ private struct SessionBar: View {
                 .help(Share.watchWord(.screen))
             }
             if role.keyboardAndMouse {
-                GlassMenu(items: MouseChoice.allCases.map { choice in
-                    .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
-                }) {
-                    chip(icon: session.mouseCaptured ? "crosshair" : "cursor", text: mouseLabel, caret: true, compact: compact)
+                if moved.contains(.mouse) {
+                    more(.mouse, moved)
+                } else {
+                    GlassMenu(items: mouseItems) {
+                        chip(icon: session.mouseCaptured ? "crosshair" : "cursor", text: mouseLabel, caret: true, compact: compact)
+                    }
+                    .help("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
                 }
-                .help("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
             }
             divider
-            if session.canToggleFullScreen {
+            if moved.contains(.fullScreen) {
+                more(.fullScreen, moved)
+            } else if session.canToggleFullScreen {
                 Button { session.toggleFullScreen() } label: {
                     Icon("corners-out", size: 16, bold: true)
                         .foregroundStyle(Theme.text2)
@@ -757,7 +766,7 @@ private struct SessionBar: View {
     /// le plein écran, « Se déconnecter » (sans rendre : il peut revenir
     /// pendant 15 min) et « Rendre l'ordinateur » ; ni profil de la Station ni
     /// presse-papiers.
-    private func borrowerRow(compact: Bool) -> some View {
+    private func borrowerRow(compact: Bool, moved: [MoreSlot]) -> some View {
         HStack(spacing: 6) {
             Mark(size: 22, level: .lit)
             Text(LendText.lentBy(session.lendHost)).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
@@ -775,18 +784,22 @@ private struct SessionBar: View {
             pyrowaveChip(compact: compact)
             divider
             hdrToggle(compact: compact)
-            keepSound(compact: compact)
-            micChip(compact: compact)
-            cameraMenu(compact: compact)
-            GlassMenu(items: MouseChoice.allCases.map { choice in
-                .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
-            }) {
-                chip(icon: session.mouseCaptured ? "crosshair" : "cursor", text: mouseLabel, caret: true, compact: compact)
+            if moved.contains(.keepSound) { more(.keepSound, moved) } else { keepSound(compact: compact) }
+            if moved.contains(.mic) { more(.mic, moved) } else { micChip(compact: compact) }
+            if moved.contains(.camera) { more(.camera, moved) } else { cameraMenu(compact: compact) }
+            if moved.contains(.mouse) {
+                more(.mouse, moved)
+            } else {
+                GlassMenu(items: mouseItems) {
+                    chip(icon: session.mouseCaptured ? "crosshair" : "cursor", text: mouseLabel, caret: true, compact: compact)
+                }
+                .help("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
+                .overlay(ring(0))
             }
-            .help("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
-            .overlay(ring(0))
             divider
-            if session.canToggleFullScreen {
+            if moved.contains(.fullScreen) {
+                more(.fullScreen, moved)
+            } else if session.canToggleFullScreen {
                 Button { session.toggleFullScreen() } label: {
                     Icon("corners-out", size: 16, bold: true)
                         .foregroundStyle(Theme.text2)
@@ -837,16 +850,103 @@ private struct SessionBar: View {
         .fixedSize()
     }
 
-    @ViewBuilder private func row(compact: Bool) -> some View {
-        if session.isBorrower { borrowerRow(compact: compact) } else if session.isGuest { guestRow(compact: compact) } else { hostRow(compact: compact) }
+    @ViewBuilder private func row(compact: Bool, overflow: Int) -> some View {
+        let moved = Array(moreSlots.prefix(overflow))
+        if session.isBorrower { borrowerRow(compact: compact, moved: moved) } else if session.isGuest { guestRow(compact: compact, moved: moved) } else { hostRow(compact: compact, moved: moved) }
     }
 
-    private func hostRow(compact: Bool) -> some View {
+    // MARK: Menu « Plus »
+
+    /// Les commandes qui peuvent passer dans « Plus », dans l'ordre où elles
+    /// y passent (docs/link-ui.md) ; « Touches » n'existe pas sur Mac (le
+    /// clavier du Mac envoie tout).
+    enum MoreSlot { case computers, mouse, keepSound, mic, camera, clipboard, screen, fullScreen }
+
+    /// Celles que la barre de cette session montre.
+    private var moreSlots: [MoreSlot] {
+        var slots: [MoreSlot] = []
+        let host = !session.isGuest && !session.isBorrower
+        if host, !ComputersMenu.items(for: session, store: AppModel.shared.store, sessions: AppModel.shared.sessions).isEmpty { slots.append(.computers) }
+        if !session.isGuest || session.shareRole.keyboardAndMouse { slots.append(.mouse) }
+        if session.host.settings.audio != .off, sessions.count >= 2 { slots.append(.keepSound) }
+        if session.micShown { slots.append(.mic) }
+        if session.cameraOffered, !session.isGuest { slots.append(.camera) }
+        if host { slots.append(.clipboard) }
+        if host, session.canPickScreen { slots.append(.screen) }
+        if session.canToggleFullScreen { slots.append(.fullScreen) }
+        return slots
+    }
+
+    /// Le menu « Plus », à la place de la première commande passée dedans.
+    @ViewBuilder private func more(_ slot: MoreSlot, _ moved: [MoreSlot]) -> some View {
+        if slot == moved.first { GlassMoreMenu(entries: moved.map(moreEntry)) }
+    }
+
+    private func moreEntry(_ slot: MoreSlot) -> GlassMoreEntry {
+        switch slot {
+        case .computers:
+            return GlassMoreEntry(id: "computers", title: String(localized: "Ordinateurs"),
+                                  submenu: ComputersMenu.items(for: session, store: AppModel.shared.store, sessions: AppModel.shared.sessions))
+        case .mouse:
+            return GlassMoreEntry(id: "mouse", title: mouseLabel, submenu: mouseItems)
+        case .keepSound:
+            let on = session.keepSound
+            return GlassMoreEntry(id: "keepSound", title: String(localized: "Garder le son"), checked: on) {
+                AppModel.shared.sessions.setKeepSound(!on, for: session)
+            }
+        case .mic:
+            let mic = session.mic
+            return GlassMoreEntry(id: "mic", title: mic.label, checked: mic.lit, enabled: mic.reason == nil, help: mic.tooltip) {
+                session.toggleMicrophone()
+            }
+        case .camera:
+            return GlassMoreEntry(id: "camera", title: CameraText.camera, checked: session.cameraState != .off, submenu: cameraItems)
+        case .clipboard:
+            return GlassMoreEntry(id: "clipboard", title: String(localized: "Presse-papiers"), checked: session.host.settings.clipboard,
+                                  help: session.host.settings.clipboard ? String(localized: "Presse-papiers partagé avec l'ordinateur (texte)") : String(localized: "Presse-papiers non partagé (Réglages)"))
+        case .screen:
+            return GlassMoreEntry(id: "screen", title: screenLabel, submenu: screenItems)
+        case .fullScreen:
+            return GlassMoreEntry(id: "fullScreen", title: String(localized: "Plein écran"), checked: session.isFullScreen) {
+                session.toggleFullScreen()
+            }
+        }
+    }
+
+    private var mouseItems: [GlassMenuItem] {
+        MouseChoice.allCases.map { choice in
+            .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
+        }
+    }
+
+    private var cameraItems: [GlassMenuItem] {
+        let current = session.currentCamera
+        return [GlassMenuItem(id: "toggle", title: session.cameraState == .off ? CameraText.turnOn : CameraText.turnOff) { session.toggleCamera() }]
+            + session.cameras.map { cam in
+                GlassMenuItem(id: cam.id, title: cam.name, checked: cam.id == current) { session.pickCamera(cam.id) }
+            }
+    }
+
+    private var screenItems: [GlassMenuItem] {
+        session.screens.enumerated().map { i, screen in
+            .init(id: "\(screen.id)", title: String(localized: "Écran \(i + 1) · \(screen.width) × \(screen.height)"), checked: screen.id == session.shownDisplay) { session.showScreen(screen.id) }
+        }
+    }
+
+    private var screenLabel: String {
+        String(localized: "Écran \((session.screens.firstIndex { $0.id == session.shownDisplay } ?? 0) + 1)")
+    }
+
+    private func hostRow(compact: Bool, moved: [MoreSlot]) -> some View {
         HStack(spacing: 6) {
             Mark(size: 22, level: .lit)
             Text(session.title).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
                 .padding(.leading, 6).padding(.trailing, 8)
-            ComputersMenu(session: session, store: AppModel.shared.store, sessions: AppModel.shared.sessions, compact: compact)
+            if moved.contains(.computers) {
+                more(.computers, moved)
+            } else {
+                ComputersMenu(session: session, store: AppModel.shared.store, sessions: AppModel.shared.sessions, compact: compact)
+            }
             ShareBarButton(session: session, share: session.share, compact: compact)
             LendBarButton(session: session, lend: session.lend, compact: compact)
             if let recording = session.recordingShown {
@@ -867,24 +967,30 @@ private struct SessionBar: View {
             .help("Profil : Jeu, Bureau, Max ou Auto")
             .overlay(ring(0))
             hdrToggle(compact: compact)
-            keepSound(compact: compact)
-            micChip(compact: compact)
-            cameraMenu(compact: compact)
-            GlassMenu(items: MouseChoice.allCases.map { choice in
-                .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
-            }) {
-                chip(icon: session.mouseCaptured ? "crosshair" : "cursor", text: mouseLabel, caret: true, compact: compact)
+            if moved.contains(.keepSound) { more(.keepSound, moved) } else { keepSound(compact: compact) }
+            if moved.contains(.mic) { more(.mic, moved) } else { micChip(compact: compact) }
+            if moved.contains(.camera) { more(.camera, moved) } else { cameraMenu(compact: compact) }
+            if moved.contains(.mouse) {
+                more(.mouse, moved)
+            } else {
+                GlassMenu(items: mouseItems) {
+                    chip(icon: session.mouseCaptured ? "crosshair" : "cursor", text: mouseLabel, caret: true, compact: compact)
+                }
+                .help("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
+                .overlay(ring(1))
             }
-            .help("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
-            .overlay(ring(1))
-            chip(icon: "clipboard-text", text: String(localized: "Presse-papiers"), compact: compact)
-                .opacity(session.host.settings.clipboard ? 1 : 0.45)
-                .help(session.host.settings.clipboard ? "Presse-papiers partagé avec l'ordinateur (texte)" : "Presse-papiers non partagé (Réglages)")
-            if session.canPickScreen {
-                GlassMenu(items: session.screens.enumerated().map { i, screen in
-                    .init(id: "\(screen.id)", title: String(localized: "Écran \(i + 1) · \(screen.width) × \(screen.height)"), checked: screen.id == session.shownDisplay) { session.showScreen(screen.id) }
-                }) {
-                    chip(icon: "monitor", text: String(localized: "Écran \((session.screens.firstIndex { $0.id == session.shownDisplay } ?? 0) + 1)"), caret: true)
+            if moved.contains(.clipboard) {
+                more(.clipboard, moved)
+            } else {
+                chip(icon: "clipboard-text", text: String(localized: "Presse-papiers"), compact: compact)
+                    .opacity(session.host.settings.clipboard ? 1 : 0.45)
+                    .help(session.host.settings.clipboard ? "Presse-papiers partagé avec l'ordinateur (texte)" : "Presse-papiers non partagé (Réglages)")
+            }
+            if moved.contains(.screen) {
+                more(.screen, moved)
+            } else if session.canPickScreen {
+                GlassMenu(items: screenItems) {
+                    chip(icon: "monitor", text: screenLabel, caret: true)
                 }
             }
             if let offer = session.screenOffer {
@@ -903,7 +1009,9 @@ private struct SessionBar: View {
             }
             divider
             // Plusieurs écrans : les fenêtres restent en plein écran, pas de « Plein écran ».
-            if session.canToggleFullScreen {
+            if moved.contains(.fullScreen) {
+                more(.fullScreen, moved)
+            } else if session.canToggleFullScreen {
                 Button { session.toggleFullScreen() } label: {
                     Icon("corners-out", size: 16, bold: true)
                         .foregroundStyle(Theme.text2)

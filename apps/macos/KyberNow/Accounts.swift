@@ -98,6 +98,8 @@ enum AccountText {
     static var section: String { String(localized: "Comptes") }
     static var sectionHelp: String { String(localized: "Créer un compte, changer son mot de passe ou le supprimer : sur la page du compte.") }
     static var manage: String { String(localized: "Gérer le compte") }
+    /// Sous le QR code de « Gérer le compte », sur un téléviseur.
+    static var manageScan: String { String(localized: "Scannez ce code avec votre téléphone pour ouvrir la page du compte.") }
     /// « Se déconnecter » d'un compte (« Sign out ») : une autre clé que celui d'une session (« Disconnect »).
     static var signOut: String { String(localized: "Se déconnecter du compte", defaultValue: "Se déconnecter") }
     static func signOutQuestion(_ account: String) -> String {

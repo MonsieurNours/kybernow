@@ -249,16 +249,37 @@ struct SettingsView: View {
     @ViewBuilder private func pictureRows(_ s: ConnectionSettings) -> some View {
         let tv = TVDisplay.native
         let mode = TVDisplay.mode(for: s)
-        let res = s.display == .custom ? TVDisplay.label(mode.width, mode.height) : "match"
+        // « Comme cet écran » ou « Sur mesure » (docs/link-ui.md, « Définition ») ;
+        // sur mesure, les définitions que la télécommande choisit sans clavier.
+        // Le téléviseur s'arrête à la 4K : « Au plus 4K » n'a pas de sens ici.
+        let custom = s.display == .custom && (mode.width, mode.height) != (tv.width, tv.height)
         seg("res", String(localized: "Définition"), String(localized: "Comme cet écran : \(LinkFormat.dims(tv.width, tv.height))"),
-            [("match", String(localized: "Comme cet écran"))] + plain(["4K", "1440p", "1080p"]), res) { v in
+            [("match", String(localized: "Comme cet écran")), ("custom", String(localized: "Sur mesure"))], custom ? "custom" : "match") { v in
             edit { st in
-                switch v {
-                case "4K": st.display = .custom; st.customWidth = 3840; st.customHeight = 2160
-                case "1440p": st.display = .custom; st.customWidth = 2560; st.customHeight = 1440
-                case "1080p": st.display = .custom; st.customWidth = 1920; st.customHeight = 1080
-                default:
-                    if st.customRefresh == tv.refresh { st.display = .match } else { st.display = .custom; st.customWidth = tv.width; st.customHeight = tv.height }
+                if v == "custom" {
+                    guard st.display != .custom || (st.customWidth, st.customHeight) == (tv.width, tv.height) else { return }
+                    st.display = .custom
+                    (st.customWidth, st.customHeight) = tv.width > 1920 ? (1920, 1080) : (1280, 720)
+                } else if st.customRefresh == tv.refresh {
+                    st.display = .match
+                } else {
+                    st.display = .custom
+                    st.customWidth = tv.width
+                    st.customHeight = tv.height
+                }
+            }
+        }
+        if custom {
+            seg("res.custom", String(localized: "Sur mesure"), String(localized: "L'écran virtuel de l'ordinateur prend cette définition"),
+                plain(["4K", "1440p", "1080p", "720p"]), TVDisplay.label(mode.width, mode.height)) { v in
+                edit { st in
+                    st.display = .custom
+                    switch v {
+                    case "4K": (st.customWidth, st.customHeight) = (3840, 2160)
+                    case "1440p": (st.customWidth, st.customHeight) = (2560, 1440)
+                    case "720p": (st.customWidth, st.customHeight) = (1280, 720)
+                    default: (st.customWidth, st.customHeight) = (1920, 1080)
+                    }
                 }
             }
         }
@@ -553,6 +574,13 @@ struct SettingsView: View {
         }
         seg("order", String(localized: "Ordre des joueurs"), String(localized: "Fixe : chaque modèle garde sa place ; deux manettes identiques ne se distinguent pas"), [("power", String(localized: "Allumage")), ("fixed", String(localized: "Fixe"))], prefs.padOrderFixed ? "fixed" : "power") { v in
             prefs.padOrderFixed = v == "fixed"
+        }
+        // La caméra de l'iPhone ou de l'iPad à côté (docs/webcam.md) : si
+        // l'ordinateur l'a déjà proposée, comme sur l'iPhone et le Mac (TRANS-39).
+        if host?.cameraOffered == true {
+            seg("camera", CameraText.resolution, CameraText.resolutionHelp, plain(["720p", "1080p"]), s.camera1080 ? "1080p" : "720p") { v in
+                edit { st in st.camera1080 = v == "1080p" }
+            }
         }
     }
 

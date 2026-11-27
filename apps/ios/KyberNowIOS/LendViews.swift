@@ -16,6 +16,8 @@ import UIKit
 /// « Créer un code » ; le code créé, comme le partage, et « Annuler le code ».
 struct LendPanelView: View {
     let computer: String
+    /// Le système de la Station (l'avertissement en dépend).
+    var os: String?
     @ObservedObject var lend: LendHostModel
     @Environment(\.dismiss) private var dismiss
     @State private var copyResult: String?
@@ -38,7 +40,7 @@ struct LendPanelView: View {
                 if let reason = lend.availability.reason {
                     AddHostNotice(kind: .warn, text: reason)
                 } else {
-                    if lend.showWarning { AddHostNotice(kind: .warn, text: LendText.warning) }
+                    if lend.showWarning { AddHostNotice(kind: .warn, text: LendText.warning(os: os)) }
                     if !lend.requests.isEmpty { requests }
                     if let code = lend.code { created(code) } else { choices }
                     if let error = lend.error { AddHostNotice(kind: .danger, text: error) }

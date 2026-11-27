@@ -16,6 +16,8 @@ import SwiftUI
 
 struct LendPanelTV: View {
     let computer: String
+    /// Le système de la Station (l'avertissement en dépend).
+    var os: String?
     @ObservedObject var lend: LendHostModel
     let close: () -> Void
     @FocusState private var focus: Target?
@@ -34,7 +36,7 @@ struct LendPanelTV: View {
                     if lend.showWarning {
                         HStack(alignment: .top, spacing: 16) {
                             Icon("warning", size: 30).foregroundStyle(Theme.warn)
-                            Text(LendText.warning).font(Theme.sans(21)).foregroundStyle(Theme.warnText).lineSpacing(4)
+                            Text(LendText.warning(os: os)).font(Theme.sans(21)).foregroundStyle(Theme.warnText).lineSpacing(4)
                         }
                         .frame(width: 1300, alignment: .leading)
                     }

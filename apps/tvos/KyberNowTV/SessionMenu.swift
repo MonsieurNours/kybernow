@@ -206,7 +206,7 @@ struct SessionMenu: View {
                 SharePanelTV(session: session, share: session.share) { session.sharePanel = false }
             }
             if session.lendPanel {
-                LendPanelTV(computer: session.host.name, lend: session.lend) { session.lendPanel = false }
+                LendPanelTV(computer: session.host.name, os: session.host.os, lend: session.lend) { session.lendPanel = false }
             }
             if session.giveBackAsked {
                 GiveBackPanel(host: session.lendHost, confirm: { session.giveBack() }, cancel: { session.giveBackAsked = false })
