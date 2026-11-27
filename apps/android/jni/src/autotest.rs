@@ -108,7 +108,9 @@ mod android {
 
     use crate::exports::{give, jbool, optional, string, Env};
     use crate::jvm::Listener;
-    use crate::pyrowave::{PwConfig, PwSession, Shown};
+    use kybernow_core::pyrowave::Config;
+
+    use crate::pyrowave::{ContentHdr, PwFormat, PwSession, Shown};
 
     const BUFFER_FLAG_KEY_FRAME: u32 = 1;
     /// Durée de l'essai d'un extrait, une fois la première image sortie.
@@ -375,8 +377,8 @@ mod android {
         let reader = offscreen(s, 2)?;
         let window = reader.window().ok()?;
         let mut pw = PwSession::open(window).map_err(|e| log::warn!("profil Auto : PyroWave impossible ({e})")).ok()?;
-        let config = PwConfig { chroma444: s.yuv444, hdr: false, full_range: true, width: s.width & !1, height: s.height & !1 };
-        if !pw.configure(config, None) {
+        let config = Config { chroma444: s.yuv444, hdr: false, full_range: true, width: s.width & !1, height: s.height & !1 };
+        if !pw.configure(PwFormat { config, content: ContentHdr::default() }, None) {
             return None;
         }
         let started = Instant::now();
