@@ -200,6 +200,8 @@ export type Computer = {
   fingerprint: string | null
   /** L'empreinte telle que link-ui la montre (« 7C41 E09B AABB CCDD », l'app la met en forme) ; vide sans empreinte. */
   fingerprint_short: string
+  /** L'erreur sous le nom à l'accueil (il répond mais refuse) : mot de passe refusé, Station réinstallée. */
+  problem?: 'password_refused' | 'reinstalled' | null
   /** Le relais d'un ordinateur d'un compte, tel qu'on le montre (sans empreinte) ; vide sinon. */
   relay_label: string
   os: string

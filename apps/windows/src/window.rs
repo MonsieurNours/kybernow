@@ -200,6 +200,13 @@ pub enum Command {
     MacLock = 17,
     MacScreenshot = 18,
     MacForceQuit = 19,
+    // Les six autres du menu Touches (docs/link-ui.md, dix entrées).
+    WinD = 20,
+    WinL = 21,
+    AltF4 = 22,
+    Escape = 23,
+    TaskManager = 24,
+    F11 = 25,
     /// Les fenêtres de la session ferment tout de suite, sans attendre la fin
     /// du cœur (qui reçoit sa fin et finit derrière, `host::run`) : une fin
     /// demandée avant le départ du cœur, ou une session que l'app abandonne
@@ -220,6 +227,10 @@ mod sc {
     pub const DEL: u16 = 0xE053;
     pub const LWIN: u16 = 0xE05B;
     pub const PRINT: u16 = 0xE037;
+    pub const D: u16 = 0x20;
+    pub const L: u16 = 0x26;
+    pub const F4: u16 = 0x3E;
+    pub const F11: u16 = 0x57;
 }
 
 /// Modificateurs (Ctrl, Alt, Maj, ⊞, gauche et droite) tels que partis à l'ordinateur.
@@ -2609,6 +2620,12 @@ fn command(app: &Arc<App>, c: usize, arg: isize) {
         x if x == Command::WinKey as usize => send_combo(app, &[sc::LWIN]),
         x if x == Command::AltTab as usize => send_combo(app, &[sc::ALT, sc::TAB]),
         x if x == Command::PrintScreen as usize => send_combo(app, &[sc::PRINT]),
+        x if x == Command::WinD as usize => send_combo(app, &[sc::LWIN, sc::D]),
+        x if x == Command::WinL as usize => send_combo(app, &[sc::LWIN, sc::L]),
+        x if x == Command::AltF4 as usize => send_combo(app, &[sc::ALT, sc::F4]),
+        x if x == Command::Escape as usize => send_combo(app, &[sc::ESC]),
+        x if x == Command::TaskManager as usize => send_combo(app, &[sc::CTRL, sc::SHIFT, sc::ESC]),
+        x if x == Command::F11 as usize => send_combo(app, &[sc::F11]),
         x if x == Command::MacSwitchApp as usize => send_combo(app, &[sc::LWIN, sc::TAB]),
         x if x == Command::MacSpotlight as usize => send_combo(app, &[sc::LWIN, sc::SPACE]),
         x if x == Command::MacLock as usize => send_combo(app, &[sc::CTRL, sc::LWIN, sc::Q]),

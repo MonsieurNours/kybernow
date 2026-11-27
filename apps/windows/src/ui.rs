@@ -107,6 +107,21 @@ struct Live {
     /// Le prêt de l'ordinateur, quand il y est activé (`GET /api/lend`) :
     /// « Prêté à {prénom} » sur l'accueil.
     lend: Option<kybernow_core::lend::LendView>,
+    /// L'erreur sous son nom à l'accueil (docs/link-ui.md, TRANS-39).
+    problem: Option<Problem>,
+}
+
+/// Ce que l'accueil dit sous le nom d'un ordinateur qui répond mais refuse
+/// (docs/link-ui.md, « Accueil » ; comme sur Mac) : « Mot de passe refusé :
+/// mettez-le à jour dans les réglages. », « La Station a été réinstallée :
+/// vérifiez son empreinte dans les réglages. ».
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Problem {
+    /// Admin refuse le compte (401, 403).
+    PasswordRefused,
+    /// Le certificat d'Admin n'est plus celui retenu (Station réinstallée).
+    Reinstalled,
 }
 
 /// Une image de l'accueil (dernière image d'une session ou aperçu de
@@ -160,6 +175,8 @@ pub struct ComputerView {
     /// L'empreinte d'Admin telle que link-ui la montre (« 7C41 E09B AABB CCDD »,
     /// `console::short_fingerprint`, TRANS-34) ; vide sans empreinte.
     fingerprint_short: String,
+    /// L'erreur sous le nom (`Problem`), quand il y en a.
+    problem: Option<Problem>,
     /// Le relais d'un ordinateur d'un compte, tel qu'on le montre
     /// (`account::relay_label`, sans empreinte) ; vide sinon.
     relay_label: String,
@@ -624,7 +641,7 @@ impl UiState {
                 let origin = origins.remove(&c.id);
                 let fingerprint_short = c.fingerprint.as_deref().map(console::short_fingerprint).unwrap_or_default();
                 let relay_label = c.account.as_ref().map(|a| kybernow_core::account::relay_label(&a.relay)).unwrap_or_default();
-                ComputerView { computer: c, fingerprint_short, relay_label, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending, lend, origin, offer }
+                ComputerView { computer: c, fingerprint_short, problem: l.problem, relay_label, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending, lend, origin, offer }
             })
             .collect()
     }
@@ -1176,6 +1193,7 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
     let located = account::locate(app, c);
     let c = located.as_ref().unwrap_or(c);
     let console = console_for(c);
+    let mut problem = None;
     let info = if c.account.is_some() && c.host.is_empty() {
         // Jamais vu sur le réseau : seulement par le relais (présence, plus bas).
         None
@@ -1184,12 +1202,22 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
             Ok(i) => Some(i),
             // Le relais refuse le jeton d'accès : compte oublié, ou ordinateur retiré du compte.
             Err(e) if account::on_console_error(app, c, &e) => return true,
+            // Il répond, mais refuse le compte, ou n'a plus le même certificat :
+            // en ligne, l'erreur sous son nom.
+            Err(console::ConsoleError::Http { status: 401 | 403, .. }) => {
+                problem = Some(Problem::PasswordRefused);
+                None
+            }
+            Err(console::ConsoleError::CertificateChanged { .. }) => {
+                problem = Some(Problem::Reinstalled);
+                None
+            }
             Err(_) => None,
         }
     };
     // Hors de chez soi : pas de réponse sur le réseau, mais le relais tient l'ordinateur.
-    let away = info.is_none() && away_by_relay(app, c);
-    let online = Some(info.is_some() || away);
+    let away = info.is_none() && problem.is_none() && away_by_relay(app, c);
+    let online = Some(info.is_some() || away || problem.is_some());
     // Son relais, gardé avec lui pour l'ouvrir hors de chez soi (une Station sans
     // relais réglé, ou antérieure, l'efface). Un ordinateur d'un compte garde la
     // route du relais de son compte.
@@ -1247,8 +1275,17 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
     // (version, installation, redémarrage) compte aussi.
     let station_changed = info.as_ref().is_some_and(|i| l.info.as_ref().map(|o| &o.station) != Some(&i.station));
     let lend_changed = l.lend != lend_view;
-    let changed = l.online != online || l.away != away || preview.is_some() || station_changed || wake_changed || relay_changed || lend_changed || located.is_some();
+    let changed = l.online != online
+        || l.away != away
+        || l.problem != problem
+        || preview.is_some()
+        || station_changed
+        || wake_changed
+        || relay_changed
+        || lend_changed
+        || located.is_some();
     l.online = online;
+    l.problem = problem;
     l.away = away;
     l.lend = lend_view;
     let on_network = info.is_some();
@@ -3644,6 +3681,12 @@ fn session_command(app: AppHandle, id: String, command: String) {
         "keys:win" => Command::WinKey,
         "keys:alt-tab" => Command::AltTab,
         "keys:print" => Command::PrintScreen,
+        "keys:win-d" => Command::WinD,
+        "keys:win-l" => Command::WinL,
+        "keys:alt-f4" => Command::AltF4,
+        "keys:esc" => Command::Escape,
+        "keys:task-manager" => Command::TaskManager,
+        "keys:f11" => Command::F11,
         // Face à une Station Mac.
         "keys:mac-switch" => Command::MacSwitchApp,
         "keys:mac-spotlight" => Command::MacSpotlight,

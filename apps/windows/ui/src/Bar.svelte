@@ -287,7 +287,10 @@
   const profiles = $derived(
     ['jeu', 'bureau', 'max', 'auto'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`profiles.${id}_sub`) })),
   )
-  /** Le menu Touches : celles d'un PC, ou face à une Station Mac leurs équivalents (docs/link-ui.md « Face à une Station Mac »). */
+  /**
+   * Le menu Touches : les dix d'un PC, dans l'ordre de link-ui, chacune avec son indication ; face à une Station Mac,
+   * leurs équivalents (docs/link-ui.md « Face à une Station Mac »).
+   */
   const keys = $derived(
     (mac
       ? [
@@ -302,8 +305,14 @@
           ['win', 'win'],
           ['alt-tab', 'alt_tab'],
           ['print', 'print'],
+          ['win-d', 'win_d'],
+          ['win-l', 'win_l'],
+          ['alt-f4', 'alt_f4'],
+          ['esc', 'esc'],
+          ['task-manager', 'task_manager'],
+          ['f11', 'f11'],
         ]
-    ).map(([id, k]) => ({ id, name: t(`bar.${k}`), hint: t(`bar.${k}_hint`) })),
+    ).map(([id, k]) => ({ id, name: t(`bar.${k}`), hint: k === 'esc' ? '' : t(`bar.${k}_hint`) })),
   )
   let history = $state<number[]>([])
   /**

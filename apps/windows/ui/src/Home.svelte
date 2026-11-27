@@ -447,6 +447,7 @@
       {/if}
       <h1>{selected.name}</h1>
       {#if selected.info?.os || selected.os}<div class="system">{selected.info?.os || selected.os}</div>{/if}
+      {#if selected.problem}<div class="error" role="alert">{t(`home.problem_${selected.problem}`)}</div>{/if}
       {#if error}<div class="error" role="alert">{error}</div>{/if}
       {#if screen && !watching?.only}
         <div class="chip"><Icon name="monitor" size={20} /><span>{screen}</span></div>
