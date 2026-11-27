@@ -2,6 +2,7 @@
   "common": {
     "list": "{rest} and {last}",
     "error": "Error {status}",
+    "unreachable": "The Station is not responding. Trying again shortly…",
     "language": "Language",
     "langAuto": "Auto",
     "langAutoHint": "Auto: this browser’s language ({lang}).",

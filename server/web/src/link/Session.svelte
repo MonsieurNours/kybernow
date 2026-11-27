@@ -10,7 +10,7 @@
 -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { backend, endBody, heartbeatBody, lend as lendApi, leaveLend, LendRefusal, type AutoCaps, type BorrowAnswer, type BorrowPending, type GuestBeat, type GuestJoin, type Info, type LendBeat } from './backend'
+  import { backend, endOnUnload, heartbeatBody, lend as lendApi, leaveLend, LendRefusal, type AutoCaps, type BorrowAnswer, type BorrowPending, type GuestBeat, type GuestJoin, type Info, type LendBeat } from './backend'
   import { Heartbeat } from './heartbeat'
   import { guestTarget, lendTarget, sendHeartbeat, type HeartbeatResult } from './heartbeat-call'
   import { ApiError, joinedGuests, lendOps, shareRequests, type GuestImage, type LendView, type ShareQuality, type ShareRole, type ShareView } from '../lib/api'
@@ -2026,7 +2026,7 @@
       leaveGuest()
       if (pendingLend) void leaveLend(pendingLend.secret, { request: pendingLend.request })
       if (ended || !prepared) return
-      fetch('/api/stream/end', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { 'x-kyber-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(endBody(null, extra())) })
+      endOnUnload(extra())
     }
     // Onglet qui passe en arrière-plan : un signal tout de suite.
     const hidden = () => {
