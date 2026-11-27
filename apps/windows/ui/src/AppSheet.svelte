@@ -74,6 +74,20 @@
   )
 
   let info = $state<AppInfo | null>(null)
+  /** « Envoyer le journal » : « Préparation du journal… » le temps que l'app l'écrive, puis la fenêtre « Partager ». */
+  let preparingLog = $state(false)
+  let logError = $state<string | null>(null)
+  async function sendLog() {
+    preparingLog = true
+    logError = null
+    try {
+      await invoke('share_log')
+    } catch (e) {
+      logError = String(e)
+    } finally {
+      preparingLog = false
+    }
+  }
   let checking = $state(false)
   let checked = $state(false)
   let error = $state<string | null>(null)
@@ -204,7 +218,6 @@
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="app-title">
     <button class="close" aria-label={t('common.close')} onclick={onclose}><Icon name="x" size={14} /></button>
     <h2 id="app-title"><Mark product="link" size={40} /></h2>
-    <div class="mono ver">{t('appsheet.version', { version: info?.version ?? '…', arch: info?.arch ?? '' })}</div>
 
     <div class="line">
       <span>{t('appsheet.language')}</span>
@@ -382,6 +395,25 @@
         <p class="help">{t('appsheet.probing')}</p>
       {/if}
     </div>
+
+    <!-- À propos, en dernier (docs/link-ui.md, « Réglages de l'app ») : la version, et « Envoyer le journal » par la
+         fenêtre « Partager » de Windows. -->
+    <div class="pc">
+      <div class="eyebrow">{t('appsheet.about')}</div>
+      <div class="line">
+        <span>{t('appsheet.version_label')}</span>
+        <span class="mono ver">{t('appsheet.version', { version: info?.version ?? '…' })}</span>
+      </div>
+      <div class="line">
+        {#if preparingLog}
+          <span class="help" role="status">{t('appsheet.log_preparing')}</span>
+        {:else}
+          <button class="ghost" onclick={sendLog}>{t('appsheet.send_log')}</button>
+        {/if}
+      </div>
+      {#if logError}<div class="error">{logError}</div>{/if}
+      <p class="help">{t('appsheet.log_help')}</p>
+    </div>
   </div>
 </Sheet>
 
@@ -430,7 +462,6 @@
   .ver {
     font-size: 12px;
     color: var(--muted);
-    margin-top: -10px;
   }
 
   .line {

@@ -379,7 +379,6 @@ export type AppInfo = {
   language: 'auto' | 'fr' | 'en'
   lang: 'fr' | 'en'
   update: Update | null
-  arch: string
   battery: Battery
   open_at_login: boolean
   /** « Synchroniser les réglages des ordinateurs » (comptes KyberNow ; allumé par défaut) et ses textes, ceux du cœur. */

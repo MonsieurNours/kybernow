@@ -4,6 +4,7 @@
     "bar_title": "Session bar · KyberNow Link"
   },
   "errors": {
+    "log_failed": "The log couldn't be prepared.",
     "session_open_install_later": "a session is open: install after it ends",
     "no_update": "no update to install",
     "installer_launch": "starting the installer: {error}",

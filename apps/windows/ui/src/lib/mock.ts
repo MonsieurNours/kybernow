@@ -1477,13 +1477,17 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     const code = flags.get('rejoindre')
     return { kind: 'join', link: code ? `kybernow://join?host=192.168.1.77&port=31544&code=${code}` : null }
   },
+  share_log: async () => {
+    await sleep(800)
+    console.info('share_log : la fenêtre « Partager » de Windows s’ouvrirait')
+    return null
+  },
   app_info: () => ({
     version: '0.5.0',
     channel: 'stable',
     language,
     lang: i18n.lang,
     update: update(),
-    arch: 'x64',
     battery,
     open_at_login: openAtLogin,
     sync_settings: syncSettings,

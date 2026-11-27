@@ -2657,6 +2657,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "windows 0.62.2",
+ "windows-collections 0.3.2",
 ]
 
 [[package]]

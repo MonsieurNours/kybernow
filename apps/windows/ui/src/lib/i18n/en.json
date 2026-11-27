@@ -296,7 +296,12 @@
     "row_done": "Up to date"
   },
   "appsheet": {
-    "version": "Version {version} · Windows {arch}",
+    "version": "KyberNow Link {version}",
+    "about": "About",
+    "version_label": "Version",
+    "send_log": "Send the log",
+    "log_help": "If the app closes or a session cuts out, this text file tells what happened. Attach it to your message: you choose who to send it to.",
+    "log_preparing": "Preparing the log…",
     "language": "Language",
     "offered": "Versions offered",
     "channel": "Update channel",

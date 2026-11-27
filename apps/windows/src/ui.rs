@@ -990,7 +990,6 @@ struct AppInfo {
     language: &'static str,
     lang: &'static str,
     update: Option<Available>,
-    arch: &'static str,
     /// Sur batterie : `alleger` ou `garder`.
     battery: &'static str,
     /// « Ouvrir à l'ouverture de session », tel que Windows le fera.
@@ -1011,7 +1010,6 @@ fn app_info(state: tauri::State<'_, UiState>) -> AppInfo {
         language: language_choice(&prefs),
         lang: i18n::lang().code(),
         update: state.update.locked().clone(),
-        arch: if cfg!(target_arch = "aarch64") { "ARM64" } else { "x64" },
         battery: battery_choice(&state),
         open_at_login: login::enabled(),
         sync_settings: prefs.sync_settings.unwrap_or(true),
@@ -1560,6 +1558,26 @@ fn displays_info(app: AppHandle, id: String, settings: Settings) -> Result<Displ
     let hdr = hdr_chip(info.as_ref(), &stream, &pc, screen_hdr);
     let hdr_on = hdr.shown && hdr.available && c.settings.hdr_on();
     Ok(DisplaysInfo { enabled: choice.setting_enabled(), shown: choice.shown_setting().as_str(), count, virtual_display: choice.virtual_display, hdr, hdr_on, plan: planned })
+}
+
+/// « Envoyer le journal » (Réglages de l'app › À propos, docs/link-ui.md) :
+/// le fichier `kybernow-journal.txt` (`journal.rs`), puis la fenêtre
+/// « Partager » de Windows au-dessus de l'accueil. Le temps de la préparation,
+/// l'interface dit « Préparation du journal… ».
+#[tauri::command(async)]
+fn share_log(app: AppHandle) -> Result<(), String> {
+    let failed = |e: String| {
+        log::warn!("journal : {e}");
+        t("errors.log_failed", &[])
+    };
+    let path = crate::journal::write().map_err(|e| failed(e.to_string()))?;
+    let window = app.get_webview_window("main").ok_or_else(|| failed("fenêtre de l'accueil absente".into()))?;
+    let hwnd = window.hwnd().map_err(|e| failed(e.to_string()))?.0 as isize;
+    log::info!("journal : préparé ({}), fenêtre « Partager » de Windows", path.display());
+    crate::journal::share(&path, hwnd, |f| {
+        let _ = app.run_on_main_thread(f);
+    })
+    .map_err(failed)
 }
 
 /// Les valeurs communes du cœur (`plan::values_json`, TRANS-40 à 42) : bornes
@@ -4626,6 +4644,7 @@ pub fn run(args: Vec<String>) {
             set_open_at_login,
             displays_info,
             common_values,
+            share_log,
             session_hdr,
             session_hevc,
             computer_wired,

@@ -26,6 +26,13 @@ pub fn camera_choice_path() -> PathBuf {
     data_dir("APPDATA").join("camera.txt")
 }
 
+/// Le journal de ce lancement et celui du précédent (`init_logging`), pour
+/// « Envoyer le journal ».
+pub fn log_files() -> (PathBuf, PathBuf) {
+    let dir = data_dir("LOCALAPPDATA");
+    (dir.join("kybernow.log"), dir.join("kybernow.prev.log"))
+}
+
 fn data_dir(var: &str) -> PathBuf {
     let base = std::env::var_os(var).map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     let dir = base.join("KyberNow");

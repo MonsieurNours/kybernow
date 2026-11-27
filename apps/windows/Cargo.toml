@@ -94,7 +94,15 @@ features = [
     "Win32_NetworkManagement_Ndis",
     "Win32_NetworkManagement_WiFi",
     "Win32_Networking_WinSock",
+    # « Envoyer le journal » : la fenêtre « Partager » de Windows.
+    "ApplicationModel_DataTransfer",
+    "Storage",
+    "Storage_Streams",
 ]
+
+# Les collections de WinRT (le fichier donné à la fenêtre « Partager »).
+[target.'cfg(windows)'.dependencies.windows-collections]
+version = "0.3"
 
 [build-dependencies]
 bindgen = "0.72"

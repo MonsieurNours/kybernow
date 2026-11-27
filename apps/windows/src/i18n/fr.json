@@ -4,6 +4,7 @@
     "bar_title": "Barre de session · KyberNow Link"
   },
   "errors": {
+    "log_failed": "Le journal n'a pas pu être préparé.",
     "session_open_install_later": "une session est ouverte : installez après",
     "no_update": "aucune mise à jour à installer",
     "installer_launch": "lancement de l'installateur : {error}",

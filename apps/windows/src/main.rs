@@ -69,6 +69,10 @@ mod inviting;
 // l'ami (se teste sur le Mac).
 #[cfg_attr(not(windows), allow(dead_code))]
 mod lending;
+// « Envoyer le journal » : le fichier (se teste sur le Mac), puis la fenêtre
+// « Partager » de Windows.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod journal;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod link;
 #[cfg(windows)]
