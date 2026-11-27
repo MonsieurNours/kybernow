@@ -76,12 +76,13 @@ pub fn normalize(addr: &str) -> Option<String> {
 }
 
 /// Le relais tel qu'on le montre : `share.kybernow.app`,
-/// `relais.exemple.org:9443`, sans empreinte ; une adresse illisible, telle
-/// quelle sans son empreinte.
+/// `relais.exemple.org:9443`, sans empreinte (lue ou non) ni port 443 ; une
+/// adresse illisible, telle quelle sans son empreinte.
 pub fn label(addr: &str) -> String {
-    match parse(addr) {
+    let main = addr.split('#').next().unwrap_or_default();
+    match parse(main) {
         Some(r) => r.web_authority(),
-        None => addr.split('#').next().unwrap_or_default().to_string(),
+        None => main.to_string(),
     }
 }
 
@@ -106,6 +107,7 @@ mod tests {
         assert_eq!(label(&format!("relais.exemple.org:443#{fp}")), "relais.exemple.org");
         assert_eq!(label("https://relais.exemple.org:9443/"), "relais.exemple.org:9443");
         assert_eq!(label("pas un relais#x"), "pas un relais");
+        assert_eq!(label("relais.exemple.org:443#sha256:abcd"), "relais.exemple.org", "empreinte illisible : ignorée");
         assert_eq!(label(""), "");
     }
 }

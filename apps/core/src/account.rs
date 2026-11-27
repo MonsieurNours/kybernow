@@ -167,10 +167,7 @@ pub fn normalize_relay(relay: &str) -> Result<String, AccountError> {
 
 /// Le relais tel qu'on le montre : `share.kybernow.app`, `relais.exemple.org:9443`.
 pub fn relay_label(relay: &str) -> String {
-    match relay.parse::<RelayAddr>() {
-        Ok(a) => a.web_authority(),
-        Err(_) => relay.split('#').next().unwrap_or_default().to_string(),
-    }
+    kybernow_rules::relay::label(relay)
 }
 
 /// La page du compte sur ce relais (`https://share.kybernow.app/compte`) :

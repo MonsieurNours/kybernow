@@ -679,7 +679,9 @@ mod tests {
         ];
         for i in &inputs {
             assert_eq!(kybernow_rules::relay::normalize(i), normalize(i), "{i:?}");
-            assert_eq!(kybernow_rules::relay::label(i), crate::account::relay_label(i), "{i:?}");
+            // Le libellé : la forme du tunnel sans empreinte ni port 443.
+            let web = normalize(i.split('#').next().unwrap_or_default()).map(|n| n.split('#').next().unwrap_or_default().to_string());
+            assert_eq!(Some(kybernow_rules::relay::label(i)).filter(|_| web.is_some()), web, "{i:?}");
         }
         assert_eq!(kybernow_rules::relay::DEFAULT_RELAY, DEFAULT_RELAY);
         assert_eq!(kybernow_rules::relay::DEFAULT_PORT, kybernow_tunnel::DEFAULT_PORT);
