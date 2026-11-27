@@ -68,7 +68,7 @@
    "@id": "https://www.kybernow.app/#kybernow",
    "name": "KyberNow",
    "url": "https://www.kybernow.app/",
-   "description": "Jeu et bureau à distance, libres et gratuits : votre ordinateur, PC Windows ou Mac, sur tous vos appareils, dans une app ou dans le navigateur. Moins de 10 ms de latence sur un réseau local, HDR, image et commandes chiffrées, écran virtuel à la définition de chaque appareil, reconnexion automatique, partage et prêt de l'ordinateur, consoles PlayStation. L'alternative à Sunshine et Moonlight, construite sur le moteur Kyber.",
+   "description": "Jeu et bureau à distance, libres et gratuits : votre ordinateur sur tous vos appareils, dans une app ou dans le navigateur. Moins de 10 ms de latence sur un réseau local, HDR, image et commandes chiffrées, écran virtuel à la définition de chaque appareil, reconnexion automatique, partage et prêt de l'ordinateur, consoles PlayStation. L'alternative à Sunshine et Moonlight, construite sur le moteur Kyber.",
    "applicationCategory": "MultimediaApplication",
    "applicationSubCategory": "Streaming de jeux et bureau à distance",
    "operatingSystem": "Windows 10, Windows 11, macOS 14+ (KyberNow Link), macOS 15+ (KyberNow Station), tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, Linux, SteamOS, Raspberry Pi OS, KyberNow Link OS, navigateur web",
@@ -108,6 +108,7 @@
     "Plusieurs écrans dans une session, chacun à sa taille, et plusieurs ordinateurs ouverts à la fois",
     "Consoles PlayStation : une PS5 ou une PS4 de la maison dans les apps KyberNow Link, DualSense complète, clavier et souris en manette, plusieurs comptes PlayStation Network",
     "KyberNow Station pour Mac : un Mac à puce Apple partagé comme un PC Windows, même Admin, écran virtuel et son",
+    "KyberNow Station pour Linux, en bêta : GNOME, KDE Plasma, Sway ou Hyprland, même Admin, écrans virtuels, son et manettes",
     "PyroWave : un format d'image compressé et décompressé en une fraction de milliseconde, pour le réseau local par câble (environ 300 Mbit/s en 1080p), choisi tout seul par câble",
     "Débit automatique : baissé quand le réseau sature, remonté dès qu'il va mieux, débit visé dans les statistiques",
     "Mode immersif : tout le clavier va à l'ordinateur, raccourcis du système compris, réglé ordinateur par ordinateur",
@@ -140,13 +141,15 @@
    "@id": "https://www.kybernow.app/#station",
    "name": "KyberNow Station",
    "url": "https://www.kybernow.app/#famille",
-   "description": "Le logiciel à installer sur l'ordinateur à partager, PC Windows ou Mac à puce Apple : le moteur Kyber, un écran et des haut-parleurs virtuels à chaque session, les manettes, le pare-feu et les mises à jour. Il se règle dans le navigateur avec KyberNow Admin.",
+   "description": "Le logiciel à installer sur l'ordinateur à partager, sous Windows, macOS (puce Apple) ou Linux : le moteur Kyber, un écran et des haut-parleurs virtuels à chaque session, les manettes, le pare-feu et les mises à jour. Il se règle dans le navigateur avec KyberNow Admin.",
    "applicationCategory": "MultimediaApplication",
-   "operatingSystem": "Windows 10, Windows 11, macOS 15+",
+   "operatingSystem": "Windows 10, Windows 11, macOS 15+, Ubuntu 24.04+, Debian 13+, Fedora 42+",
    "softwareHelp": "https://www.kybernow.app/guide/#serveur",
    "downloadUrl": [
     "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Setup.exe",
-    "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Mac.dmg"
+    "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Mac.dmg",
+    "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Linux-x86_64.deb",
+    "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Linux-x86_64.rpm"
    ],
    "image": "https://www.kybernow.app/assets/img/kybernow-station-dark.svg",
    "license": "https://www.gnu.org/licenses/agpl-3.0.html",
@@ -377,7 +380,7 @@
     <p class="label" data-reveal>Avant d'installer</p>
     <h2 class="title" data-split>Ce qu'il vous faut <strong>pour commencer.</strong></h2>
     <div class="needs">
-      <article class="card need" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#desktop-tower"/></svg><h3>Un PC sous Windows, ou un Mac</h3><p>Celui qui fait tourner vos jeux et vos logiciels&#8239;: un PC sous Windows 10 ou 11, avec n'importe quelle carte graphique NVIDIA, AMD ou Intel (sans carte, le processeur prend le relais), ou un Mac à puce Apple sous macOS 15 ou plus récent. Sur le PC, installez Steam pour que le son vous suive sur vos appareils. Une Station pour Linux arrive bientôt.</p></article>
+      <article class="card need" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#desktop-tower"/></svg><h3>Votre ordinateur</h3><p>Celui qui fait tourner vos jeux et vos logiciels&#8239;: un PC sous Windows 10 ou 11, avec n'importe quelle carte graphique NVIDIA, AMD ou Intel (sans carte, le processeur prend le relais), un Mac à puce Apple sous macOS 15 ou plus récent, ou un ordinateur sous Linux avec GNOME, KDE Plasma, Sway ou Hyprland (la Station pour Linux est en bêta). Sur un PC Windows, installez Steam pour que le son vous suive sur vos appareils.</p></article>
       <article class="card need" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#wifi-high"/></svg><h3>Un réseau à la maison</h3><p>L'ordinateur et vos appareils sur le même réseau, en Wi-Fi ou par câble. Un câble Ethernet sur l'ordinateur donne l'image la plus stable.</p></article>
       <article class="card need" data-reveal style="--d:.10s"><svg class="ic-lg"><use href="/assets/icons.svg#devices"/></svg><h3>Vos appareils</h3><p>Un Mac, un autre PC sous Windows ou Linux, une Apple TV, un iPhone, un iPad, un appareil Android, une télé LG, un Steam Deck, un Raspberry Pi, ou simplement un navigateur.</p></article>
       <article class="card need" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#globe"/></svg><h3>Pour sortir de chez vous</h3><p>Facultatif. Pour jouer ou travailler loin de chez vous, allumez «&#8239;Accès hors de chez vous&#8239;» dans Admin&#8239;: vos appareils ouvrent votre ordinateur par le relais de KyberNow, sans rien régler sur votre box. Un VPN comme Tailscale ou WireGuard marche aussi.</p></article>
@@ -391,7 +394,7 @@
   <div class="wrap">
     <p class="label" data-reveal>Les trois apps</p>
     <h2 class="title" data-split>Trois apps <strong>qui travaillent ensemble.</strong></h2>
-    <p class="body-lg" data-reveal>KyberNow Station s'installe sur l'ordinateur à partager, PC Windows ou Mac. KyberNow Link affiche cet ordinateur sur vos appareils. KyberNow Admin, dans votre navigateur, sert à tout régler.</p>
+    <p class="body-lg" data-reveal>KyberNow Station s'installe sur l'ordinateur à partager. KyberNow Link affiche cet ordinateur sur vos appareils. KyberNow Admin, dans votre navigateur, sert à tout régler.</p>
 
     <div class="fam">
       <article class="fam-card" data-reveal style="--d:.05s">
@@ -599,7 +602,7 @@
     <h2 class="title" data-split>Les questions <strong>qu'on nous pose souvent.</strong></h2>
     <div class="faq" data-reveal>
         <details><summary>C'est vraiment gratuit&#8239;?</summary><p>Oui. KyberNow est un projet communautaire et non commercial, sous licence libre AGPL. Pas d'abonnement, pas de publicité, et le compte KyberNow est facultatif.</p></details>
-        <details><summary>Sur quels appareils puis-je l'utiliser&#8239;?</summary><p>Sur un Mac, un PC Windows ou Linux, une Apple TV, un iPhone, un iPad, un appareil Android (téléphone, tablette, Android TV), une télé LG récente, un Steam Deck ou un Raspberry Pi, et sur tout le reste avec un navigateur. L'ordinateur à partager est un PC sous Windows ou un Mac à puce Apple&#8239;; une Station pour Linux arrive bientôt.</p></details>
+        <details><summary>Sur quels appareils puis-je l'utiliser&#8239;?</summary><p>Sur un Mac, un PC Windows ou Linux, une Apple TV, un iPhone, un iPad, un appareil Android (téléphone, tablette, Android TV), une télé LG récente, un Steam Deck ou un Raspberry Pi, et sur tout le reste avec un navigateur. L'ordinateur à partager est un PC sous Windows, un Mac à puce Apple ou un ordinateur sous Linux (en bêta).</p></details>
         <details><summary>Faut-il créer un compte&#8239;?</summary><p>Non. Chez vous, vos appareils trouvent l'ordinateur tout seuls, et vous l'ajoutez avec un code. Un compte KyberNow est utile si vous voulez retrouver vos ordinateurs sur tous vos appareils sans les ajouter un à un, ou les ouvrir à votre famille ou à votre équipe. Vous le créez et vous vous <a href="https://share.kybernow.app/compte/connexion?lang=fr" rel="noopener">connectez</a> sur share.kybernow.app.</p></details>
         <details><summary>Faut-il une bonne connexion Internet&#8239;?</summary><p>Chez vous, non&#8239;: l'image passe par votre réseau local, sans sortir sur Internet. Un Wi-Fi récent suffit, et un câble Ethernet sur l'ordinateur donne l'image la plus stable. Hors de chez vous, la qualité dépend des deux connexions, celle de la maison et celle du lieu où vous êtes.</p></details>
         <details><summary>Est-ce que c'est sûr&#8239;?</summary><p>Tout ce qui circule entre l'ordinateur et vos appareils est chiffré, même chez vous. Un appareil ne peut se connecter qu'après votre accord dans Admin. Chez vous, rien ne passe par un serveur à nous&#8239;; hors de chez vous, si vous activez l'accès ou partagez avec quelqu'un de loin, la connexion passe par le relais de KyberNow, qui ne peut pas lire l'image ni vos frappes dans les apps.</p></details>
@@ -641,6 +644,15 @@
         <h3>KyberNow Station pour Mac</h3>
         <ul class="specs"><li>Mac à puce Apple, macOS 15 ou plus récent. Signée et notarisée par Apple&#8239;; écran virtuel, son et HDR compris</li><li data-size="KyberNow-Station-Mac.dmg">Image disque .dmg</li></ul>
         <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Mac.dmg"><svg class="ic"><use href="/assets/icons.svg#apple-logo"/></svg>Télécharger KyberNow Station</a>
+      </article>
+      <article class="dl-card" data-reveal style="--d:.04s" data-os="linux-station">
+        <img class="dl-logo" src="/assets/img/kybernow-station-dark.svg" alt="" width="218" height="40">
+        <p class="mono-label">Sur l'ordinateur Linux à partager</p>
+        <h3>KyberNow Station pour Linux</h3>
+        <ul class="specs"><li>En bêta. Ubuntu 24.04, Debian 13, Fedora 42 ou plus récentes, avec GNOME, KDE Plasma, Sway ou Hyprland&#8239;; x86_64 ou ARM</li><li data-size="KyberNow-Station-Linux-x86_64.deb">Paquet .deb</li></ul>
+        <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Linux-x86_64.deb"><svg class="ic"><use href="/assets/icons.svg#linux-logo"/></svg>Télécharger KyberNow Station</a>
+        <a class="dl-more" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Linux-x86_64.rpm">Paquet .rpm, pour Fedora</a>
+        <a class="dl-more" href="/guide/#serveur-linux">Bazzite, SteamOS, machine ARM&#8239;: le guide</a>
       </article>
       <article class="dl-card" data-reveal style="--d:.05s" data-os="mac">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">

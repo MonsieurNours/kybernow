@@ -280,6 +280,14 @@
   },
   {
    "@type": "Question",
+   "name": "Does KyberNow Station run on Linux?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Yes, in beta, on GNOME, KDE Plasma, Sway or Hyprland (Wayland), on Ubuntu 24.04, Debian 13, Fedora 42 or later, Bazzite, Fedora Silverblue or Kinoite and SteamOS, x86_64 or ARM. The same Admin, virtual displays at each device's size, sound, controllers, sharing, lending and PyroWave; no HDR yet. See On Linux."
+   }
+  },
+  {
+   "@type": "Question",
    "name": "Can I lend my computer to a friend?",
    "acceptedAnswer": {
     "@type": "Answer",
@@ -353,7 +361,7 @@
   <div class="wrap">
     <p class="label" data-reveal>Guide and FAQ</p>
     <h1 class="title page-title" data-split>Installing KyberNow, <strong>step by step.</strong></h1>
-    <p class="lede" data-reveal style="--d:.3s">You install KyberNow Station on the computer you want to share, a Windows PC or a Mac, then the KyberNow Link app on each of your devices. Allow three minutes for the computer, and between one minute and a quarter of an hour per device, depending on the model.</p>
+    <p class="lede" data-reveal style="--d:.3s">You install KyberNow Station on the computer you want to share, then the KyberNow Link app on each of your devices. Allow three minutes for the computer, and between one minute and a quarter of an hour per device, depending on the model.</p>
     <ol class="quick" data-reveal style="--d:.45s">
       <li><a href="#serveur"><span>1</span>Install KyberNow Station</a></li>
       <li><a href="#appareil"><span>2</span>Connect a device</a></li>
@@ -394,7 +402,7 @@
             <li>Microsoft Edge WebView2, already on Windows 11 and most Windows 10 PCs. If it is missing, the installer tells you and opens Microsoft's download page</li>
             <li>On the PC, Steam, so that the sound goes to your devices. Without Steam, the sound also plays through the PC's speakers. A Mac needs nothing more: the Station installs its own sound output</li>
             <li>For HDR, Windows 11 24H2 and a graphics card that encodes in 10&nbsp;bits (HEVC or AV1); on a Mac, the Apple chip is enough</li>
-            <li>Coming soon, a computer running Linux: the Station for Linux (GNOME and KDE Plasma) is in the works and can't be downloaded yet</li>
+            <li>Or a computer running Linux, x86_64 or ARM, with GNOME, KDE Plasma, Sway or Hyprland on Wayland: Ubuntu 24.04, Debian 13, Fedora 42 or later, or Bazzite, Fedora Silverblue or Kinoite and SteamOS. The Station for Linux is in beta, without HDR for now</li>
           </ul>
         </div>
         <div class="req-card">
@@ -445,7 +453,7 @@
         </li>
       </ol>
       <p class="callout"><svg class="ic"><use href="/assets/icons.svg#shield-check"/></svg><span>The first time you open Admin, your browser shows a security warning. That is expected: the Station encrypts the connection with a certificate it created itself, which the browser does not know. Accept it to carry on. The KyberNow Link apps recognise this certificate by its fingerprint.</span></p>
-      <p>A KyberNow Station icon appears next to the Windows clock. Its dot is green while the Station is running and purple during a session. A click opens a panel with the Station's status and a way into Admin; a right-click opens a menu with the same actions. Admin, the Station's control panel in your browser, has five sections: <b>Overview</b>, <b>Picture and sound</b>, <b>Link devices</b>, <b>Users</b> and <b>System</b>, plus the <b>Lending</b> page.</p>
+      <p>A KyberNow Station icon appears next to the Windows clock. Its dot is green while the Station is running and purple during a session. A click opens a panel with the Station's status and a way into Admin; a right-click opens a menu with the same actions. Admin, the Station's control panel in your browser, has eight sections: <b>Overview</b>, <b>Picture and sound</b>, <b>Recordings</b>, <b>Link devices</b>, <b>KyberNow account</b>, <b>Lending</b>, <b>Users</b> and <b>System</b>.</p>
       <h3 class="sub" id="serveur-mac">On a Mac</h3>
       <p>On the Mac you want to share, download <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Mac.dmg">KyberNow-Station-Mac.dmg</a>, open it and run “Install KyberNow Station”. The app is signed and notarised by Apple, so macOS opens it without a warning. The screens are the same as on Windows, with one extra step.</p>
       <ol class="steps-doc">
@@ -456,6 +464,16 @@
       </ol>
       <p>During a session, the Mac creates a virtual display at the device's size and turns off its own displays, as a PC does; they come back on at the end, in the same arrangement. The sound goes to the device through the KyberNow sound output, in stereo, 5.1 or 7.1, and the previous output comes back at the end. A locked Mac streams too: you type the password from your device. After a restart, log in once at the Mac itself. From a PC or a TV, the <kbd>⊞</kbd> key acts as <kbd>⌘</kbd>, and the Keys menu of the session bar offers the Mac's combinations and the “Ctrl acts as ⌘” option.</p>
       <p class="callout"><svg class="ic"><use href="/assets/icons.svg#lightning"/></svg><span>macOS 15 reminds you now and then that an app is recording the screen. Confirm it: that app is the Station.</span></p>
+      <h3 class="sub" id="serveur-linux">On Linux</h3>
+      <p>The Station for Linux, in beta, runs on GNOME, KDE Plasma, Sway and Hyprland, on Wayland. Take the package for your system and processor (<code>x86_64</code> for a PC, <code>arm64</code> for an ARM machine), then install it with your own account: that account is the one that can later update the Station from Admin.</p>
+      <pre><code>sudo apt install ./KyberNow-Station-Linux-x86_64.deb     # Ubuntu, Debian
+sudo dnf install ./KyberNow-Station-Linux-x86_64.rpm     # Fedora</code></pre>
+      <p>The Station starts the next time you log in. Your first Admin account has your user name; its password, picked at random, is in <code>~/.local/share/kybernow/station/admin/mot-de-passe</code>. A KyberNow Station icon appears next to the clock (on GNOME, with the AppIndicator extension, already there on Ubuntu), and Admin has the same sections as on Windows.</p>
+      <p><b>Bazzite, Fedora Silverblue or Kinoite, SteamOS</b>: the system can't be modified, so the Station installs in your home folder, without restarting, and then updates itself from Admin. On SteamOS, switch to Desktop mode first. Download <code>KyberNow-Station-Linux-x86_64.tar.xz</code> (or <code>…-aarch64.tar.xz</code>), then, in a terminal opened in the download folder:</p>
+      <pre><code>tar -xf KyberNow-Station-Linux-x86_64.tar.xz
+./kybernow-station-*/install.sh</code></pre>
+      <p>The installation gives Admin's address and where your first account's password is. For the Station to be there after a restart, your session must open by itself: on SteamOS and Bazzite Deck, choose to start in Desktop mode. Full procedure and removal: <a href="https://github.com/MonsieurNours/kybernow/blob/main/server/linux/INSTALLATION.en.md" rel="noopener">INSTALLATION.en.md</a>.</p>
+      <p>During a session, the Station creates virtual displays at the device's size and turns the computer's own off, like a PC. Your devices' keyboard, mouse, controllers and pen go through the system, the sound through a KyberNow output. For your devices' camera to work in every app (Zoom, Discord…), also install v4l2loopback, then restart; without it, browsers and OBS already see it.</p>
     </section>
 
     <section id="appareil" class="doc-section">
@@ -975,6 +993,7 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
         <details><summary>Why is the Apple TV app not on the App Store?</summary><p>Not yet: for now KyberNow is published only on GitHub, and TestFlight followed by the App Store are planned. On Apple TV, an app that is not on the App Store installs from a Mac with Xcode, signed with your own Apple account: see <a href="#apple-tv">On Apple TV</a>. You need an Apple TV 4K from 2021 or later; older models cannot run the app.</p></details>
         <details><summary>How is KyberNow related to Kyber?</summary><p>KyberNow uses <a href="https://kyber.tech">Kyber</a>, the open-source engine that carries the picture, sound and controls, built by VLC developers. It adds KyberNow Station (the installer, virtual displays and speakers), KyberNow Admin and the KyberNow Link apps. KyberNow is neither published nor endorsed by the Kyber team, and is not affiliated with it. Our fixes to the engine are published.</p></details>
         <details><summary>Does KyberNow Station run on a Mac?</summary><p>Yes, on a Mac with Apple silicon, on macOS&nbsp;15 or later. The Mac becomes a Station just like a Windows PC: the same Admin, a virtual display at each device's size, a sound output, sharing, lending and HDR. See <a href="#serveur-mac">On a Mac</a>.</p></details>
+        <details><summary>Does KyberNow Station run on Linux?</summary><p>Yes, in beta, on GNOME, KDE Plasma, Sway or Hyprland (Wayland), on Ubuntu&nbsp;24.04, Debian&nbsp;13, Fedora&nbsp;42 or later, Bazzite, Fedora Silverblue or Kinoite and SteamOS, x86_64 or ARM. The same Admin, virtual displays at each device's size, sound, controllers, sharing, lending and PyroWave; no HDR yet. See <a href="#serveur-linux">On Linux</a>.</p></details>
         <details><summary>Can I lend my computer to a friend?</summary><p>Yes. With a code for one session, or an account you create for them in Admin, your friend plays or works from their own device while you are not using the computer, with the apps you allow. See <a href="#pret">Lend your computer</a>.</p></details>
         <details><summary>Can I play my PlayStation with KyberNow?</summary><p>Yes. A PS5 or PS4 on your home network appears on the KyberNow Link home screen, next to your computers; you pair it once with the code it shows, then “Play”. See <a href="#playstation">Play your PlayStation</a>.</p></details>
         <details><summary>What data does KyberNow collect?</summary><p>No usage statistics, and at home nothing is sent to a server of ours: the picture goes straight from your computer to your devices. If you share with someone far away or switch on “Access away from home”, the connection goes through KyberNow's relay, which keeps IP addresses in its logs for a few days, never the share codes. The other outside connections are for checking for updates (on GitHub, and on kybernow.app for the Mac app) and, between your Apple devices, for syncing your computers and passwords through iCloud, which you can turn off.</p></details>
