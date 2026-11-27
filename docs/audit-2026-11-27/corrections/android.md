@@ -60,7 +60,7 @@ Avec `adb` : `adb logcat -s KyberNow` suffit aussi (la caméra y écrit désorma
 
 - **Essais JVM** : `./gradlew :app:testDebugUnitTest`, 451 essais, dont les nouveaux `JournalTest` (5), `HandoffWaitTest` (4), `JsonListsTest` (2), `RelativeMotionTest` (3) et `MdnsLookupTest.truncatedResponsesNeverThrow`. Un seul échec, antérieur : `InviteUiTest` (le champ du mot de passe expose son texte dans la sémantique de Compose, `InputText`) échoue de la même façon sur `main` à a76ec972, sans ces corrections ; à regarder à part (test ou masquage du champ).
 - **Essais Rust du pont** : `cargo test -p kybernow-android --features kyber-pyrowave --lib` dans l'arbre `android` (16 essais, dont `journal` : dates, rotation, panique écrite dans le fichier ; `gate` : attente, délai, numéros).
-- **Compilation** : `build-native.sh --check` pour aarch64-linux-android, puis bibliothèque native des trois cibles et APK de débogage dans mon arbre (`third_party/arbres-fix-android/android`), voir ci-dessous.
+- **Compilation** : `build-native.sh` complet dans mon arbre (`third_party/arbres-fix-android/android`, commit 37940d55 ; les deux commits suivants ne touchent que le journal de la caméra, un commentaire et ce rapport) : `libkybernow.so` des trois cibles et `libkybernow_pyrowave.so` (arm64-v8a, x86_64), nouveaux exports présents (`Native_init`, `Native_adminUrl`, `Native_wakeParseMac`) ; `./gradlew :app:assembleDebug` réussi (APK de débogage de 133 Mo, les trois architectures).
 - **`strings.py --check`** : à jour après régénération ; refusait bien l'ancien `strings.xml`.
 - **Rien sur appareil** (aucun téléphone branché). À essayer sur appareil :
   - « Envoyer le journal » (feuille de partage, fichier lisible, logcat présent, fin précédente après un plantage provoqué) ;
