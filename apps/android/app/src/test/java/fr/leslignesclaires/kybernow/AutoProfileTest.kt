@@ -25,6 +25,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = android.app.Application::class)
 class AutoProfileTest {
+    @org.junit.Before fun fakeCore() = FakeCore.install()
+
+    @org.junit.After fun realCore() = FakeCore.reset()
+
     /** La Shield au téléviseur : 4K à 60 Hz, 1080p à 120 Hz. */
     private val tv = Screen(
         ScreenMode(1, 3840, 2160, 60),
@@ -53,8 +57,9 @@ class AutoProfileTest {
         // Un téléphone en portrait : l'écran en paysage, comme la session le prend (« Comme cet écran »).
         val phone = Screen(ScreenMode(1, 1080, 2400, 60), listOf(ScreenMode(1, 1080, 2400, 60), ScreenMode(2, 1080, 2400, 120)), false, true)
         val d = Decoders(DecoderInfo("avc", 4096, 2160, true), DecoderInfo("hevc", 7680, 4320, true), null, hevc444 = false)
-        assertEquals(SessionMode.pick(phone, HostSettings(), "hevc", d), AutoProfile.screenMode(phone))
-        assertEquals(SessionMode.pick(tv, HostSettings(), "hevc", d), AutoProfile.screenMode(tv))
+        val pc = Host(name = "PC", address = "1.2.3.4", port = 1, fingerprint = null, user = "u")
+        assertEquals(SessionMode.plan(pc, d, phone).mode, AutoProfile.screenMode(phone))
+        assertEquals(SessionMode.plan(pc, d, tv).mode, AutoProfile.screenMode(tv))
         assertTrue(JSONObject(AutoProfile.deviceJson(phone, JSONObject(), false, null, false)).isNull("network"))
     }
 

@@ -355,34 +355,17 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         refresh = target?.refresh ?: r
     }
 
-    private fun settingsJson(profile: Profile): JSONObject {
-        val d = app.decoders
-        val set = host.settings
-        val wired = PyroWave.wired(this)
-        val profileBase = { Core.profileSettings(profile.id, d.hevc != null, d.hevc444, d.av1 != null && host.av1) ?: JSONObject().put("profile", profile.id) }
-        // Profil Auto : les réglages de son test (docs/profil-auto.md) ; sans test (reçu d'un autre appareil), ceux du cœur.
-        val base = if (profile == Profile.AUTO) AutoProfile.settings(set.autoResult, Hdr.wanted(host), wired, profileBase) else profileBase()
-        when (if (hevcInstead) "hevc" else set.codec) {
-            // PyroWave (docs/pyrowave.md) : le cœur le garde si la Station le propose et que l'appareil le décode,
-            // sinon HEVC ; « Passer en HEVC » le remplace pour cette session seulement.
-            "pyrowave" -> base.put("codec", "pyrowave")
-            "hevc" -> if (d.hevc != null) base.put("codec", "hevc")
-            "h264" -> base.put("codec", "h264").put("yuv444", false)
-            "av1" -> if (d.av1 != null && host.av1) base.put("codec", "av1").put("yuv444", false)
-        }
-        if (set.mbps > 0) base.put("mbps", set.mbps).remove("profile")
-        if (set.transport != "auto") base.put("reliable", set.reliable)
-        // Le choix « HDR » de cet ordinateur ; le cœur ne s'en sert que sur un écran HDR, quand la Station le propose.
-        base.put("hdr", Hdr.wanted(host))
-        // Relié par câble : « Auto » de Max prend PyroWave quand l'ordinateur le propose, le profil Auto quand son test
-        // l'a choisi (`profile::pyrowave_format`).
-        base.put("wired", wired)
-        // « Débit adaptatif » de cet ordinateur (docs/profil-auto.md).
-        base.put("adaptive", set.adaptive)
-        // Le plafond de l'encodeur gardé pour cet ordinateur (celui du test compris, une fois appliqué) ; nul : aucun.
-        base.put("encoder_max", set.encoderMax ?: JSONObject.NULL)
-        return base
-    }
+    /**
+     * Les réglages de la session : le plan du cœur (`plan::plan` : profil, format, débit, transport, résultat du test
+     * d'Auto, « Débit adaptatif », plafond de l'encodeur, « Passer en HEVC ») pour l'écran de la session, puis le choix
+     * « HDR » de cet ordinateur (le cœur ne s'en sert que sur un écran HDR, quand la Station le propose) et le câble
+     * (« Auto » de Max prend PyroWave quand l'ordinateur le propose, le profil Auto quand son test l'a choisi :
+     * `profile::pyrowave_format` ; jamais après « Passer en HEVC »).
+     */
+    private fun settingsJson(profile: Profile): JSONObject =
+        SessionMode.plan(host, app.decoders, sessionMode, profile, hevcInstead).settings
+            .put("hdr", Hdr.wanted(host))
+            .put("wired", PyroWave.wired(this) && !hevcInstead)
 
     /** Ce que le cœur doit savoir du HDR de cet écran : `screen_hdr`, ses valeurs, ce que le décodeur lit. */
     private fun JSONObject.putHdr(): JSONObject {
@@ -482,14 +465,14 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         // Sans écran (fenêtre pas encore posée) : pas d'écran noir sans issue, on revient à l'accueil (AND-24).
         val screen = Screen.of(display ?: run { finishSession(); return })
         hdrScreen = HdrScreen.of(display)
-        val settings = settingsJson(ui.profile)
         val g = guest
         // Le même calcul que l'accueil (« Écran de … »). Un invité reçoit l'écran du partage, tel que la Station le donne.
         val l = loan
         sessionMode = if (g != null && g.width > 0 && g.height > 0) Triple(g.width, g.height, if (g.refresh > 0) g.refresh.coerceIn(24, 240) else 60)
         // Un emprunt reçoit l'écran virtuel que la Station a fait à la taille de l'appareil.
         else if (l != null && l.width > 0 && l.height > 0) Triple(l.width, l.height, if (l.refresh > 0) l.refresh.coerceIn(24, 240) else 60)
-        else SessionMode.pick(screen, host.settings, settings.optString("codec"), app.decoders)
+        else SessionMode.plan(host, app.decoders, screen, ui.profile).mode
+        val settings = settingsJson(ui.profile)
         applyDisplay()
         val (w, h, r) = sessionMode
         val device = JSONObject(app.device.json())

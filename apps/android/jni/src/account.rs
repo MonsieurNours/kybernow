@@ -18,7 +18,7 @@
 //! Appels bloquants : hors du fil principal.
 //!
 //! Réglages synchronisés : `accountSettingsFetch`, `accountSettingsPut`,
-//! `accountSettingsKnown`, `accountSettingsFromStream`,
+//! `accountSync` (la mémoire d'un compte), `accountSettingsFromStream`,
 //! `accountSettingsApply`, `accountSyncSettingsTexts`.
 
 use jni::objects::{JClass, JString};
@@ -293,16 +293,71 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_accountSett
     })
 }
 
-/// Les clés connues d'un `{station, updated_at, values}`, vérifiées : `value`
-/// `{profile, codec, yuv444, mbps, hdr, immersive}` (absentes omises,
-/// `"profile": null` pour personnalisé).
+/// La mémoire des réglages synchronisés d'un compte (`account::AccountSync`
+/// du cœur, en JSON, gardée par l'app un par compte) : `op` sur `sync` (vide :
+/// une mémoire neuve) pour l'ordinateur `station`. Rend `{sync, value}` (la
+/// mémoire après l'opération), ou `{error}` si un JSON ne se lit pas.
+///
+/// - `to_send` : ce qu'il faut envoyer pour le changement `a` (ce qui
+///   attend, puis lui ; tout, `b`, si l'ordinateur n'a rien au relais) ;
+/// - `sent` : envoyé, `a` la réponse du relais (`{station, updated_at, values}`) ;
+/// - `unsent` : `a` pas envoyé (relais muet), gardé pour le prochain envoi ;
+/// - `refused` : `a` refusé pour de bon (relais d'avant, trop gros) ;
+/// - `forget` : l'ordinateur n'est plus au compte ;
+/// - `fetched` : la liste `a` lue ; `value` `[{station, values}]` à appliquer ;
+/// - `last` : `value` ses dernières valeurs connues (ou nul) ;
+/// - `pending` : `value` `{station: values}`, ce qui attend d'être envoyé.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_accountSettingsKnown(mut env: Env, _: JClass, synced: JString) -> jstring {
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_accountSync(mut env: Env, _: JClass, op: JString, sync: JString, station: JString, a: JString, b: JString) -> jstring {
     kybernow_core::ffi_guard!(null => {
-        let synced = string(&mut env, &synced);
-        let s = with::<SyncedSettings>(&synced, |s| envelope::<_>(Ok(s.known())));
-        give(&mut env, &s)
+        let (op, sync, station, a, b) = (string(&mut env, &op), string(&mut env, &sync), string(&mut env, &station), string(&mut env, &a), string(&mut env, &b));
+        give(&mut env, &account_sync(&op, &sync, &station, &a, &b))
     })
+}
+
+fn account_sync(op: &str, sync: &str, station: &str, a: &str, b: &str) -> String {
+    use kybernow_core::account::AccountSync;
+    let mut mem: AccountSync = if sync.trim().is_empty() { AccountSync::default() } else {
+        match serde_json::from_str(sync) {
+            Ok(m) => m,
+            Err(e) => return bad(e),
+        }
+    };
+    let values = |s: &str| serde_json::from_str::<SyncedValues>(if s.trim().is_empty() { "{}" } else { s });
+    let value = match op {
+        "to_send" => match (values(a), values(b)) {
+            (Ok(change), Ok(full)) => serde_json::to_value(mem.to_send(station, &change, || full)).unwrap_or_default(),
+            (Err(e), _) | (_, Err(e)) => return bad(e),
+        },
+        "sent" => match serde_json::from_str::<SyncedSettings>(a) {
+            Ok(s) => {
+                mem.sent(s);
+                serde_json::Value::Null
+            }
+            Err(e) => return bad(e),
+        },
+        "unsent" | "refused" => match values(a) {
+            Ok(v) => {
+                if op == "unsent" { mem.unsent(station, &v) } else { mem.refused(station, &v) }
+                serde_json::Value::Null
+            }
+            Err(e) => return bad(e),
+        },
+        "forget" => {
+            mem.forget(station);
+            serde_json::Value::Null
+        }
+        "fetched" => match serde_json::from_str::<Vec<SyncedSettings>>(a) {
+            Ok(list) => serde_json::Value::Array(
+                mem.fetched(list).into_iter().map(|(st, v)| serde_json::json!({ "station": st, "values": v })).collect(),
+            ),
+            Err(e) => return bad(e),
+        },
+        "last" => serde_json::to_value(mem.last(station)).unwrap_or_default(),
+        "pending" => serde_json::to_value(&mem.pending).unwrap_or_default(),
+        other => return serde_json::json!({ "error": format!("opération inconnue : {other}") }).to_string(),
+    };
+    serde_json::json!({ "sync": mem, "value": value }).to_string()
 }
 
 /// Les clés à envoyer d'après les réglages de session de l'app (`settings`,
@@ -347,4 +402,40 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_accountSync
         let (title, help) = account::sync_settings_texts(i18n::current());
         give(&mut env, &serde_json::json!([title, help]).to_string())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::account_sync;
+
+    fn run(op: &str, sync: &str, a: &str, b: &str) -> serde_json::Value {
+        serde_json::from_str(&account_sync(op, sync, "st", a, b)).unwrap()
+    }
+
+    /// La mémoire des réglages synchronisés, tenue par le cœur pour Kotlin :
+    /// tout la première fois, ce qui attend part avec le changement, un relais
+    /// muet garde, une réponse vide l'attente, une liste lue rend le plus récent.
+    #[test]
+    fn memoire_des_reglages_synchronises() {
+        let first = run("to_send", "", r#"{"hdr":false}"#, r#"{"profile":"jeu","hdr":true}"#);
+        assert_eq!(first["value"], serde_json::json!({"profile": "jeu", "hdr": false}));
+        let muted = run("unsent", "", r#"{"hdr":false}"#, "");
+        let sync = muted["sync"].to_string();
+        assert_eq!(run("pending", &sync, "", "")["value"]["st"]["hdr"], false);
+        let sent = run("sent", &sync, r#"{"station":"st","updated_at":7,"values":{"hdr":false}}"#, "");
+        let sync = sent["sync"].to_string();
+        assert!(run("pending", &sync, "", "")["value"].as_object().unwrap().is_empty());
+        assert_eq!(run("last", &sync, "", "")["value"]["updated_at"], 7);
+        // Une liste plus récente : à appliquer ; la même : rien.
+        let list = r#"[{"station":"st","updated_at":9,"values":{"profile":"max"}}]"#;
+        let fetched = run("fetched", &sync, list, "");
+        assert_eq!(fetched["value"][0]["values"]["profile"], "max");
+        assert!(run("fetched", &fetched["sync"].to_string(), list, "")["value"].as_array().unwrap().is_empty());
+        // Refusé pour de bon : plus rien n'attend ; oublié : plus rien du tout.
+        let refused = run("refused", &muted["sync"].to_string(), r#"{"hdr":false}"#, "");
+        assert!(run("pending", &refused["sync"].to_string(), "", "")["value"].as_object().unwrap().is_empty());
+        let gone = run("forget", &sync, "", "");
+        assert!(run("last", &gone["sync"].to_string(), "", "")["value"].is_null());
+        assert!(run("x", "", "", "").get("error").is_some());
+    }
 }

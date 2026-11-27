@@ -444,7 +444,7 @@ private fun IconPill(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
 @Composable
 fun displayLine(host: Host, screen: Screen, decoders: Decoders, hdr: Boolean = false): String {
     if (!host.virtualDisplay || !host.settings.virtualDisplay) return stringResource(R.string.home_display_as_is)
-    val mode = SessionMode.pick(screen, host.settings, SessionMode.codec(host, decoders), decoders)
+    val mode = SessionMode.plan(host, decoders, screen).mode
     val (w, h, r) = mode
     val match = SessionMode.matchesScreen(screen, host.settings, mode)
     val text = when {

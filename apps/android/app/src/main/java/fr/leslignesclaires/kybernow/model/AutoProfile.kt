@@ -12,8 +12,6 @@ import org.json.JSONObject
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.max
-import kotlin.math.min
 
 /*
  * Profil « Auto » et débit adaptatif (docs/link-ui.md, « Profil Auto et débit adaptatif » ; contrat :
@@ -53,7 +51,7 @@ data class AutoChoice(val key: String, val title: String, val value: String, val
     }
 }
 
-/** Ce qu'un résultat gardé (`AutoResult`) dit à l'app ; le reste se lit par le cœur ([Native.autotestChoices], [Native.autotestSettings]). */
+/** Ce qu'un résultat gardé (`AutoResult`) dit à l'app ; le reste se lit par le cœur ([Native.autotestChoices] ; les réglages de session : `plan::plan`, [SessionMode]). */
 data class AutoSummary(
     /** Date du test, en secondes depuis 1970. */
     val at: Long,
@@ -140,11 +138,7 @@ object AutoProfile {
     }
 
     /** L'écran de l'appareil en paysage, à sa plus haute fréquence : celui que la session prend « comme cet écran ». */
-    fun screenMode(screen: Screen): Triple<Int, Int, Int> {
-        val w = max(screen.current.width, screen.current.height)
-        val h = min(screen.current.width, screen.current.height)
-        return Triple(w, h, screen.bestRefresh(w, h))
-    }
+    fun screenMode(screen: Screen): Triple<Int, Int, Int> = SessionMode.screenMode(screen, HostSettings())
 
     /**
      * « Appliquer » : Auto devient le profil de cet ordinateur avec ce résultat (format, débit et transport : ceux du
@@ -173,13 +167,6 @@ object AutoProfile {
     /** Le plafond à garder (`AutoResult::next_encoder_max`) ; sans bibliothèque native, celui d'avant. */
     fun nextEncoderMax(result: String, previous: Int?): Int? =
         runCatching { Native.autotestEncoderMax(result, previous ?: 0) }.getOrElse { previous ?: 0 }.takeIf { it > 0 }
-
-    /**
-     * Les réglages de session d'Auto (le JSON de `sessionStart`) : ceux du test ([Native.autotestSettings]) ; sans
-     * résultat lisible (Auto reçu d'un autre appareil), ceux que le cœur donne au profil `auto` ([fallback]).
-     */
-    fun settings(result: String?, hdr: Boolean, wired: Boolean, fallback: () -> JSONObject): JSONObject =
-        result?.let { r -> runCatching { Native.autotestSettings(r, hdr, wired)?.let(::JSONObject) }.getOrNull() } ?: fallback()
 
     /** Le format qu'Auto demandera (`hevc`, `av1`, `h264`, `pyrowave`) ; nul sans résultat. */
     fun codec(result: String?): String? = AutoSummary.parse(result)?.codec?.takeIf { it.isNotEmpty() }

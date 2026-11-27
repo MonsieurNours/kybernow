@@ -37,8 +37,6 @@ object Native {
     @JvmStatic external fun autotestFree(handle: Long)
     /** Le résumé d'un résultat gardé, dans la langue de l'app : `[{key, title, value, reason}]` ; nul s'il est illisible. */
     @JvmStatic external fun autotestChoices(resultJson: String): String?
-    /** Les réglages de session d'Auto pour ce résultat (`AutoResult::settings`, profil `auto`) ; nul s'il est illisible. */
-    @JvmStatic external fun autotestSettings(resultJson: String, hdr: Boolean, wired: Boolean): String?
     /**
      * « Appliquer » un nouveau résultat : le plafond de l'encodeur à garder pour l'ordinateur (Mbit/s par écran, 0 : aucun ;
      * `AutoResult::next_encoder_max`), d'après celui gardé ([previous], 0 : aucun) ; un résultat illisible le laisse.
@@ -91,6 +89,12 @@ object Native {
     @JvmStatic external fun fingerprintSame(a: String, b: String): Boolean
     /** Une adresse tapée : `{host, port}`, le port [defaultPort] quand il manque (0 : il est exigé) ; nul si elle ne se lit pas. */
     @JvmStatic external fun parseAddress(text: String, defaultPort: Int): String?
+    /**
+     * Le plan d'une session (`plan::plan_json`) : les choix de l'ordinateur (`profile`, `codec`, `mbps`, `reliable`,
+     * `auto`, `fixed`, `encoder_max`, `hevc_instead`), ce que décode l'appareil, l'écran de l'appareil ; `{settings, mode,
+     * mbps, label}`.
+     */
+    @JvmStatic external fun planJson(choicesJson: String, capabilitiesJson: String, width: Int, height: Int, refresh: Int): String?
     /**
      * Les valeurs communes des apps pour les décodeurs de l'appareil (`{hevc, hevc444, av1, hdr, pyrowave}`) : profils,
      * bornes du débit à la main, débit en arrière-plan, maxima, délais, port d'Admin. Une fois au lancement ; nul si illisible.
@@ -300,12 +304,16 @@ object Native {
      * `last` (le dernier `{station, updated_at, values}` connu, nul sinon) : `value`, le nouveau à garder. Bloquant.
      */
     @JvmStatic external fun accountSettingsPut(accountJson: String, station: String, lastJson: String?, valuesJson: String): String
-    /** Les clés connues et vérifiées d'un `{station, updated_at, values}` : `value` `{profile, codec, yuv444, mbps, hdr, immersive}`. */
-    @JvmStatic external fun accountSettingsKnown(syncedJson: String): String
     /** Les clés à envoyer d'après des réglages de session (`settings` de [sessionStart]) et le mode immersif (nul ici). */
     @JvmStatic external fun accountSettingsFromStream(settingsJson: String, immersive: String?): String
     /** Les réglages de session `base` avec les clés reçues, ramenés à ce que l'appareil décode (`caps`) : `value`, le JSON de `base`. */
     @JvmStatic external fun accountSettingsApply(valuesJson: String, baseJson: String, capsJson: String): String
+    /**
+     * La mémoire des réglages synchronisés d'un compte (`account::AccountSync`, JSON gardé par l'app ; vide : neuve) :
+     * l'opération [op] (`to_send`, `sent`, `unsent`, `refused`, `forget`, `fetched`, `last`, `pending`) pour [station],
+     * avec [a] et [b] selon l'opération ; rend `{sync, value}` (la mémoire après l'opération, et sa réponse).
+     */
+    @JvmStatic external fun accountSync(op: String, sync: String, station: String, a: String, b: String): String?
     /** « Synchroniser les réglages des ordinateurs » et son aide : `[titre, aide]` en JSON. */
     @JvmStatic external fun accountSyncSettingsTexts(): String
 
@@ -329,9 +337,6 @@ object Native {
     @JvmStatic external fun controlAsCommand(setting: Int, os: String): Boolean
     /** L'ordinateur crée les manettes de l'appareil (`gamepads` de l'info, JSON de [consoleInfo]) ; vrai sans le champ. */
     @JvmStatic external fun gamepadsAvailable(infoJson: String): Boolean
-
-    /** Réglages d'un profil (`jeu`, `bureau`, `max`) selon les décodeurs de l'appareil. */
-    @JvmStatic external fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean): String
 
     // Session.
     @JvmStatic external fun sessionStart(params: String, surface: Surface?, listener: SessionListener, refresh: Int): Long

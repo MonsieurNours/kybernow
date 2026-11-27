@@ -50,7 +50,8 @@ class SettingsSyncTest {
             .put("account", JSONObject().put("id", "acc_lea").put("name", "Léa").put("email", "lea@exemple.fr")).toString(),
     )!!
 
-    private fun stream(set: HostSettings) = SyncedKeys.stream(set, SyncedKeys.profileBase(set.profile, hevc = true, hevc444 = true, av1 = false), hevc = true, av1 = false)
+    private fun stream(set: HostSettings) =
+        SyncedKeys.stream(Host(id = "pc", name = "PC", address = "", port = 0, fingerprint = null, user = "", settings = set), decoders)
 
     private fun synced(at: Long, values: JSONObject) = JSONObject().put("station", station).put("updated_at", at).put("values", values)
 
@@ -241,5 +242,22 @@ class SettingsSyncTest {
         assertEquals(puts, relay.puts.size)
         // Allumé par défaut, gardé sur l'appareil.
         assertFalse(SettingsSync(RuntimeEnvironment.getApplication(), hosts, { decoders }, { null }, CoroutineScope(Dispatchers.Unconfined), relay).enabled.value)
+    }
+
+    @Test
+    fun whatAnOlderVersionKept_isTakenOver() = runBlocking {
+        val app = RuntimeEnvironment.getApplication()
+        app.getSharedPreferences("settings_sync", android.content.Context.MODE_PRIVATE).edit()
+            .putString("lists", JSONObject().put(key, org.json.JSONArray().put(synced(42, JSONObject().put("profile", "max")))).toString())
+            .putString("applied", JSONObject().put("$key\n$station", 42).toString())
+            .putString("pending", JSONObject().put("$key\n$station", JSONObject().put("hdr", false)).toString())
+            .commit()
+        val (_, sync, _) = setup(Relay())
+        assertEquals(42L, sync.appliedAt(key, station))
+        assertEquals("""{"hdr":false}""", sync.pending(key, station).toString())
+        assertEquals(setOf(station), sync.list(key).keys)
+        assertFalse(app.getSharedPreferences("settings_sync", android.content.Context.MODE_PRIVATE).contains("lists"))
+        sync.forgetAccount(key)
+        assertEquals(0L, sync.appliedAt(key, station))
     }
 }

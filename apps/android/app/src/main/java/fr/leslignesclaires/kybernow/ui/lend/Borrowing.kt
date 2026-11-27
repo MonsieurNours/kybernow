@@ -8,7 +8,6 @@ import fr.leslignesclaires.kybernow.core.ShareTarget
 import fr.leslignesclaires.kybernow.model.Hdr
 import fr.leslignesclaires.kybernow.model.HdrScreen
 import fr.leslignesclaires.kybernow.model.Host
-import fr.leslignesclaires.kybernow.model.HostSettings
 import fr.leslignesclaires.kybernow.model.Screen
 import fr.leslignesclaires.kybernow.model.SessionMode
 
@@ -23,10 +22,11 @@ object Borrowing {
     fun ask(context: Context, target: ShareTarget, route: String?, name: String, code: String? = null, login: String? = null, password: String? = null): BorrowAsk {
         val app = KyberNowApp.instance
         val d = app.decoders
-        val (w, h, r) = SessionMode.pick(Screen.of(context), HostSettings(), if (d.hevc != null) "hevc" else "h264", d)
+        val station = Host(name = "", address = "", port = 0, fingerprint = null, user = "", av1 = d.av1 != null)
+        val (w, h, r) = SessionMode.plan(station, d, Screen.of(context)).mode
         // HDR : l'écran de l'appareil l'est et le décodeur le lit (le choix « HDR » d'un emprunt est allumé au départ).
         val screen = HdrScreen.of(context)
-        val hdr = screen.hdr && Hdr.decodes(Host(name = "", address = "", port = 0, fingerprint = null, user = "", av1 = d.av1 != null), d)
+        val hdr = screen.hdr && Hdr.decodes(station, d)
         val request = Lend.request(
             code, login, password, name, app.device.id, w, h, r, Lend.codecs(d.hevc != null, d.av1 != null),
             hdr = hdr, luminance = screen.luminance?.json(),

@@ -28,10 +28,10 @@ object Core {
         fun pyrowaveLoweredText(width: Int, height: Int, refresh: Int, mbps: Int): String
         fun discoveryFound(json: String): String?
         fun recordingClock(seconds: Long): String
-        fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean): String
-        fun accountSettingsKnown(syncedJson: String): String
         fun accountSettingsApply(valuesJson: String, baseJson: String, capsJson: String): String
         fun accountSettingsFromStream(settingsJson: String): String
+        fun plan(choicesJson: String, capabilitiesJson: String, width: Int, height: Int, refresh: Int): String?
+        fun accountSync(op: String, sync: String, station: String, a: String, b: String): String?
         fun welcome(stateJson: String, op: String, hasAccount: Boolean, computer: String, now: Long): String
         fun welcomeSignUpUrl(relay: String): String
         fun welcomeStationUrl(): String
@@ -55,11 +55,12 @@ object Core {
         override fun pyrowaveLoweredText(width: Int, height: Int, refresh: Int, mbps: Int) = Native.pyrowaveLoweredText(width, height, refresh, mbps)
         override fun discoveryFound(json: String) = Native.discoveryFound(json)
         override fun recordingClock(seconds: Long) = Native.recordingClock(seconds)
-        override fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean) = Native.profileSettings(profile, hevc, hevc444, av1)
-        override fun accountSettingsKnown(syncedJson: String) = Native.accountSettingsKnown(syncedJson)
         override fun accountSettingsApply(valuesJson: String, baseJson: String, capsJson: String) = Native.accountSettingsApply(valuesJson, baseJson, capsJson)
         // Android n'a pas de mode immersif : rien à joindre.
         override fun accountSettingsFromStream(settingsJson: String) = Native.accountSettingsFromStream(settingsJson, null)
+        override fun plan(choicesJson: String, capabilitiesJson: String, width: Int, height: Int, refresh: Int) =
+            Native.planJson(choicesJson, capabilitiesJson, width, height, refresh)
+        override fun accountSync(op: String, sync: String, station: String, a: String, b: String) = Native.accountSync(op, sync, station, a, b)
         override fun welcome(stateJson: String, op: String, hasAccount: Boolean, computer: String, now: Long) = Native.welcome(stateJson, op, hasAccount, computer, now)
         override fun welcomeSignUpUrl(relay: String) = Native.welcomeSignUpUrl(relay)
         override fun welcomeStationUrl() = Native.welcomeStationUrl()
@@ -147,6 +148,14 @@ object Core {
 
     @Volatile private var values: Values? = null
 
+    /**
+     * Le plan d'une session (`plan::plan_json`) : [choices] (`plan::Choices`), [caps] (ce que décode l'appareil), l'écran
+     * de l'appareil ; `{settings, mode, mbps, label}`, nul sans réponse.
+     */
+    fun plan(choices: JSONObject, caps: JSONObject, width: Int, height: Int, refresh: Int): JSONObject? =
+        ask("plan de la session", null) { plan(choices.toString(), caps.toString(), width, height, refresh) }
+            ?.let { runCatching { JSONObject(it) }.getOrNull() }
+
     /** Les valeurs communes (vides sans réponse du cœur, sans être gardées : redemandées à l'appel suivant). */
     fun values(): Values = values ?: ask("valeurs communes", null) { valuesJson("{}") }?.let { Values.parse(it).also { v -> values = v } }
         ?: Values.parse(null)
@@ -206,14 +215,6 @@ object Core {
     /** Le texte ressemble à un lien d'invitation, lisible ou non. */
     fun looksLikeInvite(text: String): Boolean = ask("lien d'invitation", false) { looksLikeInvite(text) }
 
-    /** Les réglages d'un profil (`jeu`, `bureau`, `max`, `auto`) ramenés aux décodeurs de l'appareil (`StreamSettings::for_profile`). */
-    fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean): JSONObject? =
-        ask("profil", null) { profileSettings(profile, hevc, hevc444, av1) }?.let { runCatching { JSONObject(it) }.getOrNull() }
-
-    /** Les clés connues et vérifiées de réglages synchronisés (`SyncedSettings::known`) ; nul sans réponse. */
-    fun settingsKnown(synced: JSONObject): JSONObject? =
-        ask("réglages synchronisés", null) { accountSettingsKnown(synced.toString()) }?.let(::accountValue)
-
     /** Des réglages reçus appliqués aux réglages de session (`SyncedValues::apply_to`, bornes du débit comprises) ; nul sans réponse. */
     fun settingsApply(values: JSONObject, base: JSONObject, caps: JSONObject): JSONObject? =
         ask("réglages synchronisés", null) { accountSettingsApply(values.toString(), base.toString(), caps.toString()) }?.let(::accountValue)
@@ -221,6 +222,14 @@ object Core {
     /** Toutes les clés à envoyer d'après des réglages de session (`SyncedValues::from_stream`) ; nul sans réponse. */
     fun settingsFromStream(stream: JSONObject): JSONObject? =
         ask("réglages synchronisés", null) { accountSettingsFromStream(stream.toString()) }?.let(::accountValue)
+
+    /**
+     * Une opération sur la mémoire des réglages synchronisés d'un compte (`account::AccountSync`, voir
+     * [Native.accountSync]) : `{sync, value}`, ou nul sans réponse.
+     */
+    fun accountSync(op: String, sync: String, station: String = "", a: String = "", b: String = ""): JSONObject? =
+        ask("réglages synchronisés", null) { accountSync(op, sync, station, a, b) }
+            ?.let { runCatching { JSONObject(it) }.getOrNull() }?.takeIf { !it.has("error") }
 
     private fun accountValue(text: String): JSONObject? = (Accounts.read(text) { it as? JSONObject } as? AccountReply.Ok)?.value
 

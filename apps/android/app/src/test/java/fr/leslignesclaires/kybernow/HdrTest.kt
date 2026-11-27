@@ -39,6 +39,10 @@ import org.robolectric.shadows.ShadowLooper
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class HdrTest {
+    @org.junit.Before fun fakeCore() = FakeCore.install()
+
+    @org.junit.After fun realCore() = FakeCore.reset()
+
     private val context get() = ApplicationProvider.getApplicationContext<Application>()
 
     private fun decoder(name: String) = DecoderInfo(name, 8192, 4320, true)

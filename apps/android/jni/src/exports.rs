@@ -372,6 +372,35 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_parseAddres
     })
 }
 
+/// Le plan d'une session (`plan::plan_json`) : `choices_json` (les choix de
+/// l'ordinateur : `profile`, `codec`, `mbps`, `reliable`, `auto`, `fixed`,
+/// `encoder_max`, `hevc_instead`), ce que décode l'appareil (`capabilities_json`), l'écran
+/// de l'appareil ; rend `{settings, mode, mbps, label}`, nul pour un JSON
+/// illisible.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_planJson(
+    mut env: Env,
+    _: JClass,
+    choices_json: JString,
+    capabilities_json: JString,
+    width: jint,
+    height: jint,
+    refresh: jint,
+) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let (choices, caps) = (string(&mut env, &choices_json), string(&mut env, &capabilities_json));
+        let caps = serde_json::from_str::<kybernow_core::profile::Capabilities>(&caps).unwrap_or_default();
+        let screen = kybernow_core::console::Mode { width: width.max(0) as u32, height: height.max(0) as u32, refresh: refresh.max(0) as u32 };
+        match kybernow_core::plan::plan_json(&choices, caps, screen) {
+            Some(v) => give(&mut env, &v.to_string()),
+            None => {
+                log::warn!("plan de la session : choix illisibles");
+                std::ptr::null_mut()
+            }
+        }
+    })
+}
+
 /// Les valeurs communes des apps (`plan::values_json`) pour les décodeurs de
 /// l'appareil (`capabilities_json` : `{hevc, hevc444, av1, hdr, pyrowave}`) :
 /// profils, bornes du débit à la main, débit en arrière-plan, maxima,
@@ -1063,43 +1092,6 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padAxis(_: 
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padAxesRest(_: Env, _: JClass, h: jlong, pad: jint) {
     kybernow_core::ffi_guard!({
         input(h, |p| p.gamepad_axes_rest(pad as u32));
-    })
-}
-
-// MARK: - Profils
-
-/// Réglages d'un profil (`jeu`, `bureau`, `max`) ramenés à ce que l'appareil
-/// décode en matériel, dans le JSON de `settings` : la même règle que les
-/// autres apps (`StreamSettings::for_profile`).
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_profileSettings(
-    mut env: Env,
-    _: JClass,
-    profile: JString,
-    hevc: jboolean,
-    hevc444: jboolean,
-    av1: jboolean,
-) -> jstring {
-    kybernow_core::ffi_guard!(null => {
-        use kybernow_core::profile::{Capabilities, Codec, Profile, StreamSettings};
-        let p = string(&mut env, &profile);
-        let profile = Profile::parse(&p).unwrap_or(Profile::Jeu);
-        let s = StreamSettings::for_profile(profile, Capabilities { hevc: hevc != 0, hevc444: hevc444 != 0, av1: av1 != 0, hdr: false, pyrowave: false });
-        let codec = match s.codec {
-            Codec::H264 => "h264",
-            Codec::Hevc => "hevc",
-            Codec::Av1 => "av1",
-            Codec::PyroWave => "pyrowave",
-        };
-        let json = serde_json::json!({
-            "profile": p.to_lowercase(),
-            "codec": codec,
-            "yuv444": s.yuv444,
-            "mbps": s.mbps,
-            "reliable": s.reliable,
-        })
-        .to_string();
-        give(&mut env, &json)
     })
 }
 

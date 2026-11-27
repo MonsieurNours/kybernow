@@ -495,7 +495,13 @@ private fun PictureRubric(state: HostSettingsState, actions: HostSettingsActions
         set.codec,
         disabled = if (pw.usable) emptySet() else setOf("pyrowave"),
         below = if (pyroChosen && pw.link != PyroWaveLink.CABLE) ({ PyroWarning(pw.link) }) else null,
-    ) { v -> actions.update { it.copy(codec = v) } }
+    ) { v ->
+        // PyroWave quitté : un débit réglé à la main pour lui ramené à celui de HEVC (`limits::mbps_after_pyrowave`).
+        actions.update {
+            val leaving = it.codec == "pyrowave" && v != "pyrowave" && it.mbps > 0
+            it.copy(codec = v, mbps = if (leaving) it.mbps.coerceAtMost(Core.values().hevcAfterPyroWaveMbps) else it.mbps)
+        }
+    }
     ChoiceRow(
         stringResource(R.string.settings_bitrate), stringResource(R.string.settings_bitrate_help),
         listOf(0 to auto) + manualBitrates(pyroChosen).map { it to stringResource(R.string.settings_mbps, it) }, set.mbps,
