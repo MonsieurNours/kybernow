@@ -295,9 +295,9 @@ kybernow <address>[:port] [--user <account>] [--profile jeu|bureau|max] [options
 | `apps/windows/src/displays.rs` | This PC's displays (`EnumDisplayMonitors`) and what the core gets of them (`Screens`), display under a point (tested on the Mac) |
 | `apps/windows/src/fonds.rs`, `ui/fond.html` | Connection background on the displays other than the main one (full-screen Tauri windows) |
 | `apps/windows/src/video.rs` | One display's image thread: packets → decoder → rendering, keyframes |
-| `apps/windows/src/gpu.rs` | The session's Direct3D 11 device, shared by the displays, and the lock of its context (rendering and FFmpeg) |
+| `apps/windows/src/gpu.rs` | The session's Direct3D 11 device, shared by the displays, and the lock of its context (rendering and FFmpeg); replaceable (`SessionGpu`): when the graphics card is lost (driver update, TDR, eGPU unplugged, some wake-ups), the first video thread to notice recreates the device, then each display recreates its renderer, reopens its decoder and asks for a key frame (15 s of attempts at most), instead of a frozen picture with no way out |
 | `apps/windows/src/decoder.rs` | FFmpeg (D3D11VA or CPU), capability probe |
-| `apps/windows/src/render.rs` | Direct3D 11: textures (NV12, P010, AYUV, planes), YUV → RGB shader, PQ output or brought down to SDR, a display's swap chain (8 or 10 bits) |
+| `apps/windows/src/render.rs` | Direct3D 11: textures (NV12, P010, AYUV, planes), YUV → RGB shader, PQ output or brought down to SDR, a display's swap chain (8 or 10 bits); tells a lost card (`DrawError::Lost`, never a fallback to the processor) from a refused format; the home-screen thumbnail (main display only) binds its whole pipeline, since another display of the session may have changed the context's |
 | `apps/windows/src/hdr.rs` | HDR: this PC's displays (DXGI, desktop white), output, BT.2390 and SDR curves, matrices, HDR10 metadata |
 | `apps/core/src/input/` | Shared input module: kynput pipeline, send queue, the computer's pointer, mouse mode |
 | `apps/core/src/audio/` | Sound engine: libopus, adaptive buffer, channel order |

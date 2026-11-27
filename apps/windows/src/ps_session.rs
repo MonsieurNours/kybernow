@@ -53,7 +53,7 @@ use kybernow_core::playstation::settings::PlaySettings;
 use kybernow_core::relay::RouteInfo;
 
 use crate::audio::{self, AudioOutput};
-use crate::gpu::Gpu;
+use crate::gpu::SessionGpu;
 use crate::i18n::t;
 use crate::render::Renderer;
 use crate::video::{self, ConsoleLink, Link, Shared, VideoHandler, VideoOptions};
@@ -412,7 +412,7 @@ fn run(start: Start, inner: Arc<Inner>) {
     if let Err(e) = register_class() {
         return fail(&inner, format!("classe de fenêtre : {e}"));
     }
-    let gpu = match Gpu::new() {
+    let gpu = match SessionGpu::new() {
         Ok(g) => g,
         Err(e) => return fail(&inner, format!("Direct3D 11 : {e}")),
     };
@@ -455,7 +455,7 @@ fn run(start: Start, inner: Arc<Inner>) {
     *shared.screen_hdr.lock().unwrap() = screen_of(hwnd);
     let size = client_size(hwnd);
     shared.set_client_size(size.0, size.1);
-    let renderer = match Renderer::new(&gpu, hwnd, size, false) {
+    let renderer = match Renderer::new(&gpu.current(), hwnd, size, false) {
         Ok(r) => r,
         Err(e) => {
             unsafe {

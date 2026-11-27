@@ -349,6 +349,12 @@ pub struct Renderer {
     tearing: bool,
     pub vsync: bool,
     present_failed: bool,
+    /// La carte graphique est perdue (pilote mis à jour, TDR, eGPU débranché,
+    /// certaines sorties de veille) : la raison. Le fil de l'image recrée
+    /// alors la carte de la session et ce rendu (`video.rs`).
+    lost: Option<String>,
+    /// La vignette de l'accueil n'est faite que pour l'écran principal.
+    snapshots: bool,
     /// Copie réduite de l'image (accueil : dernière image de la session).
     snap: Option<(ID3D11Texture2D, ID3D11RenderTargetView, u32, u32)>,
     last_snap: Option<std::time::Instant>,
@@ -373,10 +379,36 @@ pub struct Renderer {
 /// Largeur de la dernière image gardée pour l'accueil.
 const SNAP_WIDTH: u32 = 1280;
 
-/// L'image ne peut pas être montrée telle quelle (format de la carte non pris
-/// en charge) : il faut décoder par le processeur.
+/// Pourquoi une image n'a pas pu être montrée.
 #[derive(Debug)]
-pub struct Unsupported(pub String);
+pub enum DrawError {
+    /// L'image ne peut pas être montrée telle quelle (format de la carte non
+    /// pris en charge) : il faut décoder par le processeur.
+    Unsupported(String),
+    /// La carte graphique est perdue : rien ne se montrera plus sur cet
+    /// appareil, il faut le recréer (pas un repli sur le processeur).
+    Lost(String),
+}
+
+impl std::fmt::Display for DrawError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DrawError::Unsupported(e) => f.write_str(e),
+            DrawError::Lost(e) => write!(f, "carte graphique perdue ({e})"),
+        }
+    }
+}
+
+/// `Present` ou un appel de l'appareil a échoué parce que la carte est
+/// perdue (`DXGI_ERROR_DEVICE_REMOVED`, `DXGI_ERROR_DEVICE_RESET`), ou
+/// l'appareil le dit (`GetDeviceRemovedReason`).
+fn device_lost(device: &ID3D11Device, hr: windows::core::HRESULT) -> Option<String> {
+    if hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET {
+        let reason = unsafe { device.GetDeviceRemovedReason() };
+        return Some(format!("{hr:?}, raison {reason:?}"));
+    }
+    unsafe { device.GetDeviceRemovedReason() }.err().map(|e| format!("{hr:?}, raison {:?}", e.code()))
+}
 
 impl Renderer {
     pub fn new(gpu: &Gpu, hwnd: HWND, size: (u32, u32), vsync: bool) -> windows::core::Result<Self> {
@@ -480,6 +512,8 @@ impl Renderer {
                 tearing,
                 vsync,
                 present_failed: false,
+                lost: None,
+                snapshots: true,
                 snap: None,
                 last_snap: None,
                 swapchain3: None,
@@ -619,26 +653,50 @@ impl Renderer {
         Ok(())
     }
 
+    /// La carte est perdue : la raison (vu par `present` ou par un appel de
+    /// l'appareil en échec).
+    pub fn lost(&self) -> Option<&str> {
+        self.lost.as_deref()
+    }
+
+    /// Faite pour l'écran principal seulement : la vignette de l'accueil.
+    pub fn set_snapshots(&mut self, on: bool) {
+        self.snapshots = on;
+    }
+
+    /// Une erreur de l'appareil : perte de la carte (notée, `Lost`) ou format
+    /// que la carte refuse (`Unsupported`).
+    fn failed(&mut self, e: windows::core::Error) -> DrawError {
+        match device_lost(&self.device, e.code()) {
+            Some(why) => {
+                self.lost.get_or_insert(why.clone());
+                DrawError::Lost(why)
+            }
+            None => DrawError::Unsupported(e.to_string()),
+        }
+    }
+
     /// Copie l'image décodée dans nos textures.
-    fn upload(&mut self, f: &AVFrame) -> Result<(), Unsupported> {
+    fn upload(&mut self, f: &AVFrame) -> Result<(), DrawError> {
         let (w, h) = (f.width as u32, f.height as u32);
-        let fail = |e: windows::core::Error| Unsupported(e.to_string());
         if is_hw_frame(f) {
             let src = f.data[0] as *mut c_void;
             let index = f.data[1] as usize as u32;
             let src = unsafe { ID3D11Texture2D::from_raw_borrowed(&src) }
-                .ok_or_else(|| Unsupported("texture absente".into()))?;
+                .ok_or_else(|| DrawError::Unsupported("texture absente".into()))?;
             let mut desc = D3D11_TEXTURE2D_DESC::default();
             unsafe { src.GetDesc(&mut desc) };
             let layout = match desc.Format {
                 DXGI_FORMAT_NV12 => Layout::Nv12,
                 DXGI_FORMAT_P010 => Layout::P010,
                 DXGI_FORMAT_AYUV => Layout::Ayuv,
-                other => return Err(Unsupported(format!("format de la carte {other:?}"))),
+                other => return Err(DrawError::Unsupported(format!("format de la carte {other:?}"))),
             };
             // Largeur et hauteur paires pour le NV12 et le P010.
             let (w, h) = if matches!(layout, Layout::Nv12 | Layout::P010) { (w & !1, h & !1) } else { (w, h) };
-            self.ensure_planes(layout, w, h).map_err(fail)?;
+            if let Err(e) = self.ensure_planes(layout, w, h) {
+                return Err(self.failed(e));
+            }
             let dst = &self.planes.as_ref().unwrap().textures[0];
             let bx = D3D11_BOX { left: 0, top: 0, front: 0, right: w, bottom: h, back: 1 };
             unsafe { self.ctx.CopySubresourceRegion(dst, 0, 0, 0, 0, src, index, Some(&bx)) };
@@ -649,9 +707,11 @@ impl Renderer {
             AV_PIX_FMT_YUV420P | AV_PIX_FMT_YUVJ420P => Layout::Planar { chroma_shift: 1, wide: false },
             AV_PIX_FMT_YUV444P | AV_PIX_FMT_YUVJ444P => Layout::Planar { chroma_shift: 0, wide: false },
             AV_PIX_FMT_YUV420P10LE => Layout::Planar { chroma_shift: 1, wide: true },
-            other => return Err(Unsupported(format!("format d'image {other}"))),
+            other => return Err(DrawError::Unsupported(format!("format d'image {other}"))),
         };
-        self.ensure_planes(layout, w, h).map_err(fail)?;
+        if let Err(e) = self.ensure_planes(layout, w, h) {
+                return Err(self.failed(e));
+            }
         let planes = self.planes.as_ref().unwrap();
         for i in 0..3 {
             unsafe {
@@ -663,7 +723,10 @@ impl Renderer {
 
     /// Montre une image décodée et la présente aussitôt. `hint` : échelle (en
     /// centièmes) du trait du bord haut posé par-dessus ; 0 : aucun.
-    pub fn draw(&mut self, f: &AVFrame, hint: u32, stream_hdr: bool) -> Result<(), Unsupported> {
+    pub fn draw(&mut self, f: &AVFrame, hint: u32, stream_hdr: bool) -> Result<(), DrawError> {
+        if let Some(why) = &self.lost {
+            return Err(DrawError::Lost(why.clone()));
+        }
         // L'attente de la chaîne avant de prendre le verrou : un autre écran
         // continue de tracer pendant qu'on attend la synchro de celui-ci.
         self.wait_ready();
@@ -695,7 +758,10 @@ impl Renderer {
             let _held = lock.lock();
             self.snapshot(fw, fh);
         }
-        Ok(())
+        match &self.lost {
+            Some(why) => Err(DrawError::Lost(why.clone())),
+            None => Ok(()),
+        }
     }
 
     /// Montre une image PyroWave (`pyrowave.rs`) : ses trois plans (Y, Cb,
@@ -705,15 +771,20 @@ impl Renderer {
     /// le code v · 255 en 8 bits, et en 16 bits la convention P010 de la
     /// Station (10 bits en haut de 16). Pas de métadonnées HDR10 dans le flux :
     /// crête par défaut (1 000 nits).
-    pub fn draw_pyrowave(&mut self, dec: &mut crate::pyrowave::Decoder, c: crate::pyrowave::Config, hint: u32) -> Result<(), Unsupported> {
+    pub fn draw_pyrowave(&mut self, dec: &mut crate::pyrowave::Decoder, c: crate::pyrowave::Config, hint: u32) -> Result<(), DrawError> {
+        if let Some(why) = &self.lost {
+            return Err(DrawError::Lost(why.clone()));
+        }
         self.wait_ready();
         let lock = self.lock.clone();
         let (fw, fh, painted) = {
             let _held = lock.lock();
             let layout = Layout::Planar { chroma_shift: if c.chroma444 { 0 } else { 1 }, wide: c.hdr };
-            self.ensure_planes(layout, c.width, c.height).map_err(|e| Unsupported(e.to_string()))?;
+            if let Err(e) = self.ensure_planes(layout, c.width, c.height) {
+                return Err(self.failed(e));
+            }
             let planes = self.planes.as_ref().unwrap();
-            dec.copy_into(&self.ctx, &planes.textures).map_err(Unsupported)?;
+            dec.copy_into(&self.ctx, &planes.textures).map_err(DrawError::Unsupported)?;
             self.params.mode = 1;
             // AVCOL_SPC_BT709 (1) en SDR, BT2020_NCL (9) en HDR10.
             let (space, bits, unit) = if c.hdr { (9, 10, 64.0 / 65535.0) } else { (1, 8, 1.0 / 255.0) };
@@ -726,7 +797,10 @@ impl Renderer {
             let _held = lock.lock();
             self.snapshot(fw, fh);
         }
-        Ok(())
+        match &self.lost {
+            Some(why) => Err(DrawError::Lost(why.clone())),
+            None => Ok(()),
+        }
     }
 
     /// L'écran de la fenêtre a changé (HDR allumé ou coupé, fenêtre glissée
@@ -908,13 +982,7 @@ impl Renderer {
             self.ctx.ClearRenderTargetView(&rtv, &[0.0, 0.0, 0.0, 1.0]);
             self.ctx.OMSetRenderTargets(Some(&[Some(rtv)]), None);
             self.ctx.RSSetViewports(Some(&[viewport]));
-            self.ctx.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            self.ctx.VSSetShader(&self.vs, None);
-            self.ctx.PSSetShader(&self.ps, None);
-            let views: Vec<Option<ID3D11ShaderResourceView>> = planes.views.iter().cloned().map(Some).collect();
-            self.ctx.PSSetShaderResources(0, Some(&views));
-            self.ctx.PSSetSamplers(0, Some(&[Some(self.sampler.clone())]));
-            self.ctx.PSSetConstantBuffers(0, Some(&[Some(self.cbuf.clone())]));
+            self.bind_image(planes);
             self.ctx.Draw(3, 0);
             if let (true, Some((hint_ps, hint_blend))) = (hint > 0, &self.hint_gpu) {
                 self.draw_hint(hint_ps, hint_blend, hint, sw);
@@ -922,6 +990,25 @@ impl Renderer {
             self.hint = hint;
         }
         true
+    }
+
+    /// Relie le tracé de l'image de cet écran : topologie, shaders, textures
+    /// (tableau fixe, sans allocation), échantillonneur, constantes, sans
+    /// mélange. Sous le verrou du contexte.
+    unsafe fn bind_image(&self, planes: &Planes) {
+        unsafe {
+            self.ctx.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            self.ctx.VSSetShader(&self.vs, None);
+            self.ctx.PSSetShader(&self.ps, None);
+            let mut views: [Option<ID3D11ShaderResourceView>; 3] = [None, None, None];
+            for (slot, v) in views.iter_mut().zip(planes.views.iter()) {
+                *slot = Some(v.clone());
+            }
+            self.ctx.PSSetShaderResources(0, Some(&views[..planes.views.len().min(3)]));
+            self.ctx.PSSetSamplers(0, Some(&[Some(self.sampler.clone())]));
+            self.ctx.PSSetConstantBuffers(0, Some(&[Some(self.cbuf.clone())]));
+            self.ctx.OMSetBlendState(None, None, 0xFFFF_FFFF);
+        }
     }
 
     /// Présente l'image tracée par `encode` (hors du verrou du contexte).
@@ -934,10 +1021,18 @@ impl Renderer {
             (0, DXGI_PRESENT(0))
         };
         let hr = unsafe { self.swapchain.Present(interval, flags) };
-        if hr.is_err() && !self.present_failed {
-            // Carte graphique perdue (pilote mis à jour, mise en veille…).
-            log::error!("Present : {hr:?}");
-            self.present_failed = true;
+        if hr.is_err() {
+            // Carte graphique perdue (pilote mis à jour, TDR, mise en veille…) :
+            // le fil de l'image recrée la carte et ce rendu.
+            if let Some(why) = device_lost(&self.device, hr) {
+                if self.lost.is_none() {
+                    log::error!("Present : carte graphique perdue ({why})");
+                    self.lost = Some(why);
+                }
+            } else if !self.present_failed {
+                log::error!("Present : {hr:?}");
+                self.present_failed = true;
+            }
         }
     }
 
@@ -971,7 +1066,7 @@ impl Renderer {
     /// Toutes les 2 s, l'image redessinée en petit dans une texture à part
     /// (un tracé de plus, sans attente) : la dernière servira à l'accueil.
     fn snapshot(&mut self, fw: u32, fh: u32) {
-        if self.last_snap.is_some_and(|t| t.elapsed().as_secs() < 2) || fw == 0 || fh == 0 {
+        if !self.snapshots || self.last_snap.is_some_and(|t| t.elapsed().as_secs() < 2) || fw == 0 || fh == 0 {
             return;
         }
         self.last_snap = Some(std::time::Instant::now());
@@ -990,14 +1085,19 @@ impl Renderer {
             }
         }
         let Some((_, rtv, w, h)) = &self.snap else { return };
+        let Some(planes) = self.planes.as_ref() else { return };
         let viewport = D3D11_VIEWPORT { TopLeftX: 0.0, TopLeftY: 0.0, Width: *w as f32, Height: *h as f32, MinDepth: 0.0, MaxDepth: 1.0 };
         unsafe {
             // Une image HDR est gardée ramenée au SDR (l'accueil est en SDR).
+            let mut p = self.params;
             if self.output != Output::Sdr {
-                let mut p = self.params;
                 p.set_tone(&hdr::tone(Output::PqToSdr, hdr::content_peak(self.stream_hdr.max_cll, self.stream_hdr.mastering_max), None));
-                self.ctx.UpdateSubresource(&self.cbuf, 0, None, &p as *const _ as *const c_void, 0, 0);
             }
+            self.ctx.UpdateSubresource(&self.cbuf, 0, None, &p as *const _ as *const c_void, 0, 0);
+            // Tout le pipeline de cet écran : le verrou du contexte a été
+            // relâché depuis `encode`, un autre écran de la session a pu
+            // relier les siens (ou faire `ClearState`).
+            self.bind_image(planes);
             self.ctx.OMSetRenderTargets(Some(&[Some(rtv.clone())]), None);
             self.ctx.RSSetViewports(Some(&[viewport]));
             self.ctx.Draw(3, 0);

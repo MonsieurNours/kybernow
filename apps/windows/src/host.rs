@@ -35,7 +35,7 @@ use kybernow_core::{Display, WindowHandle};
 use crate::audio::{self, AudioOutput};
 use crate::displays::Layout;
 use crate::focus;
-use crate::gpu::Gpu;
+use crate::gpu::SessionGpu;
 use crate::video::Link;
 use crate::window::{self, App, Command, VideoSettings, WM_APP_COMMAND, WM_APP_MOUSE, WM_APP_STATUS};
 
@@ -847,7 +847,7 @@ fn run(
         events.ended(&Summary { error: Some(e), ..Default::default() });
     };
 
-    let gpu = match Gpu::new() {
+    let gpu = match SessionGpu::new() {
         Ok(g) => g,
         Err(e) => return fail(&events, format!("Direct3D 11 : {e}")),
     };

@@ -295,9 +295,9 @@ kybernow <adresse>[:port] [--user <compte>] [--profile jeu|bureau|max] [options]
 | `apps/windows/src/displays.rs` | Les écrans de ce PC (`EnumDisplayMonitors`) et ce que le cœur en reçoit (`Screens`), écran sous un point (testé sur le Mac) |
 | `apps/windows/src/fonds.rs`, `ui/fond.html` | Fond de la connexion sur les écrans autres que l'écran principal (fenêtres Tauri plein écran) |
 | `apps/windows/src/video.rs` | Fil de l'image d'un écran : paquets → décodeur → rendu, images clés |
-| `apps/windows/src/gpu.rs` | L'appareil Direct3D 11 de la session, partagé par les écrans, et le verrou de son contexte (rendu et FFmpeg) |
+| `apps/windows/src/gpu.rs` | L'appareil Direct3D 11 de la session, partagé par les écrans, et le verrou de son contexte (rendu et FFmpeg) ; remplaçable (`SessionGpu`) : carte perdue (pilote mis à jour, TDR, eGPU débranché, certaines sorties de veille), le premier fil de l'image qui le voit recrée l'appareil, puis chaque écran recrée son rendu et rouvre son décodeur et demande une image clé (15 s d'essais au plus), au lieu d'une image figée sans issue |
 | `apps/windows/src/decoder.rs` | FFmpeg (D3D11VA ou processeur), sonde des capacités |
-| `apps/windows/src/render.rs` | Direct3D 11 : textures (NV12, P010, AYUV, plans), shader YUV → RVB, sortie PQ ou ramenée au SDR, chaîne d'échange d'un écran (8 ou 10 bits) |
+| `apps/windows/src/render.rs` | Direct3D 11 : textures (NV12, P010, AYUV, plans), shader YUV → RVB, sortie PQ ou ramenée au SDR, chaîne d'échange d'un écran (8 ou 10 bits) ; distingue la carte perdue (`DrawError::Lost`, jamais un repli sur le processeur) d'un format refusé ; la vignette de l'accueil (écran principal seulement) relie tout son pipeline, un autre écran de la session ayant pu changer celui du contexte |
 | `apps/windows/src/hdr.rs` | HDR : écrans de ce PC (DXGI, blanc du bureau), sortie, courbes BT.2390 et SDR, matrices, métadonnées HDR10 |
 | `apps/core/src/input/` | Module d'entrées partagé : chaîne kynput, file d'envoi, pointeur de l'ordinateur, mode de la souris |
 | `apps/core/src/audio/` | Moteur de son : libopus, tampon adaptatif, ordre des voies |

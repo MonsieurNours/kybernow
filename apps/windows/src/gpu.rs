@@ -14,7 +14,7 @@
 
 use std::cell::UnsafeCell;
 use std::ffi::c_void;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11DeviceContext};
 use windows::Win32::System::Threading::{CRITICAL_SECTION, DeleteCriticalSection, EnterCriticalSection, InitializeCriticalSection, LeaveCriticalSection};
@@ -88,6 +88,11 @@ impl Gpu {
         Ok(Arc::new(Self { device, ctx, lock: ContextLock::new(), pyrowave: OnceLock::new() }))
     }
 
+    /// La carte est perdue (`GetDeviceRemovedReason` en échec).
+    pub fn is_lost(&self) -> bool {
+        unsafe { self.device.GetDeviceRemovedReason() }.is_err()
+    }
+
     /// Le device PyroWave de la carte de la session (créé une fois).
     pub fn pyrowave(&self) -> Option<Arc<crate::pyrowave::Device>> {
         self.pyrowave
@@ -99,5 +104,35 @@ impl Gpu {
                 }
             })
             .clone()
+    }
+}
+
+/// La carte graphique d'une session, remplaçable : après la perte de la carte
+/// (pilote mis à jour, TDR, eGPU débranché, certaines sorties de veille), le
+/// premier fil de l'image qui la voit en recrée une (`recover`), que les
+/// autres écrans et les fenêtres créées ensuite reprennent (`current`).
+pub struct SessionGpu {
+    current: Mutex<Arc<Gpu>>,
+}
+
+impl SessionGpu {
+    pub fn new() -> windows::core::Result<Arc<Self>> {
+        Ok(Arc::new(Self { current: Mutex::new(Gpu::new()?) }))
+    }
+
+    /// La carte en service.
+    pub fn current(&self) -> Arc<Gpu> {
+        self.current.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// `lost` est perdue : une carte neuve si c'est encore celle en service
+    /// (sinon celle qu'un autre écran a déjà recréée).
+    pub fn recover(&self, lost: &Arc<Gpu>) -> windows::core::Result<Arc<Gpu>> {
+        let mut current = self.current.lock().unwrap_or_else(|e| e.into_inner());
+        if Arc::ptr_eq(&current, lost) {
+            *current = Gpu::new()?;
+            log::info!("carte graphique recréée pour la session");
+        }
+        Ok(current.clone())
     }
 }

@@ -59,7 +59,7 @@ use kybernow_core::session::{Session, Status, StreamScreen};
 
 use crate::displays::{Layout, Monitor};
 use crate::focus;
-use crate::gpu::Gpu;
+use crate::gpu::SessionGpu;
 use crate::host::{HostEvents, Role, ScreenSet, ScreenState};
 use crate::i18n::t;
 use crate::render::{Renderer, video_rect};
@@ -605,7 +605,7 @@ pub struct App {
     windows: Mutex<Vec<Arc<ScreenWin>>>,
     /// Les écrans de ce PC tels que le cœur les a reçus.
     layout: Mutex<Layout>,
-    gpu: Arc<Gpu>,
+    gpu: Arc<SessionGpu>,
     video: VideoSettings,
     /// Nombre de flux de la session.
     streams: AtomicUsize,
@@ -701,7 +701,7 @@ impl App {
         clock: Arc<dyn Clock>,
         link: Arc<Link>,
         events: Arc<dyn HostEvents>,
-        gpu: Arc<Gpu>,
+        gpu: Arc<SessionGpu>,
         layout: Layout,
         video: VideoSettings,
         fullscreen: bool,
@@ -1125,9 +1125,16 @@ impl App {
     /// Arrête les fils de l'image (fin de session) et garde la dernière image
     /// de l'écran principal.
     pub fn stop_video(&self) {
-        for w in self.windows() {
-            w.video.stop_and_wait(Duration::from_secs(2));
-            self.keep_last_image(&w);
+        let windows = self.windows();
+        // Tous arrêtés d'abord, puis attendus ensemble (2 s en tout, plus 2 s
+        // par écran l'un après l'autre).
+        for w in &windows {
+            w.video.stop();
+        }
+        let until = std::time::Instant::now() + Duration::from_secs(2);
+        for w in &windows {
+            w.video.stop_and_wait(until.saturating_duration_since(std::time::Instant::now()));
+            self.keep_last_image(w);
         }
     }
 
@@ -1301,7 +1308,7 @@ pub fn create_screen(app: &Arc<App>, key: &str, primary: bool, at: Option<(i32, 
     let screen = app.layout.lock().unwrap().find(key).map(|(_, m)| m.screen_hdr()).unwrap_or_default();
     *shared.screen_hdr.lock().unwrap() = screen;
     shared.stream_hdr.store(app.stream_hdr.lock().unwrap().iter().any(|k| k.eq_ignore_ascii_case(key)), Ordering::Relaxed);
-    let renderer = match Renderer::new(&app.gpu, hwnd, shared.client_size(), app.video.vsync) {
+    let renderer = match Renderer::new(&app.gpu.current(), hwnd, shared.client_size(), app.video.vsync) {
         Ok(r) => r,
         Err(e) => {
             unsafe {
@@ -1846,10 +1853,10 @@ fn quit(app: &Arc<App>, why: &str) {
     if app.relative() && app.foreground().is_some() {
         clip_cursor(HWND::default(), false);
     }
+    // Comme `remove_window`, mais les fenêtres restent au registre de la
+    // session : `stop_video` y prend encore la dernière image.
     for w in app.windows() {
-        unsafe {
-            let _ = DestroyWindow(w.hwnd());
-        }
+        close_window(&w);
     }
     unsafe {
         let _ = KillTimer(Some(app.control()), TIMER_MOUSE);
@@ -2204,20 +2211,15 @@ fn raw_delta(lparam: LPARAM) -> (i64, i64) {
 }
 
 
-/// Une fenêtre d'écran ferme : son fil de l'image s'arrête, la fenêtre part
-/// (la souris relative et les déplacements bruts passent à une autre).
-fn remove_window(app: &Arc<App>, win: &Arc<ScreenWin>) {
-    log::info!("fenêtre de session fermée : écran {}", win.key);
-    app.windows.lock().unwrap().retain(|w| w.hwnd != win.hwnd);
-    registry_changed();
+/// Ferme une fenêtre d'écran (`remove_window` et `quit`) : son fil de l'image
+/// s'arrête d'abord (il ne présente plus sur une fenêtre détruite), puis la
+/// fenêtre part, et le pointeur fait de la forme de l'ordinateur est libéré.
+fn close_window(win: &Arc<ScreenWin>) {
     edge_cancel(win);
     // Sans attendre son fil de l'image (DXGI peut avoir besoin de ce fil-ci
     // pendant ce temps) : il s'arrête de lui-même et lâche sa chaîne d'échange.
     win.video.stop();
     unsafe {
-        if app.relative() && !any_in_front() {
-            let _ = ClipCursor(None);
-        }
         let _ = DestroyWindow(win.hwnd());
     }
     let mut cur = win.cursor.lock().unwrap();
@@ -2227,7 +2229,20 @@ fn remove_window(app: &Arc<App>, win: &Arc<ScreenWin>) {
         }
         cur.current = 0;
     }
-    drop(cur);
+}
+
+/// Une fenêtre d'écran ferme : son fil de l'image s'arrête, la fenêtre part
+/// (la souris relative et les déplacements bruts passent à une autre).
+fn remove_window(app: &Arc<App>, win: &Arc<ScreenWin>) {
+    log::info!("fenêtre de session fermée : écran {}", win.key);
+    app.windows.lock().unwrap().retain(|w| w.hwnd != win.hwnd);
+    registry_changed();
+    if app.relative() && !any_in_front() {
+        unsafe {
+            let _ = ClipCursor(None);
+        }
+    }
+    close_window(win);
     if RAW_TARGET.load(Ordering::Relaxed) == win.hwnd {
         match app.windows().first() {
             Some(other) => register_raw_input(other.hwnd()),
