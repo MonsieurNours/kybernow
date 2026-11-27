@@ -326,10 +326,10 @@ impl KyberConfig {
         // Forcé sur le disque avant de prendre la place (`durable`) ; le
         // fichier neuf hérite des droits de Program Files (lisible par tous) :
         // réservé à SYSTEM et aux Administrateurs avant le renommage.
-        crate::durable::write_then(&self.path, text, |tmp| {
-            if let Err(e) = crate::update::acl::secure_file(tmp) {
-                tracing::warn!("droits de {} non posés : {e:#}", tmp.display());
-            }
+        // Droits impossibles à poser : rien n'est remplacé (le fichier garde
+        // les empreintes des mots de passe des comptes).
+        crate::durable::try_write_then(&self.path, text, |tmp| {
+            crate::update::acl::secure_file(tmp).map_err(|e| std::io::Error::other(format!("droits de {} non posés : {e:#}", tmp.display())))
         })
         .with_context(|| format!("remplacement de {}", self.path.display()))?;
         tracing::info!("kyber_config.toml mis à jour");

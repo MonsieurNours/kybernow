@@ -351,9 +351,18 @@ struct PasswordBody {
     new: String,
 }
 
-async fn change_password(State(s): State<AppState>, Json(body): Json<PasswordBody>) -> ApiResult<Response> {
+async fn change_password(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Json(body): Json<PasswordBody>) -> ApiResult<Response> {
+    // Le mot de passe actuel se devine ici aussi : mêmes limites que la connexion.
+    check_lockout(&s, peer)?;
     let auth = s.auth.clone();
-    let hash = auth.clone().hash_limited(move || auth.change_password(&body.current, &body.new)).await?;
+    let hash = match auth.clone().hash_limited(move || auth.change_password(&body.current, &body.new)).await {
+        Ok(hash) => hash,
+        Err(e) => {
+            s.auth.note_failure(peer.ip());
+            return Err(e.into());
+        }
+    };
+    s.auth.note_success(peer.ip());
     s.update_settings(|st| st.admin_password_hash = Some(hash))?;
     Ok(with_new_session(&s))
 }
