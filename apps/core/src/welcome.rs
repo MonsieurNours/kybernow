@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 // la caisse kybernow-rules, repris par chemin parce que ce fichier-ci est
 // aussi inclus tel quel (`#[path]`) par les interfaces Linux et LG, qui se
 // compilent sans le cœur ni cette caisse. Quand elles dépendront de
-// kybernow-rules (phase 2b), `kybernow_rules::relay::label` suffira.
+// kybernow-rules (phase 2b), `kybernow_rules::relay::label` suffira : ces deux
+// inclusions sont à retirer en 2b.
 #[allow(dead_code)]
 #[path = "../rules/src/fingerprint.rs"]
 mod fingerprint;
