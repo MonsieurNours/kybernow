@@ -67,6 +67,7 @@ modules:
       - install -Dm644 apps/linux/flatpak/icon-256.png /app/share/icons/hicolor/256x256/apps/fr.leslignesclaires.kybernow.png
       - install -Dm644 third_party/kyber-desktop/COPYING.AGPLv3 /app/share/licenses/fr.leslignesclaires.kybernow/COPYING.AGPLv3
       - install -Dm644 apps/linux/flatpak/LICENSES.md /app/share/licenses/fr.leslignesclaires.kybernow/LICENSES.md
+      - install -Dm644 LICENSE /app/share/licenses/fr.leslignesclaires.kybernow/LICENSE
     sources:
       - type: dir
         path: src

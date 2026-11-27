@@ -81,5 +81,7 @@ cp "$ROOT/third_party/kyber-desktop/"COPYING* "$DEST/third_party/kyber-desktop/"
 # (mkdir + cp plutôt qu'install -D, absent de macOS : release.sh vérifie cette copie sur le Mac.)
 mkdir -p "$DEST/server/admin/src/update"
 cp "$ROOT/server/admin/src/update/kybernow-release.pub" "$DEST/server/admin/src/update/kybernow-release.pub"
-cp "$ROOT/LICENSE"* "$DEST/" 2>/dev/null || true
+# La licence du dépôt (AGPL-3.0), à la racine : le Flatpak la porte toujours, son absence est une erreur.
+[ -f "$ROOT/LICENSE" ] || { echo "LICENSE absent de $ROOT : le Flatpak doit porter la licence" >&2; exit 1; }
+cp "$ROOT/LICENSE" "$DEST/LICENSE"
 echo "sources dans $DEST ($(du -sh "$DEST" | cut -f1))"
