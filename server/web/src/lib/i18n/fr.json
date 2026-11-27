@@ -284,7 +284,7 @@
       "network": "Réseau",
       "stats": "Statistiques",
       "station": "Station",
-      "thisApp": "Cette app",
+      "thisApp": "Ce navigateur",
       "virtualDisplay": "Écran virtuel",
       "virtualHelp": "L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin.",
       "virtualMissing": "Cet ordinateur ne sait pas créer d'écran virtuel : la session montre ses écrans tels quels.",
@@ -304,7 +304,9 @@
       "pyrowave444": "Avec PyroWave, presque sans coût : seul le débit monte.",
       "pyrowaveStation": "{name} ne propose pas PyroWave.",
       "pyrowaveBrowser": "Ce navigateur ne sait pas décoder PyroWave.",
-      "pyrowaveLowered": "Définition ramenée à {width} × {height} pour tenir dans {mbps} Mbit/s."
+      "pyrowaveLowered": "Définition ramenée à {width} × {height} pour tenir dans {mbps} Mbit/s.",
+      "journal": "Télécharger le journal",
+      "journalHelp": "Si l'app se ferme ou qu'une session se coupe, ce fichier texte raconte ce qui s'est passé. Joignez-le à votre message : vous choisissez à qui l'envoyer."
     },
     "device": {
       "browser": "Navigateur",
@@ -752,7 +754,20 @@
       "remoteAdminNeedsAccount": "Rattachez d'abord cet ordinateur à un compte KyberNow (Compte KyberNow), avec « Accepter les comptes KyberNow ».",
       "remoteAdminNeedsAccess": "Allumez d'abord « Accès hors de chez vous ».",
       "remoteAdminHere": "S'allume seulement ici, sur le réseau.",
-      "remoteAdminOpen": "Ouvert à distance en ce moment par {names}."
+      "remoteAdminOpen": "Ouvert à distance en ce moment par {names}.",
+      "keys": {
+        "title": "Clés d'Admin à distance",
+        "help": "Hors de chez vous, Admin demande en plus une de ces clés (une passkey gardée par votre téléphone ou votre trousseau) : le relais ne peut pas ouvrir Admin à votre place.",
+        "added": "{device} · ajoutée le {date}",
+        "used": " · utilisée le {date}",
+        "otherRelay": "(autre relais)",
+        "remove": "Retirer",
+        "none": "Aucune clé : Admin à distance ne s'ouvrira pas de loin. Ajoutez-en une.",
+        "add": "Ajouter une clé",
+        "scan": "Scannez ce QR code avec le téléphone qui gardera la clé, ou ouvrez le lien sur cet appareil. Il sert une fois, pendant 10 minutes.",
+        "openHere": "Ouvrir sur cet appareil",
+        "done": "Terminé"
+      }
     }
   },
   "users": {
@@ -1195,7 +1210,7 @@
       "tooMany": "Trop d'essais de code : réessayez dans une minute.",
       "unreadable": "Cet appareil ne lit pas l'image de cet ordinateur ({format}).",
       "unavailable": "Le partage n'est pas disponible pour le moment : réessayez dans un instant.",
-      "badRequest": "Le code a six chiffres, et le prénom ne peut pas être vide.",
+      "badRequest": "Le code a six chiffres.",
       "waiting": "En attente de l'accord de l'hôte…",
       "refused": "L'hôte a refusé.",
       "expired": "L'hôte n'a pas répondu.",

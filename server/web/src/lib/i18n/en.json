@@ -284,7 +284,7 @@
       "network": "Network",
       "stats": "Statistics",
       "station": "Station",
-      "thisApp": "This app",
+      "thisApp": "This browser",
       "virtualDisplay": "Virtual display",
       "virtualHelp": "The computer creates a display sized for this device during the session; its own displays switch off, then come back at the end.",
       "virtualMissing": "This computer cannot create a virtual display: the session shows its own displays as they are.",
@@ -304,7 +304,9 @@
       "pyrowave444": "With PyroWave, almost free: only the bitrate goes up.",
       "pyrowaveStation": "{name} doesn't offer PyroWave.",
       "pyrowaveBrowser": "This browser can't decode PyroWave.",
-      "pyrowaveLowered": "Resolution lowered to {width} × {height} to fit in {mbps} Mbit/s."
+      "pyrowaveLowered": "Resolution lowered to {width} × {height} to fit in {mbps} Mbit/s.",
+      "journal": "Download the log",
+      "journalHelp": "If the app closes or a session cuts out, this text file tells what happened. Attach it to your message: you choose who to send it to."
     },
     "device": {
       "browser": "Browser",
@@ -752,7 +754,20 @@
       "remoteAdminNeedsAccount": "First attach this computer to a KyberNow account (KyberNow account), with “Accept KyberNow accounts”.",
       "remoteAdminNeedsAccess": "First turn on “Access away from home”.",
       "remoteAdminHere": "Can only be turned on here, on the network.",
-      "remoteAdminOpen": "Open remotely right now by {names}."
+      "remoteAdminOpen": "Open remotely right now by {names}.",
+      "keys": {
+        "title": "Remote Admin keys",
+        "help": "Away from home, Admin also asks for one of these keys (a passkey kept by your phone or keychain): the relay can't open Admin in your place.",
+        "added": "{device} · added on {date}",
+        "used": " · used on {date}",
+        "otherRelay": "(other relay)",
+        "remove": "Remove",
+        "none": "No key: Remote Admin won't open from afar. Add one.",
+        "add": "Add a key",
+        "scan": "Scan this QR code with the phone that will keep the key, or open the link on this device. It works once, for 10 minutes.",
+        "openHere": "Open on this device",
+        "done": "Done"
+      }
     }
   },
   "users": {
@@ -1195,7 +1210,7 @@
       "tooMany": "Too many code attempts: try again in a minute.",
       "unreadable": "This device cannot play this computer's picture ({format}).",
       "unavailable": "Sharing is not available right now: try again in a moment.",
-      "badRequest": "The code has six digits, and the name cannot be empty.",
+      "badRequest": "The code has six digits.",
       "waiting": "Waiting for the host to accept…",
       "refused": "The host declined.",
       "expired": "The host did not answer.",
