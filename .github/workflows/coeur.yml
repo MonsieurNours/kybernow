@@ -75,3 +75,43 @@ jobs:
           cache-directories: third_party/ci-rootfs
       - name: Essais
         run: apps/core/scripts/ci-essais.sh
+
+  # Les mêmes essais en 32 bits (`long` et `time_t` de 32 bits, comme webOS
+  # armv7 et Android armeabi-v7a : COEUR-02), lancés pour de vrai sur le
+  # runner x86_64 avec les bibliothèques i386. Écrit sans avoir pu tourner
+  # (pas de Linux x86_64 sur le Mac de l'auteur) : il ne bloque pas la CI tant
+  # qu'un premier passage ne l'a pas confirmé. La compilation du cœur pour
+  # armv7, elle, est vérifiée sur le Mac avec la chaîne de webOS.
+  essais-32-bits:
+    name: Essais du cœur (32 bits)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.89.0
+        with:
+          targets: i686-unknown-linux-gnu
+      - name: Paquets du système (i386)
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang libclang-dev gcc-multilib \
+            libopus-dev:i386 libudev-dev:i386 libevdev-dev:i386
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-c
+      - uses: actions/cache@v4
+        with:
+          path: third_party/kyber-desktop
+          key: kyber-desktop-0.29.0-v1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps
+          key: i686
+          cache-directories: third_party/ci-rootfs-i686-unknown-linux-gnu
+      - name: Essais (i686)
+        env:
+          CI_TARGET: i686-unknown-linux-gnu
+        run: apps/core/scripts/ci-essais.sh

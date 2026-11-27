@@ -126,11 +126,11 @@ const EVENT_QUEUE_MAX: usize = 256;
 /// (décodeur occupé, app en arrière-plan), l'image est jetée et une image
 /// clé demandée, plutôt que d'accumuler des secondes de retard (COEUR-33).
 fn send_video(tx: &SyncSender<StreamEvent>, frame: Frame, want_key: &AtomicBool) {
-    if let Err(TrySendError::Full(_)) = tx.try_send(StreamEvent::Video(frame)) {
-        if !want_key.swap(true, Ordering::Relaxed) {
-            log::warn!("PlayStation : la partie prend du retard, image jetée et image clé demandée");
-            let _ = tx.send(StreamEvent::VideoLost);
-        }
+    if let Err(TrySendError::Full(_)) = tx.try_send(StreamEvent::Video(frame))
+        && !want_key.swap(true, Ordering::Relaxed)
+    {
+        log::warn!("PlayStation : la partie prend du retard, image jetée et image clé demandée");
+        let _ = tx.send(StreamEvent::VideoLost);
     }
 }
 

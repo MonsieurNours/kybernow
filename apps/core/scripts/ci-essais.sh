@@ -26,7 +26,13 @@
 # À fournir par la machine : git, Rust 1.89 ou plus, cargo-c, pkg-config,
 # un compilateur C, libclang (bindgen), libopus ; sous Linux en plus libudev
 # et libevdev (kynput). Variables : KYBER_DESKTOP_URL, KYBER_DESKTOP_TAG,
-# CI_ROOTFS.
+# CI_ROOTFS, et CI_TARGET pour une autre cible que la machine.
+#
+# CI_TARGET=i686-unknown-linux-gnu (Linux x86_64) : les mêmes essais en
+# 32 bits, lancés pour de vrai (`long` et `time_t` de 32 bits, comme webOS et
+# Android armeabi-v7a : COEUR-02). La machine fournit alors les bibliothèques
+# i386 (libopus, libudev, libevdev) et gcc-multilib ; libkynput et la libvlc
+# factice sont faites pour la cible.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -34,7 +40,21 @@ KD="$ROOT/third_party/kyber-desktop"
 KYSDK="$KD/kysdk"
 URL="${KYBER_DESKTOP_URL:-https://gitlab.com/kyber/apps/kyber-desktop.git}"
 TAG="${KYBER_DESKTOP_TAG:-0.29.0}"
-PREFIX="${CI_ROOTFS:-$ROOT/third_party/ci-rootfs}"
+TARGET="${CI_TARGET:-}"
+PREFIX="${CI_ROOTFS:-$ROOT/third_party/ci-rootfs${TARGET:+-$TARGET}}"
+TARGET_ARGS=()
+CC_ARGS=()
+if [ -n "$TARGET" ]; then
+    TARGET_ARGS=(--target "$TARGET")
+    case "$TARGET" in
+        i686-*) CC_ARGS=(-m32) ;;
+    esac
+    # pkg-config de la cible : le rootfs, puis les bibliothèques i386 du système.
+    export PKG_CONFIG_ALLOW_CROSS=1
+    case "$TARGET" in
+        i686-unknown-linux-gnu) export PKG_CONFIG_PATH="/usr/lib/i386-linux-gnu/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" ;;
+    esac
+fi
 
 # Un sous-module à son commit, sans l'historique si le serveur le permet.
 submodule() {
@@ -68,7 +88,7 @@ mkdir -p "$PREFIX/lib/pkgconfig"
 stamp="$(kyber_kynput_stamp "$KYSDK")"
 if ! kyber_kynput_current "$PREFIX" "$stamp"; then
     echo "==> libkynput dans $PREFIX"
-    (cd "$KYSDK/kynput" && cargo cinstall -p kynput --release --library-type=staticlib --prefix="$PREFIX" --libdir="$PREFIX/lib")
+    (cd "$KYSDK/kynput" && cargo cinstall -p kynput ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} --release --library-type=staticlib --prefix="$PREFIX" --libdir="$PREFIX/lib")
     [ -f "$PREFIX/lib/pkgconfig/kynput.pc" ] || { echo "libkynput non installée dans $PREFIX" >&2; exit 1; }
     kyber_kynput_mark "$PREFIX" "$stamp"
 fi
@@ -94,7 +114,7 @@ C
 if ! cmp -s "$stub.tmp" "$stub" || [ ! -f "$lib" ]; then
     mv "$stub.tmp" "$stub"
     echo "==> libvlc factice ($(grep -c '^void' "$stub") fonctions)"
-    "${CC:-cc}" "${shared[@]}" -o "$lib" "$stub"
+    "${CC:-cc}" ${CC_ARGS[@]+"${CC_ARGS[@]}"} "${shared[@]}" -o "$lib" "$stub"
 else
     rm -f "$stub.tmp"
 fi
@@ -117,5 +137,5 @@ case "$(uname -s)" in
     *) export LD_LIBRARY_PATH="$PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
 esac
 cd "$ROOT/apps"
-echo "==> cargo test -p kybernow-core --features pyrowave --lib"
-cargo test --locked -p kybernow-core --features pyrowave --lib -- "$@"
+echo "==> cargo test -p kybernow-core --features pyrowave --lib ${TARGET_ARGS[*]+"${TARGET_ARGS[*]}"}"
+cargo test --locked -p kybernow-core --features pyrowave --lib ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} -- "$@"
