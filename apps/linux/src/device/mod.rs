@@ -167,7 +167,7 @@ pub enum SessionEvent {
     /// écran au moins de l'image est en HDR.
     /// `lowered` : PyroWave, la définition ramenée (`Second::lowered`).
     /// `target` : le débit visé (`Second::target`), pour la ligne « Débit visé » et le trait de la courbe du débit.
-    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, lost_frames: u32, codec: String, audio_ms: Option<f64>, chain: Option<[f64; 6]>, hdr: bool, lowered: Option<kybernow_core::pyrowave::Lowered>, target: Option<kybernow_core::adaptive::TargetBitrate> },
+    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, lost_frames: u32, lost_packets: u32, keyframes: u32, rtt_ms: Option<f64>, measured: Option<f64>, codec: String, audio: Option<(f64, f64)>, chain: Option<[f64; 6]>, hdr: bool, lowered: Option<kybernow_core::pyrowave::Lowered>, target: Option<kybernow_core::adaptive::TargetBitrate> },
     Notice(String),
     /// PyroWave : le réseau sature (`Notice::PyroWaveStrained`, une fois par session) : le bandeau « Le réseau
     /// sature » avec « Passer en HEVC ».
@@ -675,8 +675,10 @@ struct Live {
     typing: bool,
     /// Échap tenu (long : rend la souris).
     escape_down: Option<Instant>,
-    /// La caméra de l'appareil, allumée (docs/webcam.md) : le fil de la webcam.
+    /// La caméra de l'appareil, allumée (docs/webcam.md) : le fil de la webcam, et depuis quand elle attend la réponse
+    /// de l'ordinateur (« Caméra… », 10 s au plus).
     camera: Option<camera::Sender>,
+    camera_since: Option<Instant>,
     /// La barre du bureau doit se cacher à cet instant.
     bar_hide: Option<Instant>,
     /// Toutes les fenêtres de la session sont réduites ou cachées : l'image n'est plus regardée
@@ -1521,6 +1523,15 @@ const QUIT_WAIT: Duration = Duration::from_secs(8);
 /// Quitter l'app : chaque session est arrêtée puis attendue (`Session::stop`, `Session::wait` : la Station est
 /// prévenue, ses écrans, son son et ses manettes reviennent), les sessions en parallèle et au plus `QUIT_WAIT`
 /// en tout, comme l'app Windows. Les fenêtres se cachent pendant l'attente : l'app a l'air fermée.
+/// La souris d'un réglage (`desktop`, `game`, sinon Auto).
+fn mouse_mode(setting: &str) -> MouseMode {
+    match setting {
+        "desktop" => MouseMode::Desktop,
+        "game" => MouseMode::Game,
+        _ => MouseMode::Auto,
+    }
+}
+
 /// L'image d'une session n'est plus regardée quand toutes ses fenêtres sont réduites ou cachées (docs/link-ui.md,
 /// « Image qui n'est plus regardée ») : le cœur demande 20 Mbit/s à l'ordinateur et prend l'image figée pour voulue
 /// (`Session::set_background`, `Device::Computer`) ; tout est rendu au retour. Pas sur KyberNow Link OS, toujours en
@@ -1740,9 +1751,13 @@ fn session_tick(app: &mut App, l: &mut Live, wins: &mut Wins, dirty: &mut bool, 
         let name = app.sessions[si].name.clone();
         for e in link.poll() {
             match &e {
-                CameraEvent::Started => app.camera_state(l.id, crate::app::CameraState::Sending, None, None),
+                CameraEvent::Started => {
+                    l.camera_since = None;
+                    app.camera_state(l.id, crate::app::CameraState::Sending, None, None);
+                }
                 CameraEvent::Busy { .. } | CameraEvent::Failed { .. } => {
                     l.camera = None;
+                    l.camera_since = None;
                     app.camera_state(l.id, crate::app::CameraState::Off, None, event_notice(&e, &name, lang));
                 }
                 CameraEvent::KeyframeWanted => {
@@ -1752,6 +1767,15 @@ fn session_tick(app: &mut App, l: &mut Live, wins: &mut Wins, dirty: &mut bool, 
                 }
                 _ => {}
             }
+            *dirty = true;
+        }
+        // « Caméra… » sans réponse en 10 s : éteinte, avec l'avis.
+        if let Some(t) = l.camera_since
+            && app.camera_unanswered(l.id, t)
+        {
+            l.camera = None;
+            l.camera_since = None;
+            link.stop();
             *dirty = true;
         }
         let s = &mut app.sessions[si];
@@ -3245,7 +3269,7 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 app.watch_display(id, l.handle.session.watch_display());
             }
         }
-        SessionEvent::Second { latency_ms, fps, mbps, lost, lost_frames, codec, audio_ms, chain, hdr, lowered, target } => {
+        SessionEvent::Second { latency_ms, fps, mbps, lost, lost_frames, lost_packets, keyframes, rtt_ms, measured, codec, audio, chain, hdr, lowered, target } => {
             let Some(l) = lives.get_mut(id) else { return };
             let local = Stats::local_medians(&l.local);
             l.local.clear();
@@ -3276,7 +3300,12 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 let mut bitrate_history = s.stats.as_ref().map(|s| s.bitrate_history.clone()).unwrap_or_default();
                 Stats::push_bitrate(&mut bitrate_history, mbps, target.map(|t| t.bitrate as f64 / 1e6));
                 let target = target.map(|t| (kybernow_core::adaptive::TargetBitrate::label(lang), t.text(lang)));
-                s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio_ms, history, stages, hdr, lost_frames, lowered, bitrate_history, target });
+                // « Pertes · 30 s » et la session.
+                let mut losses = s.stats.as_ref().map(|s| s.losses.clone()).unwrap_or_default();
+                Stats::push_losses(&mut losses, (lost_frames, lost_packets, keyframes));
+                let (sf, sp) = s.stats.as_ref().map_or((0, 0), |s| s.session_lost);
+                let session_lost = (sf + u64::from(lost_frames), sp + u64::from(lost_packets));
+                s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio, losses, session_lost, rtt_ms, measured, history, stages, hdr, lost_frames, lowered, bitrate_history, target });
                 // PyroWave en Wi-Fi ou par le relais : le bandeau du début de session, une fois.
                 s.pyrowave_seen();
             }
@@ -3385,12 +3414,12 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
         SessionEvent::CameraOffer(offered) => actions.extend(app.camera_offer(id, offered, camera::cameras(), camera::chosen())),
         SessionEvent::CameraProblem(problem, name) => {
             use kybernow_core::camera::{DeviceNotice, device_notice};
-            let which = match problem {
-                camera::Problem::InUse => DeviceNotice::InUse,
-                camera::Problem::Unplugged => DeviceNotice::Unplugged,
-                camera::Problem::NoEncoder => DeviceNotice::NoEncoder,
+            let text = match problem {
+                camera::Problem::InUse => device_notice(DeviceNotice::InUse, &name, kybernow_core::i18n::current()),
+                camera::Problem::Unplugged => device_notice(DeviceNotice::Unplugged, &name, kybernow_core::i18n::current()),
+                camera::Problem::NoEncoder => device_notice(DeviceNotice::NoEncoder, &name, kybernow_core::i18n::current()),
+                camera::Problem::Refused => crate::app::camera_refused_text().to_string(),
             };
-            let text = device_notice(which, &name, kybernow_core::i18n::current());
             // Débranchée : la suivante de la liste prend la relève ; sinon la caméra s'éteint.
             let next = camera::cameras().into_iter().find(|(_, n)| *n != name);
             match (problem, next) {
@@ -3634,6 +3663,12 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 l.mouse = if s.relative { MouseMode::Desktop } else { MouseMode::Game };
             }
         }
+        // Le menu de la souris de la barre : tout de suite (le réglage de l'ordinateur est déjà gardé).
+        Action::SetMouse(id, mode) => {
+            if let Some(l) = lives.get_mut(id) {
+                l.mouse = mouse_mode(&mode);
+            }
+        }
         Action::OpenKeyboard(id) => {
             unsafe { sdl::SDL_StartTextInput() };
             if let Some(l) = id.and_then(|id| lives.get_mut(id)) {
@@ -3756,11 +3791,13 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 });
                 *name.lock().unwrap() = sender.name.clone();
                 l.camera = Some(sender);
+                l.camera_since = Some(Instant::now());
             }
         }
         Action::CameraOff(id) => {
             if let Some(l) = lives.get_mut(id) {
                 l.camera = None;
+                l.camera_since = None;
                 l.handle.session.camera().stop();
             }
         }
@@ -4307,14 +4344,11 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         game_fullscreen: false,
         path: crate::app::PathKind::Direct,
         relay_error: None,
-        mouse: match h.settings.mouse.as_str() {
-            "desktop" => MouseMode::Desktop,
-            "game" => MouseMode::Game,
-            _ => MouseMode::Auto,
-        },
+        mouse: mouse_mode(&h.settings.mouse),
         typing: false,
         escape_down: None,
         camera: None,
+        camera_since: None,
         bar_hide: None,
         bar_arm: None,
         bar_arm_win: None,

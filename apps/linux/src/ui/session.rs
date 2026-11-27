@@ -57,7 +57,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
                 }
             } else {
                 if s.show_stats && view.main && s.console.is_none() {
-                    stats(app, cv, s);
+                    stats(app, cv, f, s);
                 }
                 if s.show_stats && view.main && s.console.is_some() {
                     super::ps::stats(app, cv, s);
@@ -422,28 +422,39 @@ const HINT_H: f32 = 3.0;
 pub const HINT_STRIP: f32 = 4.0;
 
 /// Un bouton de la barre : sa cible, son dessin, s'il est allumé, son nom au survol (le texte de
-/// « Partager » quand il est inactif) et s'il est éteint.
+/// « Partager » quand il est inactif ; le raccourci entre parenthèses), s'il est éteint, et son libellé court
+/// (sa ligne du menu « Plus »).
 struct BarIcon {
     target: Target,
     icon: Icon,
     on: bool,
     name: String,
     dim: bool,
+    label: String,
 }
 
-/// Les boutons de la barre, de gauche à droite : ordinateurs (plusieurs ordinateurs), touches et souris
-/// (une session d'hôte, ou un joueur à qui le clavier et la souris sont donnés), haut-parleur (« Garder le
-/// son »), plein écran (une seule fenêtre), « Partager » (une session d'hôte ; la pastille des invités le
-/// suit). Une session d'invité n'a ni profil, ni ordinateurs, ni « Partager ».
+/// Les commandes qui passent dans « Plus », une à une et dans cet ordre, quand la barre ne tient pas (docs/link-ui.md,
+/// « Menu « Plus » ») ; jamais l'ordinateur, la latence, le profil, « HDR », « Partager » et ses pastilles, « Prêter
+/// l'ordinateur… », l'enregistrement, « Par le relais », « Se déconnecter ».
+const MORE_ORDER: [Target; 8] = [Target::BarComputers, Target::BarKeys, Target::BarMouse, Target::BarSound, Target::BarMic, Target::BarCamera, Target::BarClipboard, Target::BarFullscreen];
+
+/// Les boutons de la barre, de gauche à droite, dans l'ordre de link-ui : ordinateurs (plusieurs ordinateurs),
+/// touches et souris (une session d'hôte, ou un joueur à qui le clavier et la souris sont donnés), haut-parleur
+/// (« Garder le son »), micro, caméra, la pastille « Presse-papiers » (hôte), plein écran (une seule fenêtre),
+/// « Partager » (une session d'hôte ; la pastille des invités le suit). La barre de Linux est en icônes seules : le
+/// libellé est l'infobulle. Une session d'invité n'a ni profil, ni ordinateurs, ni « Partager ».
 fn bar_icons(app: &App, s: &SessionUi, computers: bool, sound: bool) -> Vec<BarIcon> {
-    let icon = |target, icon, on, name: &str| BarIcon { target, icon, on, name: name.into(), dim: false };
+    let icon = |target, icon, on, name: &str| BarIcon { target, icon, on, name: name.into(), dim: false, label: name.into() };
     let mut v = Vec::new();
     if computers {
         v.push(icon(Target::BarComputers, Icon::Monitor, s.bar_menu == Some(BarMenu::Computers), tr("Ordinateurs", "Computers")));
     }
     if s.keyboard_mouse() {
         v.push(icon(Target::BarKeys, Icon::Keys, s.bar_menu == Some(BarMenu::Keys), tr("Touches", "Keys")));
-        v.push(icon(Target::BarMouse, Icon::Mouse, s.relative, if s.relative { tr("Souris des jeux", "Game mouse") } else { tr("Souris du bureau", "Desktop mouse") }));
+        // La souris : le mode du moment (pointeur, viseur en souris des jeux), un menu « Auto », « Souris du bureau »,
+        // « Souris des jeux ».
+        let now = if s.relative { tr("Souris des jeux", "Game mouse") } else { tr("Souris du bureau", "Desktop mouse") };
+        v.push(BarIcon { target: Target::BarMouse, icon: if s.relative { Icon::Crosshair } else { Icon::Mouse }, on: s.bar_menu == Some(BarMenu::Mouse), name: crate::app::mouse_tooltip(), dim: false, label: now.into() });
     }
     if sound {
         v.push(icon(Target::BarSound, Icon::Speaker, s.keep_sound, tr("Garder le son", "Keep sound")));
@@ -451,17 +462,24 @@ fn bar_icons(app: &App, s: &SessionUi, computers: bool, sound: bool) -> Vec<BarI
     // « Micro », après le son (un micro sur l'appareil) : allumé tant qu'il est envoyé, estompé quand l'ordinateur
     // ne le prend pas (la raison en infobulle). Un invité ne l'a que si l'hôte laisse les invités parler.
     if let Some(m) = s.mic.as_ref().filter(|m| m.shown) {
-        v.push(BarIcon { target: Target::BarMic, icon: if m.lit { Icon::Mic } else { Icon::MicOff }, on: m.lit, name: m.tooltip.clone(), dim: m.reason.is_some() });
+        v.push(BarIcon { target: Target::BarMic, icon: if m.lit { Icon::Mic } else { Icon::MicOff }, on: m.lit, name: m.tooltip.clone(), dim: m.reason.is_some(), label: m.label.clone() });
     }
     // La caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil ») : seulement si l'ordinateur la propose.
     if s.camera_offered {
         let on = s.camera == CameraState::Sending || s.bar_menu == Some(BarMenu::Camera);
         let name = if s.camera == CameraState::Off { tr("Allumer la caméra", "Turn on camera") } else { tr("Éteindre la caméra", "Turn off camera") };
         let glyph = if s.camera == CameraState::Off { Icon::CameraOff } else { Icon::Camera };
-        v.push(BarIcon { target: Target::BarCamera, icon: glyph, on, name: format!("{name} (Ctrl+Alt+{}+C)", tr("Maj", "Shift")), dim: s.camera == CameraState::Off });
+        v.push(BarIcon { target: Target::BarCamera, icon: glyph, on, name: format!("{name} ({})", crate::app::shortcut_text('C')), dim: s.camera == CameraState::Off, label: tr("Caméra", "Camera").into() });
+    }
+    // La pastille « Presse-papiers » (hôte), sans action : estompée quand il n'est pas partagé.
+    if !s.visitor() && s.borrow.is_none() {
+        let shared = app.clipboard_shared(s);
+        let name = if shared { tr("Presse-papiers partagé avec l'ordinateur (texte)", "Clipboard shared with the computer (text)") } else { tr("Presse-papiers non partagé (Réglages)", "Clipboard not shared (Settings)") };
+        v.push(BarIcon { target: Target::BarClipboard, icon: Icon::Clipboard, on: false, name: name.into(), dim: !shared, label: tr("Presse-papiers", "Clipboard").into() });
     }
     if !s.multi() {
-        v.push(icon(Target::BarFullscreen, Icon::Fullscreen, s.fullscreen, tr("Plein écran", "Full screen")));
+        let name = format!("{} ({})", tr("Plein écran", "Full screen"), crate::app::shortcut_text('F'));
+        v.push(BarIcon { target: Target::BarFullscreen, icon: Icon::Fullscreen, on: s.fullscreen, name, dim: false, label: tr("Plein écran", "Full screen").into() });
     }
     if !s.visitor() {
         // Partage impossible (Station trop ancienne, partage coupé) : le bouton est estompé et inactif à la
@@ -469,17 +487,17 @@ fn bar_icons(app: &App, s: &SessionUi, computers: bool, sound: bool) -> Vec<BarI
         // panneau attend la réponse (`App::share_known`).
         let blocked = app.share_avail(s).filter(|a| *a != ShareAvail::Available);
         let name = blocked.and_then(|a| a.text()).unwrap_or(tr("Partager", "Share"));
-        v.push(BarIcon { target: Target::BarShare, icon: Icon::Share, on: s.share.is_some() || s.bar_menu == Some(BarMenu::Share), name: name.into(), dim: blocked.is_some() });
+        v.push(BarIcon { target: Target::BarShare, icon: Icon::Share, on: s.share.is_some() || s.bar_menu == Some(BarMenu::Share), name: name.into(), dim: blocked.is_some(), label: tr("Partager", "Share").into() });
         // « Prêter l'ordinateur… » : estompé quand le prêt est impossible (la raison est son infobulle, et le panneau
         // qu'il ouvre la dit) ; allumé quand un code est en cours ou qu'une demande attend.
         let blocked = app.lend_avail(s).filter(|a| *a != crate::app::LendAvail::Available).is_some();
         let on = s.bar_menu == Some(BarMenu::Lend) || s.lend.as_ref().is_some_and(|v| v.code.is_some() || !v.requests.is_empty());
         let name = app.lend_avail(s).and_then(|a| a.text()).unwrap_or(tr("Prêter l'ordinateur…", "Lend the computer…"));
-        v.push(BarIcon { target: Target::BarLend, icon: Icon::Lend, on, name: name.into(), dim: blocked });
+        v.push(BarIcon { target: Target::BarLend, icon: Icon::Lend, on, name: name.into(), dim: blocked, label: tr("Prêter l'ordinateur…", "Lend the computer…").into() });
         // « Enregistrer » (Station qui enregistre, rien en cours) : estompé quand c'est coupé dans Admin (la raison
         // est son infobulle) ; pendant l'enregistrement, la pastille rouge prend sa place (`rec_pill`).
         if let Some(r) = s.recording.as_ref().filter(|r| !r.active) {
-            v.push(BarIcon { target: Target::BarRecord, icon: Icon::Record, on: false, name: r.tooltip().to_string(), dim: r.blocked() });
+            v.push(BarIcon { target: Target::BarRecord, icon: Icon::Record, on: false, name: r.tooltip().to_string(), dim: r.blocked(), label: r.label() });
         }
     }
     v
@@ -536,6 +554,8 @@ struct BarLayout {
     pw: Option<(String, f32)>,
     /// L'enregistrement en cours : la pastille rouge (`rec_pill`) et sa largeur.
     rec: Option<(String, f32)>,
+    /// Barre étroite : les commandes passées dans « Plus » (dans l'ordre de `MORE_ORDER`).
+    more: Vec<BarIcon>,
     total: f32,
 }
 
@@ -628,11 +648,42 @@ impl BarLayout {
         } else {
             (rec, others)
         };
-        // Une fenêtre étroite (960 points) avec « Ordinateurs », « Garder le son » et la pastille : les mesures se resserrent.
-        // Plus étroite encore (fenêtre d'un autre ordinateur, 480 points) : elles disparaissent.
+        // Barre étroite (docs/link-ui.md) : d'abord les mesures se resserrent puis disparaissent (fenêtre d'un autre
+        // ordinateur, 480 points) ; puis les pastilles se réduisent au nombre (« 2 ») ; puis les commandes passent une
+        // à une dans « Plus » (8 points de marge de chaque côté).
+        let avail = w - 16.0;
+        let mut others = others;
+        let (mut pill, mut requests) = (pill, requests);
+        if others > avail {
+            for p in [&mut pill, &mut requests] {
+                if let Some((t, pw)) = p.as_mut() {
+                    let n = t.split(' ').next().unwrap_or_default().to_string();
+                    let nw = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &n) + 22.0;
+                    others -= *pw - nw;
+                    *t = n;
+                    *pw = nw;
+                }
+            }
+        }
+        let mut icons = icons;
+        let mut more: Vec<BarIcon> = Vec::new();
+        for target in MORE_ORDER {
+            if others <= avail {
+                break;
+            }
+            let Some(i) = icons.iter().position(|ic| ic.target == target) else { continue };
+            let moved = icons.remove(i);
+            if more.is_empty() {
+                // « Plus » prend la place de la première commande retirée.
+                icons.insert(i, BarIcon { target: Target::BarMore, icon: Icon::More, on: s.bar_menu == Some(BarMenu::More), name: tr("Plus de commandes", "More controls").into(), dim: false, label: tr("Plus", "More").into() });
+            } else {
+                others -= 34.0;
+            }
+            more.push(moved);
+        }
         info_w = info_w.min((w - 8.0 - others).max(0.0));
         let total = others + info_w;
-        Self { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, screen, route, hdr, pw, rec, total }
+        Self { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, screen, route, hdr, pw, rec, more, total }
     }
 }
 
@@ -719,7 +770,8 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let h = BAR_H;
     let st = s.stats.clone().unwrap_or_default();
     let width = cv.w;
-    let BarLayout { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, screen, route, hdr, pw, rec, total } = BarLayout::measure(cv, app, s, width);
+    let BarLayout { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, screen, route, hdr, pw, rec, more, total } = BarLayout::measure(cv, app, s, width);
+    let mut tip: Option<(Rect, String)> = None;
     let r = bar_frame(cv.w, total);
     let x0 = r.x;
     cv.rrect(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, Rgba(9, 13, 18, 235));
@@ -764,6 +816,9 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         cv.text(pr.x + 12.0, cy + 5.0, Text::new(Font::Regular, 13.0, FROST), &profile);
     } else {
         let (focused, hover) = f.state(Target::BarProfile, pr);
+        if hover {
+            tip = Some((pr, tr("Profil : Jeu, Bureau, Max ou Auto", "Profile: Game, Desktop, Max or Auto").into()));
+        }
         cv.rrect(pr.x, pr.y, pr.w, pr.h, 7.0, if hover || s.bar_menu == Some(BarMenu::Profile) { INK_3 } else { Rgba(20, 27, 35, 255) });
         cv.rrect_stroke(pr.x, pr.y, pr.w, pr.h, 7.0, 1.0, LINE_2);
         if focused {
@@ -774,7 +829,6 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
     let profile_x = pr.x;
     x += prof_w + 12.0;
-    let mut tip: Option<(Rect, String)> = None;
     // « HDR », cochable, près du profil : allumé (fond, voyant), éteint, ou inactif (estompé ; son clic dit la raison).
     if let Some((u, hw)) = hdr {
         let hr = Rect::new(x, cy - 15.0, hw, 30.0);
@@ -855,10 +909,11 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
     // Ordinateurs et touches (deux menus du même dessin), souris, haut-parleur (« Garder le son »), plein
     // écran, « Partager » ; chacun nomme son bouton au survol.
-    let (mut keys_x, mut computers_x, mut share_x, mut lend_x, mut camera_x) = (x, x, x, x, x);
-    for BarIcon { target: t, icon, on, name, dim } in icons {
+    let (mut keys_x, mut computers_x, mut share_x, mut lend_x, mut camera_x, mut mouse_x, mut more_x) = (x, x, x, x, x, x, x);
+    for BarIcon { target: t, icon, on, name, dim, .. } in icons {
         let ir = Rect::new(x, cy - 17.0, 34.0, 34.0);
-        let (focused, hover) = f.state(t, ir);
+        // La pastille « Presse-papiers » n'a pas d'action : survolée, son infobulle, jamais choisie.
+        let (focused, hover) = if t == Target::BarClipboard { (false, f.pointer.is_some_and(|(px, py)| ir.contains(px, py))) } else { f.state(t, ir) };
         if on {
             cv.rrect(ir.x, ir.y, ir.w, ir.h, 7.0, FLAT.alpha(0.22));
         } else if hover {
@@ -876,6 +931,8 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
             Target::BarShare => share_x = ir.x,
             Target::BarLend => lend_x = ir.x,
             Target::BarCamera => camera_x = ir.x,
+            Target::BarMouse => mouse_x = ir.x,
+            Target::BarMore => more_x = ir.x,
             _ => {}
         }
         cv.icon(&icon, x + 8.0, cy - 9.0, 18.0, 1.8, if on { FROST } else if dim { GHOST } else { MUTED });
@@ -938,20 +995,49 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
             widgets::ring(cv, dr, 7.0);
         }
         cv.text(dr.x + 12.0, cy + 5.0, Text::new(Font::Regular, 13.0, MUTED), tr("Se déconnecter", "Disconnect"));
+        if hover {
+            tip = Some((dr, disconnect_tooltip()));
+        }
         x += disc_w + 4.0;
     }
     let qr = Rect::new(x, cy - 15.0, quit_w, 30.0);
     let (focused, hover) = f.state(if s.borrow.is_some() { Target::BarGiveBack } else { Target::BarQuit }, qr);
     if hover {
         cv.rrect(qr.x, qr.y, qr.w, qr.h, 7.0, BAD.alpha(0.18));
+        // « Se déconnecter » avec son raccourci (le même pour « Quitter le partage » d'un invité).
+        if s.borrow.is_none() {
+            tip = Some((qr, if s.guest.is_some() { format!("{quit} ({})", crate::app::shortcut_text('D')) } else { disconnect_tooltip() }));
+        }
     }
     if focused {
         widgets::ring(cv, qr, 7.0);
     }
     cv.text(qr.x + 12.0, cy + 5.0, Text::new(Font::Semibold, 13.0, BAD_TEXT), quit);
 
+    // Les commandes passées dans « Plus » ouvrent leur menu sous lui.
+    for ic in &more {
+        match ic.target {
+            Target::BarComputers => computers_x = more_x,
+            Target::BarKeys => keys_x = more_x,
+            Target::BarCamera => camera_x = more_x,
+            Target::BarMouse => mouse_x = more_x,
+            _ => {}
+        }
+    }
     // Menus déroulants.
     match s.bar_menu {
+        Some(BarMenu::More) => {
+            // Chaque commande avec son nom et son état (cochée quand elle est allumée) ; elle fait ce que fait son
+            // icône (son menu, sa bascule) ; « Presse-papiers » sans action.
+            let items: Vec<(Target, String, String, bool)> = more.iter().map(|ic| (ic.target, ic.label.clone(), String::new(), if ic.target == Target::BarClipboard { !ic.dim } else { ic.on })).collect();
+            dropdown_titled(cv, f, more_x, h + 6.0, 260.0, Some(tr("Plus", "More")), &items);
+        }
+        Some(BarMenu::Mouse) => {
+            // « Auto », « Souris du bureau », « Souris des jeux », le réglage de l'ordinateur coché.
+            let current = app.mouse_setting(s);
+            let items: Vec<(Target, String, String, bool)> = crate::app::MOUSE_MODES.iter().enumerate().map(|(i, (key, name))| (Target::BarMousePick(i), tr(name.0, name.1).to_string(), String::new(), *key == current)).collect();
+            dropdown_titled(cv, f, mouse_x, h + 6.0, 260.0, Some(tr("Souris", "Mouse")), &items);
+        }
         Some(BarMenu::Profile) => {
             let items: Vec<(Target, String, String, bool)> = Profile::ALL
                 .iter()
@@ -960,8 +1046,8 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
             dropdown(cv, f, profile_x, h + 6.0, 420.0, &items);
         }
         Some(BarMenu::Keys) => {
-            let items: Vec<(Target, String, String, bool)> = shortcuts(app.session_mac(s)).iter().enumerate().map(|(i, k)| (Target::BarShortcut(i), tr(k.0, k.1).to_string(), String::new(), false)).collect();
-            dropdown(cv, f, keys_x, h + 6.0, 280.0, &items);
+            let items: Vec<(Target, String, String, bool)> = shortcuts(app.session_mac(s)).iter().enumerate().map(|(i, k)| (Target::BarShortcut(i), k.name().to_string(), k.hint().to_string(), false)).collect();
+            dropdown(cv, f, keys_x, h + 6.0, 300.0, &items);
         }
         Some(BarMenu::Computers) => computers_menu(cv, f, app, s, computers_x, h + 6.0),
         Some(BarMenu::Share) => share::dropdown(cv, f, app, s, share_x + 17.0, h + 6.0),
@@ -989,6 +1075,11 @@ fn rec_beat(s: &SessionUi) -> f32 {
     let Some(r) = &s.recording else { return 1.0 };
     let t = (r.since.elapsed().as_secs_f32() + r.elapsed as f32).fract();
     0.5 + 0.5 * (t * std::f32::consts::TAU).cos()
+}
+
+/// L'infobulle de « Se déconnecter » : « Se déconnecter (Ctrl+Alt+Maj+D) ».
+fn disconnect_tooltip() -> String {
+    format!("{} ({})", tr("Se déconnecter", "Disconnect"), crate::app::shortcut_text('D'))
 }
 
 /// Le nom d'un bouton de la barre, en petite capsule sous lui.
@@ -1287,6 +1378,9 @@ struct StatsBox {
     path: f32,
 }
 
+/// La tête du panneau : le titre et sa croix, la latence en grand et « de la capture à votre écran ».
+const STATS_HEAD: f32 = 104.0;
+
 /// Cascade (bureau, Deck) : hauteur d'une étiquette de lieu et d'une étape, largeurs du nom et de la valeur.
 const PLACE_H: f32 = 16.0;
 const STAGE_H: f32 = 18.0;
@@ -1297,9 +1391,9 @@ impl StatsBox {
     fn new(layout: Layout) -> Self {
         let u = unit(layout);
         let y = if layout == Layout::Desktop { 24.0 } else { 24.0 * u };
-        // La cascade demande un peu plus de largeur que les seules lignes de mesures.
-        let w = if layout == Layout::Tv { 300.0 * u } else { 340.0 };
-        Self { x: 24.0 * u, y, w, u, path: y + 96.0 * u }
+        // La cascade et les lignes du bas (« 2560 × 1440 · HEVC · matériel · 120 i/s ») demandent un peu de largeur.
+        let w = if layout == Layout::Tv { 300.0 * u } else { 400.0 };
+        Self { x: 24.0 * u, y, w, u, path: y + STATS_HEAD * u }
     }
 
     /// Le haut de la ligne de l'étape `i` dans la cascade (une étiquette de lieu avant chaque nouveau lieu).
@@ -1465,77 +1559,209 @@ fn bitrate_graph(cv: &mut Canvas, x: f32, y: f32, w: f32, h: f32, hist: &[(f64, 
     cv.polyline(&pts, 1.5, FROST);
 }
 
-fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
+/// Une ligne du bas du panneau : son libellé, sa valeur, sa couleur.
+type StatsLine = (String, String, Rgba);
+
+/// Les lignes du bas des Statistiques (docs/link-ui.md, « Statistiques ») : « Pertes · 30 s » (images perdues,
+/// paquets perdus, images clés, la session), PyroWave, puis « Chemin », « Réseau », « Image », « Mesures », « Son »,
+/// la caméra.
+fn stats_lines(s: &SessionUi, st: &crate::app::Stats) -> (Vec<StatsLine>, Vec<StatsLine>) {
+    let (frames, packets, keys) = st.losses.iter().fold((0u32, 0u32, 0u32), |a, l| (a.0 + l.0, a.1 + l.1, a.2 + l.2));
+    let warn = |n: u32| if n > 0 { WARN } else { FROST };
+    let mut losses = vec![
+        (tr("Images perdues", "Lost frames").to_string(), frames.to_string(), warn(frames)),
+        (tr("Paquets perdus", "Lost packets").to_string(), packets.to_string(), warn(packets)),
+        (tr("Images clés", "Keyframes").to_string(), keys.to_string(), FROST),
+    ];
+    if st.decoder == "PyroWave" {
+        let lost = crate::pyrowave::lost_value(st.lost_frames, st.fps.round() as u32);
+        losses.push((crate::pyrowave::lost_label().to_string(), lost, if st.lost_frames > 0 { WARN } else { FROST }));
+    }
+    let dash = || "—".to_string();
+    let ms = |v: f64| format!("{} ms", decimal(v, 1));
+    let mut rest = Vec::new();
+    // « Chemin » : Direct, Par le relais, Par le relais (TCP).
+    rest.push((tr("Chemin", "Path").to_string(), s.path().label().to_string(), FROST));
+    // « Réseau » : l'aller-retour ; par le relais, celui de l'app au relais et du relais à l'ordinateur.
+    let rtt = s.route.and_then(|r| r.total_ms()).filter(|_| s.via_relay()).or(st.rtt_ms);
+    rest.push((tr("Réseau", "Network").to_string(), rtt.map(|v| format!("{} {}", tr("aller-retour", "round trip"), ms(v))).unwrap_or_else(dash), FROST));
+    rest.push((tr("Image", "Picture").to_string(), image_line(st), FROST));
+    rest.push((tr("Mesures", "Measures").to_string(), st.measured.map(|p| format!("{:.0} {}", p, tr("% des images", "% of frames"))).map(|t| if crate::i18n::english() { t.replacen(" %", "%", 1) } else { t }).unwrap_or_else(dash), FROST));
+    let sound = st.audio.map(|(buffer, output)| format!("{} {} · {} {}", tr("tampon", "buffer"), decimal(buffer, 0) + " ms", tr("sortie", "output"), decimal(output, 0) + " ms"));
+    rest.push((tr("Son", "Sound").to_string(), sound.unwrap_or_else(dash), FROST));
+    // La caméra de l'appareil, allumée : « 1280 × 720 · 30 i/s · H.264 · 1,4 Mbit/s ».
+    if let Some(line) = &s.camera_line {
+        rest.push((tr("Caméra", "Camera").to_string(), line.clone(), FROST));
+    }
+    (losses, rest)
+}
+
+/// « 2560 × 1440 · HEVC · matériel · 120 i/s » : la définition, le format tel que l'appareil le décode (matériel ou
+/// processeur), les images par seconde ; « HDR » après la définition quand l'image l'est.
+fn image_line(st: &crate::app::Stats) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if !st.mode.is_empty() {
+        parts.push(if st.hdr { format!("{} · HDR", st.mode) } else { st.mode.clone() });
+    }
+    let d = st.decoder.as_str();
+    let (format, how) = match d.split_once(' ') {
+        _ if d.is_empty() => (String::new(), ""),
+        _ if d == "PyroWave" => ("PyroWave".to_string(), tr("matériel", "hardware")),
+        Some(("CPU", codec)) => (codec.to_string(), tr("processeur", "processor")),
+        Some((_, codec)) => (codec.to_string(), tr("matériel", "hardware")),
+        None => (d.to_string(), ""),
+    };
+    if !format.is_empty() {
+        parts.push(format);
+    }
+    if !how.is_empty() {
+        parts.push(how.to_string());
+    }
+    if st.fps > 0.0 {
+        parts.push(format!("{:.0} {}", st.fps, tr("i/s", "fps")));
+    }
+    if parts.is_empty() { "—".into() } else { parts.join(" · ") }
+}
+
+/// La courbe de la latence sur les 30 dernières secondes, avec le repère « 1 image » (la durée d'une image au rythme du
+/// moment) en pointillé.
+fn latency_graph(cv: &mut Canvas, x: f32, y: f32, w: f32, h: f32, hist: &[f64], frame_ms: f64, u: f32) {
+    let max = hist.iter().cloned().fold(frame_ms * 1.2, f64::max).max(1.0) * 1.1;
+    // Le repère « 1 image » à droite de la courbe, à la hauteur de son pointillé.
+    let style = Text::new(Font::Mono, 9.5 * u, GHOST).align(Align::Right);
+    let label = tr("1 image", "1 frame");
+    let label_w = cv.text_width(style, label);
+    let w = w - label_w - 8.0 * u;
+    cv.rect(x, y + h, w, 1.0, LINE);
+    let fy = (y + h - (frame_ms / max) as f32 * h).round();
+    let mut xx = x;
+    while xx < x + w {
+        cv.rect(xx, fy, 3.0f32.min(x + w - xx), 1.0, Rgba(255, 255, 255, 102));
+        xx += 7.0;
+    }
+    cv.text(x + w + 8.0 * u + label_w, fy + 3.5 * u, style, label);
+    if hist.len() >= 2 {
+        let n = hist.len() - 1;
+        let pts: Vec<(f32, f32)> = hist.iter().enumerate().map(|(i, v)| (x + i as f32 * w / n as f32, y + h - (*v / max) as f32 * h)).collect();
+        cv.polyline(&pts, 1.5, SPECTRE);
+    }
+}
+
+/// Le panneau « Statistiques » (docs/link-ui.md) : le titre, sa croix « Fermer les statistiques » et le raccourci ; la
+/// latence en grand, « de la capture à votre écran » ; le trajet d'une image ; « Latence » et « Débit » sur 30 s (le
+/// repère « 1 image », le trait et la ligne du débit visé) ; « Pertes · 30 s » et la session ; puis le chemin, le
+/// réseau, l'image, les mesures, le son. Avant la première image, une phrase seulement.
+fn stats(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let st = s.stats.clone().unwrap_or_default();
     let tv = app.layout == Layout::Tv;
     let b = StatsBox::new(app.layout);
     let (x, y, u) = (b.x, b.y, b.u);
+    let mono = Text::new(Font::Mono, 11.5 * u, MUTED);
+    let line_h = 19.0 * u;
     // Au salon, la rangée du trajet donne sa largeur au panneau : mesurée d'abord.
     let w = if tv { b.w.max(frame_path_row(cv, &b, &st, false)) } else { b.w };
+    let ix = x + 16.0 * u;
+    let inner = w - 32.0 * u;
+    let head = |cv: &mut Canvas, f: &mut Frame, w: f32| {
+        eyebrow(cv, ix, y + 26.0 * u, 11.0 * u, FAINT, tr("Statistiques", "Statistics"));
+        cv.text(x + w - 46.0 * u, y + 26.0 * u, Text::new(Font::Mono, 10.0 * u, GHOST).align(Align::Right), &crate::app::shortcut_text('S'));
+        let cr = Rect::new(x + w - 38.0 * u, y + 10.0 * u, 26.0 * u, 26.0 * u);
+        let (focused, hover) = f.state(Target::StatsClose, cr);
+        if hover || focused {
+            cv.rrect(cr.x, cr.y, cr.w, cr.h, 6.0 * u, Rgba(227, 237, 240, 16));
+        }
+        if focused {
+            widgets::ring(cv, cr, 6.0 * u);
+        }
+        cv.icon(&Icon::Close, cr.x + 6.0 * u, cr.y + 6.0 * u, cr.w - 12.0 * u, 1.6, MUTED);
+        if hover {
+            tooltip(cv, cr, cr.y + cr.h + 4.0 * u, tr("Fermer les statistiques", "Close statistics"));
+        }
+    };
+    // Avant la première image : la phrase de link-ui.
+    if s.stats.is_none() || (st.latency_ms.is_none() && st.fps <= 0.0) {
+        let h = 104.0 * u;
+        cv.rrect(x, y, w, h, 12.0 * u, Rgba(9, 13, 18, 214));
+        cv.rrect_stroke(x, y, w, h, 12.0 * u, 1.0, LINE);
+        cv.paragraph(ix, y + 58.0 * u, Text::new(Font::Regular, 13.0 * u, MUTED), tr("Les statistiques s'affichent dès que l'image arrive.", "Statistics appear as soon as the picture arrives."), inner, 19.0 * u);
+        head(cv, f, w);
+        return;
+    }
     let end = if tv { b.path + ROW_H * u } else { b.path_end() };
-    // PyroWave : « Images perdues » (en part des images), et « Définition ramenée » quand l'app le sait.
-    let pw = st.decoder == "PyroWave";
-    let lowered_lines = st.lowered.as_deref().map_or(0, |t| cv.line_count(Text::new(Font::Mono, 11.5 * u, MUTED), t, w - 32.0 * u));
-    let extra = if pw { 1.0 + lowered_lines as f32 } else { 0.0 };
-    // « Débit » : sa courbe sur les 30 dernières secondes (avec le trait du débit visé), puis la ligne « Débit visé ».
-    let graph = st.bitrate_history.len() >= 2;
-    let extra = extra + if st.target.is_some() { 1.0 } else { 0.0 };
-    let h = end - y + 24.0 * u + (3.0 + extra) * 19.0 * u + if graph { BITRATE_GRAPH_H * u } else { 0.0 } + 24.0 * u;
+    let lowered_lines = st.lowered.as_deref().map_or(0, |t| cv.line_count(mono, t, inner));
+    let (losses, rest) = stats_lines(s, &st);
+    let graph_h = BITRATE_GRAPH_H * u;
+    let graphs = (line_h + graph_h + 8.0 * u) * 2.0 + if st.target.is_some() { line_h } else { 0.0 };
+    let col1 = end - y + 22.0 * u + graphs + 6.0 * u;
+    let col2 = line_h * (2.0 + losses.len() as f32 + lowered_lines as f32) + 8.0 * u + line_h * rest.len() as f32;
+    // Trop haut pour la fenêtre (bureau, 960 × 600) : les pertes et les lignes du bas passent dans une seconde colonne,
+    // à droite du trajet.
+    let two = !tv && y + col1 + col2 + 16.0 * u > cv.h - 16.0 * u;
+    let (h, w_all) = if two { (col1.max(b.path - y + 10.0 * u + col2) + 16.0 * u, 2.0 * w) } else { (col1 + col2 + 16.0 * u, w) };
+    let w = w_all;
+    let inner = if two { w / 2.0 - 32.0 * u } else { inner };
     cv.rrect(x, y, w, h, 12.0 * u, Rgba(9, 13, 18, 214));
     cv.rrect_stroke(x, y, w, h, 12.0 * u, 1.0, LINE);
-    let ix = x + 16.0 * u;
-    let mut yy = y + 36.0 * u;
+    head(cv, f, w);
+    // La latence en grand, et ce qu'elle mesure.
     let lat = st.latency_ms.map(|v| format!("{} ms", decimal(v, 1))).unwrap_or_else(|| "— ms".into());
-    cv.text(ix, yy, Text::new(Font::MonoMedium, 24.0 * u, SPECTRE), &lat);
-    yy += 12.0 * u;
-    let hist = &st.history;
-    if hist.len() >= 2 {
-        let max = hist.iter().cloned().fold(1.0f64, f64::max).max(16.7);
-        let gw = b.w - 32.0 * u;
-        let pts: Vec<(f32, f32)> = hist.iter().enumerate().map(|(i, v)| (ix + i as f32 * gw / (hist.len() - 1) as f32, yy + 36.0 * u - (*v / max) as f32 * 32.0 * u)).collect();
-        cv.polyline(&pts, 1.5, SPECTRE);
-    }
+    let lw = cv.text(ix, y + 68.0 * u, Text::new(Font::MonoMedium, 26.0 * u, SPECTRE), &lat);
+    cv.text_fit(ix + lw + 12.0 * u, y + 66.0 * u, Text::new(Font::Regular, 12.5 * u, MUTED), tr("de la capture à votre écran", "from capture to your screen"), (inner - lw - 12.0 * u).max(0.0));
     if tv {
         frame_path_row(cv, &b, &st, true);
     } else {
         frame_path_waterfall(cv, &b, &st);
     }
-    yy = end + 24.0 * u;
-    let mono = Text::new(Font::Mono, 11.5 * u, MUTED);
-    // « HDR » après la définition quand l'image l'est : en l'allumant et l'éteignant, on voit quelle étape change.
-    let hdr = if st.hdr { " · HDR" } else { "" };
-    cv.text_fit(ix, yy, mono, &format!("{}{hdr} · {:.0} {} · {:.0} Mbit/s", st.mode, st.fps, tr("i/s", "fps"), st.mbps), w - 32.0 * u);
-    yy += 19.0 * u;
-    if graph {
-        bitrate_graph(cv, ix, yy - 8.0 * u, w - 32.0 * u, (BITRATE_GRAPH_H - 10.0) * u, &st.bitrate_history);
-        yy += BITRATE_GRAPH_H * u;
+    let mut yy = end + 22.0 * u;
+    // « Latence » et « Débit », 30 s.
+    eyebrow(cv, ix, yy, 10.5 * u, FAINT, tr("Latence", "Latency"));
+    latency_graph(cv, ix, yy + 6.0 * u, inner, graph_h - 10.0 * u, &st.history, 1000.0 / st.fps.max(1.0), u);
+    yy += line_h + graph_h + 8.0 * u;
+    eyebrow(cv, ix, yy, 10.5 * u, FAINT, tr("Débit", "Bitrate"));
+    cv.text(ix + inner, yy, mono.align(Align::Right), &format!("{:.0} Mbit/s", st.mbps));
+    if st.bitrate_history.len() >= 2 {
+        bitrate_graph(cv, ix, yy + 6.0 * u, inner, graph_h - 10.0 * u, &st.bitrate_history);
     }
+    yy += line_h + graph_h + 8.0 * u;
     if let Some((label, text)) = &st.target {
         let colon = if crate::i18n::english() { ":" } else { " :" };
-        cv.text_fit(ix, yy, mono, &format!("{label}{colon} {text}"), w - 32.0 * u);
-        yy += 19.0 * u;
+        cv.text_fit(ix, yy, mono, &format!("{label}{colon} {text}"), inner);
+        yy += line_h;
     }
-    let audio = st.audio_ms.map(|a| format!(" · {} {} ms", tr("son", "sound"), decimal(a, 0))).unwrap_or_default();
-    cv.text_fit(ix, yy, mono, &format!("{}{audio}", st.decoder), w - 32.0 * u);
-    yy += 19.0 * u;
-    cv.text_fit(ix, yy, mono, &format!("{} {} · 10 s", st.lost, tr("perdues", "lost")), w - 32.0 * u);
-    yy += 19.0 * u;
-    if pw {
-        let colon = if crate::i18n::english() { ":" } else { " :" };
-        let lost = crate::pyrowave::lost_value(st.lost_frames, st.fps.round() as u32);
-        cv.text_fit(ix, yy, if st.lost_frames > 0 { mono.color(WARN) } else { mono }, &format!("{}{colon} {lost}", crate::pyrowave::lost_label()), w - 32.0 * u);
-        yy += 19.0 * u;
-        if let Some(text) = &st.lowered {
-            cv.paragraph(ix, yy, mono.color(WARN), text, w - 32.0 * u, 19.0 * u);
-            yy += lowered_lines as f32 * 19.0 * u;
-        }
+    yy += 6.0 * u;
+    // La seconde colonne, à droite du trajet.
+    let ix = if two { x + w / 2.0 + 16.0 * u } else { ix };
+    if two {
+        cv.rect((x + w / 2.0).round(), b.path, 1.0, h - (b.path - y) - 16.0 * u, LINE);
+        yy = b.path + 10.0 * u;
     }
-    // « Chemin » : Direct, Par le relais, Par le relais (TCP) ; par le relais, l'aller-retour mesuré s'y ajoute.
-    let ms = s.route.and_then(|r| r.total_ms()).filter(|_| s.via_relay()).map(|v| format!(" · {} ms", decimal(v, 0))).unwrap_or_default();
-    cv.text_fit(ix, yy, mono, &format!("{}{} {}{ms}", tr("Chemin", "Path"), if crate::i18n::english() { ":" } else { " :" }, s.path().label()), w - 32.0 * u);
-    // La caméra de l'appareil, allumée : « Caméra : 1280 × 720 · 30 i/s · H.264 · 1,4 Mbit/s ».
-    if let Some(line) = &s.camera_line {
-        cv.text_fit(ix, yy + 19.0 * u, mono, &format!("{}{} {line}", tr("Caméra", "Camera"), if crate::i18n::english() { ":" } else { " :" }), w - 32.0 * u);
+    // « Pertes · 30 s », puis la session.
+    eyebrow(cv, ix, yy, 10.5 * u, FAINT, tr("Pertes · 30 s", "Losses · 30 s"));
+    yy += line_h;
+    // Dans chaque bloc, les valeurs commencent après le plus long de ses libellés.
+    let label_w = |cv: &mut Canvas, lines: &[StatsLine]| lines.iter().map(|(l, _, _)| cv.text_width(mono, l)).fold(0.0f32, f32::max).min(inner * 0.45) + 14.0 * u;
+    let row = |cv: &mut Canvas, yy: f32, label_w: f32, (label, value, color): &StatsLine| {
+        cv.text_fit(ix, yy, mono, label, label_w - 14.0 * u);
+        cv.text_shrink(ix + label_w, yy, mono.color(*color), value, inner - label_w);
+    };
+    let lw = label_w(cv, &losses);
+    for l in &losses {
+        row(cv, yy, lw, l);
+        yy += line_h;
+    }
+    let (sf, sp) = st.session_lost;
+    let session = if crate::i18n::english() { format!("Session: {sf} frames, {sp} packets") } else { format!("Session : {sf} images, {sp} paquets") };
+    cv.text_fit(ix, yy, mono.color(FAINT), &session, inner);
+    yy += line_h;
+    if let Some(text) = &st.lowered {
+        cv.paragraph(ix, yy, mono.color(WARN), text, inner, line_h);
+        yy += lowered_lines as f32 * line_h;
+    }
+    yy += 8.0 * u;
+    let lw = label_w(cv, &rest);
+    for l in &rest {
+        row(cv, yy, lw, l);
+        yy += line_h;
     }
     // L'aide de l'étape survolée (bureau, Deck).
     if !tv && let Some(i) = s.stats_help.filter(|&i| i < 6) {
@@ -1596,7 +1822,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let tw = ((w - 2.0 * x0 - 4.0 * gap) / 5.0).min(if tv { 330.0 } else { 216.0 * 1.2 });
     let th = if tv { 170.0 } else { 118.0 };
     let others: Vec<Profile> = Profile::ALL.into_iter().filter(|p| *p != s.profile).collect();
-    let audio = match st.audio_ms {
+    let audio = match st.audio.map(|(buffer, output)| buffer + output) {
         Some(a) => format!("{} · {} ms", if s.muted { tr("coupé", "muted") } else { tr("actif", "on") }, decimal(a, 0)),
         None => if s.muted { tr("coupé", "muted").into() } else { tr("sur cet appareil", "on this device").into() },
     };
@@ -1813,7 +2039,13 @@ fn keys(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         }
         cv.rrect(r.x, r.y, r.w, r.h, 10.0 * u, if hover { INK_3 } else { Rgba(14, 20, 26, 230) });
         cv.rrect_stroke(r.x, r.y, r.w, r.h, 10.0 * u, 1.0, LINE_2);
-        cv.text(r.x + 18.0 * u, r.y + r.h / 2.0 + 6.0 * u, Text::new(Font::Regular, 17.0 * u, FROST), tr(k.0, k.1));
+        // Le nom, l'indication en petit dessous.
+        if k.hint().is_empty() {
+            cv.text_fit(r.x + 18.0 * u, r.y + r.h / 2.0 + 6.0 * u, Text::new(Font::Regular, 17.0 * u, FROST), k.name(), r.w - 36.0 * u);
+        } else {
+            cv.text_fit(r.x + 18.0 * u, r.y + 26.0 * u, Text::new(Font::Regular, 17.0 * u, FROST), k.name(), r.w - 36.0 * u);
+            cv.text_fit(r.x + 18.0 * u, r.y + 46.0 * u, Text::new(Font::Regular, 12.5 * u, FAINT), k.hint(), r.w - 36.0 * u);
+        }
     }
     if app.layout.console() {
         let footer = 56.0 * u;

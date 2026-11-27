@@ -636,7 +636,16 @@ pub struct Stats {
     pub lost: u32,
     pub mode: String,
     pub decoder: String,
-    pub audio_ms: Option<f64>,
+    /// Son : le tampon et la sortie (ms), ligne « Son » des statistiques.
+    pub audio: Option<(f64, f64)>,
+    /// Les 30 dernières secondes des pertes : images perdues, paquets perdus, images clés demandées (« Pertes · 30 s »).
+    pub losses: Vec<(u32, u32, u32)>,
+    /// Depuis le début de la session : images et paquets perdus (« Session : 12 images, 40 paquets »).
+    pub session_lost: (u64, u64),
+    /// Aller-retour réseau (ms), ligne « Réseau ».
+    pub rtt_ms: Option<f64>,
+    /// Part des images montrées dont la latence est mesurée (%), ligne « Mesures ».
+    pub measured: Option<f64>,
     /// Latences des dernières secondes (courbe de la barre).
     pub history: Vec<f64>,
     /// Le trajet d'une image (docs/link-ui.md, « Statistiques ») : capture, encodage, envoi, réseau, décodage,
@@ -660,6 +669,14 @@ pub struct Stats {
 }
 
 impl Stats {
+    /// Les pertes d'une seconde (images, paquets, images clés) ajoutées aux 30 dernières.
+    pub fn push_losses(history: &mut Vec<(u32, u32, u32)>, second: (u32, u32, u32)) {
+        history.push(second);
+        if history.len() > 30 {
+            history.remove(0);
+        }
+    }
+
     /// La seconde `mbps` (et son débit visé) ajoutée à la courbe du débit, 30 secondes au plus.
     pub fn push_bitrate(history: &mut Vec<(f64, Option<f64>)>, mbps: f64, target: Option<f64>) {
         history.push((mbps, target));
@@ -731,32 +748,78 @@ pub enum MenuItem {
     Disconnect,
 }
 
-/// Raccourcis du menu Touches (scancodes de Windows, comme sur Android).
-pub const SHORTCUTS: [(&str, &str, &[u16]); 10] = [
-    ("Ctrl + Alt + Suppr", "Ctrl + Alt + Del", &[0x1D, 0x38, 0xE053]),
-    ("Alt + Tab", "Alt + Tab", &[0x38, 0x0F]),
-    ("Touche Windows", "Windows key", &[0xE05B]),
-    ("Windows + D : bureau", "Windows + D: desktop", &[0xE05B, 0x20]),
-    ("Alt + F4", "Alt + F4", &[0x38, 0x3E]),
-    ("Échap", "Esc", &[0x01]),
-    ("F11 : plein écran", "F11: full screen", &[0x57]),
-    ("Gestionnaire des tâches", "Task Manager", &[0x1D, 0x2A, 0x01]),
-    ("Impr. écran", "Print Screen", &[0xE037]),
-    ("Windows + L : verrouiller", "Windows + L: lock", &[0xE05B, 0x26]),
+/// Les choix du menu de la souris de la barre, comme le réglage « Souris » : la valeur gardée, le nom.
+pub const MOUSE_MODES: [(&str, (&str, &str)); 3] = [("auto", ("Auto", "Auto")), ("desktop", ("Souris du bureau", "Desktop mouse")), ("game", ("Souris des jeux", "Game mouse"))];
+
+/// L'infobulle de la souris de la barre (docs/link-ui.md).
+pub fn mouse_tooltip() -> String {
+    let k = shortcut_text('M');
+    if english() {
+        format!("Mouse: Auto switches to the game mouse when a game is full screen on the computer ({k} switches)")
+    } else {
+        format!("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur ({k} bascule)")
+    }
+}
+
+/// Une entrée du menu « Touches » : son nom, son indication (en petit dessous, ou après « : » dans un menu sans
+/// seconde ligne ; vide : aucune), en français et en anglais, et les touches envoyées (scancodes de Windows, comme
+/// sur Android).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shortcut {
+    pub name: (&'static str, &'static str),
+    pub hint: (&'static str, &'static str),
+    pub keys: &'static [u16],
+}
+
+impl Shortcut {
+    pub fn name(&self) -> &'static str {
+        tr(self.name.0, self.name.1)
+    }
+
+    pub fn hint(&self) -> &'static str {
+        tr(self.hint.0, self.hint.1)
+    }
+
+    /// Sur une ligne : « Alt + Tab : changer d'app ».
+    pub fn inline(&self) -> String {
+        match self.hint() {
+            "" => self.name().to_string(),
+            h => format!("{}{} {h}", self.name(), tr(" :", ":")),
+        }
+    }
+}
+
+const fn key(name: (&'static str, &'static str), hint: (&'static str, &'static str), keys: &'static [u16]) -> Shortcut {
+    Shortcut { name, hint, keys }
+}
+
+/// Le menu « Touches » (docs/link-ui.md, barre de session) : dix entrées, dans cet ordre, les quatre premières
+/// celles de toutes les apps. La police de l'app n'a pas le signe ⊞ : « Windows » à sa place.
+pub const SHORTCUTS: [Shortcut; 10] = [
+    key(("Ctrl + Alt + Suppr", "Ctrl + Alt + Del"), ("verrouiller, changer", "lock, switch user"), &[0x1D, 0x38, 0xE053]),
+    key(("Touche Windows seule", "Windows key alone"), ("menu Démarrer", "Start menu"), &[0xE05B]),
+    key(("Alt + Tab", "Alt + Tab"), ("changer d'app", "switch apps"), &[0x38, 0x0F]),
+    key(("Impr. écran", "Print Screen"), ("capture", "screenshot"), &[0xE037]),
+    key(("Windows + D", "Windows + D"), ("bureau", "desktop"), &[0xE05B, 0x20]),
+    key(("Windows + L", "Windows + L"), ("verrouiller", "lock"), &[0xE05B, 0x26]),
+    key(("Alt + F4", "Alt + F4"), ("fermer la fenêtre", "close the window"), &[0x38, 0x3E]),
+    key(("Échap", "Esc"), ("", ""), &[0x01]),
+    key(("Gestionnaire des tâches", "Task Manager"), ("Ctrl + Maj + Échap", "Ctrl + Shift + Esc"), &[0x1D, 0x2A, 0x01]),
+    key(("F11", "F11"), ("plein écran", "full screen"), &[0x57]),
 ];
 
 /// Le même menu face à une Station Mac (docs/link-ui.md, « Face à une Station Mac ») : la touche ⊞ y est ⌘.
 /// Ces touches partent telles quelles, sans l'échange de « Ctrl agit comme ⌘ ».
-pub const MAC_SHORTCUTS: [(&str, &str, &[u16]); 5] = [
-    ("⌘ ⇥ : changer d'app", "⌘ ⇥: switch app", &[0xE05B, 0x0F]),
-    ("⌘ Espace : Spotlight", "⌘ Space: Spotlight", &[0xE05B, 0x39]),
-    ("⌃ ⌘ Q : verrouiller", "⌃ ⌘ Q: lock", &[0x1D, 0xE05B, 0x10]),
-    ("⇧ ⌘ 5 : capture", "⇧ ⌘ 5: screenshot", &[0x2A, 0xE05B, 0x06]),
-    ("⌥ ⌘ Échap : forcer à quitter", "⌥ ⌘ Esc: force quit", &[0x38, 0xE05B, 0x01]),
+pub const MAC_SHORTCUTS: [Shortcut; 5] = [
+    key(("⌘ ⇥", "⌘ ⇥"), ("changer d'app", "switch app"), &[0xE05B, 0x0F]),
+    key(("⌘ Espace", "⌘ Space"), ("Spotlight", "Spotlight"), &[0xE05B, 0x39]),
+    key(("⌃ ⌘ Q", "⌃ ⌘ Q"), ("verrouiller", "lock"), &[0x1D, 0xE05B, 0x10]),
+    key(("⇧ ⌘ 5", "⇧ ⌘ 5"), ("capture", "screenshot"), &[0x2A, 0xE05B, 0x06]),
+    key(("⌥ ⌘ Échap", "⌥ ⌘ Esc"), ("forcer à quitter", "force quit"), &[0x38, 0xE05B, 0x01]),
 ];
 
 /// Les raccourcis du menu Touches : ceux d'un PC, ou ceux du Mac face à une Station Mac.
-pub fn shortcuts(mac: bool) -> &'static [(&'static str, &'static str, &'static [u16])] {
+pub fn shortcuts(mac: bool) -> &'static [Shortcut] {
     if mac { &MAC_SHORTCUTS } else { &SHORTCUTS }
 }
 
@@ -794,6 +857,23 @@ pub enum BarMenu {
     Lend,
     /// La caméra de l'appareil : l'allumer ou l'éteindre, puis les webcams (docs/webcam.md).
     Camera,
+    /// La souris : « Auto », « Souris du bureau », « Souris des jeux », le réglage de l'ordinateur coché.
+    Mouse,
+    /// « Plus » (barre étroite) : les commandes qui ne tiennent plus dans la barre.
+    More,
+}
+
+/// Ce que la caméra allumée attend au plus la réponse de l'ordinateur (docs/link-ui.md, « Caméra de l'appareil »).
+pub const CAMERA_ANSWER: Duration = Duration::from_secs(10);
+
+/// « Caméra… » sans réponse de l'ordinateur en 10 s : la caméra s'éteint (docs/link-ui.md).
+pub fn camera_no_answer_text() -> &'static str {
+    tr("L'ordinateur ne répond pas : la caméra est éteinte.", "The computer isn't answering: the camera is off.")
+}
+
+/// Le départ refusé par la session (elle ne prend pas la caméra) (docs/link-ui.md).
+pub fn camera_refused_text() -> &'static str {
+    tr("La caméra n'a pas pu démarrer sur l'ordinateur.", "The camera couldn't start on the computer.")
 }
 
 /// L'état de la caméra de l'appareil dans une session (docs/link-ui.md, « Caméra de l'appareil »).
@@ -1634,9 +1714,14 @@ impl LendCodeUi {
 
 // MARK: - Enregistrement de la session (docs/enregistrement.md ; textes : docs/link-ui.md, « Enregistrement de la session »)
 
+/// Un raccourci de l'app (Ctrl+Alt+Maj + lettre, docs/link-ui.md), tel qu'il s'écrit dans les infobulles.
+pub fn shortcut_text(letter: char) -> String {
+    format!("{}{letter}", tr("Ctrl+Alt+Maj+", "Ctrl+Alt+Shift+"))
+}
+
 /// Le raccourci de l'enregistrement, tel qu'il s'écrit dans les infobulles.
-pub fn recording_shortcut() -> &'static str {
-    tr("Ctrl+Alt+Maj+R", "Ctrl+Alt+Shift+R")
+pub fn recording_shortcut() -> String {
+    shortcut_text('R')
 }
 
 /// Les textes de l'enregistrement, donnés par le cœur (`RecordingState::ui_json`) dans la langue de l'app :
@@ -2931,12 +3016,19 @@ pub enum Target {
     BarKeys,
     BarShortcut(usize),
     BarMouse,
+    /// Le menu de la souris : « Auto », « Souris du bureau », « Souris des jeux » (`MOUSE_MODES`).
+    BarMousePick(usize),
+    /// La pastille « Presse-papiers » (sans action) ; « Plus » (barre étroite).
+    BarClipboard,
+    BarMore,
     /// La caméra : le bouton de la barre (son menu), « Allumer / Éteindre la caméra », une webcam de la liste.
     BarCamera,
     BarCameraToggle,
     BarCameraPick(usize),
     /// Les mesures de la barre (latence, courbe, image) : un clic ouvre ou ferme « Statistiques ».
     BarStats,
+    /// La croix du panneau « Statistiques » : « Fermer les statistiques ».
+    StatsClose,
     BarFullscreen,
     BarQuit,
     /// Plusieurs ordinateurs : le menu « Ordinateurs » de la barre, l'un des ordinateurs
@@ -3209,6 +3301,8 @@ pub enum Action {
     Light(SessionId, bool),
     /// Souris des jeux ou du bureau (barre, Ctrl+Alt+Maj+M).
     ToggleMouse(SessionId),
+    /// La souris choisie dans la barre (`auto`, `desktop`, `game`), tout de suite.
+    SetMouse(SessionId, String),
     /// Plein écran de la fenêtre d'une session ; `None` : la fenêtre de l'app, hors session.
     ToggleFullscreen(Option<SessionId>),
     /// Clavier de Steam (`steam://open/keyboard`), ou saisie de texte de SDL ; la session
@@ -5217,7 +5311,7 @@ impl App {
             Target::Menu(item) => self.menu(item),
             Target::Shortcut(i) | Target::BarShortcut(i) => {
                 let mac = self.session().is_some_and(|s| self.session_mac(s));
-                let Some(keys) = shortcuts(mac).get(i).map(|k| k.2.to_vec()) else { return Vec::new() };
+                let Some(keys) = shortcuts(mac).get(i).map(|k| k.keys.to_vec()) else { return Vec::new() };
                 let Some(s) = self.session_mut() else { return Vec::new() };
                 s.keys = false;
                 s.menu = false;
@@ -5259,7 +5353,12 @@ impl App {
                 self.remember_profile(p);
                 vec![Action::SetProfile(id, p), Action::Save]
             }
-            Target::BarMouse => self.active_id().map(|id| vec![Action::ToggleMouse(id)]).unwrap_or_default(),
+            // Une partie sur une console : « Prendre la souris » (une bascule) ; une session d'ordinateur : le menu.
+            Target::BarMouse if self.session().is_some_and(|s| s.console.is_some()) => self.active_id().map(|id| vec![Action::ToggleMouse(id)]).unwrap_or_default(),
+            Target::BarMouse => self.toggle_bar_menu(BarMenu::Mouse),
+            Target::BarMousePick(i) => self.pick_mouse(i),
+            Target::BarMore => self.toggle_bar_menu(BarMenu::More),
+            Target::BarClipboard => Vec::new(),
             Target::BarCamera => self.toggle_bar_menu(BarMenu::Camera),
             Target::BarCameraToggle => {
                 let Some(s) = self.session_mut() else { return Vec::new() };
@@ -5277,7 +5376,7 @@ impl App {
                 }
                 v
             }
-            Target::BarStats => {
+            Target::BarStats | Target::StatsClose => {
                 if let Some(s) = self.session_mut() {
                     s.toggle_stats();
                 }
@@ -5320,6 +5419,33 @@ impl App {
         if let Some(id) = self.session().map(|s| s.host.clone()) {
             self.set_profile(&id, p);
         }
+    }
+
+    /// Le menu de la souris de la barre : le choix s'applique tout de suite et reste pour cet ordinateur, comme le
+    /// réglage « Souris » de la rubrique Commandes (docs/link-ui.md, barre de session).
+    fn pick_mouse(&mut self, i: usize) -> Vec<Action> {
+        let Some(mode) = MOUSE_MODES.get(i).map(|m| m.0) else { return Vec::new() };
+        let Some(s) = self.session_mut() else { return Vec::new() };
+        s.bar_menu = None;
+        let (id, host) = (s.id, s.host.clone());
+        let mut actions = vec![Action::SetMouse(id, mode.to_string())];
+        if let Some(h) = self.store.host_mut(&host) {
+            h.settings.mouse = mode.to_string();
+            actions.push(Action::Save);
+        }
+        actions
+    }
+
+    /// Le réglage de la souris de l'ordinateur d'une session (`auto`, `desktop`, `game`) ; « Auto » sans réglage
+    /// (invité, emprunt).
+    pub fn mouse_setting(&self, s: &SessionUi) -> &str {
+        self.store.host(&s.host).map_or("auto", |h| h.settings.mouse.as_str())
+    }
+
+    /// Le presse-papiers est partagé avec l'ordinateur de cette session (le réglage de l'ordinateur ; jamais pour un
+    /// invité ni un emprunt).
+    pub fn clipboard_shared(&self, s: &SessionUi) -> bool {
+        s.guest.is_none() && s.borrow.is_none() && self.store.host(&s.host).is_some_and(|h| h.settings.clipboard)
     }
 
     /// Ouvre un menu déroulant de la barre, ou le ferme s'il est déjà ouvert.
@@ -5783,6 +5909,19 @@ impl App {
             s.bar_menu = None;
         }
         actions
+    }
+
+    /// La caméra allumée attend encore la réponse de l'ordinateur (« Caméra… ») depuis plus de `CAMERA_ANSWER` : elle
+    /// s'éteint, avec l'avis de link-ui. Rend vrai si c'est le cas (le pilote l'arrête).
+    pub fn camera_unanswered(&mut self, id: SessionId, since: Instant) -> bool {
+        let Some(s) = self.session_by_mut(id) else { return false };
+        if s.camera != CameraState::Starting || since.elapsed() < CAMERA_ANSWER {
+            return false;
+        }
+        s.camera = CameraState::Off;
+        s.camera_line = None;
+        s.notice = Some((camera_no_answer_text().into(), Instant::now()));
+        true
     }
 
     /// L'état de la caméra (réponse de l'ordinateur), sa ligne des statistiques, et l'avis d'un refus ou d'un
@@ -8915,7 +9054,7 @@ mod tests {
         let (a, b) = (open(&mut app, "a"), open(&mut app, "b"));
         assert!(app.session_mac(app.session_by(a).unwrap()));
         assert!(!app.session_mac(app.session_by(b).unwrap()));
-        assert_eq!(app.activate(Target::Shortcut(0)), vec![Action::Shortcut(b, SHORTCUTS[0].2.to_vec())]);
+        assert_eq!(app.activate(Target::Shortcut(0)), vec![Action::Shortcut(b, SHORTCUTS[0].keys.to_vec())]);
         app.activate_session(a);
         assert_eq!(app.activate(Target::BarShortcut(0)), vec![Action::Shortcut(a, vec![0xE05B, 0x0F])], "⌘ ⇥");
         assert_eq!(app.activate(Target::BarShortcut(4)), vec![Action::Shortcut(a, vec![0x38, 0xE05B, 0x01])], "⌥ ⌘ Échap");
@@ -8987,10 +9126,15 @@ mod tests {
         assert_eq!(app.activate(Target::BarQuit), vec![Action::Disconnect(b)]);
         app.activate_session(a);
         assert_eq!(app.activate(Target::BarQuit), vec![Action::Disconnect(a)]);
-        assert_eq!(app.activate(Target::BarMouse), vec![Action::ToggleMouse(a)]);
+        // La souris de la barre : un menu ; le choix part tout de suite et reste pour l'ordinateur.
+        assert!(app.activate(Target::BarMouse).is_empty());
+        assert_eq!(app.session_by(a).unwrap().bar_menu, Some(BarMenu::Mouse));
+        assert_eq!(app.activate(Target::BarMousePick(2)).first(), Some(&Action::SetMouse(a, "game".into())));
+        assert_eq!(app.session_by(a).unwrap().bar_menu, None);
+        assert!(app.activate(Target::BarClipboard).is_empty(), "la pastille n'a pas d'action");
         assert_eq!(app.activate(Target::BarFullscreen), vec![Action::ToggleFullscreen(Some(a))]);
         assert_eq!(app.activate(Target::BarPick(Profile::Max)), vec![Action::SetProfile(a, Profile::Max), Action::Save]);
-        assert_eq!(app.activate(Target::Shortcut(0)).first(), Some(&Action::Shortcut(a, SHORTCUTS[0].2.to_vec())));
+        assert_eq!(app.activate(Target::Shortcut(0)).first(), Some(&Action::Shortcut(a, SHORTCUTS[0].keys.to_vec())));
         assert_eq!(app.activate(Target::Menu(MenuItem::Sound)), vec![Action::Mute(a, true)]);
         // Une session finie sur une erreur : « Retour » la ferme, la dernière ramène l'accueil.
         app.session_by_mut(b).unwrap().phase = Phase::Ended { error: Some("coupée".into()) };

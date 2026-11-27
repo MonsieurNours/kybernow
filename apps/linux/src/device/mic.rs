@@ -95,7 +95,7 @@ extern "C" fn captured(user: *mut c_void, stream: *mut u8, len: c_int) {
 /// La vue de l'interface (`MicView`) : `MicUi::ui_json` du cœur, textes dans la langue de l'app (raccourci de la puce
 /// compris), et si la puce est montrée (`MicUi::shown` : pas un invité que l'hôte ne laisse pas parler).
 pub fn view(m: &kybernow_core::micro::MicUi, guest: bool) -> crate::micro::MicView {
-    let mut v = m.ui_json(kybernow_core::i18n::current(), crate::micro::shortcut());
+    let mut v = m.ui_json(kybernow_core::i18n::current(), &crate::micro::shortcut());
     v["shown"] = serde_json::Value::Bool(m.shown(guest));
     serde_json::from_value(v).unwrap_or_default()
 }

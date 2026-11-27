@@ -151,7 +151,12 @@ fn session(app: &App) -> SessionUi {
         lost: 0,
         mode: format!("{w} × {h}"),
         decoder: "VA-API HEVC".into(),
-        audio_ms: Some(12.0),
+        audio: Some((8.0, 4.0)),
+        // Pertes des 30 dernières secondes : une image et quelques paquets, une image clé ; la session.
+        losses: vec![(0, 0, 0), (0, 3, 0), (1, 6, 1), (0, 0, 0)],
+        session_lost: (4, 21),
+        rtt_ms: Some(2.1),
+        measured: Some(98.0),
         history: vec![7.0, 7.4, 6.9, 8.1, 7.2, 7.6, 6.8, 9.0, 7.1, 7.3, 7.0, 7.5],
         // Le trajet d'une image : les mesures de l'ordinateur (capture, encodage, envoi, réseau) et de l'appareil.
         stages: Stats::stages(Some([0.8, 2.2, 0.4, 0.8, 1.3, 1.9]), None),
@@ -364,10 +369,20 @@ fn computers_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, p
         s.bar_menu = Some(BarMenu::Profile);
     }
     shot_view(app, cv, Some(video), dir, &name("17h-fenetre-etroite-profil"), ui::View { session: Some(2), ..ui::View::SINGLE });
+    // Le menu « Plus » de la barre étroite (LINAPP-19) : les commandes qui n'y tiennent plus.
+    if let Some(s) = app.session_mut() {
+        s.bar_menu = Some(BarMenu::More);
+    }
+    shot_view(app, cv, Some(video), dir, &name("17i-fenetre-etroite-plus"), ui::View { session: Some(2), ..ui::View::SINGLE });
+    cv.resize(ow, oh, 1.0);
+    // Le menu de la souris (LINAPP-53) : « Auto », « Souris du bureau », « Souris des jeux ».
+    if let Some(s) = app.session_mut() {
+        s.bar_menu = Some(BarMenu::Mouse);
+    }
+    shot_view(app, cv, Some(video), dir, &name("17j-barre-souris"), ui::View { session: Some(2), ..ui::View::SINGLE });
     if let Some(s) = app.session_mut() {
         s.bar_menu = None;
     }
-    cv.resize(ow, oh, 1.0);
     app.pointer = None;
     app.set_session(None);
     app.screen = Screen::Home;
@@ -397,7 +412,7 @@ fn shared_view() -> ShareView {
 fn guest_session(role: ShareRole) -> SessionUi {
     let mut s = SessionUi::guest(1, "share:g1", "Atelier", role);
     s.phase = Phase::Streaming;
-    s.stats = Some(Stats { latency_ms: Some(8.1), fps: 60.0, mbps: 24.0, lost: 0, mode: "1920 × 1080".into(), decoder: "VA-API HEVC".into(), audio_ms: Some(14.0), history: vec![8.0, 8.4, 7.9, 9.1, 8.2, 8.0, 8.8, 8.1], ..Default::default() });
+    s.stats = Some(Stats { latency_ms: Some(8.1), fps: 60.0, mbps: 24.0, lost: 0, mode: "1920 × 1080".into(), decoder: "VA-API HEVC".into(), audio: Some((10.0, 4.0)), history: vec![8.0, 8.4, 7.9, 9.1, 8.2, 8.0, 8.8, 8.1], ..Default::default() });
     s.started = Instant::now() - Duration::from_millis(2100);
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));
     // « Auto » demandé, 1080p à 60 Hz reçu : la puce de la barre et la tuile du menu montrent la qualité reçue.
@@ -737,7 +752,7 @@ fn borrow_session(source: BorrowSource) -> SessionUi {
     let until = crate::model::now_secs() + 80 * 60 + 30;
     let mut s = SessionUi::borrower(1, "lend:m", BorrowSessionUi::new("Matthieu", "PC-SALON", Some(until), source));
     s.phase = Phase::Streaming;
-    s.stats = Some(Stats { latency_ms: Some(9.2), fps: 60.0, mbps: 28.0, lost: 0, mode: "1920 × 1080".into(), decoder: "VA-API HEVC".into(), audio_ms: Some(13.0), history: vec![9.0, 9.4, 8.9, 10.1, 9.2, 9.0, 9.8, 9.1], ..Default::default() });
+    s.stats = Some(Stats { latency_ms: Some(9.2), fps: 60.0, mbps: 28.0, lost: 0, mode: "1920 × 1080".into(), decoder: "VA-API HEVC".into(), audio: Some((9.0, 4.0)), history: vec![9.0, 9.4, 8.9, 10.1, 9.2, 9.0, 9.8, 9.1], ..Default::default() });
     s.started = Instant::now() - Duration::from_millis(2100);
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));
     s
@@ -1311,6 +1326,13 @@ pub fn run(dir: &Path, lang: &str) {
             app.set_session(Some(s));
             shot(&mut app, &mut cv, Some(&video), dir, &p("13c-session-statistiques-aide"));
         }
+        // Avant la première image : la phrase de link-ui seule.
+        let mut s = session(&app);
+        s.menu = false;
+        s.show_stats = true;
+        s.stats = None;
+        app.set_session(Some(s));
+        shot(&mut app, &mut cv, Some(&video), dir, &p("13d-session-statistiques-avant-image"));
 
         let mut s = session(&app);
         s.phase = Phase::Ended { error: Some(if en { "Admin did not answer: is the computer still on the network?" } else { "Admin ne répond plus : l'ordinateur est-il toujours sur le réseau ?" }.into()) };
@@ -1563,7 +1585,7 @@ pub(crate) fn watch_session(app: &App) -> SessionUi {
     let screens = vec![(7, crate::i18n::tr("Écran 1 — 3840 × 2160", "Screen 1 — 3840 × 2160").to_string()), (8, crate::i18n::tr("Écran 2 — 1920 × 1080", "Screen 2 — 1920 × 1080").to_string())];
     let mut s = SessionUi::watcher(1, "share:g1", "Atelier", ShareRole::Spectator, crate::app::WatchUi { host, screens, menu: true, display: 7 });
     s.phase = Phase::Streaming;
-    s.stats = Some(Stats { latency_ms: Some(9.4), fps: 60.0, mbps: 22.0, lost: 0, mode: "3840 × 2160".into(), decoder: "VA-API HEVC".into(), audio_ms: Some(15.0), history: vec![9.0, 9.4, 8.9, 10.1, 9.2, 9.0], ..Default::default() });
+    s.stats = Some(Stats { latency_ms: Some(9.4), fps: 60.0, mbps: 22.0, lost: 0, mode: "3840 × 2160".into(), decoder: "VA-API HEVC".into(), audio: Some((11.0, 4.0)), history: vec![9.0, 9.4, 8.9, 10.1, 9.2, 9.0], ..Default::default() });
     s.started = Instant::now() - Duration::from_millis(2100);
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));
     if let Some(g) = s.guest.as_mut() {
@@ -2565,7 +2587,7 @@ mod tests {
             computers_shots(&mut app, &mut cv, &demo_image(3), &dir, "bureau");
         }
         assert!(dir.join("bureau-17-barre-ordinateurs.png").exists() && dir.join("bureau-17d-fenetre-suivante.png").exists());
-        assert!(dir.join("bureau-17h-fenetre-etroite-profil.png").exists());
+        assert!(dir.join("bureau-17h-fenetre-etroite-profil.png").exists() && dir.join("bureau-17i-fenetre-etroite-plus.png").exists() && dir.join("bureau-17j-barre-souris.png").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2589,6 +2611,86 @@ mod tests {
             assert!(quit.x >= 0.0 && quit.x + quit.w <= 480.0, "{en} : {quit:?}");
             for (t, r) in hits.iter().filter(|(t, _)| matches!(t, Target::BarPick(_))) {
                 assert!(r.x >= 0.0 && r.x + r.w <= 480.0 && r.y + r.h <= 270.0, "{en} {t:?} : {r:?}");
+            }
+        }
+        crate::i18n::force_english(false);
+    }
+
+    /// LINAPP-19, 53 : la barre étroite (docs/link-ui.md, « Menu « Plus » ») : les commandes passent dans « Plus »,
+    /// jamais le profil, « Partager », « Se déconnecter » ; elle tient dans la fenêtre. Large, elle a tout : la
+    /// pastille « Presse-papiers », la souris en menu, « Touches » à dix entrées, les infobulles avec raccourci.
+    #[test]
+    fn narrow_bar_moves_controls_into_more() {
+        for en in [false, true] {
+            crate::i18n::force_english(en);
+            let mut app = demo(en, Layout::Desktop);
+            let mut s = session(&app);
+            s.menu = false;
+            s.bar = true;
+            app.set_session(Some(s));
+            app.screen = Screen::Session;
+            let mut cv = Canvas::new();
+            cv.resize(1920, 1080, 1.0);
+            let hits = ui::draw(&app, &mut cv);
+            for t in [Target::BarKeys, Target::BarMouse, Target::BarClipboard, Target::BarFullscreen, Target::BarShare] {
+                assert!(hits.iter().any(|(h, _)| *h == t) || t == Target::BarClipboard, "{en} : {t:?} dans la barre large");
+            }
+            assert!(!hits.iter().any(|(h, _)| *h == Target::BarMore), "{en} : pas de « Plus » quand tout tient");
+            // Étroite : « Plus » ; le reste tient dans la fenêtre.
+            cv.resize(480, 270, 1.0);
+            let hits = ui::draw(&app, &mut cv);
+            assert!(hits.iter().any(|(h, _)| *h == Target::BarMore), "{en} : « Plus »");
+            for t in [Target::BarProfile, Target::BarShare, Target::BarQuit] {
+                let r = hits.iter().find(|(h, _)| *h == t).unwrap_or_else(|| panic!("{en} : {t:?} jamais dans « Plus »")).1;
+                assert!(r.x >= 0.0 && r.x + r.w <= 480.0, "{en} {t:?} : {r:?}");
+            }
+            assert!(!hits.iter().any(|(h, _)| *h == Target::BarKeys), "{en} : « Touches » passée dans « Plus »");
+            // « Plus » ouvert : les commandes retirées, qui font ce que fait leur icône.
+            app.session_mut().unwrap().bar_menu = Some(BarMenu::More);
+            let hits = ui::draw(&app, &mut cv);
+            assert!(hits.iter().any(|(h, _)| *h == Target::BarKeys), "{en} : « Touches » dans « Plus »");
+            for (t, r) in hits.iter().filter(|(t, _)| matches!(t, Target::BarKeys | Target::BarMouse | Target::BarFullscreen)) {
+                assert!(r.x >= 0.0 && r.x + r.w <= 480.0, "{en} {t:?} : {r:?}");
+            }
+            // « Touches » choisie depuis « Plus » : son menu, dix entrées, les quatre de link-ui en tête.
+            app.activate(Target::BarKeys);
+            assert_eq!(app.session().unwrap().bar_menu, Some(BarMenu::Keys));
+            let names: Vec<&str> = crate::app::SHORTCUTS.iter().map(|k| k.name()).collect();
+            assert_eq!(names.len(), 10);
+            assert_eq!(names[..4], if en { ["Ctrl + Alt + Del", "Windows key alone", "Alt + Tab", "Print Screen"] } else { ["Ctrl + Alt + Suppr", "Touche Windows seule", "Alt + Tab", "Impr. écran"] });
+            assert_eq!(crate::app::SHORTCUTS[8].inline(), if en { "Task Manager: Ctrl + Shift + Esc" } else { "Gestionnaire des tâches : Ctrl + Maj + Échap" });
+        }
+        crate::i18n::force_english(false);
+        assert_eq!(crate::app::mouse_tooltip(), "Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (Ctrl+Alt+Maj+M bascule)");
+    }
+
+    /// TRANS-38 : le panneau « Statistiques » de link-ui (titre, croix « Fermer les statistiques », latence, trajet,
+    /// courbes, pertes sur 30 s, chemin, réseau, image, mesures, son) tient dans la fenêtre, à chaque interface, en
+    /// français et en anglais ; la croix le ferme. `KN_SHOTS=dossier` y écrit les captures.
+    #[test]
+    fn statistics_panel_is_complete_and_fits() {
+        let dir = std::env::var_os("KN_SHOTS").map(std::path::PathBuf::from);
+        for en in [false, true] {
+            crate::i18n::force_english(en);
+            for (layout, w, h, name) in [(Layout::Desktop, 1280, 800, "bureau"), (Layout::Desktop, 960, 600, "fenetre"), (Layout::Handheld, 1280, 800, "deck"), (Layout::Tv, 1920, 1080, "salon")] {
+                let mut app = demo(en, layout);
+                let mut s = session(&app);
+                s.menu = false;
+                s.show_stats = true;
+                s.camera_line = Some("1280 × 720 · 30 i/s · H.264 · 1,4 Mbit/s".into());
+                app.set_session(Some(s));
+                app.screen = Screen::Session;
+                let mut cv = Canvas::new();
+                cv.resize(w, h, 1.0);
+                let hits = ui::draw(&app, &mut cv);
+                let close = hits.iter().find(|(t, _)| *t == Target::StatsClose).unwrap_or_else(|| panic!("{name} {en} : croix")).1;
+                assert!(close.x + close.w <= w as f32 && close.y >= 0.0, "{name} {en} : {close:?}");
+                if let Some(d) = &dir {
+                    let _ = std::fs::create_dir_all(d);
+                    shot(&mut app, &mut cv, Some(&demo_image(1)), d, &format!("stats-{name}-{}", if en { "en" } else { "fr" }));
+                }
+                app.activate(Target::StatsClose);
+                assert!(!app.session().unwrap().show_stats, "{name} : la croix ferme");
             }
         }
         crate::i18n::force_english(false);

@@ -34,8 +34,8 @@ pub struct MicView {
 }
 
 /// Le raccourci de la puce (Ctrl+Alt+Maj + V).
-pub fn shortcut() -> &'static str {
-    tr("Ctrl+Alt+Maj+V", "Ctrl+Alt+Shift+V")
+pub fn shortcut() -> String {
+    crate::app::shortcut_text('V')
 }
 
 /// « Micro ».

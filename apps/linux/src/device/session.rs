@@ -336,10 +336,10 @@ impl Shared {
     }
 
     /// Latence du son jusqu'à la sortie, si le moteur la connaît.
-    pub fn audio_ms(&self) -> Option<f64> {
+    pub fn audio(&self) -> Option<(f64, f64)> {
         let a = self.audio.lock().unwrap().as_ref().and_then(Weak::upgrade)?;
         let s = a.engine().take_stats()?;
-        Some(s.buffer_ms + s.output_ms)
+        Some((s.buffer_ms, s.output_ms))
     }
 }
 
@@ -471,8 +471,12 @@ impl Platform for LinuxPlatform {
             mbps: s.bytes as f64 * 8.0 / 1e6,
             lost: s.lost_frames + s.holes,
             lost_frames: s.lost_frames,
+            lost_packets: s.lost_packets,
+            keyframes: s.keyframe_requests,
+            rtt_ms: s.rtt_ms,
+            measured: (s.displayed > 0).then(|| f64::from(s.measured) * 100.0 / f64::from(s.displayed)),
             codec: self.0.codec(),
-            audio_ms: self.0.audio_ms(),
+            audio: self.0.audio(),
             chain: s.chain.map(|c| c.all()),
             hdr: s.hdr,
             lowered: s.lowered,
@@ -606,7 +610,7 @@ impl Platform for LinuxPlatform {
 pub fn recording_ui(state: &kybernow_core::recording::RecordingState, computer: Option<&str>) -> crate::app::RecordingUi {
     let v = state.ui_json(kybernow_core::i18n::current(), computer);
     let shortcut = crate::app::recording_shortcut();
-    let t = |key: &str| v["texts"][key].as_str().unwrap_or_default().replace("{shortcut}", shortcut);
+    let t = |key: &str| v["texts"][key].as_str().unwrap_or_default().replace("{shortcut}", &shortcut);
     crate::app::RecordingUi {
         allowed: state.allowed,
         active: state.active,

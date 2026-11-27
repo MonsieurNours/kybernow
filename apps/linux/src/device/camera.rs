@@ -62,6 +62,8 @@ pub enum Problem {
     InUse,
     Unplugged,
     NoEncoder,
+    /// La session ne prend pas la caméra (`CameraLink::start` refusé).
+    Refused,
 }
 
 /// L'envoi en cours : le fil de la webcam, arrêté et attendu quand on le lâche.
@@ -139,7 +141,7 @@ fn run(link: &CameraLink, path: &str, resolution: CameraResolution, device: &str
     let c = cam.0.load(Ordering::Relaxed);
     let settings = CameraSettings { codec: CameraCodec::H264, width: ow as u32, height: oh as u32, fps: FPS, resolution, device: device.to_owned() };
     if !link.start(settings) {
-        return Ok(());
+        return Err(Problem::Refused);
     }
     log::info!("caméra : {path}, {ow} × {oh}");
     let mut last_rate = Instant::now();
