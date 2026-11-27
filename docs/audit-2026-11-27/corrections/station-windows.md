@@ -55,19 +55,48 @@ Branche `claude/fix-station-windows-9ecece`. Zone : `server/admin`, `server/tray
 - **STWIN-48** : textes définitifs de PyroWave (FR et EN, Windows, Mac, Linux).
 - **TRANS-28** : erreur VB-CABLE traduite (`api.vbcableMissing`).
 
+**Deuxième passe (demande de la coordination : rien de côté, hors factorisation de vague 2)**
+- **STLIN-02 (message)** : un socket qui refuse (`EACCES`) donne un message clair côté Admin.
+- **STLIN-05** : sous Linux, Admin dit avant d'accorder un prêt que le clavier et la souris ne peuvent pas être bloqués (`input_locked`, `input_warning` de la vue du prêt ; ligne dans le fil au début du prêt).
+- **STLIN-07** : canal et version contrôlés avant de copier le paquet ; rien ne reste d'une demande refusée (dossier retiré, sauf une version déjà gardée).
+- **STLIN-08** : `apt-get` attend le verrou de dpkg (`DPkg::Lock::Timeout=300`).
+- **STCOM-03** : aide du micro attendue après délai (pas de zombie), sortie d'erreur lue au fil de l'eau.
+- **STCOM-12** : message neutre `display.noVirtualDisplayAgent` (plus « pas encore d'écran virtuel sur Mac » sous Linux).
+- **WEB-14** : `/api/session` donne `stream_user` (session d'Admin ouverte) ; `/api/web/ticket` reste pour les clients d'avant.
+- **STWIN-22** : registre partagé du micro par défaut (`micro-defaut.txt`, verrou `Global\KyberNowMicroDefault`) : la dernière aide le rend ; `--check` le rend après une aide tuée, lancé par Admin à son démarrage.
+- **STWIN-26** : choix `microphone` noté dans `kybernow.json` ; VB-CABLE installé après une mise à jour seulement s'il a été choisi, une seule fois, marque posée seulement sur succès (anciennes marques par version reprises puis effacées).
+- **STWIN-30** : icône lancée à l'ouverture de session par `HKLM\…\Run` (tous les comptes) ; ancienne valeur `HKCU` retirée par l'installateur, la désinstallation, l'icône et `update.ps1`.
+- **STWIN-33** : signe de vie du prêt sur un fil à lui ; délais courts pour la partie jouée (3 s) et les icônes (2 s).
+- **STWIN-34** : réinitialisation du mot de passe : le code va dans le profil du compte qui l'a demandé (chemin passé à la partie élevée, nom contrôlé) ; un échec déjà affiché n'est plus dit « erreur système 1 ».
+- **STWIN-35** : fenêtre de l'installateur refermable après une panique de l'installation (garde `Drop`, verrou tolérant).
+- **STWIN-36** : lanceur du prêt refusé hors prêt ; identifiant d'appairage encodé par l'icône ; icône ratée redemandée ; caméra : filtre de Windows 10 reconnu sur un PC passé à Windows 11 (et mémoire partagée laissée lisible par les apps dans ce cas), `mfsensorgroup.dll` chargée une fois ; micro : événement fermé sur erreur, tampon jamais attendu dans le fil du son (Windows et Linux).
+- **STWIN-37** : activité des cartes relevée chaque seconde pendant un flux ou quand une page la regarde, toutes les 10 s sinon.
+- **STWIN-38** : `/api/status` et `/api/local/state` sans appel bloquant sur le fil asynchrone ; nom de l'ordinateur gardé 30 s ; réglages écrits hors de leur verrou (une copie plus ancienne n'écrase jamais une plus récente) ; `events.json` écrit sans forcer le disque.
+- **STWIN-39** : port de Kyber gardé en mémoire tant que `kyber_config.toml` ne change pas ; puce du Mac lue une fois.
+- **STWIN-40** : PlayStation recherchées en fond seulement après une console vue ; états des agents réécrits quand ils changent (ou toutes les 2 s) ; veille du lanceur seulement avec une app ouverte ; `kybernow.json` de l'icône relu quand il change.
+- **STWIN-41** : liste des versions demandée avec son ETag ; manifeste vérifié gardé pour la même version.
+- **STWIN-42** : `npm ci` et recompilation d'Admin seulement si `package-lock.json` ou `web/dist` ont changé ; paquet extrait et copié sans forcer chaque fichier, volume forcé d'un coup avant la bascule (fichier par fichier s'il refuse).
+- **STWIN-47** : `/api/lend/catalog` retirée ; `Role::from_rights` réservé aux essais.
+- **STWIN-49** : `docs/pret.md` : 35 s pour `ready` (FR et EN).
+- **STWIN-50 (fichiers qui s'accumulent)** : copies des réinstallations bornées (installateur et Admin) ; marques `micro-vbcable-<version>` effacées ; `.staging` vidé au démarrage (après une heure).
+- **STWIN-17 (court terme)** : `docs/relais.md` (FR et EN) dit ce que le relais voit et signe avec « Admin à distance » et les comptes.
+
 ## Constats laissés
 
-- **STWIN-06 (longueur et durée des codes)** : six chiffres, c'est le protocole du cœur et des apps (`code.len() != 6` côté Station et saisie dans les apps) ; les allonger demande une version coordonnée de toutes les apps (vague 2). La durée de 24 h est un choix documenté ; le plafond de toutes les adresses rend la recherche impraticable (au plus 30 mauvais codes en 10 minutes). Le `"lend": true` de `join` reste : le cœur s'en sert pour passer à `borrow`.
-- **STWIN-14 (fichiers Steam, jeton renouvelé)** : les fichiers Steam mis de côté sont écrits par l'agent de l'icône dans la session (`tray/src/lend/store.rs`) ; les confier à Admin demande un nouvel échange agent ↔ Admin. Renouveler le jeton local au début du prêt sans le recopier couperait l'agent de console du prêt, qui l'utilise. Les routes sensibles sont fermées pendant le prêt à la place.
+- **STWIN-06 (longueur des codes)** : six chiffres, c'est le protocole du cœur et de toutes les apps (`code.len() != 6` côté Station, saisie et `"lend": true` dans les apps). Les allonger demande une version coordonnée des apps (cœur, Windows, Android, Apple, web) : hors zone. La durée de 24 h reste (documentée) ; le plafond de 30 mauvais codes en 10 minutes, toutes adresses confondues, rend la recherche impraticable.
+- **STWIN-14 (fichiers Steam de l'hôte)** : `config.vdf.kybernow` et `local.vdf.kybernow` sont mis de côté par l'agent de console, qui tourne sous le compte de l'hôte, comme les apps de l'ami : rien de ce que l'agent lit ne peut être caché à l'ami dans cette session. Les confier à Admin (SYSTEM) demande un échange agent ↔ Admin qui sache rendre les fichiers même quand Admin ne répond plus à la fin du prêt (aujourd'hui la remise en état marche hors ligne) : c'est un changement de conception du prêt, à décider avec l'auteur. Renouveler le jeton local sans le recopier couperait l'agent ; les routes sensibles sont fermées pendant le prêt à la place.
+- **STWIN-17 (fond)** : TLS de bout en bout jusqu'à la Station pour « Admin à distance », ou seconde preuve locale : relais et apps, hors zone (effort L).
 - **STWIN-03 (verrous tolérants)** : environ 590 `lock().unwrap()` ; le crochet de panique arrête Admin, qui est relancé : un verrou empoisonné ne laisse plus un Admin vivant et inutilisable.
-- **STWIN-17** (relais de confiance totale, effort L, relais hors zone), **STWIN-22** (micro par défaut, M), **STWIN-26** (VB-CABLE et choix `microphone`, touche l'installateur et `kybernow.json`), **STWIN-30**, **STWIN-33** à **STWIN-36**, optimisations **STWIN-37** à **STWIN-42**, factorisations **STWIN-44** à **STWIN-46**, **STWIN-47**, **STWIN-49** (`docs/pret.md`, ligne de délai) : hors des priorités demandées, à reprendre en vague 2.
-- **STWIN-50 (correctifs 0085 et fichiers qui s'accumulent)** : renuméroter les correctifs touche `server/kyber-patches` et la publication ; hors zone.
+- **STWIN-44 à 46** : factorisation, vague 2 (demande de la coordination).
+- **STWIN-50 (correctifs numérotés 0085)** : `server/kyber-patches`, hors zone (session des correctifs).
 - **STLIN-02 (unité du socket)** : `server/linux/packaging`, autre session.
+- **TRANS-21** : rien dans `server/camera/build.sh` (constat sur `apps/linux/os` et `apps/webos`).
 
 ## Ce qui est vérifié, et comment
 
-- `cargo test` d'Admin sur le Mac : 390 essais passés (dont les nouveaux : coupure après chacun des six renommages, marqueur d'`update.ps1`, listes d'`update.ps1` comparées à la liste commune, nettoyage de `.staging`, identifiant seul refusé, jeton de l'installateur, limites des codes par /64 et globales, plafond des mots de passe Kyber, hôte du prêt et droit Administrer, règles du prêt (`steamapps` et dossiers de Windows), appairage par /64, journaux avec `:`, copie `.bak` des données et des réglages, liens et FIFO du service root, propriétaire et verrou du service root, droits Unix, dossier d'enregistrement lié, adresse de la page d'Admin).
-- `cargo test` de l'installateur (44, dont reprise d'une bascule et restes retirés, adresses ouvertes dans le navigateur), de l'icône (28) et du micro (7).
+- `cargo test` d'Admin sur le Mac : 394 essais passés (deuxième passe comprise : canal refusé sans copie, compte de streaming dans `/api/session`, aide du micro tuée et attendue, choix du micro lu dans `kybernow.json`, hôte du prêt) (dont les nouveaux : coupure après chacun des six renommages, marqueur d'`update.ps1`, listes d'`update.ps1` comparées à la liste commune, nettoyage de `.staging`, identifiant seul refusé, jeton de l'installateur, limites des codes par /64 et globales, plafond des mots de passe Kyber, hôte du prêt et droit Administrer, règles du prêt (`steamapps` et dossiers de Windows), appairage par /64, journaux avec `:`, copie `.bak` des données et des réglages, liens et FIFO du service root, propriétaire et verrou du service root, droits Unix, dossier d'enregistrement lié, adresse de la page d'Admin).
+- `cargo test` de l'installateur (44, dont reprise d'une bascule et restes retirés, adresses ouvertes dans le navigateur), de l'icône (28) et du micro (9, dont le registre du micro par défaut).
+- `cargo check --target x86_64-pc-windows-gnu` de l'icône et du micro : sans erreur.
 - `cargo check --target x86_64-pc-windows-gnu` : Admin et installateur (bibliothèque, lanceur et interface `--features ui`) compilent sans avertissement nouveau.
 - `cargo check --target armv7-unknown-linux-gnueabi` (chaîne webOS comme racine système, faute de chaîne aarch64) : le code Linux d'Admin compile (`setfsuid`, `flock`, `XDG_RUNTIME_DIR`).
 - Caméra : `KyberNowCameraSource.dll` et `KyberNowCameraFilter.dll` construites avec mingw ; `install.cpp` et `out_windows.c` compilés à blanc.
@@ -84,7 +113,9 @@ La 0.11.7 se met à jour avec son propre applicateur (sans marqueur ni verrou) :
 - Une mise à jour pendant que Teams ou l'appli Caméra utilise « KyberNow Camera » (Windows 10 et 11) ; la caméra sous Windows 11 avec les nouveaux droits de la mémoire partagée (Frame Server doit lire l'image : si l'image reste grise, c'est la liste de lecture de `KN_SHARED_SDDL_WIN11` à compléter).
 - L'installateur en réinstallation (« Conserver mes réglages ») et le rattachement pendant l'installation (jeton de l'installateur).
 - Le prêt : jeux Steam hors du dossier de Steam, fin du prêt, et un compte KyberNow avec Session seul.
-- Station Linux : mise à jour par le service root (droits du demandeur, 0700/0600) ; Station Mac : mise à jour signée et arrêt par launchd (SIGTERM).
+- Station Linux : mise à jour par le service root (droits du demandeur, 0700/0600, `apt-get` pendant unattended-upgrades) ; avertissement du prêt sans règle udev des entrées. Station Mac : mise à jour signée et arrêt par launchd (SIGTERM).
+- Deux appareils qui envoient leur micro en même temps, puis une session coupée brutalement : le micro par défaut de Windows doit revenir.
+- « Démarrer avec l'ordinateur » depuis l'icône (HKLM), et la réinitialisation du mot de passe avec les identifiants d'un autre administrateur.
 
 ## Notes de version
 
@@ -96,6 +127,10 @@ La 0.11.7 se met à jour avec son propre applicateur (sans marqueur ni verrou) :
 - Sécurité renforcée : les codes de partage et de prêt, les mots de passe des appareils et le prêt de l'ordinateur sont mieux protégés contre les essais à répétition, et un autre compte de l'ordinateur ne peut plus rattacher votre Station à son compte.
 - Vos réglages et vos listes (appareils, comptes, amis) ne sont plus jamais effacés si un fichier est abîmé : la dernière version lisible revient.
 - Caméra de l'appareil sous Windows : plus stable, et son image n'est plus lisible par les apps qui n'y ont pas droit.
+- Le micro de vos appareils rend toujours le micro d'origine de l'ordinateur, même à plusieurs ou après une coupure.
+- VB-CABLE n'est plus réinstallé si vous ne l'avez pas choisi.
+- L'icône KyberNow Station démarre avec la session de chaque compte de l'ordinateur.
+- KyberNow Admin travaille moins quand personne ne joue.
 
 **EN**
 - A power cut or a freeze during an update no longer leaves your Station half installed: when it restarts, it puts itself right.
@@ -105,3 +140,7 @@ La 0.11.7 se met à jour avec son propre applicateur (sans marqueur ni verrou) :
 - Stronger security: share and loan codes, device passwords and lending the computer are better protected against repeated guesses, and another account on the computer can no longer attach your Station to its own account.
 - Your settings and lists (devices, accounts, friends) are never wiped when a file is damaged: the last readable version comes back.
 - Your device's camera on Windows: more stable, and its picture can no longer be read by apps that are not allowed to.
+- Your devices' microphone always gives the computer's own microphone back, even with several devices or after a cut.
+- VB-CABLE is no longer reinstalled if you did not choose it.
+- The KyberNow Station icon starts with the session of every account on the computer.
+- KyberNow Admin does less work when nobody is playing.
