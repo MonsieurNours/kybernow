@@ -259,7 +259,10 @@ public final class PlayStationPlay: @unchecked Sendable {
     /// cœur refuse (adresse ou association illisible).
     public func start(address: String, registered: String, settings: String, hevcDecoder: Bool, layout: String) -> Bool {
         var cb = KnPsCallbacks()
-        cb.userdata = Unmanaged.passUnretained(self).toOpaque()
+        // Retenu tant que la partie peut rappeler : rendu par `stop()`, une fois
+        // `kn_ps_stop` revenu (ses fils attendus). Un objet libéré sans `stop()`
+        // ne peut plus être rappelé (MAC-01, côté PlayStation).
+        cb.userdata = Unmanaged.passRetained(self).toOpaque()
         cb.video_packet = { ud, p in
             guard let ud, let p else { return }
             Unmanaged<PlayStationPlay>.fromOpaque(ud).takeUnretainedValue().videoPacket(p.pointee)
@@ -307,6 +310,8 @@ public final class PlayStationPlay: @unchecked Sendable {
         }
         KyberLog.app.notice("PlayStation : partie demandée (\(settings, privacy: .public), H.265 \(hevcDecoder ? "lu" : "pas lu", privacy: .public))")
         let p = withUnsafePointer(to: &cb) { kn_ps_start(address, registered, settings, hevcDecoder, $0) }
+        // Refusée par le cœur : rien ne rappellera.
+        if p == nil { Unmanaged.passUnretained(self).release() }
         // La disposition de la console avant toute entrée.
         if let p, !kn_ps_set_layout(p, layout) {
             KyberLog.app.notice("PlayStation : disposition illisible, celle par défaut est gardée")
@@ -447,12 +452,16 @@ public final class PlayStationPlay: @unchecked Sendable {
         let hd = haptics
         haptics = false
         lock.unlock()
-        if let p { kn_ps_stop(p) }
         #if os(macOS)
         if hd { DualSenseHaptics.shared.release() }
         #endif
         videos.forEach { $0.stop() }
         audios.forEach { $0.stop() }
+        // En dernier : la retenue de `start` peut être la dernière.
+        if let p {
+            kn_ps_stop(p)
+            Unmanaged.passUnretained(self).release()
+        }
     }
 
     // MARK: - Rappels (fils du cœur)

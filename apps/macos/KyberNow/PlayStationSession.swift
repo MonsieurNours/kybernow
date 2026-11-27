@@ -589,10 +589,26 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         input.play = nil
         stopPlay()
         streamView.detach()
-        window?.delegate = nil
-        window?.orderOut(nil)
-        window?.close()
-        window = nil
+        // En plein écran : sortie d'abord (sinon un espace noir reste), puis
+        // fermeture ; 3 s au plus. La session se retient jusque-là.
+        if let window, window.styleMask.contains(.fullScreen) {
+            closingWindow = { self.dropWindow() }
+            window.toggleFullScreen(nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.dropWindow() }
+        } else {
+            dropWindow()
+        }
+    }
+
+    /// Une fois sortie du plein écran (ou tout de suite) : fenêtre fermée, fin dite.
+    private var closingWindow: (() -> Void)?
+    private func dropWindow() {
+        closingWindow = nil
+        guard let window else { return }
+        self.window = nil
+        window.delegate = nil
+        window.orderOut(nil)
+        window.close()
         onEnd(self, end)
     }
 
@@ -628,6 +644,7 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
         MainActor.assumeIsolated {
             isFullScreen = false
             onFullScreen(false)
+            closingWindow?()
         }
     }
 
