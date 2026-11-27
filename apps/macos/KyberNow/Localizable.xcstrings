@@ -3393,38 +3393,6 @@
         }
       }
     },
-    "Ajouter un ordinateur…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add a computer…"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ajouter un ordinateur…"
-          }
-        }
-      }
-    },
-    "Ajoutez un ordinateur équipé de KyberNow Station. Sur ce réseau, il apparaît tout seul en bas de l'écran." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Add a computer running KyberNow Station. On this network, it shows up on its own at the bottom of the screen."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ajoutez un ordinateur équipé de KyberNow Station. Sur ce réseau, il apparaît tout seul en bas de l'écran."
-          }
-        }
-      }
-    },
     "Allume l'ordinateur à distance quand il est en veille. Il faut aussi l'autoriser sur l'ordinateur (Admin › Système)." : {
       "localizations" : {
         "en" : {
@@ -4417,22 +4385,6 @@
         }
       }
     },
-    "Connectez-vous à votre compte PlayStation Network. KyberNow lit seulement l'identifiant de votre compte, une seule fois." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sign in to your PlayStation Network account. KyberNow only reads your account ID, once."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Connectez-vous à votre compte PlayStation Network. KyberNow lit seulement l'identifiant de votre compte, une seule fois."
-          }
-        }
-      }
-    },
     "Connexion" : {
       "localizations" : {
         "en" : {
@@ -5261,40 +5213,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Faire confiance à cette empreinte"
-          }
-        }
-      }
-    },
-    "Faire jouer" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Let play"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Faire jouer"
-          }
-        }
-      }
-    },
-    "Faire regarder" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Watch only"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Faire regarder"
           }
         }
       }
@@ -7631,22 +7549,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ordinateurs"
-          }
-        }
-      }
-    },
-    "Ouvrez votre ordinateur sur ce Mac" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open your computer on this Mac"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ouvrez votre ordinateur sur ce Mac"
           }
         }
       }
@@ -10671,23 +10573,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vous pouvez jouer à la manette."
-          }
-        }
-      }
-    },
-    "Vous pouvez jouer." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You can play."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vous pouvez jouer."
           }
         }
       }

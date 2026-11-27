@@ -8,9 +8,11 @@ les chaînes qui ont une valeur française explicite : sans elle, un Mac en
 français afficherait l'anglais. Ce script vérifie chaque catalogue :
 
 - valeur française présente (avec --fix : ajoutée, égale à la clé) ;
-- traduction anglaise présente, mêmes paramètres (%@, %lld…) que la clé.
+- traduction anglaise présente, mêmes paramètres (%@, %lld…) que la clé ;
+- entrées périmées (« stale » : plus dans le code) signalées ; avec
+  --strict, elles comptent comme des problèmes.
 
-    python3 apps/macos/scripts/check-strings.py [--fix]
+    python3 apps/macos/scripts/check-strings.py [--fix] [--strict]
 
 À lancer après avoir ajouté des textes (Xcode les ajoute aux catalogues à
 la compilation).
@@ -51,7 +53,14 @@ def main():
         data = json.load(open(path))
         changed = False
         for key, entry in data["strings"].items():
-            if entry.get("shouldTranslate") is False or entry.get("extractionState") == "stale":
+            # Une entrée périmée (plus dans le code) est signalée, à retirer du
+            # catalogue ; avec --strict, elle compte comme un problème (MAC-37).
+            if entry.get("extractionState") == "stale":
+                print(f"{rel}: entrée périmée, à retirer : {key!r}")
+                if "--strict" in sys.argv:
+                    problems += 1
+                continue
+            if entry.get("shouldTranslate") is False:
                 continue
             plist = rel.endswith("InfoPlist.xcstrings")
             if unit(entry, "fr").get("state") != "translated":
