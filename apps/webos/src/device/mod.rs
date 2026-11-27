@@ -336,8 +336,11 @@ pub fn run(args: &[String]) {
         {
             present = true;
         }
-        // Flèches répétées au stick (menus).
-        if let Some(n) = pads.repeat_nav() {
+        // Flèches répétées au stick (menus) ; en jeu, les axes vont à l'ordinateur : une direction tenue au moment de
+        // « Reprendre » est oubliée, sans quoi elle serait rejouée dans les menus toutes les 130 ms (WEBOS-09).
+        if in_game(&app) {
+            pads.clear_held();
+        } else if let Some(n) = pads.repeat_nav() {
             actions.extend(app.nav(n));
             dirty = true;
         }
@@ -513,11 +516,13 @@ pub fn run(args: &[String]) {
             if show_ui {
                 app.pads = pads.infos();
                 app.hits = ui::draw(&app, &mut cv, &assets);
+                app.hits_for = Some((app.screen, app.dialog.is_some()));
                 unsafe {
                     sdl::SDL_UpdateTexture(video.ui, std::ptr::null(), cv.bytes().as_ptr() as *const _, UI_W * 4);
                 }
             } else {
                 app.hits.clear();
+                app.hits_for = None;
             }
             dirty = false;
             present = true;
@@ -548,6 +553,7 @@ pub fn run(args: &[String]) {
     for c in pairing.drain(..) {
         c.store(true, Ordering::Relaxed);
     }
+    jobs::cancel_on_quit();
     app.store.save();
     mires::show(None);
     esplayer::quit();
@@ -594,11 +600,18 @@ fn draw_frame(video: &Video, show_ui: bool, live: Option<&Live>, app: &App) {
     }
 }
 
+/// Les entrées vont à l'ordinateur (session à l'image, sans menu ni panneau ni confirmation par-dessus). Une partie
+/// sur une console n'est jamais « en jeu » ici : ses entrées passent par `playstation::handle_sdl`.
+fn in_game(app: &App) -> bool {
+    app.screen == Screen::Session && app.dialog.is_none() && app.session.as_ref().is_some_and(|s| s.ps.is_none() && !s.menu && !s.keys && !s.share_panel && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: Option<&mut Live>, actions: &mut Vec<Action>, dirty: &mut bool, present: &mut bool, quit: &mut bool) {
     // Une partie sur une console n'est jamais « en jeu » ici : ses entrées passent par `playstation::handle_sdl`, et sa barre
     // ou son clavier se pilotent comme les menus.
-    let in_game = app.screen == Screen::Session && app.session.as_ref().is_some_and(|s| s.ps.is_none() && !s.menu && !s.keys && !s.share_panel && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }));
+    // Une confirmation arrivée en jeu est dessinée par-dessus l'image : OK et flèches sont à elle (WEBOS-12).
+    let in_game = in_game(app);
     let input = live.as_ref().and_then(|l| l.handle.shared.current_input());
     match ev.kind() {
         sdl::SDL_QUIT => *quit = true,

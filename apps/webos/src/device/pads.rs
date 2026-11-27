@@ -223,6 +223,11 @@ impl Pads {
         }
     }
 
+    /// Oublie la direction tenue (les entrées partent au jeu).
+    pub fn clear_held(&mut self) {
+        self.held = None;
+    }
+
     pub fn repeat_nav(&mut self) -> Option<Nav> {
         let (d, at) = self.held?;
         if Instant::now() >= at {

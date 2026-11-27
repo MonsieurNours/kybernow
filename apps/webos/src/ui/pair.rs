@@ -322,8 +322,7 @@ fn verify(cv: &mut Canvas, f: &mut Frame, address: &str, port: u16, fingerprint:
     cv.rrect(x, y, w, h, 24.0, PANEL_SOLID);
     cv.rrect_stroke(x, y, w, h, 24.0, 1.0, BORDER);
     widgets::label(cv, x + 40.0, y + 58.0, &format!("{address}:{port}"));
-    let groups: Vec<&str> = fingerprint.trim_start_matches("sha256:").split(':').take(4).collect();
-    let shown = if groups.len() >= 4 { groups.join(" ").to_uppercase() } else { fingerprint.chars().take(24).collect::<String>().to_uppercase() };
+    let shown = super::settings::fingerprint_groups(fingerprint);
     cv.text(x + 40.0, y + 160.0, Text::new(Font::MonoMedium, 64.0, FROST).tracking(4.0), &shown);
     let by = y + h + 60.0;
     let bw = widgets::primary(cv, f, Target::VerifyOk, 96.0, by, tr("C'est la même", "It matches"));
