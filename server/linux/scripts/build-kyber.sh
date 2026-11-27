@@ -75,19 +75,17 @@ HERE_PATCHES="$ROOT/server/kyber-patches"
 # avec tous les correctifs des apps (STLIN-25 : l'ancienne boucle ne faisait
 # plus rien).
 
-# Sortie de patch, en retrait ; un morceau posé avec un décalage du contexte
-# (« fuzz ») est signalé : il peut tomber au mauvais endroit sans échec
+# Un correctif qui ne se pose qu'avec un décalage du contexte (« fuzz »)
+# est signalé : il peut tomber au mauvais endroit sans échec
 # (STCOM-05). KYBERNOW_PATCH_STRICT=1 en fait un échec. Pas encore d'échec
 # par défaut : le correctif Mac 0009 n'a pas été rafraîchi (session des
 # correctifs Kyber).
 kyber_patch_fuzz_warn() {
-    local line fuzz=0
-    while IFS= read -r line; do
-        printf '        %s\n' "$line"
-        case "$line" in *"with fuzz"*) fuzz=1 ;; esac
-    done
-    [ $fuzz = 0 ] && return 0
-    echo "    Attention : $(basename "$1") posé avec un décalage du contexte (fuzz) : à rafraîchir" >&2
+    # $1 : le correctif, $2 : le dossier. Essai à blanc sans décalage permis
+    # (-F0) : le patch d'Apple ne dit pas quand il en prend un.
+    local p=$1 dir=$2
+    (cd "$dir" && patch -p1 -F0 --forward --dry-run -s < "$p" >/dev/null 2>&1) && return 0
+    echo "    Attention : $(basename "$p") ne se pose qu'avec un décalage du contexte (fuzz) : à rafraîchir" >&2
     [ -z "${KYBERNOW_PATCH_STRICT:-}" ]
 }
 
@@ -124,7 +122,8 @@ done
 for p in "$LINUX_PATCHES"/*.patch; do
     repo="$(linux_repo "$p")"
     echo "    $(basename "$p") (Linux)"
-    (cd "$repo" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | kyber_patch_fuzz_warn "$p") || {
+    kyber_patch_fuzz_warn "$p" "$repo" || exit 1
+    (cd "$repo" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | sed 's/^/        /') || {
         echo "Correctif $(basename "$p") inapplicable (hunk en échec ci-dessus)" >&2
         exit 1
     }
