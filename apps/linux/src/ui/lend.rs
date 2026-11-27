@@ -19,7 +19,9 @@ use super::share::{qr_or_wait, relay_lines, wait_ring};
 use super::theme::*;
 use super::widgets::{self, eyebrow, legend};
 use super::{unit, Frame};
-use crate::app::{format_code, lend_duration_label, App, Layout, LendSteam, Rect, SessionUi, Target, LEND_DURATIONS};
+use kybernow_rules::format::format_code;
+
+use crate::app::{lend_duration_label, App, Layout, LendSteam, Rect, SessionUi, Target, LEND_DURATIONS};
 use crate::i18n::tr;
 
 const HEADER: f32 = 46.0;

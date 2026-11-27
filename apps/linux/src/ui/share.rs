@@ -11,7 +11,10 @@ use super::icons::Icon;
 use super::theme::*;
 use super::widgets::{self, eyebrow, legend};
 use super::{unit, Frame};
-use crate::app::{App, Layout, Rect, SessionUi, ShareMove, ShareView, Target, MAX_GUESTS};
+use kybernow_rules::format::format_code;
+use kybernow_rules::limits::MAX_GUESTS;
+
+use crate::app::{App, Layout, Rect, SessionUi, ShareMove, ShareView, Target};
 use crate::i18n::tr;
 
 /// Ce que le panneau mesure, en points de l'interface (`u` : l'échelle de l'interface).
@@ -189,7 +192,7 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
     let qr = QR * u;
     let lw = inner - qr - 22.0 * u;
     eyebrow(cv, x, y + 12.0 * u, 10.5 * u, FAINT, tr("Code", "Code"));
-    cv.text(x - 1.0, y + 50.0 * u, Text::new(Font::MonoMedium, 36.0 * u, CORE), &crate::app::format_code(&v.code));
+    cv.text(x - 1.0, y + 50.0 * u, Text::new(Font::MonoMedium, 36.0 * u, CORE), &format_code(&v.code));
     // Le lien du relais en préparation : « Copier le lien » inactif, le cercle d'attente à la place du QR code, et
     // l'adresse du réseau pas encore montrée (`RELAY_LINK_WAIT` au plus).
     let preparing = v.relay_preparing();

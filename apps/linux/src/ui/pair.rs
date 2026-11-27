@@ -11,7 +11,10 @@ use super::icons::Icon;
 use super::theme::*;
 use super::widgets::{self, eyebrow, legend, primary};
 use super::{launch, title_bar, unit, Frame};
-use crate::app::{short_fp, AddStep, App, Layout, Rect, Target};
+use kybernow_rules::address::ADDRESS_EXAMPLE;
+use kybernow_rules::fingerprint;
+
+use crate::app::{AddStep, App, Layout, Rect, Target};
 use crate::i18n::tr;
 
 pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
@@ -98,7 +101,7 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, foo
         cv.rrect_stroke(r.x, r.y, r.w, r.h, 10.0 * u, 1.0, if focused { SPECTRE } else { LINE });
         widgets::dot(cv, r.x + 22.0 * u, r.y + r.h / 2.0, 5.0 * u, SPECTRE, true);
         cv.text_fit(r.x + 44.0 * u, r.y + 32.0 * u, Text::new(Font::Semibold, 18.0 * u, FROST), &fd.name, r.w - 220.0 * u);
-        let fp = fd.fingerprint.as_deref().map(short_fp).unwrap_or_default();
+        let fp = fd.fingerprint.as_deref().map(fingerprint::short).unwrap_or_default();
         cv.text_fit(r.x + 44.0 * u, r.y + 56.0 * u, Text::new(Font::Mono, 12.0 * u, FAINT), &format!("{} · Admin {} · fp {fp}", fd.address, fd.port), r.w - 60.0 * u);
         cv.text(r.x + r.w - 18.0 * u, r.y + 31.0 * u, Text::new(Font::Mono, 10.5 * u, SPECTRE).tracking(u).align(Align::Right), "KYBERNOW STATION");
         y += item_h + 12.0 * u;
@@ -213,9 +216,12 @@ fn address(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) 
         x0,
         y,
         Text::new(Font::Regular, 16.0 * u, MUTED),
-        tr(
-            "L'adresse d'un ordinateur, ou d'une console PlayStation (par un VPN ou depuis un autre réseau). Pour un ordinateur : l'adresse et le port d'Admin, tels qu'Admin les affiche (Appareils Link), par exemple 192.168.1.20:24811.",
-            "The address of a computer, or of a PlayStation console (through a VPN or from another network). For a computer: Admin's address and port, as Admin shows them (Link devices), for example 192.168.1.20:24811.",
+        &format!(
+            "{} {ADDRESS_EXAMPLE}.",
+            tr(
+                "L'adresse d'un ordinateur, ou d'une console PlayStation (par un VPN ou depuis un autre réseau). Pour un ordinateur : l'adresse et le port d'Admin, tels qu'Admin les affiche (Appareils Link), par exemple",
+                "The address of a computer, or of a PlayStation console (through a VPN or from another network). For a computer: Admin's address and port, as Admin shows them (Link devices), for example",
+            )
         ),
         (w - 2.0 * x0).min(760.0 * u),
         24.0 * u,
@@ -226,7 +232,7 @@ fn address(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) 
     let fh = 56.0 * u;
     cv.rrect(x0, y, fw, fh, 10.0 * u, INK_2);
     cv.rrect_stroke(x0, y, fw, fh, 10.0 * u, 1.5, SPECTRE);
-    let text = if app.add.address.is_empty() { "192.168.1.20:24811".to_string() } else { app.add.address.clone() };
+    let text = if app.add.address.is_empty() { ADDRESS_EXAMPLE.to_string() } else { app.add.address.clone() };
     let tw = cv.text(x0 + 18.0 * u, y + fh / 2.0 + 7.0 * u, Text::new(Font::Mono, 20.0 * u, if app.add.address.is_empty() { GHOST } else { FROST }), &text);
     if !app.add.address.is_empty() && (app.screen_since.elapsed().as_millis() / 530) % 2 == 0 {
         cv.rect(x0 + 20.0 * u + tw, y + 14.0 * u, 2.0, fh - 28.0 * u, SPECTRE);
@@ -535,9 +541,9 @@ fn verify(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, a
         24.0 * u,
     );
     y += 74.0 * u;
-    let groups = short_fp(fingerprint);
+    let groups = fingerprint::short(fingerprint);
     let mut gx = x0;
-    for g in groups.split(" · ") {
+    for g in groups.split(' ') {
         let gw = 120.0 * u;
         cv.rrect(gx, y, gw, 64.0 * u, 10.0 * u, INK_2);
         cv.rrect_stroke(gx, y, gw, 64.0 * u, 10.0 * u, 1.0, LINE_2);

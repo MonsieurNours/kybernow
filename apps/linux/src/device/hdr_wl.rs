@@ -246,7 +246,7 @@ impl Drop for HdrSurface {
 /// Une mire HDR (P010, PQ, BT.2020) de `w` × `h` : en haut une rampe de gris de 0 à 1 000 cd/m², en bas des barres
 /// (blanc à 203 et à 1 000 cd/m², rouge, vert et bleu BT.2020 saturés à 203).
 pub fn test_pattern(w: u32, h: u32) -> Frame {
-    use crate::hdr::pq_oetf;
+    use kybernow_rules::hdr::nits_to_pq;
     let (w, h) = (w as usize & !1, h as usize & !1);
     let codes = |rgb: [f64; 3]| {
         let y = 0.2627 * rgb[0] + 0.6780 * rgb[1] + 0.0593 * rgb[2];
@@ -257,7 +257,7 @@ pub fn test_pattern(w: u32, h: u32) -> Frame {
     let bars = [[203.0, 203.0, 203.0], [1000.0, 1000.0, 1000.0], [203.0, 0.0, 0.0], [0.0, 203.0, 0.0], [0.0, 0.0, 203.0]];
     let pixel = |x: usize, y: usize| {
         let nits = if y < h / 2 { [1000.0 * x as f64 / (w - 1).max(1) as f64; 3] } else { bars[(x * bars.len() / w).min(bars.len() - 1)] };
-        codes(nits.map(pq_oetf))
+        codes(nits.map(nits_to_pq))
     };
     let mut y_plane = Vec::with_capacity(w * h * 2);
     let mut uv = Vec::with_capacity(w * h);
@@ -383,14 +383,15 @@ pub fn describe(d: &WlDescription) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hdr::{pq_oetf, shade};
+    use crate::hdr::shade;
+    use kybernow_rules::hdr::nits_to_pq;
 
     /// Le shader (src/native/hdr_gl.c) contre `hdr::shade`, sur la carte graphique (EGL sans surface de Mesa) :
     /// les trois rendus, en P010 et en I010, à moins de deux niveaux sur 255. Sauté sans EGL utilisable.
     #[test]
     fn le_shader_suit_la_reference() {
         // Une image de 8 × 2 pixels par chroma (la même partout : le filtrage de la chroma ne change rien).
-        let code = |n: f64| (64.0 + 876.0 * pq_oetf(n)).round() as u16;
+        let code = |n: f64| (64.0 + 876.0 * nits_to_pq(n)).round() as u16;
         let ys = [64, code(1.0), code(100.0), code(203.0), code(600.0), code(1000.0), code(4000.0), 940];
         let (w, h) = (8usize, 2usize);
         let tones = [Render::Pq, Render::Eetf { src_max: 4000.0, dst_min: 0.0, dst_max: 1000.0 }, Render::Sdr { white: 203.0 }];

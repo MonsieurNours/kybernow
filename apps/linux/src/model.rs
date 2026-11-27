@@ -650,15 +650,14 @@ impl KnAccount {
     }
 }
 
-/// Un relais tel qu'on le montre : sa forme normale sans l'empreinte épinglée (`RelayAddr::web_authority`).
+/// Un relais tel qu'on le montre (`kybernow_rules::relay::label` : sans l'empreinte épinglée ni le port 443) ; aucun :
+/// le relais public.
 pub fn relay_label(relay: &str) -> String {
-    let r = relay.split('#').next().unwrap_or_default().trim();
-    let r = r.strip_suffix(":443").unwrap_or(r);
-    if r.is_empty() { DEFAULT_RELAY.to_string() } else { r.to_string() }
+    if relay.split('#').next().unwrap_or_default().trim().is_empty() { DEFAULT_RELAY.to_string() } else { kybernow_rules::relay::label(relay) }
 }
 
 /// Le relais public, proposé d'abord (« Ajouter un compte »).
-pub const DEFAULT_RELAY: &str = "share.kybernow.app";
+pub use kybernow_rules::relay::DEFAULT_RELAY;
 
 /// Un ordinateur d'un compte (`account::AccountComputer` du cœur, même JSON). La dernière liste est gardée (rien de
 /// secret) : l'accueil la montre dès le lancement, et l'empreinte d'Admin, que le relais ne donne que pour une Station
@@ -861,7 +860,7 @@ impl Store {
     /// empreinte d'Admin, sinon même adresse) prend le nouvel accès (adresse, compte, relais) au lieu d'être ajouté
     /// deux fois.
     pub fn put_invited(&mut self, host: Host) -> String {
-        let same_fp = host.fingerprint.as_deref().filter(|f| !f.is_empty()).and_then(|fp| self.hosts.iter().position(|h| h.fingerprint.as_deref() == Some(fp)));
+        let same_fp = self.hosts.iter().position(|h| kybernow_rules::fingerprint::same_opt(h.fingerprint.as_deref(), host.fingerprint.as_deref()));
         let i = same_fp.or_else(|| self.hosts.iter().position(|h| h.address == host.address && h.port == host.port));
         self.put_at(i, host)
     }
@@ -1104,12 +1103,11 @@ impl Store {
     /// adresse (la session passe alors par le réseau, puis par le relais s'il ne répond pas) ; absent, il la perd (par
     /// le relais seulement). Rend vrai si quelque chose a changé.
     pub fn locate_account_hosts(&mut self, found: &[(String, u16, Option<String>)]) -> bool {
-        let norm = |s: &str| s.trim().to_ascii_lowercase();
         let ids: Vec<String> = self.account_hosts.iter().map(|a| a.id.clone()).collect();
         let mut changed = false;
         for id in ids {
             let Some(h) = self.host_mut(&id) else { continue };
-            let seen = h.fingerprint.as_deref().filter(|f| !f.trim().is_empty()).and_then(|fp| found.iter().find(|(_, _, f)| f.as_deref().is_some_and(|f| norm(f) == norm(fp))));
+            let seen = found.iter().find(|(_, _, f)| kybernow_rules::fingerprint::same_opt(h.fingerprint.as_deref(), f.as_deref()));
             let (address, port) = seen.map(|(a, p, _)| (a.clone(), *p)).unwrap_or_default();
             if h.address != address || h.port != port {
                 h.address = address;

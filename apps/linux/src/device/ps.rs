@@ -1387,7 +1387,7 @@ pub fn merge(app: &mut App, text: &str) -> (usize, usize) {
                 l.iter()
                     .filter_map(|s| {
                         let (sid, fp, addr) = (s["id"].as_str().or(s.as_str()), s["fingerprint"].as_str(), s["address"].as_str());
-                        app.store.hosts.iter().find(|h| Some(h.id.as_str()) == sid || (fp.is_some() && h.fingerprint.as_deref() == fp) || Some(h.address.as_str()) == addr).map(|h| h.id.clone())
+                        app.store.hosts.iter().find(|h| Some(h.id.as_str()) == sid || kybernow_rules::fingerprint::same_opt(h.fingerprint.as_deref(), fp) || Some(h.address.as_str()) == addr).map(|h| h.id.clone())
                     })
                     .collect()
             })

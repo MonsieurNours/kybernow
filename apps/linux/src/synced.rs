@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
-use crate::app::{App, Machine, BITRATES};
+use crate::app::{snap_mbps, App, Machine};
 use crate::model::{Host, HostSettings, Profile, Store};
 
 /// Une valeur présente, même `null` (`Some(None)`) ; absente : `None`.
@@ -214,11 +214,6 @@ pub fn changed_keys(old: &Tracked, new: &Tracked, e: &Effective) -> SyncKeys {
     k
 }
 
-/// Le débit reçu, ramené au choix le plus proche de « Débit » (10 à 500 Mbit/s).
-pub fn snap_mbps(m: u32) -> u32 {
-    BITRATES.iter().copied().filter(|b| *b > 0).min_by_key(|b| b.abs_diff(m)).unwrap_or(m)
-}
-
 /// Le format se décode ici (`Codec::decodable` du cœur, vu de l'app).
 fn decodable(m: &Machine, codec: &str) -> bool {
     match codec {
@@ -256,7 +251,7 @@ pub fn apply(s: &mut HostSettings, k: &SyncKeys, m: &Machine) -> bool {
             s.yuv444 = y && matches!(codec, "hevc" | "pyrowave");
         }
         if let Some(mbps) = k.mbps {
-            s.mbps = snap_mbps(mbps);
+            s.mbps = snap_mbps(mbps, s.codec == "pyrowave");
         }
     }
     if let Some(h) = k.hdr {
@@ -652,8 +647,14 @@ mod tests {
 
     #[test]
     fn debit_ramene_aux_choix() {
-        assert_eq!(snap_mbps(1), 10);
-        assert_eq!(snap_mbps(60), 60);
-        assert_eq!(snap_mbps(4000), 500);
+        // Bornes de `kybernow_rules::limits::manual_mbps` : 500 Mbit/s, 2 500 en PyroWave ; puis le cran le plus proche.
+        assert_eq!(snap_mbps(1, false), 10);
+        assert_eq!(snap_mbps(60, false), 60);
+        assert_eq!(snap_mbps(4000, false), 500);
+        assert_eq!(snap_mbps(4000, true), 2500);
+        assert_eq!(snap_mbps(1200, true), 1000);
+        assert_eq!(snap_mbps(0, true), 0, "Auto reste Auto");
+        assert_eq!(crate::app::bitrates(false).last(), Some(&500));
+        assert_eq!(crate::app::bitrates(true).last(), Some(&2500));
     }
 }

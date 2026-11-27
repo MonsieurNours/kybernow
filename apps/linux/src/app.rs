@@ -15,6 +15,11 @@ use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
 
+use kybernow_rules::address::{admin_url, host_for_url, parse_address, ADDRESS_EXAMPLE};
+use kybernow_rules::fingerprint;
+use kybernow_rules::format::{format_code, recording_clock};
+use kybernow_rules::limits::{clamp_manual_mbps, manual_mbps, Device, MAX_GUESTS, RELAY_LINK_WAIT_SECS};
+
 use crate::i18n::{english, tr};
 use crate::model::{Host, Profile, Store};
 
@@ -1062,9 +1067,9 @@ pub struct ShareView {
 }
 
 /// Ce que l'app attend au plus le lien du relais d'un partage en préparation, à partir du moment où elle le voit
-/// (miroir de `kybernow_core::share::RELAY_LINK_WAIT`, que l'interface seule ne connaît pas) : ensuite, elle fait
-/// comme si le relais était injoignable (le lien du réseau, « Pas encore joignable hors de chez vous. »).
-pub const RELAY_LINK_WAIT: Duration = Duration::from_secs(10);
+/// (`RELAY_LINK_WAIT_SECS` de `kybernow_rules::limits`, celui du cœur) : ensuite, elle fait comme si le relais était
+/// injoignable (le lien du réseau, « Pas encore joignable hors de chez vous. »).
+pub const RELAY_LINK_WAIT: Duration = Duration::from_secs(RELAY_LINK_WAIT_SECS);
 
 /// L'état du relais d'un partage ouvert (`relay.state` d'Admin).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1194,9 +1199,6 @@ pub mod relay_wait {
     }
 }
 
-/// Les invités qu'un partage reçoit au plus.
-pub const MAX_GUESTS: usize = 4;
-
 /// « 2 invités », « 1 invité », « 0 invité » ; “2 guests”, “1 guest” : la pastille de la barre.
 pub fn guests_label(n: usize) -> String {
     if crate::i18n::english() {
@@ -1229,11 +1231,6 @@ pub fn share_tile(share: Option<&ShareView>) -> (String, bool) {
         Some(v) => (format_code(&v.code), true),
         None => (tr("Code et QR code", "Code and QR code").to_string(), false),
     }
-}
-
-/// « 123 456 » : le code d'un partage (six chiffres, groupés par trois), tel quel s'il n'en a pas six.
-pub fn format_code(code: &str) -> String {
-    if code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()) { format!("{} {}", &code[..3], &code[3..]) } else { code.to_string() }
 }
 
 /// « Invité sur Atelier », “Guest on Atelier” : le titre d'une session d'invité.
@@ -1711,12 +1708,6 @@ impl RecordingUi {
     pub fn blocked(&self) -> bool {
         !self.guest && !self.allowed && !self.active
     }
-}
-
-/// « 02:14 », « 59:59 », « 1:02:14 ».
-pub fn recording_clock(seconds: u64) -> String {
-    let (h, m, s) = (seconds / 3600, (seconds / 60) % 60, seconds % 60);
-    if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m:02}:{s:02}") }
 }
 
 /// La vue du prêt chez l'hôte (`LendView` du cœur) : ce qui est prêté, à qui, le préavis, les demandes, le code.
@@ -2660,9 +2651,25 @@ pub enum OsAction {
     Hdmi(String),
 }
 
-/// Débits proposés (Mbit/s, 0 : celui du profil) : jusqu'à 500, quand
-/// l'ordinateur, le réseau et le décodeur le tiennent.
-pub const BITRATES: [u32; 14] = [0, 10, 20, 30, 40, 50, 60, 80, 100, 150, 200, 300, 400, 500];
+/// Les crans du menu « Débit » (Mbit/s), gardés entre les bornes du débit réglé à la main.
+const BITRATE_STEPS: [u32; 18] = [10, 20, 30, 40, 50, 60, 80, 100, 150, 200, 300, 400, 500, 800, 1000, 1500, 2000, 2500];
+
+/// Débits proposés (Mbit/s, 0 : celui du profil, « Auto ») : les crans entre les bornes du débit réglé à la main de
+/// `kybernow_rules::limits::manual_mbps` (docs/link-ui.md, « Libellés des réglages ») : 500 au plus en HEVC, AV1 et
+/// H.264, 2 500 en PyroWave.
+pub fn bitrates(pyrowave: bool) -> Vec<u32> {
+    let (lo, hi) = manual_mbps(Device::Computer, pyrowave);
+    std::iter::once(0).chain(BITRATE_STEPS.into_iter().filter(|b| (lo..=hi).contains(b))).collect()
+}
+
+/// Un débit (Mbit/s, 0 : Auto) ramené aux bornes de ce format, puis au cran le plus proche du menu.
+pub fn snap_mbps(m: u32, pyrowave: bool) -> u32 {
+    if m == 0 {
+        return 0;
+    }
+    let m = clamp_manual_mbps(m, Device::Computer, pyrowave);
+    bitrates(pyrowave).into_iter().filter(|b| *b > 0).min_by_key(|b| b.abs_diff(m)).unwrap_or(m)
+}
 
 /// Les rubriques des réglages d'un ordinateur (docs/link-ui.md) : le profil en
 /// tête, puis les six rubriques communes à toutes les apps Link.
@@ -3698,8 +3705,7 @@ impl App {
     /// Les Stations trouvées qui ne sont pas déjà ajoutées.
     pub fn new_found(&self) -> Vec<&Found> {
         // Un ordinateur d'un compte annoncé sur le réseau est déjà là : même empreinte d'Admin.
-        let norm = |s: &str| s.trim().to_ascii_lowercase();
-        let of_account = |f: &Found| f.fingerprint.as_deref().is_some_and(|fp| self.store.account_hosts.iter().filter_map(|a| self.store.host(&a.id)).any(|h| h.fingerprint.as_deref().is_some_and(|hf| norm(hf) == norm(fp))));
+        let of_account = |f: &Found| self.store.account_hosts.iter().filter_map(|a| self.store.host(&a.id)).any(|h| fingerprint::same_opt(h.fingerprint.as_deref(), f.fingerprint.as_deref()));
         self.found.iter().filter(|f| !self.store.hosts.iter().any(|h| h.address == f.address && h.port == f.port) && !of_account(f)).collect()
     }
 
@@ -5118,7 +5124,7 @@ impl App {
             }
             Target::KeyOk => {
                 let a = self.add.address.trim().to_string();
-                match parse_address(&a) {
+                match parse_address(&a, None) {
                     Some((address, port)) => {
                         self.add.busy = true;
                         self.add.message = Some(tr("Connexion à Admin…", "Reaching Admin…").into());
@@ -5131,7 +5137,7 @@ impl App {
                         vec![Action::Probe { address: a, port: 0 }]
                     }
                     None => {
-                        self.add.message = Some(tr("Adresse et port d'Admin, par exemple 192.168.1.20:24811", "Admin address and port, for example 192.168.1.20:24811").into());
+                        self.add.message = Some(format!("{} {ADDRESS_EXAMPLE}", tr("Adresse et port d'Admin, par exemple", "Admin address and port, for example")));
                         Vec::new()
                     }
                 }
@@ -6776,7 +6782,8 @@ impl App {
                     (None, Some(false)) => tr("Cet écran n'annonce pas la fréquence variable. Immédiat : chaque image dès qu'elle est décodée.", "This screen does not announce variable refresh. Immediate: each frame as soon as it is decoded."),
                     (None, None) => tr("Fréquence variable : quand l'écran et le système la permettent.", "Variable refresh: when the screen and the system allow it."),
                 };
-                let br_labels: Vec<String> = BITRATES.iter().map(|b| if *b == 0 { "Auto".into() } else { format!("{b} Mbit/s") }).collect();
+                let rates = bitrates(st.codec == "pyrowave");
+                let br_labels: Vec<String> = rates.iter().map(|b| if *b == 0 { "Auto".into() } else { format!("{b} Mbit/s") }).collect();
                 let (res_hint, fps_hint, codec_hint) = picture_hints(m);
                 let (codec_hint, codec_warn) = self.pyrowave_codec_hint(h, codec_hint, pw_shown);
                 let res_row = choice(Setting::Resolution, tr("Définition", "Resolution"), res_hint, res_labels, res.iter().position(|v| *v == st.resolution).unwrap_or(0), res_off);
@@ -6820,7 +6827,7 @@ impl App {
                             tag: if hevc { who(m.hw_hevc444) } else { None },
                         }
                     },
-                    choice(Setting::Bitrate, tr("Débit", "Bitrate"), tr("Auto : il suit la définition, la fréquence et le profil.", "Auto: it follows the resolution, the refresh rate and the profile.").into(), br_labels, BITRATES.iter().position(|v| *v == st.mbps).unwrap_or(0), vec![false; BITRATES.len()]),
+                    choice(Setting::Bitrate, tr("Débit", "Bitrate"), tr("Auto : il suit la définition, la fréquence et le profil.", "Auto: it follows the resolution, the refresh rate and the profile.").into(), br_labels, rates.iter().position(|v| *v == st.mbps).unwrap_or(0), vec![false; rates.len()]),
                     // Profil Auto : sous le débit, « Choisi par le test du {date} ({réseau}). » et « Refaire le test ».
                     // Puis « Débit adaptatif » (docs/link-ui.md, « Profil Auto et débit adaptatif »).
                     toggle(Setting::Adaptive, crate::autotest::adaptive(), crate::autotest::adaptive_help(pw), st.adaptive),
@@ -6969,8 +6976,8 @@ impl App {
                 vec![
                     info(tr("Système", "System"), String::new(), h.os.clone().unwrap_or_else(dash)),
                     info(tr("Carte graphique", "Graphics card"), String::new(), h.gpu.clone().unwrap_or_else(dash)),
-                    info(tr("Adresse", "Address"), String::new(), if h.address.is_empty() { dash() } else { format!("{}:{}", bracketed(&h.address), h.port) }),
-                    info(tr("Empreinte", "Fingerprint"), String::new(), h.fingerprint.as_deref().map(short_fp).unwrap_or_else(dash)),
+                    info(tr("Adresse", "Address"), String::new(), if h.address.is_empty() { dash() } else { format!("{}:{}", host_for_url(&h.address), h.port) }),
+                    info(tr("Empreinte", "Fingerprint"), String::new(), h.fingerprint.as_deref().map(fingerprint::short).filter(|f| !f.is_empty()).unwrap_or_else(dash)),
                 ]
             }
             Section::Station => {
@@ -7336,9 +7343,16 @@ impl App {
             // Ne rend pas le profil « Personnalisé » : `custom()` ne le regarde pas.
             Setting::Displays if enabled => st.displays = pick(&["auto", "this", "all"], i),
             Setting::Fps => st.fps = [0u32, 30, 60, 90, 120, 144][i.min(5)],
-            Setting::Codec => st.codec = pick(&["auto", "hevc", "h264", "av1", "pyrowave"], i),
+            Setting::Codec => {
+                st.codec = pick(&["auto", "hevc", "h264", "av1", "pyrowave"], i);
+                // Hors de PyroWave, un débit au-delà de 500 Mbit/s revient dans les bornes du format.
+                st.mbps = snap_mbps(st.mbps, st.codec == "pyrowave");
+            }
             Setting::Display => st.display = pick(&["auto", "vsync", "immediate", "vrr"], i),
-            Setting::Bitrate => st.mbps = BITRATES[i.min(BITRATES.len() - 1)],
+            Setting::Bitrate => {
+                let rates = bitrates(st.codec == "pyrowave");
+                st.mbps = rates[i.min(rates.len() - 1)];
+            }
             Setting::Audio => st.audio = pick(&["auto", "stereo", "5.1", "7.1", "computer"], i),
             Setting::Mouse => st.mouse = pick(&["auto", "desktop", "game"], i),
             // Vaut tout de suite : les fenêtres de session suivent le réglage (`device::sync_keyboard_grab`).
@@ -7817,25 +7831,6 @@ pub fn profile_phrase(p: Option<Profile>) -> &'static str {
     }
 }
 
-/// Une adresse IPv6 entre crochets (« [fe80::1] »), les autres telles quelles.
-pub fn bracketed(address: &str) -> String {
-    let a = address.trim_start_matches('[').trim_end_matches(']');
-    if a.contains(':') { format!("[{a}]") } else { a.to_string() }
-}
-
-/// L'adresse d'Admin à ouvrir dans un navigateur ou à mettre dans le QR code :
-/// celle du cœur avec l'app ; sans lui (captures), la même, recalculée.
-pub fn admin_url(address: &str, port: u16) -> String {
-    #[cfg(feature = "device")]
-    {
-        kybernow_core::console::admin_url(address, port)
-    }
-    #[cfg(not(feature = "device"))]
-    {
-        format!("https://{}:{port}/", bracketed(address))
-    }
-}
-
 fn decoders_label(m: &Machine) -> String {
     let mut v = Vec::new();
     if m.hw_h264 {
@@ -7855,65 +7850,13 @@ pub fn flatpak() -> bool {
     std::path::Path::new("/.flatpak-info").exists()
 }
 
-/// « sha256:7C:3A:91:E0:… » → « 7c3a · 91e0 · 4b2d · a81f ».
-pub fn short_fp(fp: &str) -> String {
-    let hex: String = fp.trim_start_matches("sha256:").chars().filter(|c| c.is_ascii_hexdigit()).collect::<String>().to_ascii_lowercase();
-    let groups: Vec<&str> = (0..4).filter_map(|i| hex.get(i * 4..i * 4 + 4)).collect();
-    groups.join(" · ")
-}
-
 fn cycle(i: usize, n: usize, dir: i32) -> usize {
     ((i as i32 + dir).rem_euclid(n as i32)) as usize
-}
-
-/// `192.168.1.20:24811` → adresse et port.
-pub fn parse_address(s: &str) -> Option<(String, u16)> {
-    let s = s.trim();
-    // IPv6 : entre crochets, le port après (« [fe80::1]:24811 »). Sans crochets, une adresse IPv6 n'a pas de port
-    // lisible : « fe80::1 » n'est pas l'hôte « fe80: » sur le port 1 (audit TRANS-35).
-    let (a, p) = match s.strip_prefix('[') {
-        Some(rest) => {
-            let (a, tail) = rest.split_once(']')?;
-            if !a.contains(':') {
-                return None;
-            }
-            (a, tail.strip_prefix(':')?)
-        }
-        None => {
-            let (a, p) = s.rsplit_once(':')?;
-            if a.contains(':') || a.contains(['[', ']']) {
-                return None;
-            }
-            (a, p)
-        }
-    };
-    let port: u16 = p.parse().ok()?;
-    let a = a.trim();
-    if a.is_empty() || port == 0 {
-        return None;
-    }
-    Some((a.to_string(), port))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn address() {
-        assert_eq!(parse_address("192.168.1.20:24811"), Some(("192.168.1.20".into(), 24811)));
-        assert_eq!(parse_address("192.168.1.20"), None);
-        assert_eq!(parse_address(":24811"), None);
-        // IPv6 (TRANS-35) : entre crochets avec le port ; nue, refusée plutôt que lue « fe80: » port 1.
-        assert_eq!(parse_address("[fe80::1]:24811"), Some(("fe80::1".into(), 24811)));
-        assert_eq!(parse_address(" [2001:db8::5]:443 "), Some(("2001:db8::5".into(), 443)));
-        assert_eq!(parse_address("fe80::1"), None);
-        assert_eq!(parse_address("fe80::1:24811"), None);
-        assert_eq!(parse_address("[fe80::1]"), None);
-        assert_eq!(parse_address("[]:24811"), None);
-        assert_eq!(parse_address("[192.168.1.20]:24811"), None);
-        assert_eq!(parse_address("pc.local:24811"), Some(("pc.local".into(), 24811)));
-    }
 
     #[test]
     fn frame_path_stages() {
@@ -7926,11 +7869,6 @@ mod tests {
         assert_eq!(Stats::local_medians(&[]), None);
         assert_eq!(Stats::local_medians(&[(3.0, 9.0), (1.0, 5.0), (2.0, 7.0)]), Some((2.0, 7.0)));
         assert_eq!(Stats::local_medians(&[(1.0, 4.0), (2.0, 6.0)]), Some((1.5, 5.0)));
-    }
-
-    #[test]
-    fn fingerprint() {
-        assert_eq!(short_fp("sha256:7C:3A:91:E0:4B:2D:A8:1F:00"), "7c3a · 91e0 · 4b2d · a81f");
     }
 
     #[test]
@@ -8642,9 +8580,8 @@ mod tests {
 
     #[test]
     fn admin_address() {
-        assert_eq!(admin_url("192.168.1.20", 24811), "https://192.168.1.20:24811/");
-        assert_eq!(admin_url("fe80::1", 24811), "https://[fe80::1]:24811/");
-        assert!(qrcodegen::QrCode::encode_text(&admin_url("192.168.1.20", 24811), qrcodegen::QrCodeEcc::Medium).is_ok());
+        // L'adresse vient de `kybernow_rules::address::admin_url` ; le QR code de Réglages › Station la prend.
+        assert!(qrcodegen::QrCode::encode_text(&admin_url("fe80::1", 9443), qrcodegen::QrCodeEcc::Medium).is_ok());
     }
 
     #[test]
@@ -9638,8 +9575,6 @@ mod tests {
         assert_eq!(app_label("tvos"), "Apple TV");
         assert_eq!(app_label("plan9"), "plan9");
         assert_eq!((guests_label(0), guests_label(1), guests_label(2)), ("0 invité".to_string(), "1 invité".to_string(), "2 invités".to_string()));
-        assert_eq!(format_code("482917"), "482 917");
-        assert_eq!(format_code("12"), "12");
         // Le sous-titre de la tuile « Partager » : les invités, sinon le code, sinon « Code et QR code ».
         let view = |n: usize| ShareView { code: "482917".into(), guests: (0..n).map(|i| ShareGuest { id: format!("g{i}"), name: "Léa".into(), ..Default::default() }).collect(), ..Default::default() };
         assert_eq!(share_tile(None), ("Code et QR code".to_string(), false));
@@ -10137,7 +10072,6 @@ mod tests {
         // Un invité voit, sans rien lancer.
         let guest = recording_sample(true, true, true, 5);
         assert_eq!((guest.label(), guest.tooltip()), ("Enregistrement".to_string(), "Bureau enregistre la session."));
-        assert_eq!(recording_clock(3734), "1:02:14");
     }
 
     /// L'hôte : « Prêter l'ordinateur… » ouvre le panneau (réduit à la raison avec une Station trop ancienne), « Créer un

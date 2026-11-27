@@ -677,9 +677,6 @@ fn guest_quality(g: &share::ShareGuest) -> Option<String> {
     g.image.as_ref().filter(|i| i.own()).and_then(|i| i.label())
 }
 
-// L'attente du lien du relais de l'interface est celle du cœur.
-const _: () = assert!(crate::app::RELAY_LINK_WAIT.as_secs() == share::RELAY_LINK_WAIT.as_secs());
-
 /// Le relais d'un partage ou d'un code de prêt (`relay.state` d'Admin) tel que l'interface le montre.
 pub fn relay_of(r: Option<share::ShareRelay>) -> Option<ShareRelay> {
     r.map(|r| match r.state {
