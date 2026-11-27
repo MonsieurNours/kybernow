@@ -95,6 +95,7 @@ pub fn preferred_host(peer: std::net::IpAddr, called: Option<std::net::IpAddr>) 
 
 /// `lan` si `peer` est sur son sous-réseau (masque lu dans `ifconfig`) et
 /// n'appelle pas déjà cette adresse.
+#[cfg(any(target_os = "macos", test))]
 fn preferred_among(
     ifconfig: &str,
     lan: std::net::Ipv4Addr,

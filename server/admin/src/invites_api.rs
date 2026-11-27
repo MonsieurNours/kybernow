@@ -263,7 +263,8 @@ pub async fn redeem(
     ([(header::CACHE_CONTROL, "no-store")], Json(answer)).into_response()
 }
 
-#[cfg(test)]
+// Le service simulé n'existe pas sous Windows (comme les essais de `relay.rs`).
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
 

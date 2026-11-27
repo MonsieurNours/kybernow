@@ -1340,8 +1340,8 @@ pub async fn block(State(s): State<AppState>, UrlPath(id): UrlPath<String>, Json
     Json(access_view(&s)).into_response()
 }
 
-/// Pour les essais des autres modules : rattache la Station à une clé neuve.
-#[cfg(test)]
+/// Pour les essais des autres modules (hors Windows, comme eux) : rattache la Station à une clé neuve.
+#[cfg(all(test, not(windows)))]
 pub fn attach_for_tests(s: &AppState) -> access::Signer {
     let signer = access::Signer::from_pkcs8(&access::Signer::generate_pkcs8().unwrap()).unwrap();
     let owner = Owner { kind: OwnerKind::Person, id: "acc_owner".into(), name: "Matthieu".into(), email: None };
@@ -1350,7 +1350,7 @@ pub fn attach_for_tests(s: &AppState) -> access::Signer {
 }
 
 /// Un en-tête `Authorization: KyberNow <jeton>` pour cette Station.
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub fn token_headers(s: &AppState, signer: &access::Signer, account: &str, device: &str, rights: &[Right]) -> HeaderMap {
     let names = access::Names { account: "Léa Martin".into(), email: None, device: "iPad de Léa".into() };
     let claims = Claims::issue("share.kybernow.app", &s.relay.id().unwrap(), account, device, rights.iter().copied().collect(), names, now_secs());
