@@ -39,12 +39,12 @@ h1,h2,h3{margin:0;text-wrap:balance}
 .rub li a span{font-family:"Martian Mono",monospace;font-size:11px;color:var(--mist);white-space:nowrap}
 .rub.hide{display:none}
 .empty{padding:28px;border-radius:16px;border:1px dashed var(--line2);color:var(--frost2)}
-.faq{display:grid;gap:10px;max-width:900px}
+.faq{display:grid;gap:10px}
 .qa{border-radius:14px;border:1px solid var(--line);background:var(--ink1);overflow:hidden}
 .qa button{display:flex;justify-content:space-between;align-items:center;gap:16px;width:100%;min-height:60px;padding:14px 20px;border:0;background:transparent;color:var(--frost);font:inherit;font-size:17px;font-weight:600;text-align:left;cursor:pointer}
 .qa button svg{flex:none;transition:transform .35s cubic-bezier(.2,.9,.1,1);color:var(--mist)}
 .qa.open button svg{transform:rotate(45deg)}
-.qa .ans{display:none;padding:0 20px 18px;color:var(--frost2);font-size:16px;max-width:70ch}
+.qa .ans{display:none;padding:0 20px 18px;color:var(--frost2);font-size:16px;max-width:96ch}
 .qa.open .ans{display:block;animation:ansIn .4s ease-out both}
 @keyframes ansIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 .help{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:28px;align-items:center;padding:40px;border-radius:26px;border:1px solid var(--line2);background:radial-gradient(70% 140% at 0% 50%,rgba(154,140,255,.14),transparent 60%),radial-gradient(70% 140% at 100% 50%,rgba(92,200,232,.12),transparent 60%),var(--ink1)}
@@ -55,7 +55,7 @@ h1,h2,h3{margin:0;text-wrap:balance}
 .pdots{display:none}
 .rub .cnt,.rub .chev{display:none}
 .faqmore{margin-top:20px}
-.faqempty{display:grid;gap:16px;justify-items:start;max-width:900px}
+.faqempty{display:grid;gap:16px;justify-items:start}
 @media (max-width:900px){
 .ghero{padding-block:36px 28px}
 .ghero::before{inset:-30% -40% auto;height:520px}
@@ -276,16 +276,16 @@ h1,h2,h3{margin:0;text-wrap:balance}
 .helpful{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:40px;padding:18px 20px;border-radius:14px;border:1px solid var(--line);color:var(--frost2);font-size:15px}
 .helpful button{min-height:40px;padding:0 14px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--frost);font:inherit;font-size:14px;cursor:pointer}
 .helpful button.on{background:var(--frost);color:var(--ink0)}
-.fgroups{display:flex;flex-wrap:wrap;gap:8px;margin:28px 0 8px}
+.fgroups{max-width:none;display:flex;flex-wrap:wrap;gap:8px;margin:28px 0 8px}
 .fgroups button{min-height:40px;padding:0 16px;border-radius:99px;border:1px solid var(--line2);background:transparent;color:var(--frost2);font:inherit;font-size:14px;cursor:pointer}
 .fgroups button.on{background:var(--frost);color:var(--ink0);border-color:transparent}
-.flist{display:grid;gap:10px;max-width:900px;padding-block:24px 96px}
+.flist{display:grid;gap:10px;padding-block:24px 96px}
 .fgt{font-family:"Martian Mono",monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mist);margin-top:22px}
 .qa{border-radius:14px;border:1px solid var(--line);background:var(--ink1);overflow:hidden}
 .qa button{display:flex;justify-content:space-between;align-items:center;gap:16px;width:100%;min-height:60px;padding:14px 20px;border:0;background:transparent;color:var(--frost);font:inherit;font-size:17px;font-weight:600;text-align:left;cursor:pointer}
 .qa button svg{flex:none;transition:transform .35s cubic-bezier(.2,.9,.1,1);color:var(--mist)}
 .qa.open button svg{transform:rotate(45deg)}
-.qa .ans{display:none;padding:0 20px 18px;color:var(--frost2);font-size:16px;max-width:70ch}
+.qa .ans{display:none;padding:0 20px 18px;color:var(--frost2);font-size:16px;max-width:96ch}
 .qa.open .ans{display:block;animation:ansIn .4s ease-out both}
 @keyframes ansIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 .fbar{display:none}

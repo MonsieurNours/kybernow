@@ -338,6 +338,24 @@
   </div>
 </section>
 
+<section class="sec" id="video">
+  <div class="wrap">
+    <div class="sechead rv"><p class="k">La vidéo</p><h2 class="disp">Découvrez KyberNow en vidéo</h2></div>
+    <figure class="kv rv">
+      <video muted playsinline loop preload="none" data-hls="/assets/video/hls/presentation.m3u8" poster="/assets/video/presentation-poster.jpg" aria-label="Présentation de KyberNow en motion design, en musique ; le son est coupé jusqu'à ce que vous l'activiez">
+        <source src="/assets/video/presentation-720p.mp4" type="video/mp4">
+      </video>
+      <button class="kv-big" type="button" data-video="play" aria-label="Lire la présentation"><svg aria-hidden="true"><use href="/assets/icons.svg#play"/></svg></button>
+      <div class="kv-ctl">
+        <button type="button" data-video="sound" aria-label="Activer le son" aria-pressed="false"><svg class="on-mute" aria-hidden="true"><use href="/assets/icons.svg#speaker-simple-slash"/></svg><svg class="on-sound" aria-hidden="true"><use href="/assets/icons.svg#speaker-simple-high"/></svg><span class="kv-label">Activer le son</span></button>
+        <button type="button" data-video="toggle" aria-label="Lire la présentation"><svg class="on-play" aria-hidden="true"><use href="/assets/icons.svg#play"/></svg><svg class="on-pause" aria-hidden="true"><use href="/assets/icons.svg#pause"/></svg></button>
+        <button type="button" data-video="restart" aria-label="Revoir depuis le début"><svg aria-hidden="true"><use href="/assets/icons.svg#arrows-clockwise"/></svg></button>
+        <button type="button" data-video="fullscreen" aria-label="Plein écran"><svg aria-hidden="true"><use href="/assets/icons.svg#corners-out"/></svg></button>
+      </div>
+    </figure>
+  </div>
+</section>
+
 <section class="sec trip" id="trajet">
   <div class="tstage wrap">
     <div class="sechead"><p class="k">Comment ça marche</p><h2 class="disp">De votre ordinateur à votre écran, en six étapes</h2></div>
@@ -440,5 +458,6 @@
 </footer>
 <script src="/assets/kn/base.js" defer></script>
 <script src="/assets/kn/carrefour.js" defer></script>
+<script src="/assets/kn/video.js" defer></script>
 </body>
 </html>

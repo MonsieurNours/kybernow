@@ -274,3 +274,28 @@
   .w, .fadein, .ign-a, .ign-b, .ign-s, .cue .down::after { animation: none; }
   .doors, .install { animation: none !important; }
 }
+
+/* ===== Vidéo de présentation ===== */
+#video .sechead { margin-inline: auto; text-align: center; justify-items: center; }
+.kv { position: relative; margin: 0; border-radius: 26px; overflow: hidden; border: 1px solid var(--line2); background: #000; aspect-ratio: 16 / 9; max-width: 100%;
+  box-shadow: 0 60px 140px -70px rgba(154,140,255,.55), 0 40px 120px -80px rgba(92,200,232,.5); }
+.kv video { display: block; width: 100%; height: 100%; object-fit: cover; cursor: pointer; }
+.kv-big { position: absolute; left: 50%; top: 50%; width: 84px; height: 84px; margin: -42px 0 0 -42px; border-radius: 50%; border: 1px solid rgba(255,255,255,.35);
+  background: rgba(5,7,10,.55); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: #fff; display: grid; place-items: center; cursor: pointer; transition: transform .3s cubic-bezier(.2,.9,.1,1), opacity .3s; }
+.kv-big:hover { transform: scale(1.06); }
+.kv-big svg { width: 30px; height: 30px; fill: currentColor; margin-left: 4px; }
+.kv.has-started .kv-big, .kv.is-playing .kv-big { opacity: 0; pointer-events: none; }
+.kv-ctl { position: absolute; left: 16px; bottom: 16px; display: flex; align-items: center; gap: 6px; padding: 6px; border-radius: 14px; background: rgba(5,7,10,.58); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,.12); opacity: 0; transform: translateY(6px); transition: opacity .3s, transform .3s; }
+.kv:hover .kv-ctl, .kv:focus-within .kv-ctl, .kv.has-started:not(.is-playing) .kv-ctl, .kv:not(.has-sound).is-playing .kv-ctl { opacity: 1; transform: none; }
+.kv-ctl button { min-width: 44px; height: 44px; padding: 0 10px; border-radius: 10px; border: 0; background: transparent; color: #fff; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.kv-ctl button:hover { background: rgba(255,255,255,.12); }
+.kv-ctl svg { width: 20px; height: 20px; fill: currentColor; }
+.kv .on-sound, .kv.has-sound .on-mute, .kv .on-pause, .kv.is-playing .on-play { display: none; }
+.kv.has-sound .on-sound, .kv.is-playing .on-pause { display: inline; }
+.kv.has-sound .kv-label { display: none; }
+.kv.no-source video { cursor: default; }
+@media (max-width: 900px) {
+  .kv { border-radius: 18px; margin-inline: -4px; }
+  .kv-ctl { left: 10px; bottom: 10px; opacity: 1; transform: none; }
+  .kv-big { width: 68px; height: 68px; margin: -34px 0 0 -34px; }
+}

@@ -12,10 +12,10 @@
 .hphoto img.flip { scale: -1 1; }
 @keyframes proKb { from { transform: scale(1.08); } to { transform: scale(1); } }
 :root[data-theme="light"] .hphoto img { filter: brightness(1.08) saturate(.95); }
-.hshade { position: absolute; inset: 0; background: linear-gradient(270deg, rgba(var(--veil), .96) 0%, rgba(var(--veil), .84) 44%, rgba(var(--veil), .1) 76%), linear-gradient(0deg, rgba(var(--veil), .9), transparent 30%); }
+.hshade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(var(--veil), .94) 0%, rgba(var(--veil), .7) 38%, rgba(var(--veil), .05) 72%), linear-gradient(0deg, rgba(var(--veil), .9), transparent 30%); }
 .hdark { position: absolute; inset: 0; background: var(--ink0); opacity: calc(max(0, var(--p) - .58) * 2.6); pointer-events: none; }
 .htext { position: absolute; left: 0; right: 0; top: 110px; opacity: calc(1 - max(0, var(--p) - .35) * 2.6); transform: translateY(calc(max(0, var(--p) - .35) * -80px)); }
-.htext .in { display: grid; gap: 22px; max-width: 700px; margin-left: auto; }
+.htext .in { display: grid; gap: 22px; max-width: 700px; }
 .htext h1 { font-size: clamp(42px, 4.6vw, 66px); }
 .rot { display: grid; }
 .rot em { grid-area: 1 / 1; font-style: normal; color: var(--sig); opacity: 0; transform: translateY(.3em); transition: opacity .2s ease, transform .3s ease; }
@@ -23,7 +23,7 @@
 .cta { display: flex; gap: 12px; flex-wrap: wrap; }
 .hnote { font-size: 14px; color: var(--mist); }
 .hnote a { color: var(--spectre); }
-.hcard { position: absolute; left: max(24px, 5vw); bottom: 64px; display: block; padding: 16px 18px 26px; border-radius: 14px; background: rgba(var(--veil2), .82); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--sline); width: 320px; max-width: calc(100% - 48px); opacity: calc(1 - max(0, var(--p) - .45) * 3.2); }
+.hcard { position: absolute; right: max(24px, 5vw); bottom: 64px; display: block; padding: 16px 18px 26px; border-radius: 14px; background: rgba(var(--veil2), .82); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--sline); width: 320px; max-width: calc(100% - 48px); opacity: calc(1 - max(0, var(--p) - .45) * 3.2); }
 .hcard .row { display: flex; align-items: center; gap: 12px; min-height: 44px; }
 .hcard .row > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .hcard .dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 10px var(--ok); }
@@ -194,7 +194,7 @@
   .htext .in { gap: 18px; margin-left: 0; }
   .htext h1 { font-size: clamp(36px, 10.4vw, 46px); line-height: 1.03; }
   .cta .btn { flex: 1 1 auto; justify-content: center; }
-  .hcard { display: block; top: 14px; bottom: auto; left: 20px; width: min(300px, calc(100% - 40px)); padding: 8px 14px 16px; border-radius: 12px; }
+  .hcard { display: block; top: 14px; bottom: auto; left: 20px; right: auto; width: min(300px, calc(100% - 40px)); padding: 8px 14px 16px; border-radius: 12px; }
   .hcard .row { gap: 11px; }
   .hcard b { font-size: 15px; line-height: 1.3; }
   .hcard small { font-size: 12.5px; line-height: 1.35; }
