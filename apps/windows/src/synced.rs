@@ -10,21 +10,26 @@
 //!   (`store::Settings` en a d'autres, qui restent ici). Sur Windows, le profil
 //!   est toujours `jeu`, `bureau` ou `max` ; « Personnalisé » vient des
 //!   retouches (`codec`, `yuv444`, `mbps`, `reliable` : `plan::plan`).
-//! - [`changed`] : les seules clés changées par la personne, à envoyer ;
+//! - [`changed`] : les seules clés changées par la personne, à envoyer
+//!   (`settings::changed` du cœur, plus le HDR et le mode immersif) ;
 //!   [`everything`] la première fois (rien au relais pour cet ordinateur).
 //! - [`apply`] : ce qui arrive du relais, posé sur les réglages de ce PC par
-//!   `SyncedValues::apply_to` du cœur (ce que la carte graphique décode).
-//! - [`AccountSync`] : ce qu'on garde par compte (`synced.json`) — la
-//!   dernière liste lue, le `updated_at` déjà appliqué par ordinateur, et les
-//!   changements que le relais n'a pas reçus (renvoyés au rafraîchissement
-//!   suivant, avant d'appliquer ce qui arrive).
+//!   `SyncedValues::apply_to` du cœur (ce que la carte graphique décode, le
+//!   débit ramené aux bornes du débit à la main).
+//! - Ce qu'on garde par compte (`synced.json`) : l'`AccountSync` du cœur
+//!   (WINAPP-55, le même pour Linux) — la dernière liste lue, le
+//!   `updated_at` déjà appliqué par ordinateur, et les changements que le
+//!   relais n'a pas reçus (renvoyés au rafraîchissement suivant, avant
+//!   d'appliquer ce qui arrive).
 //!
 //! Les appels au relais et l'écriture des réglages sont dans `ui/synced.rs`.
 
 use std::collections::HashMap;
 
-use kybernow_core::account::{SyncedSettings, SyncedValues, settings};
-use kybernow_core::profile::{Capabilities, Profile, StreamSettings};
+pub use kybernow_core::account::AccountSync;
+use kybernow_core::account::{SyncedValues, settings};
+use kybernow_core::plan::Choices;
+use kybernow_core::profile::{Capabilities, Codec, Profile, StreamSettings};
 use serde::{Deserialize, Serialize};
 
 /// Les réglages synchronisés d'un ordinateur sur ce PC (ceux de
@@ -53,6 +58,19 @@ impl Local {
     fn immersive(&self) -> &str {
         if settings::IMMERSIVE.contains(&self.immersive.as_str()) { &self.immersive } else { "fullscreen" }
     }
+
+    /// Les choix de session de ces réglages, pour le cœur (`plan`,
+    /// `settings::changed`).
+    pub fn choices(&self) -> Choices {
+        Choices {
+            profile: Profile::parse(&self.profile),
+            codec: self.codec.as_deref().and_then(Codec::parse),
+            yuv444: self.yuv444,
+            mbps: self.mbps,
+            reliable: self.reliable,
+            ..Default::default()
+        }
+    }
 }
 
 /// Tout, la première fois qu'un ordinateur part au relais : les réglages de
@@ -64,40 +82,14 @@ pub fn everything(local: &Local, effective: &StreamSettings) -> SyncedValues {
 }
 
 /// Les clés que la personne vient de changer (docs/comptes.md, « Envoyer ») :
-/// un profil → `{profile}` ; « Personnalisé » (un réglage du profil retouché)
-/// → `{profile: null, codec, yuv444, mbps}` ; le format, le 4:4:4 ou le débit
-/// d'un réglage déjà personnalisé → la clé changée et `profile: null` ; le
-/// HDR → `{hdr}` ; le mode immersif → `{immersive}`. Les valeurs sont celles
-/// que la session prendrait (`before_eff`, `after_eff` : `plan::plan`).
+/// celles de la session par le cœur (`settings::changed` : un profil →
+/// `{profile}` ; « Personnalisé » → `{profile: null, codec, yuv444, mbps}` ;
+/// un réglage déjà personnalisé → la clé changée et `profile: null`), puis
+/// le HDR → `{hdr}` et le mode immersif → `{immersive}`, que l'app ajoute.
+/// Les valeurs sont celles que la session prendrait (`before_eff`,
+/// `after_eff` : `plan::plan`).
 pub fn changed(before: &Local, after: &Local, before_eff: &StreamSettings, after_eff: &StreamSettings) -> SyncedValues {
-    let mut v = SyncedValues::default();
-    match (before_eff.profile, after_eff.profile) {
-        (_, Some(p)) => {
-            if before_eff.profile != Some(p) {
-                v.profile = Some(Some(p.key().to_string()));
-            }
-        }
-        (Some(_), None) => {
-            v.profile = Some(None);
-            v.codec = Some(after_eff.codec.key().to_string());
-            v.yuv444 = Some(after_eff.yuv444);
-            v.mbps = Some(after_eff.mbps);
-        }
-        (None, None) => {
-            if before.codec != after.codec || before_eff.codec != after_eff.codec {
-                v.codec = Some(after_eff.codec.key().to_string());
-            }
-            if before.yuv444 != after.yuv444 || before_eff.yuv444 != after_eff.yuv444 {
-                v.yuv444 = Some(after_eff.yuv444);
-            }
-            if before.mbps != after.mbps {
-                v.mbps = Some(after_eff.mbps);
-            }
-            if !v.is_empty() {
-                v.profile = Some(None);
-            }
-        }
-    }
+    let mut v = settings::changed(&before.choices(), &after.choices(), before_eff, after_eff);
     if before.hdr_on() != after.hdr_on() {
         v.hdr = Some(after.hdr_on());
     }
@@ -158,98 +150,6 @@ pub fn apply(local: &Local, values: &SyncedValues, caps: Capabilities, effective
     out
 }
 
-/// `top` posé sur `base` (les clés de `top` l'emportent).
-pub fn overlay(base: &SyncedValues, top: &SyncedValues) -> SyncedValues {
-    SyncedValues {
-        profile: top.profile.clone().or_else(|| base.profile.clone()),
-        codec: top.codec.clone().or_else(|| base.codec.clone()),
-        yuv444: top.yuv444.or(base.yuv444),
-        mbps: top.mbps.or(base.mbps),
-        hdr: top.hdr.or(base.hdr),
-        immersive: top.immersive.clone().or_else(|| base.immersive.clone()),
-    }
-}
-
-/// Ce qu'on garde pour un compte (`synced.json`).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct AccountSync {
-    /// La dernière liste lue (ou envoyée), clés inconnues comprises.
-    pub list: Vec<SyncedSettings>,
-    /// Par Station : le `updated_at` déjà appliqué (ou envoyé) sur ce PC.
-    pub applied: HashMap<String, u64>,
-    /// Par Station : les changements que le relais n'a pas reçus.
-    pub pending: HashMap<String, SyncedValues>,
-}
-
-impl AccountSync {
-    /// Les dernières valeurs gardées pour cet ordinateur (`last` de `put_settings`).
-    pub fn last(&self, station: &str) -> Option<&SyncedSettings> {
-        settings::find(&self.list, station)
-    }
-
-    /// Ce qui part pour ce changement : ce qui attendait encore, puis le
-    /// changement ; tout (`full`) si le relais n'a rien pour cet ordinateur.
-    pub fn to_send(&self, station: &str, change: &SyncedValues, full: impl FnOnce() -> SyncedValues) -> SyncedValues {
-        let waiting = self.pending.get(station).cloned().unwrap_or_default();
-        let base = if self.last(station).is_none() { overlay(&full(), &waiting) } else { waiting };
-        overlay(&base, change)
-    }
-
-    /// Le relais a pris ces réglages : gardés à la place des anciens, leur
-    /// `updated_at` compte comme appliqué (ce PC ne les reprend pas).
-    pub fn sent(&mut self, s: SyncedSettings) {
-        self.pending.remove(&s.station);
-        self.applied.insert(s.station.clone(), s.updated_at);
-        match self.list.iter_mut().find(|x| x.station == s.station) {
-            Some(x) => *x = s,
-            None => self.list.push(s),
-        }
-    }
-
-    /// Le relais n'a pas répondu : renvoyé au rafraîchissement suivant.
-    pub fn unsent(&mut self, station: &str, values: &SyncedValues) {
-        let waiting = self.pending.get(station).cloned().unwrap_or_default();
-        self.pending.insert(station.to_string(), overlay(&waiting, values));
-    }
-
-    /// L'ordinateur n'est plus au compte : ses réglages gardés sont oubliés
-    /// (les réglages de ce PC restent).
-    pub fn forget(&mut self, station: &str) {
-        self.list.retain(|s| s.station != station);
-        self.applied.remove(station);
-        self.pending.remove(station);
-    }
-
-    /// Une liste lue (après le renvoi de ce qui attendait) : les ordinateurs
-    /// absents sont oubliés ; rend, pour chaque ordinateur changé depuis le
-    /// dernier `updated_at` appliqué, les valeurs à appliquer (`known`). Un
-    /// ordinateur dont un changement attend encore le relais garde celui de
-    /// ce PC.
-    pub fn fetched(&mut self, list: Vec<SyncedSettings>) -> Vec<(String, SyncedValues)> {
-        self.applied.retain(|station, _| settings::find(&list, station).is_some());
-        // Un changement jamais reçu par le relais (premier envoi) n'est pas
-        // encore dans la liste : il attend toujours.
-        let old = std::mem::take(&mut self.list);
-        self.pending.retain(|station, _| settings::find(&list, station).is_some() || settings::find(&old, station).is_none());
-        let mut out = Vec::new();
-        for s in &list {
-            if self.pending.contains_key(&s.station) {
-                continue;
-            }
-            if s.updated_at > self.applied.get(&s.station).copied().unwrap_or(0) {
-                self.applied.insert(s.station.clone(), s.updated_at);
-                let values = s.known();
-                if !values.is_empty() {
-                    out.push((s.station.clone(), values));
-                }
-            }
-        }
-        self.list = list;
-        out
-    }
-}
-
 /// `synced.json` : par compte (`Account::key`).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -260,21 +160,13 @@ pub struct SyncFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kybernow_core::account::SyncedSettings;
     use kybernow_core::console::Mode;
-    use kybernow_core::profile::Profile;
     use serde_json::json;
 
     /// Les réglages de session de ces réglages : `plan::plan` (comme `session_plan` de l'app).
     fn plan_of(local: &Local, caps: Capabilities, screen: Mode) -> StreamSettings {
-        let choices = kybernow_core::plan::Choices {
-            profile: Profile::parse(&local.profile),
-            codec: local.codec.as_deref().and_then(kybernow_core::profile::Codec::parse),
-            yuv444: local.yuv444,
-            mbps: local.mbps,
-            reliable: local.reliable,
-            ..Default::default()
-        };
-        kybernow_core::plan::plan(&choices, caps, screen).0
+        kybernow_core::plan::plan(&local.choices(), caps, screen).0
     }
 
     const STATION: &str = "abcdefghijklmnopqrstuvwxyz";
@@ -375,43 +267,14 @@ mod tests {
     }
 
     #[test]
-    fn lecture_et_envoi() {
-        let mut a = AccountSync::default();
-        let full = || values(json!({"profile": "jeu", "codec": "hevc", "yuv444": false, "mbps": 60, "hdr": true, "immersive": "fullscreen"}));
-        // Rien au relais : tout part, le changement par-dessus.
-        let v = a.to_send(STATION, &values(json!({"hdr": false})), full);
-        assert_eq!(v.hdr, Some(false));
-        assert_eq!(v.profile, Some(Some("jeu".into())));
-        // Relais muet : gardé, renvoyé avec le changement suivant.
-        a.unsent(STATION, &v);
-        let again = a.to_send(STATION, &values(json!({"immersive": "never"})), full);
-        assert_eq!((again.hdr, again.immersive.as_deref()), (Some(false), Some("never")));
-        // Un changement qui attend : ce qui arrive ne l'écrase pas.
-        assert!(a.fetched(vec![synced(STATION, 10, json!({"hdr": true}))]).is_empty());
-        // Envoyé : `updated_at` appliqué, plus rien n'attend.
-        a.sent(synced(STATION, 12, json!({"hdr": false, "immersive": "never"})));
-        assert!(a.pending.is_empty());
-        assert_eq!(a.applied[STATION], 12);
-        // Déjà là : seulement les clés changées.
-        let v = a.to_send(STATION, &values(json!({"mbps": 90})), || panic!("pas tout"));
-        assert_eq!(serde_json::to_value(&v).unwrap(), json!({"mbps": 90}));
-        // Rien de nouveau : rien à appliquer ; plus récent : ses clés connues.
-        assert!(a.fetched(vec![synced(STATION, 12, json!({"hdr": false}))]).is_empty());
-        let got = a.fetched(vec![synced(STATION, 20, json!({"profile": "bureau", "futur": 1}))]);
-        assert_eq!(got, vec![(STATION.to_string(), values(json!({"profile": "bureau"})))]);
-        assert_eq!(a.last(STATION).unwrap().values["futur"], 1);
-        // Absent de la liste : oublié.
-        assert!(a.fetched(Vec::new()).is_empty());
-        assert!(a.applied.is_empty() && a.list.is_empty());
-    }
-
-    #[test]
-    fn oubli() {
-        let mut a = AccountSync::default();
-        a.sent(synced(STATION, 5, json!({"hdr": true})));
-        a.unsent(STATION, &values(json!({"mbps": 3})));
-        a.forget(STATION);
-        assert_eq!(a, AccountSync::default());
+    fn fichier_comme_avant() {
+        // `synced.json` d'une version d'avant (l'`AccountSync` de l'app) : relu
+        // par celui du cœur, mêmes champs.
+        let before = json!({"accounts": {"relais|compte": {"list": [{"station": STATION, "updated_at": 7, "values": {"profile": null, "x": [1]}}], "applied": {STATION: 7}, "pending": {STATION: {"mbps": 90}}}}});
+        let f: SyncFile = serde_json::from_value(before.clone()).unwrap();
+        let a = &f.accounts["relais|compte"];
+        assert_eq!((a.applied[STATION], a.pending[STATION].mbps, a.last(STATION).unwrap().values["x"][0].as_i64()), (7, Some(90), Some(1)));
+        assert_eq!(serde_json::to_value(&f).unwrap(), before);
         // En JSON (`synced.json`), relu tel quel.
         let mut f = SyncFile::default();
         f.accounts.insert("relais|compte".into(), {
